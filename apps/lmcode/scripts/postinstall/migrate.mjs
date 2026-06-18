@@ -40,7 +40,7 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import { delimiter, dirname, extname, join, sep } from 'node:path';
 
-const LEGACY_BIN = ,;
+const LEGACY_BIN = 'scream';
 const LEGACY_RENAME = 'scream-legacy';
 const PYTHON_MARKER = 'scream_cli';
 const IS_WINDOWS = process.platform === 'win32';

@@ -30,7 +30,7 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { delimiter, dirname, join, sep } from 'node:path';
 
-const LEGACY_BIN = ,;
+const LEGACY_BIN = 'scream';
 const IS_WINDOWS = process.platform === 'win32';
 
 /**
