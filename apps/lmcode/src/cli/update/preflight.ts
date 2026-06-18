@@ -36,7 +36,7 @@ function renderManualUpdateMessage(currentVersion: string, target: UpdateTarget)
 }
 
 function renderInstallSuccessMessage(target: UpdateTarget): string {
-  return `已更新至 ${target.version}。请重新启动 scream 以使用新版本。\n`;
+  return `已更新至 ${target.version}。请重新启动 lmcode 以使用新版本。\n`;
 }
 
 function refreshInBackground(): void {

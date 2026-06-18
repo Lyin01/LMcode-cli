@@ -44,7 +44,7 @@ function camelToSnake(str: string): string {
 const DEFAULT_CONFIG_FILE_TEXT = `# ~/.lmcode/config.toml
 # Runtime settings for LMcode.
 # This file starts empty so built-in defaults can apply.
-# Login will populate managed Scream provider and model entries.
+# Login will populate managed LMcode provider and model entries.
 `;
 
 export async function ensureConfigFile(filePath: string): Promise<void> {

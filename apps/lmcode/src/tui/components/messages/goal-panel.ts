@@ -153,10 +153,10 @@ export class GoalStatusMessageComponent implements Component {
       this.panel = new UsagePanelComponent(
         buildEmptyGoalLines(this.colors),
         this.colors.success,
-        ' Scream Goal ',
+        ' LMcode Goal ',
       );
     } else {
-      const title = ` Scream Goal · ${statusLabel(goal.status)} `;
+      const title = ` LMcode Goal · ${statusLabel(goal.status)} `;
       this.panel = new UsagePanelComponent(
         buildGoalReportLines(goal, this.colors),
         this.colors.success,

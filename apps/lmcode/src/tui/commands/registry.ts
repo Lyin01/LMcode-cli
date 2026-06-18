@@ -128,7 +128,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'plugin',
     aliases: ['plugins'],
-    description: 'ScreamCode 插件中心：浏览、安装、卸载插件',
+    description: 'LMcode 插件中心：浏览、安装、卸载插件',
     priority: 111,
     availability: 'always',
   },

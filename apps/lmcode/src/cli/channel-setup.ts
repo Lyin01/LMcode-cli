@@ -248,7 +248,7 @@ export async function runChannelSetup(): Promise<void> {
 
   // ── Step 3: Detect scream path ───────────────────────────────────────
   const cliPath = detectScreamPath();
-  console.log(`  ScreamCode 路径: ${cliPath}`);
+  console.log(`  LMcode 路径: ${cliPath}`);
   console.log("");
 
   // ── Step 4: Generate config ──────────────────────────────────────────

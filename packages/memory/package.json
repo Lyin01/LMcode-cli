@@ -4,7 +4,7 @@
   "private": true,
   "description": "Persistent memory memo store for cross-session knowledge sharing",
   "license": "MIT",
-  "author": "ScreamCli AI",
+  "author": "LMcode",
   "homepage": "https://github.com/Lyin01/LMcode-cli/tree/main/packages/memory#readme",
   "repository": {
     "type": "git",

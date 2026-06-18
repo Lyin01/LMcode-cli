@@ -231,7 +231,7 @@ export function buildExportMarkdown(input: BuildExportMarkdownInput): string {
     `token_count: ${String(tokenCount)}`,
     '---',
     '',
-    '# Scream 会话导出',
+    '# LMcode 会话导出',
     '',
   ];
 

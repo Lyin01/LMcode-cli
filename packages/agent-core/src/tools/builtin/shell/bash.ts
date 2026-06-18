@@ -242,7 +242,7 @@ function buildSelfProtectionPreamble(isWindows: boolean): string {
     // Windows Git Bash: shadow taskkill, tskill, kill, pkill
     return (
       `_SCREAM_CHECK(){ for _a in "$@";do [ "$_a" = "$SCREAM_PID" ]&&{ ` +
-      `echo "LMcode self-protection: refusing to kill itself (pid $SCREAM_PID). Use a specific non-Scream PID.">&2;return 1;` +
+      `echo "LMcode self-protection: refusing to kill itself (pid $SCREAM_PID). Use a specific non-LMcode PID.">&2;return 1;` +
       `};done;return 0;};` +
       `kill(){ _SCREAM_CHECK "$@"||return 1;command kill "$@";};` +
       `pkill(){ echo "LMcode self-protection: pkill blocked. Use kill <pid>.">&2;return 1;};` +
@@ -253,7 +253,7 @@ function buildSelfProtectionPreamble(isWindows: boolean): string {
   // POSIX: shadow kill, pkill, killall; also guard process-group kill (-pid)
   return (
     `_SCREAM_CHECK(){ for _a in "$@";do [ "$_a" = "$SCREAM_PID" ]||[ "$_a" = "-$SCREAM_PID" ]&&{ ` +
-    `echo "LMcode self-protection: refusing to kill itself (pid $SCREAM_PID). Use a specific non-Scream PID.">&2;return 1;` +
+    `echo "LMcode self-protection: refusing to kill itself (pid $SCREAM_PID). Use a specific non-LMcode PID.">&2;return 1;` +
     `};done;return 0;};` +
     `kill(){ _SCREAM_CHECK "$@"||return 1;command kill "$@";};` +
     `pkill(){ echo "LMcode self-protection: pkill blocked. Use kill <pid>.">&2;return 1;};` +

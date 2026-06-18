@@ -14,7 +14,7 @@ import {
 
 import { type InstallSource, type UpdateTarget } from './types';
 
-const CHANGELOG_URL = 'https://scream-cli.github.io/lmcode/en/release-notes/changelog.html';
+const CHANGELOG_URL = 'https://lmcode.chat/en/release-notes/changelog.html';
 
 export type InstallPromptChoiceValue = 'install' | 'skip';
 

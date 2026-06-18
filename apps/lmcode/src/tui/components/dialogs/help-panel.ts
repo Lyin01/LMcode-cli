@@ -113,7 +113,7 @@ export class HelpPanelComponent extends Container implements Focusable {
       accent.bold(' 帮助 ') + muted('· Esc / Enter / q 关闭 · ↑↓ 滚动'),
       '',
       // Greeting
-      `  ${dim('Scream 已准备好帮助您！发送消息即可开始。')}`,
+      `  ${dim('LMcode 已准备好帮助您！发送消息即可开始。')}`,
       '',
       // Section: keyboard shortcuts
       `  ${chalk.bold('键盘快捷键')}`,

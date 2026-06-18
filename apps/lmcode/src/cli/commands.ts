@@ -36,7 +36,7 @@ export function createProgram(
     .helpOption('-h, --help', '显示帮助。')
     .addHelpText(
       'after',
-      '\n文档：        https://scream-cli.github.io/lmcode/\n'
+      '\n文档：        https://lmcode.chat/\n'
     );
 
   program

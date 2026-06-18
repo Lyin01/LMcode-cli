@@ -1,5 +1,5 @@
 /**
- * /plugin — ScreamCode 插件中心。
+ * /plugin — LMcode 插件中心。
  *
  * 打开后展示插件市场和已安装列表，支持浏览、安装、卸载。 */
 
@@ -234,14 +234,14 @@ async function openPluginPanel(host: SlashCommandHost): Promise<void> {
   const options = buildOptions(marketplace, installed);
   if (options.length === 0) {
     host.showNotice(
-      'ScreamCode 插件中心',
+      'LMcode 插件中心',
       '暂无可用插件。请检查网络或稍后重试。',
     );
     return;
   }
 
   const picker = new ChoicePickerComponent({
-    title: 'ScreamCode 插件中心',
+    title: 'LMcode 插件中心',
     hint: 'Enter 安装 / d+Enter 卸载 / Esc 返回',
     options,
     colors: host.state.theme.colors,
