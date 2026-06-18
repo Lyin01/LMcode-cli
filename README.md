@@ -13,7 +13,7 @@
   <a href="https://github.com/Lyin01/LMcode-cli/stargazers"><img src="https://img.shields.io/github/stars/Lyin01/LMcode-cli?style=flat-square&logo=github" alt="stars"></a>
   <a href="https://github.com/Lyin01/LMcode-cli/network/members"><img src="https://img.shields.io/github/forks/Lyin01/LMcode-cli?style=flat-square&logo=github" alt="forks"></a>
   <a href="https://github.com/Lyin01/LMcode-cli/issues"><img src="https://img.shields.io/github/issues/Lyin01/LMcode-cli?style=flat-square&logo=github" alt="issues"></a>
-  <a href="https://scream.chat"><img src="https://img.shields.io/badge/website-scream.chat-blue?style=flat-square" alt="website"></a>
+  <a href="https://scream.chat"><img src="https://img.shields.io/badge/website-lmcode.chat-blue?style=flat-square" alt="website"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.0.0-green?style=flat-square&logo=node.js&logoColor=white" alt="node version"></a>
   <a href="https://github.com/Lyin01/LMcode-cli"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square" alt="platform"></a>
 </p>
@@ -136,7 +136,7 @@ cd ~/.lmcode && ./install.sh --upgrade
 
 ## 📱 cc-connect 通过聊天远程控制
 
-支持微信、飞书、Slack、钉钉、QQ、Telegram 等，你可以在安装 lmcode 后一键安装 cc-connect 来控制你的 screamcode。
+支持微信、飞书、Slack、钉钉、QQ、Telegram 等，你可以在安装 lmcode 后一键安装 cc-connect 来控制你的 LMcode。
 
 ### 第一步：一键安装
 
@@ -146,13 +146,13 @@ npm install -g cc-connect
 
 ### 第二步：配置平台
 
-打开 screamcode，输入 `/cc-connect` 按照提示选择你要接入的平台。
+打开 LMcode，输入 `/cc-connect` 按照提示选择你要接入的平台。
 
 > ⚠️ **注意**：配置完毕后不要再次配置，否则会覆盖原有配置。
 
 ### 第三步：启动守护进程
 
-按照步骤完成配置与链接后，输入命令启动后台守护进程（关闭 screamcode 也可在后台聊天）。
+按照步骤完成配置与链接后，输入命令启动后台守护进程（关闭 LMcode 也可在后台聊天）。
 
 **远程聊天快捷指令：**
 
@@ -168,9 +168,9 @@ npm install -g cc-connect
 
 ## 💡 项目灵感与感谢支持
 
-Scream 是我基于自身使用习惯与对 Agent 系统的理解，从零重构的一套工具型 Agent 框架。最早用 Rust 写，架构膨胀得厉害，最后成屎山了。经历了教训之后，彻底转向 TypeScript，也顺便做了大量减法。
+LMcode 是我基于自身使用习惯与对 Agent 系统的理解，从零重构的一套工具型 Agent 框架。最早用 Rust 写，架构膨胀得厉害，最后成屎山了。经历了教训之后，彻底转向 TypeScript，也顺便做了大量减法。
 
-重构之后，我把精力集中在三件事上：并行调度和状态机 + 记忆系统的收敛设计 + 最大化释放模型本身的能力上。整体逻辑借鉴了 Agent harness 的思路，同时也参考了不少优秀开源项目的设计取舍与实现细节。现在的 Scream 不再追求功能堆叠，而是一个能稳定、高效执行意图的轻量化 Agent 底座。
+重构之后，我把精力集中在三件事上：并行调度和状态机 + 记忆系统的收敛设计 + 最大化释放模型本身的能力上。整体逻辑借鉴了 Agent harness 的思路，同时也参考了不少优秀开源项目的设计取舍与实现细节。现在的 LMcode 不再追求功能堆叠，而是一个能稳定、高效执行意图的轻量化 Agent 底座。
 
 这个项目完全免费，开放使用，也欢迎反馈，并给出建议和改进。会持续根据实际使用场景继续打磨。
 
@@ -198,10 +198,10 @@ Scream 是我基于自身使用习惯与对 Agent 系统的理解，从零重构
 
 ## 📄 License
 
-[MIT](LICENSE) © [LIUTod](https://github.com/LIUTod)
+[MIT](LICENSE) © [Lyin01](https://github.com/Lyin01)
 
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/LIUTod">LIUTod</a>
+  Made with ❤️ by <a href="https://github.com/Lyin01">Lyin01</a>
 </p>

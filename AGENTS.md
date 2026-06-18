@@ -409,7 +409,7 @@ Key files: `packages/agent-core/src/agent/compaction/{micro,full,strategy}.ts`,
 
 ### Memory System
 
-The agent has a memory system provided by the `@scream-cli/memory` package. Positioned as "task experience records" — structured logs of what was tried, what worked, and what failed. Each record also carries 3-5 semantic `tags` and a `projectDir`. Legacy entries without a `projectDir` or `tags` remain visible and usable.
+The agent has a memory system provided by the `@lmcode-cli/memory` package. Positioned as "task experience records" — structured logs of what was tried, what worked, and what failed. Each record also carries 3-5 semantic `tags` and a `projectDir`. Legacy entries without a `projectDir` or `tags` remain visible and usable.
 
 - **Storage**: SQLite database at `<lmcodeHomeDir>/memory/memos.sqlite` (legacy JSONL at `<lmcodeHomeDir>/memory/entries.jsonl` is migrated and kept as `.bak`). Schema includes `project_dir` and `tags`.
 - **Fields**: `userNeed` (需求), `approach` (方案), `outcome` (结果), `whatFailed` (踩坑), `whatWorked` (经验), `projectDir` (项目目录), `tags` (语义标签).
