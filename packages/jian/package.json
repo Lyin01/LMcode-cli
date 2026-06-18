@@ -1,0 +1,38 @@
+{
+  "name": "@lmcode-cli/jian",
+  "version": "0.5.13",
+  "private": true,
+  "description": "Execution environment abstraction for AI agent applications",
+  "license": "MIT",
+  "author": "ScreamCli AI",
+  "homepage": "https://github.com/Lyin01/LMcode-cli/tree/main/packages/jian#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lyin01/LMcode-cli.git",
+    "directory": "packages/jian"
+  },
+  "bugs": {
+    "url": "https://github.com/Lyin01/LMcode-cli/issues"
+  },
+  "type": "module",
+  "imports": {
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "pathe": "^2.0.3"
+  }
+}

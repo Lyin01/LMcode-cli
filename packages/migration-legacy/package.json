@@ -1,0 +1,34 @@
+{
+  "name": "@lmcode-cli/migration-legacy",
+  "version": "0.5.13",
+  "description": "Migrate scream-cli (~/.lmcode/) data into lmcode (~/.lmcode/).",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "imports": {
+    "#/*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@lmcode-cli/agent-core": "workspace:^",
+    "smol-toml": "^1.6.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@lmcode-cli/jian": "workspace:^"
+  }
+}
