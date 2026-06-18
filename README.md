@@ -7,8 +7,8 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/lmcode"><img src="https://img.shields.io/npm/v/lmcode?style=flat-square&logo=npm&logoColor=white" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/lmcode"><img src="https://img.shields.io/npm/dm/lmcode?style=flat-square&logo=npm&logoColor=white" alt="npm downloads"></a>
+  <a href="https://www.npmjs.com/package/@liumir/lmcode"><img src="https://img.shields.io/npm/v/@liumir/lmcode?style=flat-square&logo=npm&logoColor=white" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@liumir/lmcode"><img src="https://img.shields.io/npm/dm/@liumir/lmcode?style=flat-square&logo=npm&logoColor=white" alt="npm downloads"></a>
   <a href="https://github.com/Lyin01/LMcode-cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Lyin01/LMcode-cli?style=flat-square" alt="license"></a>
   <a href="https://github.com/Lyin01/LMcode-cli/stargazers"><img src="https://img.shields.io/github/stars/Lyin01/LMcode-cli?style=flat-square&logo=github" alt="stars"></a>
   <a href="https://github.com/Lyin01/LMcode-cli/network/members"><img src="https://img.shields.io/github/forks/Lyin01/LMcode-cli?style=flat-square&logo=github" alt="forks"></a>
@@ -72,7 +72,7 @@ LMcode 是一款省心的中文 AI Agent 助手。无需硬记代码，完全本
 **推荐：npm 安装（全平台通用）**
 
 ```bash
-npm install -g lmcode
+npm install -g @liumir/lmcode
 ```
 
 **一键安装（macOS / Linux）**

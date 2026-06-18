@@ -1,9 +1,9 @@
 {
-  "name": "lmcode",
+  "name": "@liumir/lmcode",
   "version": "0.5.13",
   "description": "A terminal-native AI agent for builders",
   "license": "MIT",
-  "author": "ScreamCli",
+  "author": "liumir",
   "homepage": "https://github.com/Lyin01/LMcode-cli/tree/main/apps/lmcode#readme",
   "repository": {
     "type": "git",
@@ -38,8 +38,7 @@
     ]
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "scripts": {
     "build": "tsdown",

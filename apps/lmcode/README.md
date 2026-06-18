@@ -16,7 +16,7 @@ LMcode 是一款省心的中文 AI Agent 助手。无需硬记代码，完全本
 **推荐：npm 安装（全平台通用）**
 
 ```bash
-npm install -g lmcode
+npm install -g @liumir/lmcode
 ```
 **一键安装（macOS / Linux）**
 
