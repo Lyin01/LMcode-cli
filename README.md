@@ -166,6 +166,26 @@ npm install -g cc-connect
 
 ---
 
+## 🙏 致谢 Scream Code
+
+**LMcode 是基于 [Scream Code](https://github.com/LIUTod/scream-code)（作者 [LIUTod](https://github.com/LIUTod)）的个人定制改版。**
+
+Scream Code 是一款出色的开源 AI Agent CLI 工具，LIUTod 从零重构了这套框架，在并行调度与状态机、记忆系统的收敛设计、最大化释放模型能力等方面做了大量深刻的工作。没有 Scream Code 就没有 LMcode，在此向 LIUTod 和 Scream Code 社区致以诚挚的感谢。
+
+### 与 Scream Code 的主要差异
+
+| 项目 | Scream Code | LMcode |
+|------|------------|--------|
+| CLI 命令 | `scream` | `lm` |
+| 默认权限模式 | `manual`（每次操作需审批） | `yolo`（自动批准，追求效率） |
+| 配置目录 | `~/.scream-code/` | `~/.lmcode/` |
+| 品牌标识 | Scream Code | LMcode |
+| 定制方向 | 通用 Agent 底座 | 个人效率优先的使用体验 |
+
+> 其余核心架构、Agent 系统、Goal 循环、Wolfpack 并行、记忆备忘录等全部继承自 Scream Code，持续与上游保持同步。
+
+---
+
 ## 💡 项目灵感与感谢支持
 
 LMcode 是我基于自身使用习惯与对 Agent 系统的理解，从零重构的一套工具型 Agent 框架。最早用 Rust 写，架构膨胀得厉害，最后成屎山了。经历了教训之后，彻底转向 TypeScript，也顺便做了大量减法。

@@ -101,6 +101,21 @@ cd ~/.lmcode && ./install.sh --upgrade
 - /mode default    每次工具调用前询问
 ---
 
+## 🙏 致谢 Scream Code
+
+**LMcode 是基于 [Scream Code](https://github.com/LIUTod/scream-code)（作者 [LIUTod](https://github.com/LIUTod)）的个人定制改版。** Scream Code 是一款出色的开源 AI Agent CLI，在此向 LIUTod 致以诚挚感谢。
+
+### 与 Scream Code 的主要差异
+
+| 项目 | Scream Code | LMcode |
+|------|------------|--------|
+| CLI 命令 | `scream` | `lm` |
+| 默认权限 | `manual`（逐次审批） | `yolo`（自动批准） |
+| 配置目录 | `~/.scream-code/` | `~/.lmcode/` |
+| 品牌 | Scream Code | LMcode |
+
+---
+
 ## 项目灵感与感谢支持
 
 LMcode 是我基于自身使用习惯与对 Agent 系统的理解，从零重构的一套工具型 Agent 框架。最早用 Rust 写，架构膨胀得厉害，最后成屎山了。经历了教训之后，彻底转向 TypeScript，也顺便做了大量减法。
