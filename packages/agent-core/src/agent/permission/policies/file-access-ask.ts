@@ -17,6 +17,7 @@ export class SensitiveFileAccessAskPermissionPolicy implements PermissionPolicy 
   constructor(private readonly agent: Agent) {}
 
   evaluate(context: PermissionPolicyContext): PermissionPolicyResult | undefined {
+    if (this.agent.permission.mode === 'yolo') return;
     const access = fileAccesses(context).find((fileAccess) =>
       isSensitiveFile(fileAccess.path),
     );
@@ -34,6 +35,7 @@ export class GitControlPathAccessAskPermissionPolicy implements PermissionPolicy
   constructor(private readonly agent: Agent) {}
 
   async evaluate(context: PermissionPolicyContext): Promise<PermissionPolicyResult | undefined> {
+    if (this.agent.permission.mode === 'yolo') return;
     const cwd = this.agent.config.cwd;
     if (cwd.length === 0) return;
     const pathClass = this.agent.jian.pathClass();
@@ -69,6 +71,7 @@ export class CwdOutsideFileWriteAskPermissionPolicy implements PermissionPolicy 
   constructor(private readonly agent: Agent) {}
 
   evaluate(context: PermissionPolicyContext): PermissionPolicyResult | undefined {
+    if (this.agent.permission.mode === 'yolo') return;
     const cwd = this.agent.config.cwd;
     if (cwd.length === 0) return;
     const pathClass = this.agent.jian.pathClass();

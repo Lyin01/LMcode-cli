@@ -46,14 +46,14 @@ export function createPermissionDecisionPolicies(agent: Agent): readonly Permiss
     new ExitPlanModeReviewAskPermissionPolicy(agent),
     // EnterPlanMode, Write/Edit on the plan file, or ExitPlanMode with no actionable plan_review → approve.
     new PlanModeToolApprovePermissionPolicy(agent),
-    // Access touches a sensitive file (.env, SSH key, credentials) → ask.
-    new SensitiveFileAccessAskPermissionPolicy(agent),
-    // Access touches .git or a git control-dir path → ask.
-    new GitControlPathAccessAskPermissionPolicy(agent),
-    // Write target is outside cwd → ask. Reads and searches outside cwd are allowed without prompting.
-    new CwdOutsideFileWriteAskPermissionPolicy(agent),
-    // yolo mode → approve.
+    // yolo mode → approve (full access — must run before file-access policies).
     new YoloModeApprovePermissionPolicy(agent),
+    // Access touches a sensitive file (.env, SSH key, credentials) → ask (skipped in yolo).
+    new SensitiveFileAccessAskPermissionPolicy(agent),
+    // Access touches .git or a git control-dir path → ask (skipped in yolo).
+    new GitControlPathAccessAskPermissionPolicy(agent),
+    // Write target is outside cwd → ask (skipped in yolo). Reads and searches outside cwd are allowed without prompting.
+    new CwdOutsideFileWriteAskPermissionPolicy(agent),
     // WolfPack mode active → approve.
     new WolfPackModeApprovePermissionPolicy(agent),
     // Tool is in the default-approve list (read-only / UI helpers) → approve.
