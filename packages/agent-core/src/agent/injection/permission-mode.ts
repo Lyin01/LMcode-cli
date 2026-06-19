@@ -13,7 +13,7 @@ const AUTO_MODE_EXIT_REMINDER = [
 ].join('\n');
 
 export class PermissionModeInjector extends DynamicInjector {
-  protected override readonly injectionVariant = 'permission_mode';
+  readonly injectionVariant = 'permission_mode';
   private lastMode: PermissionMode | undefined;
 
   getInjection(): string | undefined {

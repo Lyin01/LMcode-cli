@@ -14,7 +14,7 @@ const PLAN_MODE_FULL_REFRESH_TURNS = 5;
 export type PlanModeVariant = 'full' | 'sparse' | 'reentry';
 
 export class PlanModeInjector extends DynamicInjector {
-  protected override readonly injectionVariant = 'plan_mode';
+  readonly injectionVariant = 'plan_mode';
   private wasActive = false;
 
   override onContextClear(): void {

@@ -33,11 +33,13 @@ describe('loadAgentsMd user-level discovery', () => {
 
     const result = await loadAgentsMd(testJian);
 
-    expect(result).toContain('user branded');
-    expect(result).toContain('user generic');
-    expect(result).toContain('project instructions');
-    expect(result.indexOf('user branded')).toBeLessThan(result.indexOf('user generic'));
-    expect(result.indexOf('user generic')).toBeLessThan(result.indexOf('project instructions'));
+    expect(result.content).toContain('user branded');
+    expect(result.content).toContain('user generic');
+    expect(result.content).toContain('project instructions');
+    expect(result.content.indexOf('user branded')).toBeLessThan(result.content.indexOf('user generic'));
+    expect(result.content.indexOf('user generic')).toBeLessThan(result.content.indexOf('project instructions'));
+    expect(result.paths.length).toBe(3);
+    expect(result.dirPaths.length).toBe(3);
   });
 
   it('loads generic user-level .agents/AGENTS.md', async () => {
@@ -46,7 +48,8 @@ describe('loadAgentsMd user-level discovery', () => {
 
     const result = await loadAgentsMd(testJian);
 
-    expect(result).toContain('dot-agents generic');
+    expect(result.content).toContain('dot-agents generic');
+    expect(result.paths.length).toBe(1);
   });
 
   it('falls back to project-level only when no user-level files exist', async () => {
@@ -54,8 +57,9 @@ describe('loadAgentsMd user-level discovery', () => {
 
     const result = await loadAgentsMd(testJian);
 
-    expect(result).toContain('project only');
-    expect(result).not.toContain(homeDir);
+    expect(result.content).toContain('project only');
+    expect(result.content).not.toContain(homeDir);
+    expect(result.paths.length).toBe(1);
   });
 
   it('does not load the same file twice when the work dir is the home dir', async () => {
@@ -65,6 +69,7 @@ describe('loadAgentsMd user-level discovery', () => {
 
     const result = await loadAgentsMd(testJian);
 
-    expect(result.split('home branded').length - 1).toBe(1);
+    expect(result.content.split('home branded').length - 1).toBe(1);
+    expect(result.paths.length).toBe(1);
   });
 });

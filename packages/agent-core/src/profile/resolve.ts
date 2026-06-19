@@ -165,6 +165,7 @@ function buildTemplateVars(
     SCREAM_WORK_DIR: context.cwd,
     SCREAM_WORK_DIR_LS: context.cwdListing ?? '',
     SCREAM_AGENTS_MD: context.agentsMd ?? '',
+    SCREAM_AGENTS_MD_PATHS: JSON.stringify(context.agentsMdPaths ?? []),
     SCREAM_SKILLS: skills,
     SCREAM_ADDITIONAL_DIRS_INFO: context.additionalDirsInfo ?? '',
     ROLE_ADDITIONAL:

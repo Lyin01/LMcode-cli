@@ -30,6 +30,21 @@ export abstract class DynamicInjector {
     }
   }
 
+  /**
+   * Collect the injection string without appending it to context.
+   * Returns the string content or undefined if no injection is needed.
+   */
+  async collectInjection(): Promise<string | undefined> {
+    return this.getInjection();
+  }
+
+  /**
+   * Mark this injector as having been injected at the given history position.
+   */
+  markInjected(position: number): void {
+    this.injectedAt = position;
+  }
+
   async inject(): Promise<void> {
     const injection = await this.getInjection();
     if (injection) {
@@ -41,7 +56,7 @@ export abstract class DynamicInjector {
     }
   }
 
-  protected abstract readonly injectionVariant: string;
+  abstract readonly injectionVariant: string;
 
   protected abstract getInjection(): string | Promise<string | undefined> | undefined;
 }

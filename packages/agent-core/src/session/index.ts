@@ -293,8 +293,8 @@ export class Session {
       });
       await handle.completion;
 
-      const agentsMd = await loadAgentsMd(mainAgent.jian);
-      mainAgent.context.appendSystemReminder(initCompletionReminder(agentsMd), {
+      const { content: agentsMdContent } = await loadAgentsMd(mainAgent.jian);
+      mainAgent.context.appendSystemReminder(initCompletionReminder(agentsMdContent), {
         kind: 'injection',
         variant: 'init',
       });

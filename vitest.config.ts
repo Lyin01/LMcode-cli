@@ -9,5 +9,12 @@ export default defineConfig({
       exclude: ['**/*.test.ts', '**/*.spec.ts', '**/dist/**'],
       reporter: ['text', 'html'],
     },
+    deps: {
+      optimizer: {
+        ssr: {
+          include: ['linkedom', 'nunjucks', 'ajv', 'ajv-formats', '@mozilla/readability'],
+        },
+      },
+    },
   },
 });

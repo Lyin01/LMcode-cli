@@ -1,7 +1,7 @@
 import { DynamicInjector } from './injector';
 
 export class WorkingSetInjector extends DynamicInjector {
-  protected readonly injectionVariant = 'working-set';
+  readonly injectionVariant = 'working-set';
 
   protected getInjection(): string | undefined {
     const paths = this.agent.workingSet.getPaths();

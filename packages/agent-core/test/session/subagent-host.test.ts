@@ -861,7 +861,7 @@ describe('Session.createAgent', () => {
 
     expect(created.agent.config.systemPrompt).toContain('cwd=/remote/project');
     expect(created.agent.config.systemPrompt).toContain('listing=└── README.md');
-    expect(created.agent.config.systemPrompt).toContain('remote instructions');
+    expect(created.agent.config.systemPrompt).toContain('- /remote/project/AGENTS.md');
   });
 
   it('renders profiles with the current directory listing and merged AGENTS.md files', async () => {
@@ -928,16 +928,13 @@ describe('Session.createAgent', () => {
     expect(created.agent.config.systemPrompt).toContain('listing=├── src/');
     expect(created.agent.config.systemPrompt).toContain('│   └── index.ts');
     expect(created.agent.config.systemPrompt).toContain('└── package.json');
-    expect(created.agent.config.systemPrompt).toContain('<!-- From: /repo/AGENTS.md -->');
-    expect(created.agent.config.systemPrompt).toContain('root instructions');
+    expect(created.agent.config.systemPrompt).toContain('- /repo/AGENTS.md');
     expect(created.agent.config.systemPrompt).toContain(
-      '<!-- From: /repo/packages/app/.lmcode/AGENTS.md -->',
+      '- /repo/packages/app/.lmcode/AGENTS.md',
     );
-    expect(created.agent.config.systemPrompt).toContain('brand instructions');
     expect(created.agent.config.systemPrompt).toContain(
-      '<!-- From: /repo/packages/app/AGENTS.md -->',
+      '- /repo/packages/app/AGENTS.md',
     );
-    expect(created.agent.config.systemPrompt).toContain('leaf instructions');
   });
 
   it('inherits the parent agent cwd when creating a subagent', async () => {

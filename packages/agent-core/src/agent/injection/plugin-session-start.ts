@@ -3,7 +3,7 @@ import type { SkillDefinition } from '../../skill';
 import { DynamicInjector } from './injector';
 
 export class PluginSessionStartInjector extends DynamicInjector {
-  protected override readonly injectionVariant = 'plugin_session_start';
+  readonly injectionVariant = 'plugin_session_start';
 
   protected override async getInjection(): Promise<string | undefined> {
     if (this.injectedAt !== null) return undefined;

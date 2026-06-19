@@ -8,6 +8,20 @@ import { TodoListReminderInjector } from './todo-list';
 import { WolfPackModeInjector } from './wolfpack';
 import { WorkingSetInjector } from './working-set';
 
+const VARIANT_TITLES: Record<string, string> = {
+  'working-set': 'Working Set',
+  'goal': 'Goal',
+  'todo_list_reminder': 'Todo List',
+  'wolfpack': 'WolfPack Mode',
+  'plan_mode': 'Plan Mode',
+  'permission_mode': 'Permission Mode',
+  'plugin_session_start': 'Plugin Session Start',
+};
+
+function sectionTitle(variant: string): string {
+  return VARIANT_TITLES[variant] ?? variant;
+}
+
 export class InjectionManager {
   private readonly injectors: DynamicInjector[];
 
@@ -24,8 +38,32 @@ export class InjectionManager {
   }
 
   async inject(): Promise<void> {
+    const parts: { variant: string; content: string; injector: DynamicInjector }[] = [];
+
     for (const injector of this.injectors) {
-      await injector.inject();
+      const injection = await injector.collectInjection();
+      if (injection !== undefined) {
+        parts.push({ variant: injector['injectionVariant'], content: injection, injector });
+      }
+    }
+
+    if (parts.length === 0) return;
+
+    const merged = parts
+      .map((p, i) => {
+        const title = sectionTitle(p.variant);
+        return `## ${title}\n\n${p.content}`;
+      })
+      .join('\n\n---\n\n');
+
+    const historyLen = this.agent.context.history.length;
+    this.agent.context.appendSystemReminder(merged, {
+      kind: 'injection',
+      variant: 'composite',
+    });
+
+    for (const part of parts) {
+      part.injector.markInjected(historyLen);
     }
   }
 

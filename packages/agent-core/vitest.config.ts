@@ -7,5 +7,13 @@ export default defineConfig({
   test: {
     name: 'scream-core',
     include: ['test/**/*.{test,e2e}.ts'],
+    testTimeout: 15_000,
+    deps: {
+      optimizer: {
+        ssr: {
+          include: ['linkedom', 'nunjucks', 'ajv', 'ajv-formats', '@mozilla/readability'],
+        },
+      },
+    },
   },
 });

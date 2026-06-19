@@ -15,7 +15,7 @@
  */
 
 import { Readability } from '@mozilla/readability';
-import { parseHTML as rawParseHTML } from 'linkedom';
+// Dynaically imported — see getLinkedom() below.
 
 import { HttpFetchError, type UrlFetcher, type UrlFetchResult } from '../builtin';
 import { FetchCache } from './fetch-cache';
@@ -50,7 +50,18 @@ interface DomElementLike {
 interface DomParseResult {
   document: DomElementLike;
 }
-const parseHTML = rawParseHTML as unknown as (html: string) => DomParseResult;
+let linkedomModule:
+  | { parseHTML: (html: string) => DomParseResult }
+  | undefined;
+
+async function getLinkedom(): Promise<{
+  parseHTML: (html: string) => DomParseResult;
+}> {
+  if (!linkedomModule) {
+    linkedomModule = (await import('linkedom')) as any;
+  }
+  return linkedomModule;
+}
 
 /**
  * SSRF guard — reject non-http(s) schemes and (by default) any hostname
@@ -200,12 +211,13 @@ export class LocalFetchURLProvider implements UrlFetcher {
       return { content: body, kind: 'passthrough' };
     }
 
-    return { content: this.extractMainContent(body), kind: 'extracted' };
+    return { content: await this.extractMainContent(body), kind: 'extracted' };
   }
 
-  private extractMainContent(html: string): string {
+  private async extractMainContent(html: string): Promise<string> {
     // Readability mutates the DOM it parses, so parse twice — once for
     // the primary extractor and once for the fallback path.
+    const { parseHTML } = await getLinkedom();
     const primary = parseHTML(html);
     try {
       const reader = new Readability(primary.document as unknown as ReadabilityDocument, {

@@ -27,7 +27,7 @@ interface TodoItem {
  *   - >= 10 turns since the last reminder
  */
 export class TodoListReminderInjector extends DynamicInjector {
-  protected override readonly injectionVariant = TODO_LIST_REMINDER_VARIANT;
+  readonly injectionVariant = TODO_LIST_REMINDER_VARIANT;
 
   protected override getInjection(): string | undefined {
     if (!this.isTodoListActive()) return undefined;

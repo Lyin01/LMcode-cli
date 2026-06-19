@@ -9,19 +9,30 @@ const AGENTS_MD_MAX_BYTES = 32 * 1024;
 const S_IFMT = 0o170000;
 const S_IFREG = 0o100000;
 
-export type PreparedSystemPromptContext = Pick<SystemPromptContext, 'cwdListing' | 'agentsMd'>;
+export type PreparedSystemPromptContext = Pick<SystemPromptContext, 'cwdListing'> & {
+  agentsMd: string;
+  agentsMdPaths: string[];
+};
 
 export async function prepareSystemPromptContext(
   jian: Jian,
 ): Promise<PreparedSystemPromptContext> {
-  const [cwdListing, agentsMd] = await Promise.all([
+  const [cwdListing, agentsMdResult] = await Promise.all([
     listDirectory(jian),
     loadAgentsMd(jian),
   ]);
-  return { cwdListing, agentsMd };
+  return {
+    cwdListing,
+    agentsMd: agentsMdResult.paths.map((p) => `- ${p}`).join('\n'),
+    agentsMdPaths: agentsMdResult.dirPaths,
+  };
 }
 
-export async function loadAgentsMd(jian: Jian): Promise<string> {
+export async function loadAgentsMd(jian: Jian): Promise<{
+  content: string;
+  paths: string[];
+  dirPaths: string[];
+}> {
   const workDir = jian.getcwd();
   const projectRoot = await findProjectRoot(jian, workDir);
   const dirs = dirsRootToLeaf(jian, workDir, projectRoot);
@@ -58,7 +69,11 @@ export async function loadAgentsMd(jian: Jian): Promise<string> {
     }
   }
 
-  return renderAgentFiles(discovered);
+  return {
+    content: renderAgentFiles(discovered),
+    paths: discovered.map((f) => f.path),
+    dirPaths: discovered.map((f) => dirname(f.path)),
+  };
 }
 
 async function findProjectRoot(jian: Jian, workDir: string): Promise<string> {

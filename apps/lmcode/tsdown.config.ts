@@ -30,8 +30,5 @@ export default defineConfig({
   define: {
     [BUILT_IN_CATALOG_DEFINE]: builtInCatalogDefine(),
   },
-  deps: {
-    alwaysBundle: [/^@lmcode-./],
-    neverBundle: [],
-  },
+
 });

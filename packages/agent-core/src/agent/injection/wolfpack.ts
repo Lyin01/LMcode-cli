@@ -23,7 +23,7 @@ const WOLFPACK_MODE_EXIT_REMINDER =
   'WolfPack mode is no longer active. The WolfPack tool for batch parallel execution is no longer available.';
 
 export class WolfPackModeInjector extends DynamicInjector {
-  protected override readonly injectionVariant = 'wolfpack';
+  readonly injectionVariant = 'wolfpack';
   private wasActive = false;
 
   getInjection(): string | undefined {

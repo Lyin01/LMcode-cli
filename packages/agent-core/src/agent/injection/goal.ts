@@ -2,7 +2,7 @@ import type { GoalSnapshot } from '../goal';
 import { DynamicInjector } from './injector';
 
 export class GoalInjector extends DynamicInjector {
-  protected override readonly injectionVariant = 'goal';
+  readonly injectionVariant = 'goal';
 
   protected override getInjection(): string | undefined {
     const store = this.agent.goal;

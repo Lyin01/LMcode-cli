@@ -139,7 +139,14 @@ export class MemoryMemoStore {
       // substring filter so the exact query string must appear somewhere in the
       // memo text.
       if (candidates.length === 0) {
-        // Fallback: scan the full store so tags and wording not captured by the
+        // Try prefix wildcard query so partial tokens still match.
+        const prefixQuery = buildFtsQuery(search, { prefix: true });
+        if (prefixQuery !== undefined) {
+          candidates = await this.search(prefixQuery, { projectDir });
+        }
+      }
+      if (candidates.length === 0) {
+        // Fallback: scan recent memos so tags and wording not captured by the
         // FTS index are still considered.
         for await (const memo of this.read({ projectDir })) {
           candidates.push(memo);
@@ -631,12 +638,12 @@ export class MemoryMemoStore {
         ? Date.now() - recencyCutoffDays * 24 * 60 * 60 * 1000
         : undefined;
 
-    let rows: Array<{ memory_id: string; embedding_json: string }>;
+    let rows: Array<{ memory_id: string; embedding: Buffer | null }>;
     if (projectDir !== undefined) {
       const stmt =
         cutoffMs === undefined
           ? this.db.prepare(`
-              SELECT e.memory_id, e.embedding_json
+              SELECT e.memory_id, e.embedding
               FROM memory_embeddings e
               JOIN memos m ON m.id = e.memory_id
               WHERE (m.project_dir = ? OR m.project_dir = '')
@@ -644,7 +651,7 @@ export class MemoryMemoStore {
               LIMIT ?
             `)
           : this.db.prepare(`
-              SELECT e.memory_id, e.embedding_json
+              SELECT e.memory_id, e.embedding
               FROM memory_embeddings e
               JOIN memos m ON m.id = e.memory_id
               WHERE (m.project_dir = ? OR m.project_dir = '')
@@ -656,22 +663,22 @@ export class MemoryMemoStore {
         ? stmt.all(projectDir, limit)
         : stmt.all(projectDir, cutoffMs, limit)) as Array<{
         memory_id: string;
-        embedding_json: string;
+        embedding: Buffer | null;
       }>;
     } else {
       const stmt =
         cutoffMs === undefined
           ? this.db.prepare(
-              'SELECT memory_id, embedding_json FROM memory_embeddings ORDER BY created_at DESC LIMIT ?',
+              'SELECT memory_id, embedding FROM memory_embeddings ORDER BY created_at DESC LIMIT ?',
             )
           : this.db.prepare(
-              'SELECT memory_id, embedding_json FROM memory_embeddings WHERE created_at > ? ORDER BY created_at DESC LIMIT ?',
+              'SELECT memory_id, embedding FROM memory_embeddings WHERE created_at > ? ORDER BY created_at DESC LIMIT ?',
             );
       rows = (cutoffMs === undefined
         ? stmt.all(limit)
         : stmt.all(cutoffMs, limit)) as Array<{
         memory_id: string;
-        embedding_json: string;
+        embedding: Buffer | null;
       }>;
     }
 
@@ -680,7 +687,13 @@ export class MemoryMemoStore {
     const scored: Array<{ id: string; score: number }> = [];
     for (const row of rows) {
       try {
-        const vec = new Float32Array(JSON.parse(row.embedding_json) as number[]);
+        let vec: Float32Array;
+        if (row.embedding !== null && row.embedding instanceof Buffer && row.embedding.byteLength > 0) {
+          vec = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / Float32Array.BYTES_PER_ELEMENT);
+        } else {
+          // Fallback for rows still storing JSON text (pre-migration)
+          vec = new Float32Array(JSON.parse(row.embedding_json ?? '[]') as number[]);
+        }
         const similarity = this.embeddingEngine?.cosineSimilarity(queryEmbedding, vec) ?? 0;
         if (similarity > 0) {
           scored.push({ id: row.memory_id, score: similarity });
@@ -762,7 +775,7 @@ export class MemoryMemoStore {
       if (vectors === null || vectors.length !== pending.length) return;
 
       const insert = this.db.prepare(
-        'INSERT OR REPLACE INTO memory_embeddings (memory_id, embedding_json, model, created_at) VALUES (?, ?, ?, ?)',
+        'INSERT OR REPLACE INTO memory_embeddings (memory_id, embedding, model, created_at) VALUES (?, ?, ?, ?)',
       );
       const now = Date.now();
       this.db.exec('BEGIN TRANSACTION');
@@ -922,9 +935,10 @@ function toFtsText(text: string): string {
   return tokens.join(' ');
 }
 
-function buildFtsQuery(search: string): string | undefined {
+function buildFtsQuery(search: string, options?: { prefix?: boolean }): string | undefined {
   const ftsText = toFtsText(search);
   const tokens = ftsText.split(/\s+/).filter((t) => t.length > 0);
   if (tokens.length === 0) return undefined;
-  return tokens.map((t) => `"${t.replaceAll('"', '""')}"`).join(' AND ');
+  const suffix = options?.prefix ? '*' : '';
+  return tokens.map((t) => `"${t.replaceAll('"', '""')}"${suffix}`).join(' AND ');
 }
