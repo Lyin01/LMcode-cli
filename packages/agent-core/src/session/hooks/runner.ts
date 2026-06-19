@@ -64,6 +64,7 @@ export async function runHook(
       cwd: options.cwd,
       stdio: 'pipe',
       detached: process.platform !== 'win32',
+      windowsHide: true,
     });
   } catch (error) {
     return allowResult({ stderr: errorMessage(error) });
