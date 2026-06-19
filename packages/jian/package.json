@@ -1,6 +1,6 @@
 {
   "name": "@lmcode-cli/jian",
-  "version": "0.5.13",
+  "version": "0.7.1",
   "private": true,
   "description": "Execution environment abstraction for AI agent applications",
   "license": "MIT",

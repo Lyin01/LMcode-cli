@@ -1,6 +1,6 @@
 {
   "name": "@lmcode/memory",
-  "version": "0.5.13",
+  "version": "0.7.1",
   "private": true,
   "description": "Persistent memory memo store for cross-session knowledge sharing",
   "license": "MIT",

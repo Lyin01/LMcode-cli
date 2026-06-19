@@ -589,15 +589,27 @@ async function readStreamIntoBuilder(
   builder.write(decoder.end());
 }
 
+/**
+ * Quote a string for safe use as a single shell word.
+ *
+ * Single quotes prevent ALL shell expansion (variables, globs, history
+ * expansion, backticks, etc.) and are the safest quoting mechanism in
+ * POSIX shells.  The only character that needs escaping is a single
+ * quote itself, handled via the standard `'\''` idiom.
+ */
 function shellQuote(s: string): string {
+  if (s.length === 0) return "''";
   return `'${s.replaceAll("'", "'\\''")}'`;
 }
 
 function windowsPathToPosixPath(path: string): string {
-  if (path.startsWith('\\\\')) {
-    return path.replaceAll('\\', '/');
+  // UNC paths: \\server\share → //server/share
+  if (path.startsWith('\\\\') || path.startsWith('//')) {
+    const rest = path.replace(/^[\\/]+/, '').replaceAll('\\', '/');
+    return `//${rest}`;
   }
 
+  // Drive-letter paths: C:\Users\foo → /c/Users/foo
   const driveMatch = /^([A-Za-z]):(?:[\\/]|$)/.exec(path);
   if (driveMatch !== null) {
     const drive = driveMatch[1]!.toLowerCase();
@@ -605,6 +617,7 @@ function windowsPathToPosixPath(path: string): string {
     return `/${drive}${rest.startsWith('/') ? rest : `/${rest}`}`;
   }
 
+  // Already a POSIX path or something else — just normalize separators.
   return path.replaceAll('\\', '/');
 }
 

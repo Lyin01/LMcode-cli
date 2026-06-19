@@ -1,6 +1,6 @@
 {
   "name": "@lmcode-cli/agent-core",
-  "version": "0.5.13",
+  "version": "0.7.1",
   "private": true,
   "description": "The unified agent engine for LMcode",
   "license": "MIT",

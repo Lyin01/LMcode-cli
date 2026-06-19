@@ -1,6 +1,6 @@
 {
   "name": "@lmcode-cli/config",
-  "version": "0.5.13",
+  "version": "0.7.1",
   "private": true,
   "description": "Platform configuration and model management for LMcode",
   "license": "MIT",

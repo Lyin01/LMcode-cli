@@ -159,4 +159,93 @@ describe('ToolResultBuilder', () => {
     expect(result.output).toBe('ok\n');
     expect(result.message).toBe('Command executed successfully.');
   });
+
+  // ── Head-tail strategy tests (maxChars >= 2000) ─────────────────
+
+  describe('head-tail truncation (maxChars >= 2000)', () => {
+    // HEAD_MAX = floor(2000 * 0.55) = 1100
+    // TAIL_MAX = floor(2000 * 0.40) = 800
+
+    it('keeps all output when total fits within head', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000 });
+      builder.write('small output');
+      const result = builder.ok();
+      expect(result.output).toBe('small output');
+      expect(result.truncated).toBe(false);
+    });
+
+    it('preserves full content when head fills and tail continues without overflow', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000 });
+      // 500-char lines with newlines (501 chars each). Two writes fill head
+      // to 1002/1100; third write of 501 chars fills head to 1100 (99-char
+      // per-line truncation adds `[...truncated]`). Fourth and fifth writes
+      // go to tail. Total input ~2505 > 2000, so head-tail marker appears.
+      const line = 'x'.repeat(500) + '\n';
+      builder.write(line);
+      builder.write(line);
+      builder.write(line);   // head fills at 1100, 99-char overflow → per-line truncated
+      builder.write(line);   // goes to tail
+      builder.write(line);   // goes to tail, totalInput=2505 > 2000
+
+      const result = builder.ok();
+      expect(result.output).toContain('x'.repeat(500));
+      // Tail content is present (somewhere after the marker)
+      expect(result.output).toContain('[...truncated]');
+      expect(result.truncated).toBe(true);
+    });
+
+    it('inserts a truncation marker with byte count between head and tail when total exceeds maxChars', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000 });
+      // HEAD_MAX=1100, TAIL_MAX=800.
+      // Write ~600-char lines to fill head, then ~500-char lines that go to
+      // the tail ring buffer until total input exceeds maxChars.
+      builder.write('A'.repeat(600) + '\n');   // 601 → head (601/1100)
+      builder.write('A'.repeat(600) + '\n');   // 601 → head fills, per-line truncated
+      builder.write('B'.repeat(500) + '\n');   // 501 → tail (501/800)
+      builder.write('C'.repeat(500) + '\n');   // 501 → tail overflows, drops B → tail has C
+      // totalInput=2204 > maxChars=2000 → data lost
+
+      const result = builder.ok();
+      expect(result.output).toContain('A'.repeat(600));    // head content
+      expect(result.output).toContain('C'.repeat(500));    // tail content (last line that fits)
+      expect(result.output).toMatch(/\[\.\.\.truncated\]\s+\d+(\.\d+)?\s*(B|KB|MB)/);
+      expect(result.truncated).toBe(true);
+    });
+
+    it('shows the truncation message when data is lost', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000 });
+      builder.write('A'.repeat(600) + '\n');
+      builder.write('A'.repeat(600) + '\n');
+      builder.write('B'.repeat(500) + '\n');
+      builder.write('C'.repeat(500) + '\n');  // overflows
+
+      const result = builder.ok('Done');
+      expect(result.output).toContain('Output is truncated');
+      expect(result.message).toContain('Done');
+      expect(result.message).toContain('Output is truncated');
+    });
+
+    it('separates head and tail with marker when head ends without newline', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000 });
+      // Write lines without trailing newline so head content is contiguous
+      builder.write('A'.repeat(600));          // 600 → head (600/1100)
+      builder.write('A'.repeat(600));          // 600 → head fills, line truncated
+      builder.write('B'.repeat(500) + '\n');   // 501 → tail
+      builder.write('C'.repeat(500) + '\n');   // 501 → tail overflows
+
+      const result = builder.ok();
+      // The head ends without \n, so assembleOutput inserts one before marker
+      expect(result.output).toMatch(/\n\[\.\.\.truncated\]\s+\d+/);
+      expect(result.output).toContain('C'.repeat(500)); // tail content present
+    });
+
+    it('correctly reports nChars as head + tail when using head-tail mode', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000 });
+      expect(builder.nChars).toBe(0);
+
+      builder.write('hello\n');
+      expect(builder.nChars).toBeGreaterThan(0);
+      expect(builder.nChars).toBe(6);
+    });
+  });
 });
