@@ -723,7 +723,10 @@ export class AgentTestContext {
 
   async expectResumeMatches(): Promise<void> {
     const resumed = testAgent({
-      jian: createResumeNoSideEffectJian(this.agent.config.cwd),
+      jian: createResumeNoSideEffectJian(
+        this.agent.config.cwd,
+        (this.options.jian ?? testJian).pathClass(),
+      ),
       runtime: {
         urlFetcher: this.agent.toolServices?.urlFetcher,
         webSearcher: this.agent.toolServices?.webSearcher,
@@ -945,7 +948,7 @@ const failOnResumeGenerate: GenerateFn = async () => {
   throw new Error('Resume replay unexpectedly called the LLM');
 };
 
-function createResumeNoSideEffectJian(initialCwd: string): Jian {
+function createResumeNoSideEffectJian(initialCwd: string, pathClass: 'posix' | 'win32'): Jian {
   const fail = (method: string): never => {
     throw new Error(`Resume replay unexpectedly called jian.${method}`);
   };
@@ -957,11 +960,18 @@ function createResumeNoSideEffectJian(initialCwd: string): Jian {
   return {
     name: 'resume-no-side-effects',
     osEnv: TEST_OS_ENV,
-    pathClass: () => 'posix',
+    // Mirror the original agent's jian path class instead of hardcoding
+    // 'posix'. Some tool descriptions are platform-conditional (e.g. GlobTool
+    // appends WINDOWS_PATH_HINT only on win32). If the resume stub reported a
+    // different path class than the live agent's jian, the resumed tool
+    // descriptions would diverge and expectResumeMatches would fail — on a
+    // Windows host for the default testJian (win32), or anywhere a test passes
+    // a win32 fake jian. The caller threads through the live jian's class.
+    pathClass: () => pathClass,
     normpath: (p: string) => p,
     gethome: () => '/home/test',
     getcwd: () => cwd,
-    withCwd: (next: string) => createResumeNoSideEffectJian(next),
+    withCwd: (next: string) => createResumeNoSideEffectJian(next, pathClass),
     chdir: async (next: string) => {
       cwd = next;
     },
