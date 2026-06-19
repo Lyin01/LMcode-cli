@@ -1,183 +1,192 @@
-<img width="807" height="152" alt="image" src="https://github.com/user-attachments/assets/b589a9a5-ad1e-420a-aee0-f86c7ee06873" />
+<p align="center">
+  <img width="807" height="152" alt="LMcode" src="https://github.com/user-attachments/assets/b589a9a5-ad1e-420a-aee0-f86c7ee06873" />
+</p>
 
+<p align="center">
+  <strong>LMcode — 你的本地 AI Agent 助手</strong>
+</p>
 
-LMcode 是一款省心的中文 AI Agent 助手。无需硬记代码，完全本地部署运行，无任何远程行为，高安全，用户直接用中/英文下达指令，vibe coding、写代码、查论文、改文件、清理电脑、查资料、制作研报、搜全网信息……你动嘴，它动手！
+<p align="center">
+  <a href="https://www.npmjs.com/package/@liumir/lmcode"><img src="https://img.shields.io/npm/v/@liumir/lmcode?style=flat-square&logo=npm&logoColor=white" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@liumir/lmcode"><img src="https://img.shields.io/npm/dm/@liumir/lmcode?style=flat-square&logo=npm&logoColor=white" alt="npm downloads"></a>
+  <a href="https://github.com/Lyin01/LMcode-cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Lyin01/LMcode-cli?style=flat-square" alt="license"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.19.0-green?style=flat-square&logo=node.js&logoColor=white" alt="node version"></a>
+  <a href="https://github.com/Lyin01/LMcode-cli"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square" alt="platform"></a>
+</p>
 
 ---
 
-## 三分钟上手
+LMcode 是一款专注于中文场景的 AI Agent 助手。说人话，它做事——写代码、改文件、查资料、做研报、清理电脑、搜全网信息，你只管说需求，剩下的交给它。完全本地运行，数据不出门。
 
-### 第一步：安装
+---
 
-前置条件：**Node.js >= 22.0.0** 和 **Git**。
+## 快速上手
 
-> **国内用户**：安装过程需从 GitHub 下载，建议科学上网，如遇网络错误请多尝试几次。
+### 安装
 
-**推荐：npm 安装（全平台通用）**
+前置条件：**Node.js >= 22.19.0** 和 **Git**。
 
 ```bash
+# npm 安装（全平台通用，推荐）
 npm install -g @liumir/lmcode
 ```
-**一键安装（macOS / Linux）**
+
+macOS / Linux 也支持一键安装：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lyin01/LMcode-cli/main/install.sh | bash
 ```
 
-**Windows — PowerShell：**
+Windows PowerShell：
 
 ```powershell
 irm https://raw.githubusercontent.com/Lyin01/LMcode-cli/main/install.ps1 | iex
 ```
 
-安装完成后，`lm` 命令自动加入 PATH。首次安装约需 2-5 分钟。
+安装完成后，`lm` 命令自动加入 PATH。
 
-**升级到新版本**
+### 首次启动
 
 ```bash
-cd ~/.lmcode && ./install.sh --upgrade
+lm
 ```
 
-### 第二步：启动并配置 AI 服务
+首次启动会自动进入配置向导，选择模型商（DeepSeek、OpenAI、Anthropic、通义千问、硅基流动等）并输入 API Key 即可开始。支持随时添加多模型，用 `/model` 命令切换。
 
-首次启动时，如果检测到没有配置模型，会自动进入交互式配置向导（`/config`）。按提示输入 API 地址、密钥、模型型号即可完成配置。
+### 一次性使用
 
-**支持多个模型**（配置好后可用 `/model` 随时切换）：
-
-> 支持自定义 API（DeepSeek、OpenAI、Anthropic、MiniMax、通义千问、硅基流动等（`/config diy`）需要输入隐藏指令）。
-
-配置完成后，在交互模式下输入 `/model` 即可切换模型或删除模型，无需重启。`/config` 支持追加配置。
-
-### 审批面板
-
-当它要修改文件或执行命令时，会弹出审批面板：
-
-按数字键选择，回车确认。所有提示都是中文。
+```bash
+lm "用 Python 写一个 Markdown 转 HTML 的脚本"
+lm -p "解释这段代码" --output-format stream-json
+```
 
 ---
 
-## 核心功能
+## 核心特性
 
-- **对话式交互** —— 用自然语言描述需求，它自动写代码、改文件、跑命令
-- **安全第一** —— 修改文件前必须征得同意，`.env` 等敏感文件默认禁止操作
-- **权限引擎** —— 精细控制它能做什么（读取/写入/执行），防止误操作
-- **状态机机制** —— 防漂移，强化任务颗粒度，不出错，任务完成度高，降低 Token 消耗
-- **记忆备忘录** —— `/memory` 打开交互式记忆备忘录。定位为"任务经验记录"：记录用户需求、执行方案、最终结果、踩坑记录、成功经验。三种提取触发：压缩时自动提取、退出会话时提取、心跳自动沉淀。跨会话共享，知识库tag分级、Agent自行查阅，支持手动注入到当前会话。
-- **dream** —— 输入`/dream` 定期整理重复和过时记录，注意，因记忆整理涉及删除，所以此功能在auto模式被设置为不可用，避免误删
-- **目标系统** —— `/goal` 开启自主目标循环，设定目标后自动多轮迭代执行。支持 WriteGoalNote 工具，模型自主管理工作笔记（记录验证过的事实、踩过的坑、关键决策），笔记在每轮续跑时自动注入，跨轮不丢失，压缩不丢失。支持预算控制（轮次/Token/时间）
-- **会话恢复** —— 随时中断，随时继续，对话历史自动保存，可通过 `/sessions` 浏览和恢复历史会话
-- **多模式** —— 交互模式、静默模式、计划模式、后台任务模式，可选
-- **MCP 扩展** —— 连接外部工具（数据库、浏览器、API 等）
-- **多 Agent 并行模式** —— 复杂任务自动拆解为多个子 Agent 同时执行，内置 coder/explore/plan/verify/writer 五类子 Agent。支持多角度分析、对抗验证等并行编排模式。
-- **技能中心** —— 内置多款技能可下载，用户也可以自行安装skill技能
-- **MCP** —— 内置浏览器自动化MCP和电脑桌面自动化MCP（目前仅支持mac），另外可自行添加或下载使用自定MCP
-- **wolfpack** —— 群狼模式，适合多文件多任务同时处理 拥有自动审批权限，建议执行审阅任务和协同工作时提前打开
+| 特性 | 说明 |
+|------|------|
+| 🎯 **Goal 自主循环** | 设定目标后自动多轮迭代执行，内置裁判 Agent 独立裁决目标是否达成。支持轮次/Token/时间预算控制 |
+| 🐺 **Wolfpack 群狼模式** | 无限并发多 Agent 协同，自动拆解任务并行执行。内置 coder / explore / plan / verify / writer 五类子 Agent |
+| 🧠 **永久记忆** | 跨会话记忆系统，Tag 语义 + 向量双重检索，越用越懂你的项目上下文。支持 dream 自动整理 |
+| 💭 **思考模式** | 完整的 Thinking 交互体验——独立渲染区域、流式打字、6 档思考强度、展开/折叠控制，支持 Anthropic Adaptive Thinking |
+| 🔌 **MCP 扩展** | 内置浏览器自动化、桌面控制 MCP，支持自行添加任意 MCP Server |
+| 🎨 **技能中心** | 可下载/安装技能（Skill），扩展 Agent 能力 |
+| 📱 **cc-connect** | 打通微信、飞书、企微、钉钉、QQ、Telegram 等平台，远程聊天控制 LMcode |
+| 🔒 **权限引擎** | 精细控制读/写/执行权限，敏感文件默认保护。支持 yolo / auto / manual 三种模式 |
+
+### 内置工具一览
+
+| 工具 | 说明 |
+|------|------|
+| `Read` | 读取文件内容，支持分页 |
+| `Write` | 写入文件，自动创建父目录 |
+| `Edit` | 精确字符串替换编辑 |
+| `MultiEdit` | 同一文件批量原子替换，任一失败整批回滚 |
+| `Glob` | 文件搜索，支持花括号展开 `*.{ts,tsx}` |
+| `Grep` | 内容搜索，支持正则 |
+| `Bash` | 执行命令，支持后台任务 |
+| `WebSearch` / `FetchURL` | 联网搜索与页面抓取 |
+| `Agent` | 启动子 Agent 处理子任务，支持并行和后台 |
+| `WolfPack` | 批量并行启动多个子 Agent |
 
 ---
 
-## 🚀 v0.7.0 更新日志
+## 命令参考
 
-### ✨ 新功能
-- **MultiEdit 批量编辑工具** — 一次调用对同一文件做多处 find/replace，**原子生效**（任一处失败则整批不写、文件不动）。把原来 N 次 Edit 往返压成 1 次，明显提速并降低 token 消耗
-- **Glob 支持花括号展开** — `*.{ts,tsx}`、`{src,test}/**/*.ts` 等一次调用即匹配所有分支（支持多组与嵌套、转义按字面），不再需要拆成多次调用
+```bash
+lm [options] [command] [prompt...]
 
-### 🐞 修复 / 体验
-- **Write 自动创建父目录** — 写入到不存在的目录时自动 `mkdir -p`，消除「写入失败 → mkdir → 重写整个文件」的二次往返（大文件可省去约一倍输出 token）
-- **`lm -p` 参数顺序不再敏感** — `--prompt` 改为可选值并支持末尾位置参数，`lm -p --output-format stream-json "..."` 等任意顺序都能正确解析；裸文本 `lm "..."` 也可作为一次性提示
+命令：
+  export              导出 Markdown 格式的会话记录
+  stream-json         以 JSON 流模式运行（适合程序化调用）
+  cc-connect          配置远程聊天通道
+
+选项：
+  -V, --version       输出版本号
+  -S, --session [id]  恢复会话。带 ID 直接恢复，不带 ID 交互选择
+  -C, --continue      继续当前目录的上一个会话
+  -y, --yolo          自动批准所有操作
+  --auto              自动权限模式
+  -m, --model <name>  指定模型别名
+  -p, --prompt [text] 非交互模式，提示文本也可放在末尾位置参数
+  --output-format <format>  输出格式：text | stream-json
+  --skills-dir <dir>  加载指定目录的技能
+  --plan              以计划模式启动
+  -h, --help          显示帮助
+```
 
 ---
 
-## 🚀 v0.6.0 更新日志
+## 斜杠命令
 
-### 🐞 修复
-- **135 个 Windows 测试失败全部修复** — 覆盖路径归一化、SQLite EBUSY 清理、Hook 子进程、yolo 权限迁移、配置格式等 10 类问题
-- **Hook 子进程在 Windows 上弹出 git 窗口** — `spawn()` 添加 `windowsHide: true`，根治每次跑 hook 弹 conhost 窗口
-- **brand rename 遗留的 "scream" 引用** — 218 处 scream → lmcode 品牌重命名全覆盖
+在交互模式下，输入 `/` 可执行以下命令：
 
-### ⚡ 性能优化
-- **linkedom（2MB）和 nunjucks（1.8MB）懒加载** — 不再静态打包，仅在首次使用时动态 import，大幅降低启动时间
-- **系统提示词精简** — AGENTS.md 改为路径列表按需读取（原 32KB 固定注入），移除冗余通用指令
+| 命令 | 说明 |
+|------|------|
+| `/goal` | 开启自主目标循环 |
+| `/model` | 切换模型 / 管理多模型 |
+| `/config` | 修改配置 |
+| `/memory` | 打开记忆备忘录 |
+| `/dream` | 整理和归档记忆 |
+| `/sessions` | 浏览和恢复历史会话 |
+| `/skills` | 管理技能 |
+| `/update` | 检查并安装更新 |
+| `/mode` | 切换权限模式（yolo / auto / manual） |
+| `/thinking` | 控制思考模式开关 |
+| `/cc-connect` | 配置远程聊天通道 |
+| `/new` | 创建新会话 |
+| `/export` | 导出当前会话 |
+
+---
+
+## 更新日志
+
+### 🚀 v0.7.0
+
+**新功能**
+- **MultiEdit 批量编辑工具** — 一次调用对同一文件做多处原子替换，任一失败整批回滚
+- **Glob 花括号展开** — `*.{ts,tsx}`、`{src,test}/**/*.ts` 一次匹配多模式，支持嵌套与转义
+
+**修复 / 体验优化**
+- **Write 自动创建父目录** — 写入不存在的目录自动 mkdir，消除二次往返
+- **`-p` 参数顺序不再敏感** — `lm -p --output-format stream-json "..."` 任意顺序正确解析；裸文本 `lm "..."` 也可作为一次性提示
+
+### 🚀 v0.6.0
+
+**修复**
+- **135 个 Windows 测试失败全部修复** — 覆盖路径归一化、SQLite EBUSY 清理、Hook 子进程、yolo 权限迁移等 10 类问题
+- **Hook 子进程弹窗** — `spawn()` 添加 `windowsHide: true`，根治每次跑 hook 弹 conhost 窗口
+- **品牌重命名遗留引用** — 218 处 scream → lmcode 全面覆盖
+
+**性能优化**
+- **linkedom / nunjucks 懒加载** — 避免静态打包 2MB+ 依赖，降低启动时间
+- **系统提示词精简** — AGENTS.md 改为路径列表按需读取，移除冗余通用指令
 - **embedding 存储优化** — JSON 字符串改为二进制 Float32Array Buffer
-- **FTS 空结果回退优化** — 先尝试前缀通配符再全表扫描
+- **FTS 空结果回退优化** — 先前缀通配符再全表扫描
 
-### 🧹 清理
-- **安装脚本修复** — `scream` → `lm` 命令创建正确
-- **死代码清理** — 移除 migration 残留代码
-- **CI 基础设施** — 添加 `.nvmrc`，配置简单 git hooks
-- **文档修复** — tsconfig、README 等同步更新
+**清理**
+- 安装脚本 `scream` → `lm` 命令修正
+- 移除 migration 残留代码
+- 添加 `.nvmrc`，配置简单 git hooks
 
-### 🏗️ 架构
-- **多注入器合并** — 所有 `beforeStep` 注入器合并为单条 `<system-reminder>` 复合消息
-- **bundle 分割** — 移除 `alwaysBundle` 配置，产物自然分割（主入口仅 ~0.54kB）
+### 🚀 v0.5.15
 
----
-
-## cc-connect 通过聊天远程控制 LMcode
-
-- 支持微信、飞书、slack、钉钉、QQ、Telegram等，你可以在安装lmcode后一键安装cc-connect来控制你的 LMcode
-
-###第一步：一键安装指令安装
-
-```
-# npm install -g cc-connect
-```
-###第二步：打开 LMcode，输入/cc-connect 按照提示选择你要接入的平台（配置完毕后不要再次配置，否则会覆盖原有配置）
-
-###第三步：按照步骤完成配置与链接后，输入命令启动后台守护进程（关闭 LMcode 也可在后台聊天）
-
-**提示：关于会话系统
-
-- *远程聊天会话默认走cc标识注入会话管理系统，可通过斜杠命令进入进行管理和删除，也可以直接在电脑端直接继承会话继续让 LMcode 完成工作 
-
-**提示：远程聊天快捷指令（已默认支持，飞书、微信等通道文件图片发送）
-
-- /new             创建新会话
-- /bind setup      开启文件传送功能，支持PDF、图片等
-- /mode            查看可用模式
-- /mode yolo       自动批准所有工具
-- /mode default    每次工具调用前询问
----
-
-## 🙏 致谢 Scream Code
-
-**LMcode 是基于 [Scream Code](https://github.com/LIUTod/scream-code)（作者 [LIUTod](https://github.com/LIUTod)）的个人定制改版。** Scream Code 是一款出色的开源 AI Agent CLI，在此向 LIUTod 致以诚挚感谢。
-
-### 与 Scream Code 的主要差异
-
-| 项目 | Scream Code | LMcode |
-|------|------------|--------|
-| CLI 命令 | `scream` | `lm` |
-| 默认权限 | `manual`（逐次审批） | `yolo`（自动批准） |
-| 配置目录 | `~/.scream-code/` | `~/.lmcode/` |
-| 品牌 | Scream Code | LMcode |
+- Ctrl+A 全选输入框内容
+- ROLE_ADDITIONAL 移至 system 提示词末尾
+- Windows 测试基础设施全面修复
 
 ---
 
-## 项目灵感与感谢支持
+## 项目说明
 
-LMcode 是我基于自身使用习惯与对 Agent 系统的理解，从零重构的一套工具型 Agent 框架。最早用 Rust 写，架构膨胀得厉害，最后成屎山了。经历了教训之后，彻底转向 TypeScript，也顺便做了大量减法。
-重构之后，我把精力集中在三件事上：并行调度和状态机 + 记忆系统的收敛设计 + 最大化释放模型本身的能力上。整体逻辑借鉴了 Agent harness 的思路，同时也参考了不少优秀开源项目的设计取舍与实现细节。现在的 LMcode 不再追求功能堆叠，而是一个能稳定、高效执行意图的轻量化 Agent 底座。
+LMcode 是基于个人使用习惯和对 Agent 系统的理解，从零搭建的一套工具型 Agent 框架。经历 Rust 原型膨胀的教训后，彻底转向 TypeScript，核心聚焦三件事：**并行调度 + 状态机 + 记忆系统的收敛设计**。整体架构借鉴了 Agent harness 的思路，吸收了多个开源项目的设计取舍。
 
-这个项目完全免费，开放使用，也欢迎反馈，并给出建议和改进。会持续根据实际使用场景继续打磨。
+项目的演进方向是成为一个稳定、高效、轻量的 Agent 底座——不追求功能堆叠，而是让每个机制都能在实际使用中站住脚。
 
-再次感谢其他优秀的项目给予灵感：gork codex、kimicli、Gemini、等优秀项目
+> LMcode 基于 [Scream Code](https://github.com/LIUTod/scream-code) 二次开发，感谢原作者 [LIUTod](https://github.com/LIUTod) 的开源工作。
 
 ---
-
-## 入口
-
-https://scream.chat
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=Lyin01%2FLMcode-cli&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Lyin01/LMcode-cli&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Lyin01/LMcode-cli&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Lyin01/LMcode-cli&type=date&legend=top-left" />
- </picture>
-</a>
-
 
 ## License
 
