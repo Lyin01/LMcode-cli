@@ -84,7 +84,7 @@ describe.skipIf(!ENABLED)('local logging export e2e', () => {
 });
 
 async function runScreamExport(args: string[]): Promise<void> {
-  const program = new Command(,);
+  const program = new Command('lm');
   const stdout: string[] = [];
   const stderr: string[] = [];
   registerExportCommand(program, {
@@ -104,7 +104,7 @@ async function runScreamExport(args: string[]): Promise<void> {
       throw new Error(`lm export exited ${code}: ${stderr.join('')}`);
     },
   });
-  await program.parseAsync(['node', ,, 'export', ...args]);
+  await program.parseAsync(['node', 'lm', 'export', ...args]);
 }
 
 function readZipEntries(buf: Buffer): Map<string, Buffer> {

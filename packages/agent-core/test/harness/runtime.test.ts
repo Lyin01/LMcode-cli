@@ -75,7 +75,7 @@ custom_headers = { "X-Test" = "1" }
     });
     expect(session?.options.toolServices?.webSearcher).toBeDefined();
 
-    await session!.options.toolServices?.webSearcher!.search(,);
+    await session!.options.toolServices?.webSearcher!.search('lmcode');
 
     expect(getAccessToken).toHaveBeenCalledWith();
     const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;

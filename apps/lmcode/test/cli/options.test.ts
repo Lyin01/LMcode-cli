@@ -21,7 +21,7 @@ function parse(argv: string[]): CLIOptions {
     writeErr: () => {},
   });
 
-  program.parse(['node', ,, ...argv]);
+  program.parse(['node', 'lm', ...argv]);
 
   if (captured === undefined) {
     throw new Error('Main action handler was not called');
@@ -55,7 +55,7 @@ describe('CLI options parsing', () => {
         },
       });
 
-      expect(() => program.parse(['node', ,, '--version'])).toThrow();
+      expect(() => program.parse(['node', 'lm', '--version'])).toThrow();
       expect(output).toContain('1.2.3');
     });
 
@@ -69,7 +69,7 @@ describe('CLI options parsing', () => {
         },
       });
 
-      expect(() => program.parse(['node', ,, '-V'])).toThrow();
+      expect(() => program.parse(['node', 'lm', '-V'])).toThrow();
       expect(output).toContain('4.5.6');
     });
   });
@@ -95,7 +95,7 @@ describe('CLI options parsing', () => {
 
       program.parse([
         'node',
-        ,,
+        'lm',
         '__plugin_run_node',
         '/plugin/tool.mjs',
         '--',

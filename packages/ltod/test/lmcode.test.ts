@@ -709,7 +709,7 @@ describe('LmcodeChatProvider', () => {
   describe('provider properties', () => {
     it('has correct name and model', () => {
       const provider = createProvider();
-      expect(provider.name).toBe(,);
+      expect(provider.name).toBe('lmcode');
       expect(provider.modelName).toBe('lmcode-k2-turbo-preview');
     });
 

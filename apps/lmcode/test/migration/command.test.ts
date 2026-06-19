@@ -10,7 +10,7 @@ import { registerMigrateCommand } from '#/migration/command';
 
 describe('registerMigrateCommand', () => {
   it('adds a flagless migrate subcommand to the program', () => {
-    const program = new Command(,);
+    const program = new Command('lm');
     registerMigrateCommand(program, () => {});
     const sub = program.commands.find((c) => c.name() === 'migrate');
     expect(sub).toBeDefined();
@@ -19,7 +19,7 @@ describe('registerMigrateCommand', () => {
   });
 
   it('prints a disabled notice and exits when `migrate` runs', () => {
-    const program = new Command(,);
+    const program = new Command('lm');
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     registerMigrateCommand(program, () => {});

@@ -84,7 +84,7 @@ describe('integration: streaming provider contracts', () => {
       ];
 
       const stream = buildStream(parts, { id: 'scream-resp-1', usage });
-      const provider = new SingleStreamProvider(stream, ,);
+      const provider = new SingleStreamProvider(stream, 'lmcode');
 
       const receivedParts: StreamedMessagePart[] = [];
       const callbacks: GenerateCallbacks = {
@@ -124,7 +124,7 @@ describe('integration: streaming provider contracts', () => {
       ];
 
       const stream = buildStream(parts, { id: 'scream-think-1' });
-      const provider = new SingleStreamProvider(stream, ,);
+      const provider = new SingleStreamProvider(stream, 'lmcode');
       const result = await generate(provider, '', [], []);
 
       expect(result.message.content).toHaveLength(2);

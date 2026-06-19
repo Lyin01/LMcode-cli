@@ -303,7 +303,7 @@ describe('lm export', () => {
   });
 
   it('describes the user-facing command without implementation details', () => {
-    const program = new Command(,);
+    const program = new Command('lm');
     const { deps } = makeDeps();
 
     registerExportCommand(program, deps);
@@ -319,10 +319,10 @@ describe('lm export', () => {
       listSessions: async () => [previous],
       confirmPreviousSession: async () => true,
     });
-    const program = new Command(,);
+    const program = new Command('lm');
     registerExportCommand(program, deps);
 
-    await program.parseAsync(['node', ,, 'export', '--no-include-global-log', '-y']);
+    await program.parseAsync(['node', 'lm', 'export', '--no-include-global-log', '-y']);
 
     expect(exitCodes).toEqual([]);
     expect(exportInputs).toEqual([{ id: 'ses_global_log', version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
@@ -332,12 +332,12 @@ describe('lm export', () => {
   it('parses options after an explicit session id', async () => {
     const output = join(tmp, 'after-id.zip');
     const { deps, exitCodes, exportInputs } = makeDeps();
-    const program = new Command(,);
+    const program = new Command('lm');
     registerExportCommand(program, deps);
 
     await program.parseAsync([
       'node',
-      ,,
+      'lm',
       'export',
       'ses_after_id',
       '-o',
