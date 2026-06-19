@@ -205,12 +205,9 @@ describe('Agent permission', () => {
     const ctx = testAgent({
       jian: createFakeJian({ execWithEnv }),
     });
-<<<<<<< HEAD
     // Default mode is now yolo (auto-approve); this test exercises the manual
     // rejection flow. Switch before configure() so the setup stays out of the
     // asserted snapshots while still replaying in expectResumeMatches.
-=======
->>>>>>> 57f3397 (test(agent-core): fix all 135 Windows test failures)
     await ctx.rpc.setPermission({ mode: 'manual' });
     ctx.configure({ tools: ['Bash'] });
 
