@@ -205,6 +205,10 @@ describe('Agent permission', () => {
     const ctx = testAgent({
       jian: createFakeJian({ execWithEnv }),
     });
+    // Default mode is now yolo (auto-approve); this test exercises the manual
+    // rejection flow. Switch before configure() so the setup stays out of the
+    // asserted snapshots while still replaying in expectResumeMatches.
+    await ctx.rpc.setPermission({ mode: 'manual' });
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will try Bash.' }, bashCall);
@@ -391,8 +395,11 @@ describe('Permission auto mode', () => {
     },
   );
 
+  // Only manual still asks for outside-cwd writes. In yolo (Full Access) the
+  // YoloModeApprovePermissionPolicy runs before the cwd-outside check and
+  // auto-approves — covered by the yolo Full Access test below.
   it.each(
-    (['manual', 'yolo'] as const).flatMap((mode) =>
+    (['manual'] as const).flatMap((mode) =>
       [
         [mode, 'Write', { path: '/tmp/notes.md', content: 'x' }, 'write', 'write file'],
         [mode, 'Edit', { path: '/tmp/notes.md', old_string: 'a', new_string: 'b' }, 'edit', 'edit file'],
@@ -592,7 +599,9 @@ describe('Permission auto mode', () => {
     
   });
 
-  it('reuses approve-for-session for repeated outside-workspace writes in yolo mode', async () => {
+  it('auto-approves repeated outside-workspace writes in yolo mode without asking', async () => {
+    // Full Access: yolo approves before the cwd-outside-write check runs, so
+    // the write is never gated and no session approval is cached.
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
       scope: 'session',
@@ -611,8 +620,8 @@ describe('Permission auto mode', () => {
     await expect(call()).resolves.toBeUndefined();
     await expect(call()).resolves.toBeUndefined();
 
-    expect(requestApproval).toHaveBeenCalledTimes(1);
-    expect(manager.sessionApprovalRulePatterns).toEqual(['Write(/tmp/notes.md)']);
+    expect(requestApproval).not.toHaveBeenCalled();
+    expect(manager.sessionApprovalRulePatterns).toEqual([]);
     expect(manager.data().rules).toEqual([]);
   });
 });
@@ -630,10 +639,10 @@ describe('Permission policy chain', () => {
       'user-configured-allow',
       'exit-plan-mode-review-ask',
       'plan-mode-tool-approve',
+      'yolo-mode-approve',
       'sensitive-file-access-ask',
       'git-control-path-access-ask',
       'cwd-outside-file-write-ask',
-      'yolo-mode-approve',
       'wolfpack-mode-approve',
       'default-tool-approve',
       'git-cwd-write-approve',
@@ -3168,6 +3177,7 @@ function makePermissionManager(
     readonly cwd?: string;
     readonly agentType?: Agent['type'];
     readonly hooks?: Agent['hooks'];
+    readonly mode?: PermissionMode | undefined;
   } = {},
 ): {
   manager: PermissionManager;
@@ -3199,6 +3209,17 @@ function makePermissionManager(
   } as unknown as Agent;
   manager = new PermissionManager(agent, options);
   Object.assign(agent, { permission: manager });
+  // The product default permission mode is now yolo. These policy unit tests
+  // were written when the default was manual, so a top-level manager (no
+  // parent) defaults to manual here unless the test asks otherwise. Child
+  // managers are left untouched so parent-mode derivation still works. The
+  // plain setter is used (not setMode) to avoid emitting records/status events
+  // that would perturb assertions on the record/replay mocks.
+  if (options.mode !== undefined) {
+    manager.mode = options.mode;
+  } else if (options.parent === undefined) {
+    manager.mode = 'manual';
+  }
   return { manager, record, requestApproval };
 }
 
