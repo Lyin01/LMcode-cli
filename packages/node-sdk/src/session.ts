@@ -15,6 +15,7 @@ import type {
   ReloadSummary,
   ResumedSessionState,
   SessionPlan,
+  SessionStats,
   SessionStatus,
   SessionSummary,
   SessionUsage,
@@ -193,6 +194,11 @@ export class Session {
   async getUsage(): Promise<SessionUsage> {
     this.ensureOpen();
     return this.rpc.getUsage({ sessionId: this.id });
+  }
+
+  async getStats(): Promise<SessionStats> {
+    this.ensureOpen();
+    return this.rpc.getStats({ sessionId: this.id });
   }
 
   async getStatus(): Promise<SessionStatus> {

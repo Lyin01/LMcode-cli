@@ -49,8 +49,8 @@ export type { GenerateCallbacks, GenerateResult } from './generate';
 export type { Tool } from './tool';
 
 // Token usage
-export { addUsage, emptyUsage, grandTotal, inputTotal } from './usage';
-export type { TokenUsage } from './usage';
+export { addUsage, emptyUsage, grandTotal, inputTotal, usageCost } from './usage';
+export type { ModelPricing, TokenUsage } from './usage';
 
 // Errors
 export {
@@ -64,7 +64,10 @@ export {
   isContextOverflowStatusError,
   isProviderRateLimitError,
   isRetryableGenerateError,
+  normalizeAPIStatusError,
+  parseRetryAfterMs,
 } from './errors';
+export type { HeaderSource, NormalizeAPIStatusErrorOptions } from './errors';
 
 // Tool call ID sanitization
 export {

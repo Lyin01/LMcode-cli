@@ -84,6 +84,35 @@ describe('convertAnthropicError', () => {
     expect((result as APIStatusError).statusCode).toBe(429);
   });
 
+  it('captures Retry-After seconds onto a 429 rate-limit error', () => {
+    const err = new AnthropicRateLimitError(
+      429,
+      { type: 'error', error: { type: 'rate_limit_error', message: 'rate limited' } },
+      'rate limited',
+      new Headers({ 'retry-after': '15' }),
+    );
+    const result = convertAnthropicError(err);
+    expect((result as APIStatusError).retryAfterMs).toBe(15_000);
+  });
+
+  it('falls back to anthropic-ratelimit-*-reset when no Retry-After present', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-20T00:00:00.000Z'));
+    try {
+      const reset = new Date('2026-06-20T00:00:08.000Z').toISOString();
+      const err = new AnthropicRateLimitError(
+        429,
+        { type: 'error', error: { type: 'rate_limit_error', message: 'rate limited' } },
+        'rate limited',
+        new Headers({ 'anthropic-ratelimit-tokens-reset': reset }),
+      );
+      const result = convertAnthropicError(err);
+      expect((result as APIStatusError).retryAfterMs).toBe(8000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('generic AnthropicError -> ChatProviderError', () => {
     const err = new AnthropicError('something went wrong');
     const result = convertAnthropicError(err);

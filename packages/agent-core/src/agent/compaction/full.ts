@@ -156,6 +156,7 @@ export class FullCompaction {
     this.agent.records.logRecord({
       type: 'full_compaction.complete',
     });
+    this.agent.usage.recordCompaction();
     this.compacting = null;
     this._compactedHistory.push({
       text: renderMessagesToText(this.agent.context.history),

@@ -3,6 +3,7 @@ import {
   APITimeoutError,
   ChatProviderError,
   normalizeAPIStatusError,
+  parseRetryAfterMs,
 } from '#/errors';
 import { extractText } from '#/message';
 import type { ContentPart, Message } from '#/message';
@@ -118,7 +119,8 @@ export function convertOpenAIError(error: unknown): ChatProviderError {
   // APIError with a status code => status error
   if (error instanceof OpenAIAPIError && typeof error.status === 'number') {
     const reqId = error.requestID ?? null;
-    return normalizeAPIStatusError(error.status, error.message, reqId);
+    const retryAfterMs = parseRetryAfterMs(error.headers);
+    return normalizeAPIStatusError(error.status, error.message, reqId, { retryAfterMs });
   }
   // Base APIError with no status and no body => transport-layer failure.
   // When the error has a body (e.g. SSE error events from the server),

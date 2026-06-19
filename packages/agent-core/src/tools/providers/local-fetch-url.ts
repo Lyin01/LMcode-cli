@@ -60,7 +60,7 @@ async function getLinkedom(): Promise<{
   if (!linkedomModule) {
     linkedomModule = (await import('linkedom')) as any;
   }
-  return linkedomModule;
+  return linkedomModule!;
 }
 
 /**

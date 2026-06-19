@@ -638,7 +638,7 @@ export class MemoryMemoStore {
         ? Date.now() - recencyCutoffDays * 24 * 60 * 60 * 1000
         : undefined;
 
-    let rows: Array<{ memory_id: string; embedding: Buffer | null }>;
+    let rows: Array<{ memory_id: string; embedding: Buffer | null; embedding_json?: string }>;
     if (projectDir !== undefined) {
       const stmt =
         cutoffMs === undefined
@@ -664,6 +664,7 @@ export class MemoryMemoStore {
         : stmt.all(projectDir, cutoffMs, limit)) as Array<{
         memory_id: string;
         embedding: Buffer | null;
+        embedding_json?: string;
       }>;
     } else {
       const stmt =
@@ -679,6 +680,7 @@ export class MemoryMemoStore {
         : stmt.all(cutoffMs, limit)) as Array<{
         memory_id: string;
         embedding: Buffer | null;
+        embedding_json?: string;
       }>;
     }
 

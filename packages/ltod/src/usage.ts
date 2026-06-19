@@ -52,3 +52,51 @@ export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
     inputCacheCreation: a.inputCacheCreation + b.inputCacheCreation,
   };
 }
+
+/**
+ * Per-model pricing, expressed as USD per **one million** tokens.
+ *
+ * Only `input` and `output` are required to estimate a cost. The cache rates
+ * are optional: when a rate is omitted, the corresponding tokens are billed at
+ * the plain `input` rate, which matches how providers that do not expose a
+ * separate cache price behave.
+ *
+ * All rates are USD per 1,000,000 tokens (the unit providers publish), so a
+ * value of `3` means $3.00 per million input tokens.
+ */
+export interface ModelPricing {
+  /** USD per 1M non-cached input tokens. */
+  readonly input: number;
+  /** USD per 1M output tokens. */
+  readonly output: number;
+  /** USD per 1M cache-read input tokens. Defaults to {@link input} when unset. */
+  readonly cacheRead?: number;
+  /** USD per 1M cache-write (creation) input tokens. Defaults to {@link input} when unset. */
+  readonly cacheWrite?: number;
+}
+
+const TOKENS_PER_PRICE_UNIT = 1_000_000;
+
+/**
+ * Estimate the USD cost of a {@link TokenUsage} total under the given pricing.
+ *
+ * Pure and side-effect free. Returns `undefined` when no pricing is supplied so
+ * callers can cleanly report "cost unknown" for models without configured
+ * prices. Cache-read / cache-write tokens fall back to the plain input rate
+ * when their dedicated rates are not provided.
+ */
+export function usageCost(
+  usage: TokenUsage,
+  pricing: ModelPricing | undefined,
+): number | undefined {
+  if (pricing === undefined) return undefined;
+  const cacheReadRate = pricing.cacheRead ?? pricing.input;
+  const cacheWriteRate = pricing.cacheWrite ?? pricing.input;
+  const cost =
+    (usage.inputOther * pricing.input +
+      usage.inputCacheRead * cacheReadRate +
+      usage.inputCacheCreation * cacheWriteRate +
+      usage.output * pricing.output) /
+    TOKENS_PER_PRICE_UNIT;
+  return cost;
+}

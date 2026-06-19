@@ -1,6 +1,6 @@
 import { generate } from '#/generate';
 import type { ContentPart, Message, ToolCall } from '#/message';
-import { extractUsageFromChunk, LmcodeChatProvider } from '#/providers/scream';
+import { extractUsageFromChunk, LmcodeChatProvider } from '#/providers/lmcode';
 import { extractUsage } from '#/providers/openai-common';
 import type { Tool } from '#/tool';
 import { describe, it, expect, vi } from 'vitest';

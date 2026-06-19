@@ -102,6 +102,37 @@ describe('convertOpenAIError: existing provider errors', () => {
     expect(convertOpenAIError(err)).toBe(err);
   });
 });
+describe('convertOpenAIError: retry-after header parsing', () => {
+  it('captures Retry-After seconds onto a 429 rate-limit error', () => {
+    const err = new OpenAIAPIError(
+      429,
+      undefined,
+      'Too Many Requests',
+      new Headers({ 'retry-after': '20' }),
+    );
+    const result = convertOpenAIError(err);
+    expect(result).toBeInstanceOf(APIStatusError);
+    expect((result as APIStatusError).statusCode).toBe(429);
+    expect((result as APIStatusError).retryAfterMs).toBe(20_000);
+  });
+
+  it('prefers retry-after-ms over Retry-After', () => {
+    const err = new OpenAIAPIError(
+      429,
+      undefined,
+      'Too Many Requests',
+      new Headers({ 'retry-after': '20', 'retry-after-ms': '750' }),
+    );
+    const result = convertOpenAIError(err);
+    expect((result as APIStatusError).retryAfterMs).toBe(750);
+  });
+
+  it('leaves retryAfterMs undefined when no hint header present', () => {
+    const err = new OpenAIAPIError(503, undefined, 'Service Unavailable', new Headers());
+    const result = convertOpenAIError(err);
+    expect((result as APIStatusError).retryAfterMs).toBeUndefined();
+  });
+});
 describe('convertOpenAIError: context overflow', () => {
   it('normalizes context overflow status errors', () => {
     const err = new OpenAIAPIError(413, undefined, 'Context length exceeded', undefined);

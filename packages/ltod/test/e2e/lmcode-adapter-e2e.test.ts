@@ -1,6 +1,6 @@
 import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import type { StreamedMessage } from '#/provider';
-import { LmcodeChatProvider } from '#/providers/scream';
+import { LmcodeChatProvider } from '#/providers/lmcode';
 import type { Tool } from '#/tool';
 import { describe, expect, it } from 'vitest';
 

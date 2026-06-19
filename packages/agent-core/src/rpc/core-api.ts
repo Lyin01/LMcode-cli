@@ -12,7 +12,7 @@ import type { BackgroundTaskInfo } from '#/tools/builtin';
 import type { ContentPart } from '@lmcode-cli/ltod';
 
 import type { PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
-import type { UsageStatus } from './events';
+import type { SessionStats, UsageStatus } from './events';
 import type { WithAgentId, WithSessionId } from './types';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -359,6 +359,7 @@ export interface AgentAPI {
   getPermission: (payload: EmptyPayload) => PermissionData;
   getPlan: (payload: EmptyPayload) => PlanData;
   getUsage: (payload: EmptyPayload) => UsageStatus;
+  getStats: (payload: EmptyPayload) => SessionStats;
   getTools: (payload: EmptyPayload) => readonly ToolInfo[];
   getBackground: (payload: GetBackgroundPayload) => readonly BackgroundTaskInfo[];
   extractMemoriesOnExit: (payload: EmptyPayload) => Promise<void>;

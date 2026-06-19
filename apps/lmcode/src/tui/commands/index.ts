@@ -24,6 +24,7 @@ export {
 } from './config';
 export {
   showMcpServers,
+  showStats,
   showStatusReport,
   showUsage,
 } from './info';

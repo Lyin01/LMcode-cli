@@ -1,8 +1,8 @@
-import type { McpServerInfo, SessionStatus, SessionUsage } from '@lmcode-cli/lmcode-sdk';
+import type { McpServerInfo, SessionStats, SessionStatus, SessionUsage } from '@lmcode-cli/lmcode-sdk';
 
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
-import { buildUsageReportLines, UsagePanelComponent, type ManagedUsageReport } from '../components/messages/usage-panel';
+import { buildStatsReportLines, buildUsageReportLines, UsagePanelComponent, type ManagedUsageReport } from '../components/messages/usage-panel';
 import { isManagedUsageProvider } from '../constant/lmcode-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
@@ -22,6 +22,11 @@ interface ManagedUsageResult {
   readonly error?: string;
 }
 
+interface SessionStatsResult {
+  readonly stats?: SessionStats;
+  readonly error?: string;
+}
+
 export async function showUsage(host: SlashCommandHost): Promise<void> {
   const sessionUsage = await loadSessionUsageReport(host);
   const managedUsage = await loadManagedUsageReport(host);
@@ -36,6 +41,18 @@ export async function showUsage(host: SlashCommandHost): Promise<void> {
     managedUsageError: managedUsage?.error,
   });
   const panel = new UsagePanelComponent(lines, host.state.theme.colors.primary);
+  host.state.transcriptContainer.addChild(panel);
+  host.state.ui.requestRender();
+}
+
+export async function showStats(host: SlashCommandHost): Promise<void> {
+  const result = await loadSessionStatsReport(host);
+  const lines = buildStatsReportLines({
+    colors: host.state.theme.colors,
+    stats: result.stats,
+    statsError: result.error,
+  });
+  const panel = new UsagePanelComponent(lines, host.state.theme.colors.primary, ' 统计 ');
   host.state.transcriptContainer.addChild(panel);
   host.state.ui.requestRender();
 }
@@ -92,6 +109,14 @@ export async function showMcpServers(host: SlashCommandHost): Promise<void> {
 async function loadSessionUsageReport(host: SlashCommandHost): Promise<SessionUsageResult> {
   try {
     return { usage: await host.requireSession().getUsage() };
+  } catch (error) {
+    return { error: formatErrorMessage(error) };
+  }
+}
+
+async function loadSessionStatsReport(host: SlashCommandHost): Promise<SessionStatsResult> {
+  try {
+    return { stats: await host.requireSession().getStats() };
   } catch (error) {
     return { error: formatErrorMessage(error) };
   }

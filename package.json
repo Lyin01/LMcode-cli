@@ -15,6 +15,8 @@
     "sherif": "sherif",
     "test": "vitest run",
     "test:watch": "vitest",
+    "eval": "tsx --tsconfig ./evals/tsconfig.json --import ./evals/framework/raw-text-loader.mjs ./evals/run.ts",
+    "eval:test": "vitest run --config evals/vitest.config.ts",
     "test:coverage": "vitest run --coverage",
     "clean": "pnpm -r run clean",
     "changeset": "changeset",

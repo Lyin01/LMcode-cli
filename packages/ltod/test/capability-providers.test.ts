@@ -15,7 +15,7 @@
 import { UNKNOWN_CAPABILITY } from '#/capability';
 import { AnthropicChatProvider } from '#/providers/anthropic';
 import { GoogleGenAIChatProvider } from '#/providers/google-genai';
-import { LmcodeChatProvider } from '#/providers/scream';
+import { LmcodeChatProvider } from '#/providers/lmcode';
 import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
 import { OpenAIResponsesChatProvider } from '#/providers/openai-responses';
 import { describe, expect, it } from 'vitest';

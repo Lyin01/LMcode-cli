@@ -12,7 +12,7 @@ import {
   HttpFetchError,
   type UrlFetcher,
 } from '../../src/tools/builtin/web/fetch-url';
-import { ScreamCliFetchURLProvider } from '../../src/tools/providers/scream-cli-fetch-url';
+import { ScreamCliFetchURLProvider } from '../../src/tools/providers/lmcode-cli-fetch-url';
 import { toolContentString } from './fixtures/fake-jian';
 import { executeTool } from './fixtures/execute-tool';
 

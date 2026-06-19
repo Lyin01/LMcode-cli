@@ -1,6 +1,6 @@
 import { sleep } from '@antfu/utils';
 import * as retry from 'retry';
-import { APIContextOverflowError } from '@lmcode-cli/ltod';
+import { APIContextOverflowError, APIStatusError, isProviderRateLimitError } from '@lmcode-cli/ltod';
 
 import type { Logger } from '#/logging/types';
 
@@ -14,6 +14,13 @@ export const DEFAULT_MAX_RETRY_ATTEMPTS = 3;
 const RETRY_MIN_TIMEOUT_MS = 300;
 const RETRY_MAX_TIMEOUT_MS = 5000;
 const RETRY_FACTOR = 2;
+
+/**
+ * Ceiling for rate-limit backoff. Provider rate limits often need far longer
+ * than the default 5s cap to clear, so honor server hints (and clamp our own
+ * backoff) up to a full minute.
+ */
+export const RATE_LIMIT_MAX_TIMEOUT_MS = 60_000;
 
 export interface ChatWithRetryInput {
   readonly llm: LLM;
@@ -58,7 +65,7 @@ export async function chatWithRetry(input: ChatWithRetryInput): Promise<LLMChatR
         throw error;
       }
 
-      const delayMs = delays[attempt - 1] ?? 0;
+      const delayMs = retryDelayMs(error, delays[attempt - 1] ?? 0);
       input.params.signal.throwIfAborted();
       input.dispatchEvent({
         type: 'step.retrying',
@@ -116,6 +123,34 @@ export function retryBackoffDelays(maxAttempts: number): number[] {
     factor: RETRY_FACTOR,
     randomize: true,
   });
+}
+
+/**
+ * Resolve the delay before the next retry, honoring server hints for rate
+ * limits:
+ *  - If the error carries a usable `retryAfterMs` (server `Retry-After`),
+ *    use it, clamped to {@link RATE_LIMIT_MAX_TIMEOUT_MS}.
+ *  - Else if the error is a provider rate-limit, clamp the normal exponential
+ *    backoff up to {@link RATE_LIMIT_MAX_TIMEOUT_MS} instead of the 5s default.
+ *  - Otherwise use the precomputed (5s-capped) backoff for this attempt.
+ */
+export function retryDelayMs(error: unknown, backoffDelayMs: number): number {
+  const retryAfterMs = retryAfterMsFor(error);
+  if (retryAfterMs !== undefined) {
+    return Math.min(retryAfterMs, RATE_LIMIT_MAX_TIMEOUT_MS);
+  }
+  if (isProviderRateLimitError(error)) {
+    return Math.min(backoffDelayMs * RETRY_FACTOR, RATE_LIMIT_MAX_TIMEOUT_MS);
+  }
+  return backoffDelayMs;
+}
+
+function retryAfterMsFor(error: unknown): number | undefined {
+  const raw =
+    error instanceof APIStatusError
+      ? error.retryAfterMs
+      : (error as { retryAfterMs?: unknown } | null)?.retryAfterMs;
+  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
 }
 
 export async function sleepForRetry(delayMs: number, signal: AbortSignal): Promise<void> {

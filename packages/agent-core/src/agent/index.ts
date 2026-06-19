@@ -395,6 +395,7 @@ export class Agent {
       getPermission: () => this.permission.data(),
       getPlan: () => this.planMode.data(),
       getUsage: () => this.usage.data(),
+      getStats: () => this.usage.stats(),
       getTools: () => this.tools.data(),
       getBackground: (payload) => this.background.list(payload.activeOnly ?? false, payload.limit),
       extractMemoriesOnExit: async () => {

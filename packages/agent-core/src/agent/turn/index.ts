@@ -517,6 +517,7 @@ export class TurnFlow {
             },
             afterStep: async ({ usage }) => {
               this.agent.usage.record(model, usage, 'turn');
+              this.agent.usage.recordLlmStep();
               await this.agent.goal.recordTokenUsage(ltodGrandTotal(usage));
               await this.agent.fullCompaction.afterStep();
               deduper.endStep();
@@ -569,6 +570,9 @@ export class TurnFlow {
                 ctx.result,
               );
               const { isError, output } = finalResult;
+
+              // Count the tool execution for session stats.
+              this.agent.usage.recordToolCall(ctx.toolCall.name);
 
               // Record in session memory for post-compaction context injection
               this.agent.sessionMemory.recordToolExecution(
@@ -654,6 +658,10 @@ export class TurnFlow {
   private updateCurrentStepFromLoopEvent(event: LoopEvent, turnId: number): void {
     if (event.type === 'step.begin') {
       this.beginTrackedStep(turnId, event.step);
+      return;
+    }
+    if (event.type === 'step.retrying') {
+      this.agent.usage.recordRetry();
       return;
     }
   }

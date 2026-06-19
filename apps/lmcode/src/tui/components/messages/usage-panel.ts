@@ -6,7 +6,7 @@
 
 import type { Component } from '@earendil-works/pi-tui';
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import type { SessionUsage, TokenUsage } from '@lmcode-cli/lmcode-sdk';
+import type { SessionStats, SessionUsage, TokenUsage } from '@lmcode-cli/lmcode-sdk';
 import chalk from 'chalk';
 
 import {
@@ -214,6 +214,88 @@ export function buildUsageReportLines(options: UsageReportOptions): string[] {
   if (managedSection.length > 0) {
     lines.push('');
     lines.push(...managedSection);
+  }
+
+  return lines;
+}
+
+export interface StatsReportOptions {
+  readonly colors: ColorPalette;
+  readonly stats?: SessionStats;
+  readonly statsError?: string;
+}
+
+function formatUsd(value: number): string {
+  // Sub-cent costs are common for short sessions; show enough precision to be
+  // useful without drowning in digits.
+  if (value === 0) return '$0.00';
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(2)}`;
+}
+
+export function buildStatsReportLines(options: StatsReportOptions): string[] {
+  const colors = options.colors;
+  const accent = chalk.hex(colors.primary).bold;
+  const value = chalk.hex(colors.text);
+  const muted = chalk.hex(colors.textDim);
+  const errorStyle = chalk.hex(colors.error);
+
+  if (options.statsError !== undefined) {
+    return [accent('会话统计'), errorStyle(`  ${options.statsError}`)];
+  }
+  const stats = options.stats;
+  if (stats === undefined) {
+    return [accent('会话统计'), muted('  暂无统计数据。')];
+  }
+
+  const lines: string[] = [accent('会话统计')];
+
+  // Tokens
+  lines.push(
+    `  ${muted('输入')} ${value(formatTokenCount(stats.inputTokens))}  ${muted('输出')} ${value(
+      formatTokenCount(stats.outputTokens),
+    )}  ${muted('总计')} ${value(formatTokenCount(stats.totalTokens))}`,
+  );
+  if (stats.cacheReadTokens > 0 || stats.cacheWriteTokens > 0) {
+    lines.push(
+      `  ${muted('缓存读取')} ${value(formatTokenCount(stats.cacheReadTokens))}  ${muted(
+        '缓存写入',
+      )} ${value(formatTokenCount(stats.cacheWriteTokens))}`,
+    );
+  }
+
+  // Cost
+  if (stats.estimatedCostUsd !== undefined) {
+    lines.push(`  ${muted('预估费用')} ${value(formatUsd(stats.estimatedCostUsd))}`);
+    const costByModel = stats.costByModel;
+    if (costByModel !== undefined && Object.keys(costByModel).length > 1) {
+      for (const [model, cost] of Object.entries(costByModel)) {
+        lines.push(`    ${muted(model)}  ${value(formatUsd(cost))}`);
+      }
+    }
+  } else {
+    lines.push(`  ${muted('预估费用')} ${muted('未配置定价')}`);
+  }
+
+  // Activity
+  lines.push('');
+  lines.push(accent('活动'));
+  lines.push(
+    `  ${muted('LLM 步数')} ${value(String(stats.llmSteps))}  ${muted('工具调用')} ${value(
+      String(stats.toolCalls),
+    )}`,
+  );
+  lines.push(
+    `  ${muted('重试')} ${value(String(stats.retries))}  ${muted('压缩')} ${value(
+      String(stats.compactions),
+    )}`,
+  );
+  const toolCallsByName = stats.toolCallsByName;
+  if (toolCallsByName !== undefined && Object.keys(toolCallsByName).length > 0) {
+    const sorted = Object.entries(toolCallsByName).sort((a, b) => b[1] - a[1]);
+    for (const [name, count] of sorted) {
+      lines.push(`    ${muted(name)}  ${value(String(count))}`);
+    }
   }
 
   return lines;

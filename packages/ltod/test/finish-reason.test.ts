@@ -4,7 +4,7 @@ import { MockChatProvider } from './fixtures/mock-provider';
 import type { FinishReason } from '#/provider';
 import { AnthropicChatProvider } from '#/providers/anthropic';
 import { GoogleGenAIChatProvider, GoogleGenAIStreamedMessage } from '#/providers/google-genai';
-import { LmcodeChatProvider } from '#/providers/scream';
+import { LmcodeChatProvider } from '#/providers/lmcode';
 import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
 import { OpenAIResponsesStreamedMessage } from '#/providers/openai-responses';
 import { normalizeOpenAIFinishReason } from '#/providers/openai-common';

@@ -4,6 +4,7 @@ import {
   APITimeoutError,
   ChatProviderError,
   normalizeAPIStatusError,
+  parseRetryAfterMs,
 } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import {
@@ -552,7 +553,8 @@ export function convertAnthropicError(error: unknown): ChatProviderError {
   // APIError with a status code => status error
   if (error instanceof AnthropicAPIError && typeof error.status === 'number') {
     const reqId = error.requestID ?? null;
-    return normalizeAPIStatusError(error.status, error.message, reqId);
+    const retryAfterMs = parseAnthropicRetryAfterMs(error.headers);
+    return normalizeAPIStatusError(error.status, error.message, reqId, { retryAfterMs });
   }
   if (error instanceof AnthropicError) {
     return new ChatProviderError(`Anthropic error: ${error.message}`);
@@ -561,6 +563,38 @@ export function convertAnthropicError(error: unknown): ChatProviderError {
     return new ChatProviderError(`Error: ${error.message}`);
   }
   return new ChatProviderError(`Error: ${String(error)}`);
+}
+
+/**
+ * Anthropic primarily uses standard `Retry-After` / `retry-after-ms` headers,
+ * but also exposes `anthropic-ratelimit-*-reset` RFC3339 timestamps. Prefer the
+ * standard headers, falling back to the soonest rate-limit reset timestamp.
+ */
+const ANTHROPIC_RATELIMIT_RESET_HEADERS = [
+  'anthropic-ratelimit-requests-reset',
+  'anthropic-ratelimit-tokens-reset',
+  'anthropic-ratelimit-input-tokens-reset',
+  'anthropic-ratelimit-output-tokens-reset',
+] as const;
+
+export function parseAnthropicRetryAfterMs(
+  headers: Headers | null | undefined,
+): number | undefined {
+  const standard = parseRetryAfterMs(headers);
+  if (standard !== undefined) return standard;
+
+  if (!headers || typeof headers.get !== 'function') return undefined;
+
+  let soonest: number | undefined;
+  for (const name of ANTHROPIC_RATELIMIT_RESET_HEADERS) {
+    const value = headers.get(name);
+    if (value === null) continue;
+    const target = Date.parse(value);
+    if (Number.isNaN(target)) continue;
+    const delta = Math.max(0, target - Date.now());
+    if (soonest === undefined || delta < soonest) soonest = delta;
+  }
+  return soonest;
 }
 class AnthropicStreamedMessage implements StreamedMessage {
   private _id: string | null = null;

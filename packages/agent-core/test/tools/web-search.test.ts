@@ -11,7 +11,7 @@ import {
   WebSearchTool,
   type WebSearchProvider,
 } from '../../src/tools/builtin/web/web-search';
-import { ScreamCliWebSearchProvider } from '../../src/tools/providers/scream-cli-web-search';
+import { ScreamCliWebSearchProvider } from '../../src/tools/providers/lmcode-cli-web-search';
 import { toolContentString } from './fixtures/fake-jian';
 import { executeTool } from './fixtures/execute-tool';
 

@@ -40,6 +40,7 @@ import type {
   ReloadSummary,
   CompactOptions,
   SessionPlan,
+  SessionStats,
   SessionStatus,
   SessionUsage,
   PromptInput,
@@ -424,6 +425,14 @@ export class SDKRpcClient {
   async getUsage(input: SessionIdRpcInput): Promise<SessionUsage> {
     const rpc = await this.getRpc();
     return rpc.getUsage({
+      sessionId: input.sessionId,
+      agentId: this.interactiveAgentId,
+    });
+  }
+
+  async getStats(input: SessionIdRpcInput): Promise<SessionStats> {
+    const rpc = await this.getRpc();
+    return rpc.getStats({
       sessionId: input.sessionId,
       agentId: this.interactiveAgentId,
     });

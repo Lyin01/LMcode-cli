@@ -107,6 +107,13 @@ export const BUILTIN_SLASH_COMMANDS = [
     priority: 114,
     availability: 'always',
   },
+  {
+    name: 'stats',
+    aliases: [],
+    description: '显示会话统计（费用、步数、工具调用、重试、压缩）',
+    priority: 114,
+    availability: 'always',
+  },
 
   // ── 对话 ──
   {

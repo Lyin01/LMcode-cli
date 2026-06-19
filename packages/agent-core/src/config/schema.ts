@@ -35,6 +35,18 @@ export const ProviderConfigSchema = z.object({
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
+// Optional per-model pricing in USD per 1,000,000 tokens. Backward-compatible:
+// models without a `pricing` block simply report no estimated cost. Cache rates
+// fall back to the plain input rate when omitted.
+export const ModelPricingSchema = z.object({
+  input: z.number().min(0),
+  output: z.number().min(0),
+  cacheRead: z.number().min(0).optional(),
+  cacheWrite: z.number().min(0).optional(),
+});
+
+export type ModelPricingConfig = z.infer<typeof ModelPricingSchema>;
+
 export const ModelAliasSchema = z.object({
   provider: z.string(),
   model: z.string(),
@@ -43,6 +55,8 @@ export const ModelAliasSchema = z.object({
   capabilities: z.array(z.string()).optional(),
   displayName: z.string().optional(),
   reasoningKey: z.string().optional(),
+  // Optional pricing (USD per 1M tokens) used to estimate session cost.
+  pricing: ModelPricingSchema.optional(),
   // Explicitly declare adaptive-thinking support, overriding the ltod
   // model-name version inference. Needed for custom-named Anthropic endpoints
   // whose model name does not encode a parseable Claude version.

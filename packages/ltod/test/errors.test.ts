@@ -9,8 +9,9 @@ import {
   isProviderRateLimitError,
   isRetryableGenerateError,
   normalizeAPIStatusError,
+  parseRetryAfterMs,
 } from '#/errors';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('ChatProviderError', () => {
   it('is an instance of Error', () => {
@@ -223,5 +224,112 @@ describe('isProviderRateLimitError', () => {
     expect(isProviderRateLimitError(new APIStatusError(500, 'server error'))).toBe(false);
     expect(isProviderRateLimitError(new APIConnectionError('connection refused'))).toBe(false);
     expect(isProviderRateLimitError(new Error('something else'))).toBe(false);
+  });
+});
+
+describe('retryAfterMs on status errors', () => {
+  it('APIStatusError stores retryAfterMs when provided', () => {
+    const err = new APIStatusError(503, 'unavailable', 'req-1', 2000);
+    expect(err.retryAfterMs).toBe(2000);
+  });
+
+  it('APIStatusError leaves retryAfterMs undefined when omitted (backward-compatible)', () => {
+    const err = new APIStatusError(500, 'server error');
+    expect(err.retryAfterMs).toBeUndefined();
+  });
+
+  it('APIProviderRateLimitError carries retryAfterMs', () => {
+    const err = new APIProviderRateLimitError('rate limited', 'req-2', 5000);
+    expect(err.statusCode).toBe(429);
+    expect(err.retryAfterMs).toBe(5000);
+  });
+
+  it('APIContextOverflowError carries retryAfterMs', () => {
+    const err = new APIContextOverflowError(400, 'too long', 'req-3', 1000);
+    expect(err.retryAfterMs).toBe(1000);
+  });
+
+  it('normalizeAPIStatusError propagates retryAfterMs to a rate-limit error', () => {
+    const err = normalizeAPIStatusError(429, 'Too Many Requests', 'req-rate', {
+      retryAfterMs: 12_000,
+    });
+    expect(err).toBeInstanceOf(APIProviderRateLimitError);
+    expect(err.retryAfterMs).toBe(12_000);
+  });
+
+  it('normalizeAPIStatusError propagates retryAfterMs to a generic status error', () => {
+    const err = normalizeAPIStatusError(503, 'Service Unavailable', null, {
+      retryAfterMs: 3000,
+    });
+    expect(err).toBeInstanceOf(APIStatusError);
+    expect(err.retryAfterMs).toBe(3000);
+  });
+
+  it('normalizeAPIStatusError keeps retryAfterMs undefined when no options passed', () => {
+    const err = normalizeAPIStatusError(429, 'Too Many Requests', 'req-rate');
+    expect(err.retryAfterMs).toBeUndefined();
+  });
+});
+
+describe('parseRetryAfterMs', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-20T00:00:00.000Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('parses Retry-After integer seconds to ms', () => {
+    expect(parseRetryAfterMs(new Headers({ 'retry-after': '30' }))).toBe(30_000);
+  });
+
+  it('parses Retry-After HTTP-date relative to now, floored at 0', () => {
+    const future = new Date('2026-06-20T00:00:10.000Z').toUTCString();
+    expect(parseRetryAfterMs(new Headers({ 'retry-after': future }))).toBe(10_000);
+
+    const past = new Date('2026-06-19T00:00:00.000Z').toUTCString();
+    expect(parseRetryAfterMs(new Headers({ 'retry-after': past }))).toBe(0);
+  });
+
+  it('prefers retry-after-ms over Retry-After', () => {
+    const headers = new Headers({ 'retry-after': '30', 'retry-after-ms': '1500' });
+    expect(parseRetryAfterMs(headers)).toBe(1500);
+  });
+
+  it('parses retry-after-ms as integer milliseconds', () => {
+    expect(parseRetryAfterMs(new Headers({ 'retry-after-ms': '2500' }))).toBe(2500);
+  });
+
+  it('returns undefined when no retry headers are present', () => {
+    expect(parseRetryAfterMs(new Headers({ 'content-type': 'application/json' }))).toBeUndefined();
+  });
+
+  it('returns undefined for missing/null/undefined header sources', () => {
+    expect(parseRetryAfterMs(undefined)).toBeUndefined();
+    expect(parseRetryAfterMs(null)).toBeUndefined();
+  });
+
+  it('returns undefined for garbage values', () => {
+    expect(parseRetryAfterMs(new Headers({ 'retry-after': 'soon' }))).toBeUndefined();
+    expect(parseRetryAfterMs(new Headers({ 'retry-after': '' }))).toBeUndefined();
+    expect(parseRetryAfterMs(new Headers({ 'retry-after-ms': 'abc' }))).toBeUndefined();
+    expect(parseRetryAfterMs(new Headers({ 'retry-after-ms': '12.5' }))).toBeUndefined();
+    expect(parseRetryAfterMs(new Headers({ 'retry-after-ms': '-5' }))).toBeUndefined();
+  });
+
+  it('falls back to Retry-After when retry-after-ms is garbage', () => {
+    const headers = new Headers({ 'retry-after-ms': 'nope', 'retry-after': '10' });
+    expect(parseRetryAfterMs(headers)).toBe(10_000);
+  });
+
+  it('accepts a header-getter function', () => {
+    const get = (name: string): string | null => (name === 'retry-after' ? '5' : null);
+    expect(parseRetryAfterMs(get)).toBe(5000);
+  });
+
+  it('accepts a plain record (case-insensitive)', () => {
+    expect(parseRetryAfterMs({ 'Retry-After': '7' })).toBe(7000);
+    expect(parseRetryAfterMs({ 'RETRY-AFTER-MS': '800' })).toBe(800);
   });
 });

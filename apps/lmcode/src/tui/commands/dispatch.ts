@@ -34,7 +34,7 @@ import {
   showPermissionPicker,
   showSettingsSelector,
 } from './config';
-import { showMcpServers, showStatusReport, showUsage } from './info';
+import { showMcpServers, showStats, showStatusReport, showUsage } from './info';
 import {
   handleExportDebugZipCommand,
   handleExportMdCommand,
@@ -75,6 +75,7 @@ export {
 } from './config';
 export {
   showMcpServers,
+  showStats,
   showStatusReport,
   showUsage,
 } from './info';
@@ -252,6 +253,11 @@ async function handleBuiltInSlashCommand(
     case 'usage':
       showUsage(host).catch((error: unknown) => {
         host.showError(`显示使用情况失败：${formatErrorMessage(error)}`);
+      });
+      return;
+    case 'stats':
+      showStats(host).catch((error: unknown) => {
+        host.showError(`显示统计失败：${formatErrorMessage(error)}`);
       });
       return;
     case 'status':

@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { LmcodeChatProvider } from '#/providers/scream';
+import { LmcodeChatProvider } from '#/providers/lmcode';
 import { LmcodeFiles } from '#/providers/lmcode-files';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OldScreamJsonSchema, OldSessionStateSchema } from '../src/scream-cli-schema.js';
+import { OldScreamJsonSchema, OldSessionStateSchema } from '../src/lmcode-cli-schema.js';
 
 describe('OldScreamJsonSchema', () => {
   it('parses a real-shape scream.json', () => {

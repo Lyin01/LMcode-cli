@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { FetchCache } from '../../../src/tools/providers/fetch-cache';
 import type { UrlFetcher } from '../../../src/tools/builtin/web/fetch-url';
-import { ScreamCliFetchURLProvider } from '../../../src/tools/providers/scream-cli-fetch-url';
+import { ScreamCliFetchURLProvider } from '../../../src/tools/providers/lmcode-cli-fetch-url';
 
 function fakeFetcher(
   content = '',

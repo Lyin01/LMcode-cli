@@ -17,6 +17,40 @@ export interface UsageStatus {
   readonly total?: TokenUsage | undefined;
 }
 
+/**
+ * Structured per-session observability summary: aggregated token usage,
+ * estimated USD cost (from configured per-model pricing), and activity counters
+ * recorded by the harness during the session.
+ */
+export interface SessionStats {
+  /** Aggregated token usage across all models used this session. */
+  readonly total: TokenUsage;
+  /** Total input tokens (non-cache + cache read + cache write). */
+  readonly inputTokens: number;
+  /** Total output tokens. */
+  readonly outputTokens: number;
+  /** Total cache-read input tokens. */
+  readonly cacheReadTokens: number;
+  /** Total cache-write (creation) input tokens. */
+  readonly cacheWriteTokens: number;
+  /** Grand total tokens (input + output). */
+  readonly totalTokens: number;
+  /** Estimated total USD cost, or undefined when no priced model accrued usage. */
+  readonly estimatedCostUsd?: number | undefined;
+  /** Per-model estimated USD cost, present only for models with pricing. */
+  readonly costByModel?: Record<string, number> | undefined;
+  /** Number of completed LLM steps (model generations). */
+  readonly llmSteps: number;
+  /** Number of tool executions. */
+  readonly toolCalls: number;
+  /** Per-tool execution counts, when any tools ran. */
+  readonly toolCallsByName?: Record<string, number> | undefined;
+  /** Number of LLM step retry attempts. */
+  readonly retries: number;
+  /** Number of completed context compactions. */
+  readonly compactions: number;
+}
+
 export interface ToolUpdate {
   readonly kind: 'stdout' | 'stderr' | 'progress' | 'status' | 'custom';
   readonly text?: string | undefined;
