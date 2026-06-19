@@ -75,6 +75,31 @@ cd ~/.lmcode && ./install.sh --upgrade
 
 ---
 
+## 🚀 v0.6.0 更新日志
+
+### 🐞 修复
+- **135 个 Windows 测试失败全部修复** — 覆盖路径归一化、SQLite EBUSY 清理、Hook 子进程、yolo 权限迁移、配置格式等 10 类问题
+- **Hook 子进程在 Windows 上弹出 git 窗口** — `spawn()` 添加 `windowsHide: true`，根治每次跑 hook 弹 conhost 窗口
+- **brand rename 遗留的 "scream" 引用** — 218 处 scream → lmcode 品牌重命名全覆盖
+
+### ⚡ 性能优化
+- **linkedom（2MB）和 nunjucks（1.8MB）懒加载** — 不再静态打包，仅在首次使用时动态 import，大幅降低启动时间
+- **系统提示词精简** — AGENTS.md 改为路径列表按需读取（原 32KB 固定注入），移除冗余通用指令
+- **embedding 存储优化** — JSON 字符串改为二进制 Float32Array Buffer
+- **FTS 空结果回退优化** — 先尝试前缀通配符再全表扫描
+
+### 🧹 清理
+- **安装脚本修复** — `scream` → `lm` 命令创建正确
+- **死代码清理** — 移除 migration 残留代码
+- **CI 基础设施** — 添加 `.nvmrc`，配置简单 git hooks
+- **文档修复** — tsconfig、README 等同步更新
+
+### 🏗️ 架构
+- **多注入器合并** — 所有 `beforeStep` 注入器合并为单条 `<system-reminder>` 复合消息
+- **bundle 分割** — 移除 `alwaysBundle` 配置，产物自然分割（主入口仅 ~0.54kB）
+
+---
+
 ## cc-connect 通过聊天远程控制 LMcode
 
 - 支持微信、飞书、slack、钉钉、QQ、Telegram等，你可以在安装lmcode后一键安装cc-connect来控制你的 LMcode
