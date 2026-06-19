@@ -9,6 +9,7 @@ tools:
   - Read
   - Write
   - Edit
+  - MultiEdit
   - Grep
   - Glob
   - Bash

@@ -247,6 +247,7 @@ describe('SessionSubagentHost', () => {
       'Edit',
       'Glob',
       'Grep',
+      'MultiEdit',
       'Read',
       'Write',
     ]);

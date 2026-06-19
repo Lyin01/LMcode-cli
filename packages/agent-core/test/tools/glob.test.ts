@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { type GlobInput, GlobInputSchema, GlobTool, MAX_MATCHES } from '../../src/tools/builtin/file/glob';
+import { expandBraces, type GlobInput, GlobInputSchema, GlobTool, MAX_MATCHES } from '../../src/tools/builtin/file/glob';
 import type { WorkspaceConfig } from '../../src/tools/support/workspace';
 import { createFakeJian } from './fixtures/fake-jian';
 import { executeTool } from './fixtures/execute-tool';
@@ -115,15 +115,32 @@ describe('GlobTool', () => {
     expect(glob).not.toHaveBeenCalled();
   });
 
-  it('rejects brace expansion patterns with a clear split-call hint', async () => {
-    const glob = vi.fn();
-    const tool = new GlobTool(createFakeJian({ glob }), workspace);
+  it('expands brace patterns and globs each alternative in one call', async () => {
+    const glob = vi.fn((_root: string, pattern: string) =>
+      pattern === '*.ts' ? asyncPaths(['/workspace/a.ts']) : asyncPaths(['/workspace/b.tsx']),
+    );
+    const tool = new GlobTool(
+      createFakeJian({ glob, stat: vi.fn().mockResolvedValue(stat(1)) }),
+      workspace,
+    );
 
     const result = await executeTool(tool, context({ pattern: '*.{ts,tsx}' }));
 
+    expect(result.isError).toBeUndefined();
+    expect(glob).toHaveBeenCalledWith('/workspace', '*.ts');
+    expect(glob).toHaveBeenCalledWith('/workspace', '*.tsx');
+    expect(result.output).toContain('a.ts');
+    expect(result.output).toContain('b.tsx');
+  });
+
+  it('still rejects a brace alternative that is itself a pure wildcard', async () => {
+    const glob = vi.fn();
+    const tool = new GlobTool(createFakeJian({ glob }), workspace);
+
+    const result = await executeTool(tool, context({ pattern: '{*.ts,**}' }));
+
     expect(result).toMatchObject({ isError: true });
-    expect(result.output).toContain('brace expansion');
-    expect(result.output).toContain('Split it into separate calls');
+    expect(result.output).toContain('pure wildcard');
     expect(glob).not.toHaveBeenCalled();
   });
 
@@ -584,5 +601,43 @@ describe('GlobTool', () => {
 
     expect(tool.description).toContain('C:\\Users\\foo');
     expect(tool.description).toContain('/c/Users/foo');
+  });
+});
+
+describe('expandBraces', () => {
+  it('returns the pattern unchanged when there is no brace group', () => {
+    expect(expandBraces('src/**/*.ts')).toEqual(['src/**/*.ts']);
+  });
+
+  it('expands a single group into one pattern per alternative', () => {
+    expect(expandBraces('*.{ts,tsx}')).toEqual(['*.ts', '*.tsx']);
+  });
+
+  it('expands a prefix group', () => {
+    expect(expandBraces('{src,test}/**/*.ts')).toEqual(['src/**/*.ts', 'test/**/*.ts']);
+  });
+
+  it('produces the cartesian product of multiple groups', () => {
+    expect(expandBraces('{a,b}/{c,d}.ts')).toEqual(['a/c.ts', 'a/d.ts', 'b/c.ts', 'b/d.ts']);
+  });
+
+  it('expands nested groups', () => {
+    expect(expandBraces('{a,{b,c}}.ts')).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
+
+  it('leaves a comma-free group untouched', () => {
+    expect(expandBraces('file{x}.ts')).toEqual(['file{x}.ts']);
+  });
+
+  it('leaves an unbalanced brace untouched', () => {
+    expect(expandBraces('*.{ts,tsx')).toEqual(['*.{ts,tsx']);
+  });
+
+  it('treats escaped braces and commas as literals', () => {
+    expect(expandBraces('a\\{b,c\\}.ts')).toEqual(['a\\{b,c\\}.ts']);
+  });
+
+  it('de-duplicates identical expansions', () => {
+    expect(expandBraces('{ts,ts}')).toEqual(['ts']);
   });
 });

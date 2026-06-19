@@ -30,6 +30,7 @@ export function createProgram(
 ): Command {
   const program = new Command(CLI_COMMAND_NAME)
     .description('下一代智能体的起点')
+    .argument('[prompt...]', '一次性提示文本（等同于 -p，可放在选项之后；多词请用引号包裹）')
     .version(version, '-V, --version')
     .allowUnknownOption(false)
     .configureHelp({ helpWidth: 100 })
@@ -62,8 +63,8 @@ export function createProgram(
     )
     .addOption(
       new Option(
-        '-p, --prompt <prompt>',
-        '非交互式运行一条提示并打印响应。',
+        '-p, --prompt [prompt]',
+        '非交互式运行一条提示并打印响应。提示文本也可作为末尾位置参数给出。',
       ),
     )
     .addOption(
@@ -147,7 +148,7 @@ export function createProgram(
       onPluginNodeRunner(entry, args);
     });
 
-  program.action(() => {
+  program.action((promptParts: string[]) => {
     const raw = program.opts<Record<string, unknown>>();
 
     const rawSession = raw['session'] ?? raw['resume'];
@@ -163,7 +164,7 @@ export function createProgram(
       plan: raw['plan'] as boolean,
       model: raw['model'] as string | undefined,
       outputFormat: raw['outputFormat'] as CLIOptions['outputFormat'],
-      prompt: raw['prompt'] as string | undefined,
+      prompt: resolvePromptText(raw['prompt'], promptParts),
       skillsDirs: raw['skillsDir'] as string[],
     };
 
@@ -171,4 +172,32 @@ export function createProgram(
   });
 
   return program;
+}
+
+/**
+ * Resolve the one-shot prompt from `-p/--prompt` plus any trailing positional
+ * arguments so that flag order never matters.
+ *
+ * `-p` takes an optional value, which keeps Commander from swallowing a
+ * following `--flag` (the old `<prompt>` form turned
+ * `lm -p --output-format stream-json "hi"` into a misrouted `stream-json`
+ * subcommand call). The prompt text can therefore arrive as `-p "hi"`,
+ * `--prompt=hi`, a trailing positional (`lm "hi"`), or `-p` followed by the
+ * text after other options. When `-p` is present but no text is found, an
+ * empty string is returned so `validateOptions` reports "提示不能为空".
+ */
+function resolvePromptText(
+  rawPrompt: unknown,
+  promptParts: readonly string[] | undefined,
+): string | undefined {
+  const inline = typeof rawPrompt === 'string' ? rawPrompt : undefined;
+  const positional =
+    promptParts !== undefined && promptParts.length > 0 ? promptParts.join(' ') : undefined;
+  const merged = [inline, positional].filter((part) => part !== undefined).join(' ');
+  if (merged.length > 0) {
+    return merged;
+  }
+  // `-p` given as a bare flag (rawPrompt === true) or `--prompt=` with no text
+  // → empty prompt, surfaced by validateOptions. Otherwise no prompt mode.
+  return rawPrompt === true || inline !== undefined ? '' : undefined;
 }

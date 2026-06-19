@@ -246,6 +246,46 @@ describe('CLI options parsing', () => {
     });
   });
 
+  describe('--prompt argument order is robust', () => {
+    it('accepts the prompt after other options (-p before --output-format value)', () => {
+      // Regression: `-p <prompt>` used to swallow `--output-format`, leaving
+      // `stream-json` to misroute into the hidden stream-json subcommand.
+      const opts = parse(['-p', '--output-format', 'stream-json', 'explain this repo']);
+      expect(opts.prompt).toBe('explain this repo');
+      expect(opts.outputFormat).toBe('stream-json');
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('accepts the prompt as a trailing positional without -p', () => {
+      const opts = parse(['--output-format', 'stream-json', 'explain this repo']);
+      expect(opts.prompt).toBe('explain this repo');
+      expect(opts.outputFormat).toBe('stream-json');
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('treats a bare trailing positional as a one-shot prompt', () => {
+      const opts = parse(['fix the bug']);
+      expect(opts.prompt).toBe('fix the bug');
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('joins multiple unquoted positional words into one prompt', () => {
+      expect(parse(['fix', 'the', 'bug']).prompt).toBe('fix the bug');
+    });
+
+    it('still parses the prompt when it precedes the model flag', () => {
+      const opts = parse(['-p', 'hello', '-m', 'lmcode/k2']);
+      expect(opts.prompt).toBe('hello');
+      expect(opts.model).toBe('lmcode/k2');
+    });
+
+    it('treats a bare -p flag with no text as an empty prompt', () => {
+      const opts = parse(['-p']);
+      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
+      expect(() => validateOptions(opts)).toThrow('提示不能为空。');
+    });
+  });
+
   describe('--skills-dir', () => {
     it('collects repeated skill directories', () => {
       expect(parse(['--skills-dir', '/one', '--skills-dir=/two']).skillsDirs).toEqual([

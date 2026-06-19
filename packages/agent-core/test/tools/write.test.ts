@@ -188,13 +188,32 @@ describe('WriteTool', () => {
     expect(result.output).toContain('Appended 5 bytes');
   });
 
-  it('reports a friendly error when the parent directory does not exist', async () => {
+  it('creates the missing parent directory and writes in one call', async () => {
     const enoent = Object.assign(new Error('ENOENT: no such file or directory'), {
       code: 'ENOENT',
     });
     const stat = vi.fn().mockRejectedValue(enoent);
+    const mkdir = vi.fn().mockResolvedValue(undefined);
     const writeText = vi.fn().mockResolvedValue(4);
-    const tool = new WriteTool(createFakeJian({ stat, writeText }), PERMISSIVE_WORKSPACE);
+    const tool = new WriteTool(createFakeJian({ stat, mkdir, writeText }), PERMISSIVE_WORKSPACE);
+
+    const result = await executeTool(tool,
+      context({ path: '/tmp/missing-dir/file.txt', content: 'data' }),
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(mkdir).toHaveBeenCalledWith('/tmp/missing-dir', { parents: true, existOk: true });
+    expect(writeText).toHaveBeenCalledWith('/tmp/missing-dir/file.txt', 'data');
+  });
+
+  it('reports an error when creating the missing parent directory fails', async () => {
+    const enoent = Object.assign(new Error('ENOENT: no such file or directory'), {
+      code: 'ENOENT',
+    });
+    const stat = vi.fn().mockRejectedValue(enoent);
+    const mkdir = vi.fn().mockRejectedValue(new Error('EACCES: permission denied'));
+    const writeText = vi.fn().mockResolvedValue(4);
+    const tool = new WriteTool(createFakeJian({ stat, mkdir, writeText }), PERMISSIVE_WORKSPACE);
 
     const result = await executeTool(tool,
       context({ path: '/tmp/missing-dir/file.txt', content: 'data' }),
@@ -202,7 +221,7 @@ describe('WriteTool', () => {
 
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toContain('/tmp/missing-dir');
-    expect(result.output).toMatch(/parent directory/i);
+    expect(result.output).toMatch(/failed to create parent directory/i);
     expect(writeText).not.toHaveBeenCalled();
   });
 

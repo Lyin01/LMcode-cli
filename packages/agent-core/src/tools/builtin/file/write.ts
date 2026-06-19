@@ -1,7 +1,8 @@
 /**
  * WriteTool — overwrite or append to a file.
  *
- * Creates the file if it does not exist; parent directory must already exist.
+ * Creates the file if it does not exist, and creates any missing parent
+ * directories so a write to a brand-new path succeeds in a single call.
  * Path access policy is resolved before any Jian I/O.
  */
 
@@ -27,7 +28,7 @@ export const WriteInputSchema = z.object({
   path: z
     .string()
     .describe(
-      'Path to the file to create, append to, or completely overwrite. Relative paths resolve against the working directory; a path outside the working directory must be absolute. The parent directory must already exist.',
+      'Path to the file to create, append to, or completely overwrite. Relative paths resolve against the working directory; a path outside the working directory must be absolute. Missing parent directories are created automatically — do not mkdir first.',
     ),
   content: z
     .string()
@@ -82,7 +83,7 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   }
 
   private async execution(args: WriteInput, safePath: string): Promise<ExecutableToolResult> {
-    const parentError = await this.checkParentDirectory(safePath);
+    const parentError = await this.ensureParentDirectory(safePath);
     if (parentError !== undefined) {
       return { isError: true, output: parentError };
     }
@@ -117,23 +118,36 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   }
 
   /**
-   * Best-effort check that the parent directory exists and is a directory.
+   * Ensure the parent directory exists, creating it (recursively) when missing.
    *
-   * The path schema documents this precondition; probing it up front turns a
-   * bare `ENOENT` from the underlying write into an actionable message.
-   * Returns an error string when the precondition is definitively violated,
-   * or `undefined` otherwise. Any other `stat` failure (permissions, an
-   * environment without `stat`) is treated as inconclusive: the check is
-   * skipped and the write proceeds, surfacing the real I/O error if any.
+   * A write to a not-yet-existing directory otherwise fails with a bare
+   * `ENOENT`, forcing the model to `mkdir` and then re-emit the entire file
+   * content on a second `Write` call — wasted latency and roughly doubled
+   * output tokens for large files. Creating the directory here keeps it to a
+   * single call. The path access policy has already authorized writing to this
+   * location, so creating its parent is within the approved scope.
+   *
+   * Returns an error string only when the parent path exists but is not a
+   * directory (unfixable), or when directory creation itself fails. Any other
+   * `stat` failure (permissions, an environment without `stat`) is treated as
+   * inconclusive: the check is skipped and the write proceeds, surfacing the
+   * real I/O error if any.
    */
-  private async checkParentDirectory(safePath: string): Promise<string | undefined> {
+  private async ensureParentDirectory(safePath: string): Promise<string | undefined> {
     const parent = dirname(safePath);
     let stat;
     try {
       stat = await this.jian.stat(parent);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return `Parent directory does not exist: ${parent}. Create it before writing this file.`;
+        try {
+          await this.jian.mkdir(parent, { parents: true, existOk: true });
+          return undefined;
+        } catch (mkdirError) {
+          return `Failed to create parent directory ${parent}: ${
+            mkdirError instanceof Error ? mkdirError.message : String(mkdirError)
+          }`;
+        }
       }
       return undefined;
     }

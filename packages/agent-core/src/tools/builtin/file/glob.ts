@@ -15,9 +15,10 @@
  *     large trees. Examples: `**`, `** / *`, `** / **`, `* / *`.
  *     Constrained patterns (with any literal anchor such as an extension
  *     or subdirectory) are allowed — the literal bounds the result set.
- *   - Patterns using brace expansion (`{a,b,c}`) are rejected up-front
- *     because the underlying `_globWalk` treats `{` / `}` as literals,
- *     so such patterns would silently match zero files.
+ *   - Patterns using brace expansion (`{a,b,c}`) are expanded up-front into
+ *     one concrete pattern per alternative, because the underlying
+ *     `_globWalk` treats `{` / `}` as literals. Each alternative is then
+ *     globbed and the results merged (deduplicated, sorted by mtime).
  *   - `path` is validated by `resolvePathAccess` in strict mode. Explicit
  *     paths must be absolute and within the workspace roots.
  *   - match count is capped at `MAX_MATCHES`; a separate `YIELD_SAFETY_CAP`
@@ -63,6 +64,14 @@ export const GlobInputSchema = z.object({
 export type GlobInput = z.Infer<typeof GlobInputSchema>;
 
 export const MAX_MATCHES = 1000;
+
+/**
+ * Upper bound on the number of concrete patterns a single braced pattern may
+ * expand to. Guards against a pathological pattern (e.g. many `{a,b}` groups)
+ * producing an exponential pattern list; realistic patterns expand to a
+ * handful.
+ */
+export const MAX_BRACE_PATTERNS = 100;
 
 /**
  * Path-shape hint appended to the tool description only on a Windows
@@ -127,57 +136,54 @@ export class GlobTool implements BuiltinTool<GlobInput> {
   }
 
   private async execution(args: GlobInput, searchRoots: string[]): Promise<ExecutableToolResult> {
-    if (startsWithDoubleStarPrefix(args.pattern)) {
-      let tree: string;
-      try {
-        tree = await listDirectory(this.jian, this.workspace.workspaceDir);
-      } catch {
-        tree = '(listing unavailable)';
-      }
-      return {
-        isError: true,
-        output:
-          `Pattern "${args.pattern}" starts with '**' which is not allowed — ` +
-          `the leading '**/' has no literal anchor in front of it and would ` +
-          `enumerate every file under the search root, typically exhausting ` +
-          `the caller's context on large trees. Use more specific patterns ` +
-          `instead, such as "src/**/*.py" or "test/**/*.py".\n\n` +
-          `Top of ${this.workspace.workspaceDir}:\n${tree}`,
-      };
-    }
+    // Expand `{a,b,c}` brace alternatives so a single call can match multiple
+    // extensions/subtrees (e.g. `*.{ts,tsx}`) instead of forcing the model
+    // into a separate call per alternative. The safety rails below are then
+    // applied to each concrete alternative.
+    const patterns = expandBraces(args.pattern).slice(0, MAX_BRACE_PATTERNS);
 
-    if (isPureWildcard(args.pattern)) {
-      const allowedRoots = [this.workspace.workspaceDir, ...this.workspace.additionalDirs];
-      const rootList = allowedRoots.map((d) => `  - ${d}`).join('\n');
-      let tree: string;
-      try {
-        tree = await listDirectory(this.jian, this.workspace.workspaceDir);
-      } catch {
-        tree = '(listing unavailable)';
+    for (const pattern of patterns) {
+      if (startsWithDoubleStarPrefix(pattern)) {
+        let tree: string;
+        try {
+          tree = await listDirectory(this.jian, this.workspace.workspaceDir);
+        } catch {
+          tree = '(listing unavailable)';
+        }
+        return {
+          isError: true,
+          output:
+            `Pattern "${pattern}" starts with '**' which is not allowed — ` +
+            `the leading '**/' has no literal anchor in front of it and would ` +
+            `enumerate every file under the search root, typically exhausting ` +
+            `the caller's context on large trees. Use more specific patterns ` +
+            `instead, such as "src/**/*.py" or "test/**/*.py".\n\n` +
+            `Top of ${this.workspace.workspaceDir}:\n${tree}`,
+        };
       }
-      return {
-        isError: true,
-        output:
-          `Pattern "${args.pattern}" is a pure wildcard (only \`*\`, \`?\`, \`**\`, \`/\`) ` +
-          `and would enumerate every file under the search root — with no literal ` +
-          `anchor to bound the result set, this typically exhausts your context on ` +
-          `large trees. Add an extension ` +
-          `("${args.pattern === '**' || args.pattern === '**/*' ? '**/*.ts' : '**/*.md'}") ` +
-          `or a subdirectory ("src/**/*.ts") to constrain the walk.\n\n` +
-          `Allowed roots for explicit path searches:\n${rootList}\n\n` +
-          `Top of ${this.workspace.workspaceDir}:\n${tree}`,
-      };
-    }
 
-    if (containsBraceExpansion(args.pattern)) {
-      return {
-        isError: true,
-        output:
-          `Pattern "${args.pattern}" uses brace expansion (\`{a,b,...}\`), which ` +
-          `is not supported by this Glob tool. Split it into separate calls, ` +
-          `one pattern per alternative. For example, instead of "*.{ts,tsx}" ` +
-          `issue two calls: "*.ts" and "*.tsx".`,
-      };
+      if (isPureWildcard(pattern)) {
+        const allowedRoots = [this.workspace.workspaceDir, ...this.workspace.additionalDirs];
+        const rootList = allowedRoots.map((d) => `  - ${d}`).join('\n');
+        let tree: string;
+        try {
+          tree = await listDirectory(this.jian, this.workspace.workspaceDir);
+        } catch {
+          tree = '(listing unavailable)';
+        }
+        return {
+          isError: true,
+          output:
+            `Pattern "${pattern}" is a pure wildcard (only \`*\`, \`?\`, \`**\`, \`/\`) ` +
+            `and would enumerate every file under the search root — with no literal ` +
+            `anchor to bound the result set, this typically exhausts your context on ` +
+            `large trees. Add an extension ` +
+            `("${pattern === '**' || pattern === '**/*' ? '**/*.ts' : '**/*.md'}") ` +
+            `or a subdirectory ("src/**/*.ts") to constrain the walk.\n\n` +
+            `Allowed roots for explicit path searches:\n${rootList}\n\n` +
+            `Top of ${this.workspace.workspaceDir}:\n${tree}`,
+        };
+      }
     }
 
     // Default true. When false, directories yielded by jian are
@@ -237,33 +243,35 @@ export class GlobTool implements BuiltinTool<GlobInput> {
       let truncated = false;
 
       outer: for (const root of searchRoots) {
-        for await (const filePath of this.jian.glob(root, args.pattern)) {
-          yielded++;
-          if (yielded >= YIELD_SAFETY_CAP) {
-            truncated = true;
-            break outer;
+        for (const pattern of patterns) {
+          for await (const filePath of this.jian.glob(root, pattern)) {
+            yielded++;
+            if (yielded >= YIELD_SAFETY_CAP) {
+              truncated = true;
+              break outer;
+            }
+            if (seen.has(filePath)) continue;
+            if (entries.length >= MAX_MATCHES) {
+              truncated = true;
+              break outer;
+            }
+            seen.add(filePath);
+            let mtime = 0;
+            let isDir = false;
+            try {
+              const st = await this.jian.stat(filePath);
+              mtime = st.stMtime ?? 0;
+              isDir = (st.stMode & S_IFMT) === S_IFDIR;
+            } catch {
+              // stat failure — use 0 mtime / assume file so it still surfaces
+            }
+            // Apply include_dirs *after* marking seen so a filtered dir
+            // doesn't re-enter via a later duplicate yield, and *before*
+            // pushing to entries so MAX_MATCHES continues to cap output
+            // (not pre-filter) size.
+            if (!includeDirs && isDir) continue;
+            entries.push({ path: filePath, mtime });
           }
-          if (seen.has(filePath)) continue;
-          if (entries.length >= MAX_MATCHES) {
-            truncated = true;
-            break outer;
-          }
-          seen.add(filePath);
-          let mtime = 0;
-          let isDir = false;
-          try {
-            const st = await this.jian.stat(filePath);
-            mtime = st.stMtime ?? 0;
-            isDir = (st.stMode & S_IFMT) === S_IFDIR;
-          } catch {
-            // stat failure — use 0 mtime / assume file so it still surfaces
-          }
-          // Apply include_dirs *after* marking seen so a filtered dir
-          // doesn't re-enter via a later duplicate yield, and *before*
-          // pushing to entries so MAX_MATCHES continues to cap output
-          // (not pre-filter) size.
-          if (!includeDirs && isDir) continue;
-          entries.push({ path: filePath, mtime });
         }
       }
 
@@ -356,27 +364,81 @@ function isPureWildcard(pattern: string): boolean {
   return true;
 }
 
-/** Return true iff `pattern` looks like it uses `{a,b,c}` brace expansion. */
-function containsBraceExpansion(pattern: string): boolean {
-  let inBrace = false;
-  let sawCommaInsideBrace = false;
+/**
+ * Expand shell-style `{a,b,c}` brace alternatives into concrete patterns,
+ * so `*.{ts,tsx}` becomes `['*.ts', '*.tsx']` and one call can match every
+ * alternative. Handles multiple and nested groups (the cartesian product);
+ * backslash-escaped braces and commas are treated as literals. A group with
+ * no top-level comma (e.g. `{x}`) and an unbalanced brace are both left
+ * untouched. Returns `[pattern]` when there is nothing to expand. Results are
+ * de-duplicated while preserving first-seen order.
+ */
+export function expandBraces(pattern: string): string[] {
+  const group = findFirstBraceGroup(pattern);
+  if (group === undefined) return [pattern];
+  const prefix = pattern.slice(0, group.start);
+  const suffix = pattern.slice(group.end + 1);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const alt of group.alternatives) {
+    // Recurse on the spliced string so further groups (in this alternative
+    // or the suffix) expand too; each recursion removes one comma-group, so
+    // this terminates.
+    for (const expanded of expandBraces(prefix + alt + suffix)) {
+      if (!seen.has(expanded)) {
+        seen.add(expanded);
+        out.push(expanded);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Locate the first balanced `{...}` group that contains a top-level comma.
+ * Returns its bounds and the comma-separated alternatives, or `undefined`
+ * when there is no expandable group (no brace, unbalanced, or comma-free).
+ */
+function findFirstBraceGroup(
+  pattern: string,
+): { start: number; end: number; alternatives: string[] } | undefined {
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i];
-    if (ch === '\\' && i + 1 < pattern.length) {
+    if (ch === '\\') {
       i++;
       continue;
     }
-    if (ch === '{') {
-      inBrace = true;
-      sawCommaInsideBrace = false;
+    if (ch !== '{') continue;
+
+    let depth = 1;
+    const commaPositions: number[] = [];
+    let j = i + 1;
+    for (; j < pattern.length; j++) {
+      const c = pattern[j];
+      if (c === '\\') {
+        j++;
+        continue;
+      }
+      if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) break;
+      } else if (c === ',' && depth === 1) commaPositions.push(j);
+    }
+    if (depth !== 0) return undefined; // unbalanced — treat the rest as literal
+    if (commaPositions.length === 0) {
+      i = j; // `{...}` with no top-level comma — skip and keep scanning
       continue;
     }
-    if (ch === '}') {
-      if (inBrace && sawCommaInsideBrace) return true;
-      inBrace = false;
-      continue;
+
+    const alternatives: string[] = [];
+    let prev = i + 1;
+    for (const pos of commaPositions) {
+      alternatives.push(pattern.slice(prev, pos));
+      prev = pos + 1;
     }
-    if (ch === ',' && inBrace) sawCommaInsideBrace = true;
+    alternatives.push(pattern.slice(prev, j));
+    return { start: i, end: j, alternatives };
   }
-  return false;
+  return undefined;
 }

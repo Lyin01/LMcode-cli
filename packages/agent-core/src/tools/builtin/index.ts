@@ -23,6 +23,7 @@ export * from './collaboration/wolfpack';
 export * from './file/edit';
 export * from './file/glob';
 export * from './file/grep';
+export * from './file/multi-edit';
 export * from './file/read';
 export * from './file/read-group';
 export * from './file/read-media';

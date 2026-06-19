@@ -99,6 +99,7 @@ tools:
   - Grep
   - Write
   - Edit
+  - MultiEdit
   - WebSearch
   - FetchURL
   - MemoryLookup
