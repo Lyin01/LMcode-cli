@@ -13,12 +13,36 @@ import {
 } from '../../src';
 import type { OAuthTokenProviderResolver } from '../../src/session/provider-manager';
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 describe('ScreamCore runtime config', () => {
   let tmp: string;
+  const cores: ScreamCore[] = [];
 
   afterEach(async () => {
+    // Close all sessions created during the test so file handles and log sinks
+    // are released before the temp directory is removed. This prevents races
+    // that show up as EBUSY during teardown.
+    for (const core of cores.splice(0)) {
+      await Promise.allSettled(Array.from(core.sessions.values(), (session) => session.close()));
+    }
     if (tmp !== undefined) {
-      await rm(tmp, { recursive: true, force: true });
+      // On Windows, SQLite WAL/SHM file locks may persist briefly after
+      // DatabaseSync.close() returns. Retry briefly as a safety net.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        try {
+          await rm(tmp, { recursive: true, force: true });
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException)?.code === 'EBUSY' && attempt < 9) {
+            await delay(250);
+            continue;
+          }
+          throw error;
+        }
+      }
     }
     vi.unstubAllGlobals();
   });
@@ -59,6 +83,7 @@ custom_headers = { "X-Test" = "1" }
       },
       resolveOAuthTokenProvider,
     });
+    cores.push(core);
     const rpc = await sdkRpc({
       emitEvent: vi.fn(),
       requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),
@@ -110,6 +135,7 @@ max_context_size = 100000
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
     const core = new ScreamCore(coreRpc, { homeDir });
+    cores.push(core);
     const rpc = await sdkRpc({
       emitEvent: vi.fn(),
       requestApproval: vi.fn(async (): Promise<ApprovalResponse> => ({ decision: 'rejected' })),

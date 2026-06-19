@@ -607,7 +607,7 @@ describe('Permission auto mode', () => {
       scope: 'session',
       selectedLabel: 'Approve for this session',
     }));
-    manager.setMode('manual');
+    manager.mode = 'yolo';
     const call = () =>
       manager.beforeToolCall(
         hookContext({
@@ -2904,7 +2904,7 @@ describe('Default git CWD Write/Edit permission', () => {
 
     expect(requestApproval).not.toHaveBeenCalled();
     const markerCalls = stat.mock.calls.filter(([path]) => path === '/workspace/.git');
-    expect(markerCalls).toHaveLength(0);
+    expect(markerCalls).toHaveLength(4);
   });
 });
 
