@@ -1,10 +1,30 @@
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath as nodeRealpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative } from 'pathe';
+import { basename, dirname, join, normalize, relative } from 'pathe';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { discoverSkills, resolveSkillRoots, SkillRegistry, type SkillRoot } from '../../src/skill';
+
+// node:fs realpath returns native separators (backslashes on Windows); the
+// skill scanner normalizes paths to POSIX-style forward slashes via pathe, so
+// normalize realpath output here to compare in the same space cross-platform.
+const realpath = (p: string): Promise<string> => nodeRealpath(p).then(normalize);
+
+// Creating symlinks on Windows requires elevated privileges or Developer Mode.
+// Probe once and skip symlink-dependent tests when unsupported, rather than
+// failing with EPERM on machines that can't create them.
+const symlinkSupported = await (async (): Promise<boolean> => {
+  const probeBase = await mkdtemp(join(tmpdir(), 'scream-symlink-probe-'));
+  try {
+    await symlink(probeBase, join(probeBase, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probeBase, { recursive: true, force: true });
+  }
+})();
 
 const tempDirs: string[] = [];
 
@@ -775,7 +795,7 @@ describe('resolveSkillRoots extra dirs', () => {
     expect(paths).not.toContain(await realpath(projectBrand));
   });
 
-  it('collapses a real dir and a symlink to the same target into one root', async () => {
+  it.skipIf(!symlinkSupported)('collapses a real dir and a symlink to the same target into one root', async () => {
     const { homeDir, repoDir, workDir } = await makeWorkspace();
     const real = join(repoDir, 'real');
     await mkdir(real, { recursive: true });
@@ -806,7 +826,7 @@ describe('resolveSkillRoots extra dirs', () => {
     expect(extras).toHaveLength(1);
   });
 
-  it('preserves source=extra on the surviving root after symlink dedup', async () => {
+  it.skipIf(!symlinkSupported)('preserves source=extra on the surviving root after symlink dedup', async () => {
     const { homeDir, repoDir, workDir } = await makeWorkspace();
     const real = join(repoDir, 'real');
     await mkdir(real, { recursive: true });
@@ -823,7 +843,7 @@ describe('resolveSkillRoots extra dirs', () => {
     expect(extras[0]?.source).toBe('extra');
   });
 
-  it('stores the real path, not the symlink path, for a symlinked extra dir', async () => {
+  it.skipIf(!symlinkSupported)('stores the real path, not the symlink path, for a symlinked extra dir', async () => {
     const { homeDir, repoDir, workDir } = await makeWorkspace();
     const real = join(repoDir, 'real');
     await mkdir(real, { recursive: true });

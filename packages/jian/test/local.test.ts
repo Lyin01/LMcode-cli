@@ -1,10 +1,32 @@
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath as nodeRealpath, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+
+import { join, normalize } from 'pathe';
 
 import { JianFileExistsError } from '#/errors';
 import { LocalJian } from '#/local';
 import { afterEach, beforeEach, describe, expect, it, test } from 'vitest';
+
+// LocalJian normalizes all paths to POSIX-style forward slashes; node:fs
+// realpath returns native separators (backslashes on Windows), so normalize
+// its output to compare against jian results in the same space cross-platform.
+const realpath = (p: string): Promise<string> => nodeRealpath(p).then(normalize);
+
+// Creating symlinks on Windows requires elevated privileges or Developer Mode.
+// Probe once and skip symlink-dependent tests when unsupported, rather than
+// failing with EPERM on machines that can't create them.
+const symlinkSupported = await (async (): Promise<boolean> => {
+  const { symlink } = await import('node:fs/promises');
+  const probeBase = await nodeRealpath(await mkdtemp(join(tmpdir(), 'jian-symlink-probe-')));
+  try {
+    await symlink(probeBase, join(probeBase, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probeBase, { recursive: true, force: true });
+  }
+})();
 
 function nodeArgs(code: string): string[] {
   return ['node', '-e', code];
@@ -39,7 +61,7 @@ describe('LocalJian', () => {
       // asserting length > 0 alone was too weak — a stub returning any
       // non-empty string would pass.
       const home = jian.gethome();
-      expect(home).toBe(homedir());
+      expect(home).toBe(normalize(homedir()));
     });
 
     it('should return the current working directory', () => {
@@ -383,7 +405,7 @@ describe('LocalJian', () => {
   // so they distinguish "OS-ELOOP bailout" (buggy) from "app-level
   // cycle detection" (fixed). HARD_STOP is a final safety belt in case
   // a future kernel allows deeper symlink chains — tests shouldn't hang.
-  describe('glob symlink cycle safety', () => {
+  describe.skipIf(!symlinkSupported)('glob symlink cycle safety', () => {
     const HARD_STOP = 1000;
 
     it('T-C1 self-symlink cycle yields exactly one match', async () => {
@@ -673,8 +695,10 @@ describe('LocalJian instance isolation', () => {
       await procB.wait();
       const outA = await streamToBuffer(procA.stdout);
       const outB = await streamToBuffer(procB.stdout);
-      expect(outA.toString('utf-8')).toBe(tmpA);
-      expect(outB.toString('utf-8')).toBe(tmpB);
+      // node's process.cwd() prints native separators; normalize to compare
+      // against the (pathe-normalized) tmp dirs cross-platform.
+      expect(normalize(outA.toString('utf-8'))).toBe(tmpA);
+      expect(normalize(outB.toString('utf-8'))).toBe(tmpB);
     } finally {
       await rm(tmpA, { recursive: true, force: true });
       await rm(tmpB, { recursive: true, force: true });
@@ -767,9 +791,11 @@ describe('LocalProcess.kill safety', () => {
         const grandchildPid = Number.parseInt((await readFile(pidPath, 'utf-8')).trim(), 10);
         expect(Number.isNaN(grandchildPid)).toBe(false);
 
-        // Kill parent — on Windows this currently leaks the grandchild
-        // unless `taskkill /T /F` (or equivalent) is used.
-        await proc.kill('SIGTERM');
+        // Force-kill the parent tree. On Windows, jian maps SIGKILL to
+        // `taskkill /T /F`, which tears down the whole tree; a graceful
+        // SIGTERM (`taskkill /T` without /F) is a polite close request that a
+        // console process ignores, so use the force signal to verify teardown.
+        await proc.kill('SIGKILL');
         await proc.wait();
 
         // Give the OS up to 2s to reap the grandchild.
