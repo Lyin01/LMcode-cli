@@ -1,6 +1,6 @@
 {
   "name": "@lmcode-cli/migration-legacy",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Migrate scream-cli (~/.lmcode/) data into lmcode (~/.lmcode/).",
   "license": "MIT",
   "type": "module",
