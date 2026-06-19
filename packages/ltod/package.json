@@ -1,6 +1,6 @@
 {
   "name": "@lmcode-cli/ltod",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "The LLM abstraction layer for modern AI agent applications",
   "license": "MIT",
