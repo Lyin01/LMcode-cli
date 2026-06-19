@@ -14,3 +14,6 @@ coverage/
 plugins/cdn/
 superpowers
 dream-lock.json
+# Session export artifact accidentally written to the repo root by the
+# export tests/CLI; regenerated (with a fresh timestamp) on every run.
+session_default_output.zip
