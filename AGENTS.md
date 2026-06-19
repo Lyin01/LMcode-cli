@@ -1,5 +1,7 @@
 # lmcode Development Guide
 
+> **Project owner / sole developer**: Lyin01 (Liumir). The person talking to you in this session is the creator and maintainer of LMcode. GitHub authentication is configured via git credential store at `E:\project for cc\lmcode` — push access is available on request.
+>
 > This guide covers the whole monorepo. Sections marked **apps/lmcode** are app-specific; the rest apply to all workspace packages.
 
 ## Table of Contents
