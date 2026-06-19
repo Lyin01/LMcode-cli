@@ -182,6 +182,10 @@ Markdown files named `AGENTS.md` usually contain the background, structure, codi
 
 The available AGENTS.md file paths are listed in `SCREAM_AGENTS_MD_PATHS`. Read them as needed when working in their respective directories.
 
+The content of the discovered AGENTS.md files is listed below. This includes user identity and preference information from `~/.lmcode/AGENTS.md` when it exists:
+
+{{ SCREAM_AGENTS_MD }}
+
 `AGENTS.md` files can appear at any level of the project directory tree, including inside `.lmcode/` directories. Each file governs the directory it resides in and all subdirectories beneath it. When multiple `AGENTS.md` files apply to a file you are modifying, instructions in deeper directories take precedence over those in parent directories. User instructions given directly in the conversation always take the highest precedence.
 
 When working on files in subdirectories, always check whether those directories contain their own `AGENTS.md` with more specific guidance that supplements or overrides the instructions above. You may also check `README`/`README.md` files for more information about the project.
