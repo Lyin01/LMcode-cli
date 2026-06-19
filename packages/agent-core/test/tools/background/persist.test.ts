@@ -38,7 +38,7 @@ function sample(overrides: Partial<PersistedTask> = {}): PersistedTask {
 beforeEach(async () => {
   sessionDir = join(
     tmpdir(),
-    `scream-bg-persist-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `lmcode-bg-persist-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
 });

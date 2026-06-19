@@ -15,7 +15,7 @@ export default defineConfig({
     },
   },
   test: {
-    name: 'scream-sdk',
+    name: 'lmcode-sdk',
     include: ['test/**/*.test.ts'],
   },
 });

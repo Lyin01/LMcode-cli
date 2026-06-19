@@ -347,7 +347,7 @@ describe('McpConnectionManager', () => {
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const port = (server.address() as HttpAddress).port;
-    const storeDir = await mkdtemp(join(tmpdir(), 'scream-mcp-oauth-cm-'));
+    const storeDir = await mkdtemp(join(tmpdir(), 'lmcode-mcp-oauth-cm-'));
     const oauthService = new McpOAuthService({ store: new JsonFileStore(storeDir) });
     const cm = new McpConnectionManager({ oauthService });
     try {
@@ -394,7 +394,7 @@ describe('McpConnectionManager', () => {
     const port = (server.address() as HttpAddress).port;
     const serverUrl = `http://127.0.0.1:${port}/mcp`;
     const authServerUrl = `http://127.0.0.1:${port}`;
-    const storeDir = await mkdtemp(join(tmpdir(), 'scream-mcp-oauth-cached-'));
+    const storeDir = await mkdtemp(join(tmpdir(), 'lmcode-mcp-oauth-cached-'));
     const oauthService = new McpOAuthService({ store: new JsonFileStore(storeDir) });
     const provider = oauthService.getProvider('notion', serverUrl);
     provider.saveDiscoveryState({
@@ -624,7 +624,7 @@ describe('McpConnectionManager', () => {
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const port = (server.address() as HttpAddress).port;
-    const storeDir = await mkdtemp(join(tmpdir(), 'scream-mcp-oauth-cm-'));
+    const storeDir = await mkdtemp(join(tmpdir(), 'lmcode-mcp-oauth-cm-'));
     const oauthService = new McpOAuthService({ store: new JsonFileStore(storeDir) });
     const cm = new McpConnectionManager({ oauthService });
     try {
@@ -655,7 +655,7 @@ describe('McpConnectionManager', () => {
 
 describe('Session MCP startup', () => {
   it('stores default MCP OAuth credentials under the configured Scream home', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'scream-session-mcp-oauth-home-'));
+    const tmp = await mkdtemp(join(tmpdir(), 'lmcode-session-mcp-oauth-home-'));
     const processHome = join(tmp, 'process-home');
     const screamHome = join(tmp, 'lmcode-home');
     const oldHome = process.env['HOME'];
@@ -701,7 +701,7 @@ describe('Session MCP startup', () => {
   });
 
   it('does not block main agent creation on slow MCP startup', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'scream-session-mcp-startup-'));
+    const tmp = await mkdtemp(join(tmpdir(), 'lmcode-session-mcp-startup-'));
     const session = new Session({
       id: 'test-mcp-slow',
       jian: testJian.withCwd(tmp),
@@ -734,7 +734,7 @@ describe('Session MCP startup', () => {
   }, 7000);
 
   it('waits for initial MCP startup before the first prompt reaches the model', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'scream-session-mcp-prompt-'));
+    const tmp = await mkdtemp(join(tmpdir(), 'lmcode-session-mcp-prompt-'));
     const events: SessionRpcEvent[] = [];
     let resolveTurnEnded!: () => void;
     const turnEnded = new Promise<void>((resolve) => {
@@ -807,7 +807,7 @@ describe('Session MCP startup', () => {
   }, 7000);
 
   it('emits tool.list.updated(mcp.disconnected) when reconnect drops the live tools', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'scream-session-mcp-reconnect-'));
+    const tmp = await mkdtemp(join(tmpdir(), 'lmcode-session-mcp-reconnect-'));
     const events: SessionRpcEvent[] = [];
     const session = new Session({
       id: 'test-mcp-mixed',

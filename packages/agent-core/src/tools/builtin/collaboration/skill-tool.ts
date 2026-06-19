@@ -131,9 +131,9 @@ export class SkillTool implements BuiltinTool<SkillToolInput> {
     skills.recordActivation(origin);
     const skillContent = skills.registry.renderSkillPrompt(skill, skillArgs);
     this.agent.context.appendSystemReminder(
-      `<scream-skill-loaded name="${escapeXml(skill.name)}" args="${escapeXml(skillArgs)}">\n` +
+      `<lmcode-skill-loaded name="${escapeXml(skill.name)}" args="${escapeXml(skillArgs)}">\n` +
         `${skillContent}\n` +
-        `</scream-skill-loaded>`,
+        `</lmcode-skill-loaded>`,
       origin,
     );
     return {

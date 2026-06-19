@@ -17,7 +17,7 @@ export interface ModelCapability {
   readonly max_context_tokens: number;
 }
 
-const UNKNOWN_CAPABILITY_MARKER = Symbol.for('scream-cli-ai.ltod.UNKNOWN_CAPABILITY');
+const UNKNOWN_CAPABILITY_MARKER = Symbol.for('lmcode-cli-ai.ltod.UNKNOWN_CAPABILITY');
 
 /**
  * Shared read-only default returned when a provider has not catalogued a

@@ -5,7 +5,7 @@ import { rawTextPlugin } from '../../build/raw-text-plugin.mjs';
 export default defineConfig({
   plugins: [rawTextPlugin()],
   test: {
-    name: 'scream-core',
+    name: 'lmcode-core',
     include: ['test/**/*.{test,e2e}.ts'],
     testTimeout: 15_000,
     deps: {

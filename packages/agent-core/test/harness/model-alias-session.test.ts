@@ -33,7 +33,7 @@ describe('HarnessAPI session model aliases', () => {
   const cores: ScreamCore[] = [];
 
   beforeEach(async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'scream-model-alias-'));
+    tmp = await mkdtemp(join(tmpdir(), 'lmcode-model-alias-'));
     homeDir = join(tmp, 'home');
     workDir = join(tmp, 'work');
     configPath = join(tmp, 'config.toml');

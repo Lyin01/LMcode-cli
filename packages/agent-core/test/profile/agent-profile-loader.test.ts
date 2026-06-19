@@ -31,7 +31,7 @@ const promptContext: SystemPromptContext = {
 };
 
 beforeEach(async () => {
-  workDir = await mkdtemp(join(tmpdir(), 'scream-agent-profile-'));
+  workDir = await mkdtemp(join(tmpdir(), 'lmcode-agent-profile-'));
 });
 
 afterEach(async () => {

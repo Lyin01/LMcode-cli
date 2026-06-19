@@ -27,7 +27,7 @@ describe('MemoryMemoStore', () => {
   let store: MemoryMemoStore;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), 'scream-memory-test-'));
+    tmpDir = await mkdtemp(join(tmpdir(), 'lmcode-memory-test-'));
     store = new MemoryMemoStore(tmpDir);
   });
 
@@ -253,7 +253,7 @@ describe('migrateLegacyStores', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), 'scream-memory-migration-test-'));
+    tmpDir = await mkdtemp(join(tmpdir(), 'lmcode-memory-migration-test-'));
   });
 
   afterEach(async () => {

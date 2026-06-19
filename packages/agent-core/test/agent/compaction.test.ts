@@ -360,7 +360,7 @@ describe('Agent compaction', () => {
   });
 
   it('fires PreCompact and PostCompact hooks from the compaction module', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'scream-compact-hooks-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lmcode-compact-hooks-'));
     const hookLog = join(dir, 'hooks.jsonl');
     const hookCommand = hookPayloadLoggerCommand(hookLog);
     const ctx = testAgent({

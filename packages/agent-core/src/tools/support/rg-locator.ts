@@ -197,7 +197,7 @@ async function downloadAndInstallRg(shareDir: string): Promise<string> {
   await mkdir(binDir, { recursive: true });
   const destination = join(binDir, rgBinaryName());
 
-  const tmp = await mkdtemp(join(tmpdir(), 'scream-rg-'));
+  const tmp = await mkdtemp(join(tmpdir(), 'lmcode-rg-'));
   try {
     const archivePath = join(tmp, archiveName);
 

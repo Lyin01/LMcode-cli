@@ -270,7 +270,7 @@ describe('SkillRegistry.renderSkillPrompt', () => {
 });
 
 async function makeSkillsRoot(): Promise<string> {
-  const tmp = await mkdtemp(join(tmpdir(), 'scream-skill-parser-'));
+  const tmp = await mkdtemp(join(tmpdir(), 'lmcode-skill-parser-'));
   tempDirs.push(tmp);
   const root = join(tmp, 'skills');
   await mkdir(root, { recursive: true });

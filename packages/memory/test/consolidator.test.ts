@@ -32,7 +32,7 @@ describe('buildConsolidationPlan', () => {
   let store: MemoryMemoStore;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), 'scream-consolidator-test-'));
+    tmpDir = await mkdtemp(join(tmpdir(), 'lmcode-consolidator-test-'));
     store = new MemoryMemoStore(tmpDir);
   });
 
@@ -141,7 +141,7 @@ describe('applyConsolidation', () => {
   let store: MemoryMemoStore;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), 'scream-consolidator-apply-test-'));
+    tmpDir = await mkdtemp(join(tmpdir(), 'lmcode-consolidator-apply-test-'));
     store = new MemoryMemoStore(tmpDir);
   });
 

@@ -22,7 +22,7 @@ describe('HarnessAPI session skills', () => {
   const cores: ScreamCore[] = [];
 
   beforeEach(async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'scream-core-skills-'));
+    tmp = await mkdtemp(join(tmpdir(), 'lmcode-core-skills-'));
     homeDir = join(tmp, 'home');
     workDir = join(tmp, 'work');
     await mkdir(workDir, { recursive: true });

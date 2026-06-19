@@ -154,7 +154,7 @@ describe('ToolManager SkillTool registration', () => {
         content: [
           {
             type: 'text',
-            text: '<system-reminder>\n<scream-skill-loaded name="review" args="">\nbody of review\n</scream-skill-loaded>\n</system-reminder>',
+            text: '<system-reminder>\n<lmcode-skill-loaded name="review" args="">\nbody of review\n</lmcode-skill-loaded>\n</system-reminder>',
           },
         ],
         origin: {
@@ -174,7 +174,7 @@ describe('ToolManager SkillTool registration', () => {
   });
 
   it('exposes session skills after the main agent is created', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'scream-core-skill-tool-refresh-'));
+    const tmp = await mkdtemp(join(tmpdir(), 'lmcode-core-skill-tool-refresh-'));
     try {
       const homeDir = join(tmp, 'home');
       const workDir = join(tmp, 'work');

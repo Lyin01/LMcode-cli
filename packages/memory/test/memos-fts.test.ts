@@ -26,7 +26,7 @@ describe('SQLite-backed MemoryMemoStore FTS', () => {
   let store: MemoryMemoStore;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), 'scream-memory-fts-test-'));
+    tmpDir = await mkdtemp(join(tmpdir(), 'lmcode-memory-fts-test-'));
     store = new MemoryMemoStore(tmpDir);
   });
 

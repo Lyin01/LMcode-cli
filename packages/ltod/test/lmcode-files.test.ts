@@ -17,7 +17,7 @@ describe('LmcodeFiles', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scream-files-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lmcode-files-test-'));
   });
 
   afterEach(() => {

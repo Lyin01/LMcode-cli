@@ -15,7 +15,7 @@ const realpath = (p: string): Promise<string> => nodeRealpath(p).then(normalize)
 // Probe once and skip symlink-dependent tests when unsupported, rather than
 // failing with EPERM on machines that can't create them.
 const symlinkSupported = await (async (): Promise<boolean> => {
-  const probeBase = await mkdtemp(join(tmpdir(), 'scream-symlink-probe-'));
+  const probeBase = await mkdtemp(join(tmpdir(), 'lmcode-symlink-probe-'));
   try {
     await symlink(probeBase, join(probeBase, 'link'));
     return true;
@@ -1200,7 +1200,7 @@ async function makeWorkspace(): Promise<{
   readonly repoDir: string;
   readonly workDir: string;
 }> {
-  const tmp = await mkdtemp(join(tmpdir(), 'scream-skill-scanner-'));
+  const tmp = await mkdtemp(join(tmpdir(), 'lmcode-skill-scanner-'));
   tempDirs.push(tmp);
   const homeDir = join(tmp, 'home');
   const repoDir = join(tmp, 'repo');
@@ -1213,7 +1213,7 @@ async function makeWorkspace(): Promise<{
 describe('project root discovery (.git walk-up)', () => {
   it('walks up to the nearest .git ancestor for project-scope discovery', async () => {
     const { homeDir } = await makeWorkspace();
-    const repo = await mkdtemp(join(tmpdir(), 'scream-skill-walkup-'));
+    const repo = await mkdtemp(join(tmpdir(), 'lmcode-skill-walkup-'));
     tempDirs.push(repo);
     await mkdir(join(repo, '.git'), { recursive: true });
     const repoScream = join(repo, '.lmcode', 'skills');
@@ -1236,7 +1236,7 @@ describe('project root discovery (.git walk-up)', () => {
 
   it('falls back to the work dir when no .git marker is found anywhere up the chain', async () => {
     const { homeDir } = await makeWorkspace();
-    const noGitTmp = await mkdtemp(join(tmpdir(), 'scream-skill-nogit-'));
+    const noGitTmp = await mkdtemp(join(tmpdir(), 'lmcode-skill-nogit-'));
     tempDirs.push(noGitTmp);
     const project = join(noGitTmp, 'project');
     await mkdir(join(project, '.lmcode', 'skills'), { recursive: true });

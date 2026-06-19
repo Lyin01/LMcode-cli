@@ -156,7 +156,7 @@ describe('BackgroundManager — RPC event emission', () => {
   });
 
   it('emits background.task.terminated when a restored task is marked lost', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'scream-bg-agent-reconcile-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'lmcode-bg-agent-reconcile-'));
     try {
       agent.background.attachSessionDir(sessionDir);
       await writeTask(sessionDir, {
@@ -277,7 +277,7 @@ describe('BackgroundManager — RPC event emission', () => {
   });
 
   it('replays restored terminal agent task notifications when they were not delivered', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'scream-bg-agent-replay-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'lmcode-bg-agent-replay-'));
     try {
       agent.background.attachSessionDir(sessionDir);
       await writeTask(sessionDir, {
@@ -317,7 +317,7 @@ describe('BackgroundManager — RPC event emission', () => {
   });
 
   it('replays restored terminal bash task notifications when they were not delivered', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'scream-bg-bash-replay-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'lmcode-bg-bash-replay-'));
     try {
       agent.background.attachSessionDir(sessionDir);
       await writeTask(sessionDir, {
@@ -357,7 +357,7 @@ describe('BackgroundManager — RPC event emission', () => {
   });
 
   it('reads only a bounded output tail for restored bash task notifications', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'scream-bg-bash-tail-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'lmcode-bg-bash-tail-'));
     try {
       const taskId = 'bash-large000';
       const largeOutput = `early-output-marker\n${'x'.repeat(8_000)}\nfinal output line`;
@@ -395,7 +395,7 @@ describe('BackgroundManager — RPC event emission', () => {
   });
 
   it('does not replay restored agent task notifications already marked delivered', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'scream-bg-agent-replay-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'lmcode-bg-agent-replay-'));
     try {
       const origin = {
         kind: 'background_task',
@@ -428,7 +428,7 @@ describe('BackgroundManager — RPC event emission', () => {
   });
 
   it('does not double-notify newly lost restored agent tasks', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'scream-bg-agent-replay-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'lmcode-bg-agent-replay-'));
     try {
       agent.background.attachSessionDir(sessionDir);
       await writeTask(sessionDir, {

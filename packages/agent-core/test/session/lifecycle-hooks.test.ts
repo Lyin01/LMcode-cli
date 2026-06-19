@@ -184,7 +184,7 @@ async function hookFixture(): Promise<{
 }
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'scream-session-hooks-'));
+  const dir = await mkdtemp(join(tmpdir(), 'lmcode-session-hooks-'));
   tempDirs.push(dir);
   return dir;
 }

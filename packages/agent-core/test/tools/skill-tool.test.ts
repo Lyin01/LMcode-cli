@@ -139,7 +139,7 @@ describe('SkillTool execution', () => {
     expect(methods.recordSkillActivation).toHaveBeenCalledTimes(1);
     expect(methods.recordSystemReminder).toHaveBeenCalledTimes(1);
     expect(methods.recordSystemReminder.mock.calls[0]?.[0]).toContain(
-      '<scream-skill-loaded name="commit" args="message text">\nbody of commit\n\nARGUMENTS: message text\n</scream-skill-loaded>',
+      '<lmcode-skill-loaded name="commit" args="message text">\nbody of commit\n\nARGUMENTS: message text\n</lmcode-skill-loaded>',
     );
   });
 
@@ -162,11 +162,11 @@ describe('SkillTool execution', () => {
     await execute(tool, { skill: 'brainstorming' });
 
     expect(methods.recordSystemReminder.mock.calls[0]?.[0]).toContain(
-      '<scream-skill-loaded name="brainstorming" args="">\n' +
+      '<lmcode-skill-loaded name="brainstorming" args="">\n' +
         '<lmcode-plugin-instructions plugin="superpowers">\n' +
         'Use AskUserQuestion for clarifying questions.\n' +
         '</lmcode-plugin-instructions>\n\nbrainstorm body\n' +
-        '</scream-skill-loaded>',
+        '</lmcode-skill-loaded>',
     );
   });
 
@@ -186,7 +186,7 @@ describe('SkillTool execution', () => {
     await execute(tool, { skill: 'commit', args: '-m "fix login"' });
 
     expect(methods.recordSystemReminder.mock.calls[0]?.[0]).toContain(
-      '<scream-skill-loaded name="commit" args="-m &quot;fix login&quot;">\nFlag: -m\nCommit message: fix login\nRaw: -m "fix login"\n</scream-skill-loaded>',
+      '<lmcode-skill-loaded name="commit" args="-m &quot;fix login&quot;">\nFlag: -m\nCommit message: fix login\nRaw: -m "fix login"\n</lmcode-skill-loaded>',
     );
     expect(methods.recordSystemReminder.mock.calls[0]?.[0]).not.toContain('ARGUMENTS:');
   });
@@ -203,7 +203,7 @@ describe('SkillTool execution', () => {
     await execute(tool, { skill: 'session-aware' });
 
     expect(methods.recordSystemReminder.mock.calls[0]?.[0]).toContain(
-      '<scream-skill-loaded name="session-aware" args="">\nSession: ses_model_skill\n</scream-skill-loaded>',
+      '<lmcode-skill-loaded name="session-aware" args="">\nSession: ses_model_skill\n</lmcode-skill-loaded>',
     );
   });
 
@@ -236,7 +236,7 @@ describe('SkillTool execution', () => {
     await execute(tool, { skill: 'a&b', args: '<raw "value">' });
 
     expect(methods.recordSystemReminder.mock.calls[0]?.[0]).toContain(
-      '<scream-skill-loaded name="a&amp;b" args="&lt;raw &quot;value&quot;&gt;">\nbody of a&b\n\nARGUMENTS: <raw "value">\n</scream-skill-loaded>',
+      '<lmcode-skill-loaded name="a&amp;b" args="&lt;raw &quot;value&quot;&gt;">\nbody of a&b\n\nARGUMENTS: <raw "value">\n</lmcode-skill-loaded>',
     );
     expect(methods.recordSkillActivation).toHaveBeenCalledTimes(1);
   });

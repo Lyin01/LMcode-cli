@@ -74,7 +74,7 @@ async function sessionFixture(): Promise<{
   readonly sessionDir: string;
   readonly workDir: string;
 }> {
-  const dir = await mkdtemp(join(tmpdir(), 'scream-session-cron-stop-'));
+  const dir = await mkdtemp(join(tmpdir(), 'lmcode-session-cron-stop-'));
   tempDirs.push(dir);
   const workDir = join(dir, 'work');
   const sessionDir = join(dir, 'session');

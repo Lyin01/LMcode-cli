@@ -48,7 +48,7 @@ describe('ScreamCore runtime config', () => {
   });
 
   it('uses the shared OAuth resolver for ScreamCli service tokens', async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'scream-core-runtime-'));
+    tmp = await mkdtemp(join(tmpdir(), 'lmcode-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
     await mkdir(homeDir, { recursive: true });
@@ -113,7 +113,7 @@ custom_headers = { "X-Test" = "1" }
   });
 
   it('falls back to defaultModel when createSession receives no model option', async () => {
-    tmp = await mkdtemp(join(tmpdir(), 'scream-core-runtime-'));
+    tmp = await mkdtemp(join(tmpdir(), 'lmcode-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');
     await mkdir(homeDir, { recursive: true });

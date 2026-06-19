@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'scream-sdk-rename-'));
+  const dir = await mkdtemp(join(tmpdir(), 'lmcode-sdk-rename-'));
   tempDirs.push(dir);
   return dir;
 }

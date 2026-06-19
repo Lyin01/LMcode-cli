@@ -11,8 +11,8 @@ let homeDir: string;
 let workDir: string;
 
 beforeEach(async () => {
-  homeDir = await mkdtemp(join(tmpdir(), 'scream-agents-home-'));
-  workDir = await mkdtemp(join(tmpdir(), 'scream-agents-work-'));
+  homeDir = await mkdtemp(join(tmpdir(), 'lmcode-agents-home-'));
+  workDir = await mkdtemp(join(tmpdir(), 'lmcode-agents-work-'));
   vi.spyOn(testJian, 'gethome').mockReturnValue(homeDir);
   vi.spyOn(testJian, 'getcwd').mockReturnValue(workDir);
 });

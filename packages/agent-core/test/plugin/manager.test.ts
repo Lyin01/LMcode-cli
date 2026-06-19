@@ -78,7 +78,7 @@ describe('PluginManager', () => {
     expect(manager.get('demo')?.originalSource).toBe(pluginRoot);
   });
 
-  it('install() accepts a .scream-plugin manifest', async () => {
+  it('install() accepts a .lmcode-plugin manifest', async () => {
     const home = await makeScreamHome();
     const root = await mkdtemp(path.join(tmpdir(), 'lmcode-plugin-'));
     await mkdir(path.join(root, '.lmcode-plugin'), { recursive: true });

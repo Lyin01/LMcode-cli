@@ -9,7 +9,7 @@ describe('DreamTracker', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), 'scream-dream-test-'));
+    tmpDir = await mkdtemp(join(tmpdir(), 'lmcode-dream-test-'));
   });
 
   afterEach(async () => {

@@ -160,16 +160,16 @@ describe('extractZip', () => {
     expect(manifest).toBe('{"name":"test"}');
   });
 
-  it('detects plugin root with .scream-plugin/plugin.json', async () => {
+  it('detects plugin root with .lmcode-plugin/plugin.json', async () => {
     const destDir = await mkdtemp(path.join(tmpdir(), 'archive-test-'));
     const zipBuffer = await createZipBuffer([
-      { name: 'my-plugin/.scream-plugin/plugin.json', data: '{"name":"test"}' },
+      { name: 'my-plugin/.lmcode-plugin/plugin.json', data: '{"name":"test"}' },
       { name: 'my-plugin/skills/demo/SKILL.md', data: '---\nname: demo\n---\nbody' },
     ]);
 
     const root = await extractZip(zipBuffer, destDir);
     expect(root).toBe(path.join(destDir, 'my-plugin'));
-    const manifest = await readFile(path.join(root, '.scream-plugin', 'plugin.json'), 'utf8');
+    const manifest = await readFile(path.join(root, '.lmcode-plugin', 'plugin.json'), 'utf8');
     expect(manifest).toBe('{"name":"test"}');
   });
 

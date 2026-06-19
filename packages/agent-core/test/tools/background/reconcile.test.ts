@@ -16,7 +16,7 @@ let sessionDir: string;
 beforeEach(async () => {
   sessionDir = join(
     tmpdir(),
-    `scream-bg-reconcile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `lmcode-bg-reconcile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(sessionDir, { recursive: true });
 });

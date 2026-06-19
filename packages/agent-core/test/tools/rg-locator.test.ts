@@ -36,7 +36,7 @@ describe('findExistingRg', () => {
   let fakeShare: string;
   let savedPath: string | undefined;
   beforeEach(() => {
-    fakeShare = join(tmpdir(), `scream-rg-${String(Date.now())}-${String(Math.random()).slice(2)}`);
+    fakeShare = join(tmpdir(), `lmcode-rg-${String(Date.now())}-${String(Math.random()).slice(2)}`);
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
     savedPath = process.env['PATH'];
     // Empty PATH → rules out step 1 (system-path) for the default case.
@@ -141,7 +141,7 @@ describe('rgUnavailableMessage', () => {
 describe('verifyArchiveChecksum', () => {
   let fakeDir: string;
   beforeEach(() => {
-    fakeDir = join(tmpdir(), `scream-rg-sha-${String(Date.now())}-${String(Math.random()).slice(2)}`);
+    fakeDir = join(tmpdir(), `lmcode-rg-sha-${String(Date.now())}-${String(Math.random()).slice(2)}`);
     mkdirSync(fakeDir, { recursive: true });
   });
   afterEach(() => {
@@ -176,7 +176,7 @@ describe('ensureRgPath download branch', () => {
   beforeEach(() => {
     fakeShare = join(
       tmpdir(),
-      `scream-rg-dl-${String(Date.now())}-${String(Math.random()).slice(2)}`,
+      `lmcode-rg-dl-${String(Date.now())}-${String(Math.random()).slice(2)}`,
     );
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
     savedPath = process.env['PATH'];
@@ -386,7 +386,7 @@ describe('ensureRgPath Windows download branch', () => {
   beforeEach(() => {
     fakeShare = join(
       tmpdir(),
-      `scream-rg-win-${String(Date.now())}-${String(Math.random()).slice(2)}`,
+      `lmcode-rg-win-${String(Date.now())}-${String(Math.random()).slice(2)}`,
     );
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
     savedPath = process.env['PATH'];

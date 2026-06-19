@@ -29,7 +29,7 @@ function resolveRuntimeProvider(options: {
 }
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'scream-sdk-provider-identity-'));
+  const dir = await mkdtemp(join(tmpdir(), 'lmcode-sdk-provider-identity-'));
   tempDirs.push(dir);
   return dir;
 }

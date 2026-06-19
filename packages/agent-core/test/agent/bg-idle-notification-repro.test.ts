@@ -240,7 +240,7 @@ describe('background notification → main agent (real Agent instance)', () => {
     //
     // This test pins that current behavior so any change shows up.
 
-    const sessionDir = await mkdtemp(join(tmpdir(), 'scream-bg-resume-repro-'));
+    const sessionDir = await mkdtemp(join(tmpdir(), 'lmcode-bg-resume-repro-'));
     try {
       // Simulate a previous session's bash bg task that completed
       // before exit and an agent bg task that didn't (will be lost).

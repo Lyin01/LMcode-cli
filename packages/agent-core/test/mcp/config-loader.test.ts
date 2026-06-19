@@ -17,7 +17,7 @@ afterEach(async () => {
 });
 
 function makeTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'scream-mcp-loader-'));
+  const dir = mkdtempSync(join(tmpdir(), 'lmcode-mcp-loader-'));
   tempDirs.push(dir);
   return dir;
 }

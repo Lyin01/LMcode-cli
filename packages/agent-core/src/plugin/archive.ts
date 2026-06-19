@@ -134,7 +134,7 @@ async function detectPluginRoot(dir: string): Promise<string> {
 
 async function hasManifest(dir: string): Promise<boolean> {
   const rootManifest = path.join(dir, 'lmcode.plugin.json');
-  const dirManifest = path.join(dir, '.scream-plugin', 'plugin.json');
+  const dirManifest = path.join(dir, '.lmcode-plugin', 'plugin.json');
   const claudeDirManifest = path.join(dir, '.claude-plugin', 'plugin.json');
   const skillMd = path.join(dir, 'SKILL.md');
   return (await isFile(rootManifest))

@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 function makeTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'scream-core-config-'));
+  const dir = mkdtempSync(join(tmpdir(), 'lmcode-core-config-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -465,11 +465,11 @@ describe('config path env override', () => {
   it('uses LMCODE_HOME when no explicit homeDir is supplied', () => {
     const saved = process.env['LMCODE_HOME'];
     try {
-      process.env['LMCODE_HOME'] = '/tmp/scream-from-env';
+      process.env['LMCODE_HOME'] = '/tmp/lmcode-from-env';
 
-      expect(resolveLmcodeHome()).toBe('/tmp/scream-from-env');
-      expect(resolveLmcodeHome('/tmp/scream-explicit')).toBe('/tmp/scream-explicit');
-      expect(resolveConfigPath({})).toBe('/tmp/scream-from-env/config.toml');
+      expect(resolveLmcodeHome()).toBe('/tmp/lmcode-from-env');
+      expect(resolveLmcodeHome('/tmp/lmcode-explicit')).toBe('/tmp/lmcode-explicit');
+      expect(resolveConfigPath({})).toBe('/tmp/lmcode-from-env/config.toml');
       expect(resolveConfigPath({ configPath: '/tmp/custom.toml' })).toBe('/tmp/custom.toml');
     } finally {
       if (saved === undefined) delete process.env['LMCODE_HOME'];

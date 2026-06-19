@@ -156,7 +156,7 @@ describe('Session.init', () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'scream-core-init-'));
+  const dir = await mkdtemp(join(tmpdir(), 'lmcode-core-init-'));
   tempDirs.push(dir);
   return dir;
 }
