@@ -139,6 +139,13 @@ export class CustomEditor extends Editor {
   private consumeBuffer = '';
 
   /**
+   * When true, all editor content is visually selected (reverse video).
+   * Toggled by Ctrl+A. Backspace/Delete or any printable character clears
+   * the selection and deletes the text in one step.
+   */
+  private selectAllActive = false;
+
+  /**
    * `colors` is the live `ColorPalette` reference — the host mutates it
    * in place on theme switch (`Object.assign(state.theme.colors, ...)`), so
    * reading `this.colors.<token>` at render time always sees the
@@ -221,6 +228,24 @@ export class CustomEditor extends Editor {
     if (this.thinking) {
       injectThinkLabel(lines, width, this.borderColor ?? ((s: string) => s));
     }
+
+    // Select-all mode: wrap every content line in reverse-video SGR so the
+    // user can see that all text is selected. Strip any full-reset sequence
+    // (\x1b[0m) that pi-tui emits for the cursor character — otherwise it
+    // cancels the reverse video for the rest of that line.
+    if (this.selectAllActive && lines.length >= 3) {
+      const lastContent = lines.length - 1; // bottom border
+      for (let i = 1; i < lastContent; i++) {
+        const line = lines[i];
+        if (line !== undefined && line.length > 0) {
+          // The cursor char is rendered as \x1b[7mX\x1b[0m by pi-tui.
+          // Replace \x1b[0m with \x1b[27m (reverse-off only) so that
+          // the outer reverse-video wrapper stays effective past the cursor.
+          lines[i] = `\x1b[7m${line.replace(/\u001B\[0m/g, '\u001B[27m')}\x1b[27m`;
+        }
+      }
+    }
+
     return lines;
   }
 
@@ -329,6 +354,42 @@ export class CustomEditor extends Editor {
       }
       this.onEscape?.();
       return;
+    }
+
+    // Ctrl+A — toggle select-all mode (reverse-video highlight).
+    // Works only when there is content to select.
+    if (matchesKey(normalized, Key.ctrl('a'))) {
+      if (this.getText().length > 0) {
+        this.selectAllActive = !this.selectAllActive;
+        this.tui.requestRender();
+      }
+      return;
+    }
+
+    // When select-all is active, intercept modifying keys so the user can
+    // clear all content with Backspace/Delete or replace it by typing.
+    if (this.selectAllActive) {
+      // Backspace / Delete → clear everything
+      if (matchesKey(normalized, Key.backspace) || matchesKey(normalized, 'shift+backspace') ||
+          matchesKey(normalized, Key.delete) || matchesKey(normalized, 'shift+delete')) {
+        this.selectAllActive = false;
+        this.setText('');
+        this.tui.requestRender();
+        return;
+      }
+      // Printable character → clear selection, then insert the character.
+      // Uses pi-tui's own catch-all heuristic: any data whose first byte
+      // is >= 32 (space and above) is treated as printable input.
+      if (normalized.charCodeAt(0) >= 32) {
+        this.selectAllActive = false;
+        this.setText('');
+        // Let super handle the actual character insertion
+        super.handleInput(normalized);
+        return;
+      }
+      // Navigation / other keys → just deselect and fall through
+      this.selectAllActive = false;
+      this.tui.requestRender();
     }
 
     if (!this.firstInputFired) {
