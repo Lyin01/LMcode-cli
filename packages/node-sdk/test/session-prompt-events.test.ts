@@ -210,8 +210,8 @@ describe('Session.prompt events', () => {
           reason: 'completed',
         }),
       );
-      expect(fakeProviderState.calls[0]?.systemPrompt).toContain('You are LMcode');
-      expect(fakeProviderState.calls[0]?.systemPrompt).toContain('Available skills');
+      expect(fakeProviderState.calls[0]?.systemPrompt).toContain('你是 LMcode');
+      expect(fakeProviderState.calls[0]?.systemPrompt).toContain('当前可用技能');
       expect(fakeProviderState.providerConfigs[0]).toMatchObject({
         type: 'lmcode',
         defaultHeaders: expect.objectContaining({
