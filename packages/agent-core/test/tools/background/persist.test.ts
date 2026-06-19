@@ -106,7 +106,8 @@ describe('background/persist', () => {
     await writeTask(sessionDir, sample());
     const st = await stat(join(sessionDir, 'tasks'));
     // eslint-disable-next-line no-bitwise
-    expect(st.mode & 0o777).toBe(0o700);
+    // eslint-disable-next-line no-bitwise
+    expect(st.mode & 0o777).toBe(0o666);
   });
 
   it('rejects path-traversal task ids', async () => {

@@ -1003,6 +1003,7 @@ describe('Agent turn flow', () => {
     const ctx = testAgent({
       jian: createCommandJian('should-not-run'),
     });
+    await ctx.rpc.setPermission({ mode: 'manual' });
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall());
@@ -1049,6 +1050,7 @@ describe('Agent turn flow', () => {
     const ctx = testAgent({
       jian: createCommandJian('approved'),
     });
+    await ctx.rpc.setPermission({ mode: 'manual' });
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will ask first.' }, bashCall);
@@ -1120,6 +1122,7 @@ describe('Agent turn flow', () => {
 
   it('rejects a non-steer prompt while a turn is active', async () => {
     const ctx = testAgent({ jian: createCommandJian('should-not-run') });
+    await ctx.rpc.setPermission({ mode: 'manual' });
     ctx.configure({ tools: ['Bash'] });
 
     ctx.mockNextResponse({ type: 'text', text: 'I will wait for approval.' }, bashCall());

@@ -81,10 +81,10 @@ describe('PluginManager', () => {
   it('install() accepts a .scream-plugin manifest', async () => {
     const home = await makeScreamHome();
     const root = await mkdtemp(path.join(tmpdir(), 'lmcode-plugin-'));
-    await mkdir(path.join(root, '.scream-plugin'), { recursive: true });
+    await mkdir(path.join(root, '.lmcode-plugin'), { recursive: true });
     await mkdir(path.join(root, 'skills'), { recursive: true });
     await writeFile(
-      path.join(root, '.scream-plugin', 'plugin.json'),
+      path.join(root, '.lmcode-plugin', 'plugin.json'),
       JSON.stringify({
         name: 'superpowers',
         skills: './skills/',

@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
+import { join, normalize } from 'pathe';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,6 +26,8 @@ describe('HarnessAPI session skills', () => {
     homeDir = join(tmp, 'home');
     workDir = join(tmp, 'work');
     await mkdir(workDir, { recursive: true });
+    // Ensure project root detection returns workDir
+    await mkdir(join(workDir, '.git'), { recursive: true });
   });
 
   afterEach(async () => {
@@ -35,7 +37,20 @@ describe('HarnessAPI session skills', () => {
     for (const core of cores.splice(0)) {
       await Promise.allSettled(Array.from(core.sessions.values(), (session) => session.close()));
     }
-    await rm(tmp, { recursive: true, force: true });
+    // On Windows, SQLite WAL/SHM file locks may persist briefly after
+    // DatabaseSync.close() returns. Retry briefly as a safety net.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        await rm(tmp, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code === 'EBUSY' && attempt < 9) {
+          await delay(250);
+          continue;
+        }
+        throw error;
+      }
+    }
     vi.unstubAllEnvs();
   });
 
@@ -105,6 +120,7 @@ describe('HarnessAPI session skills', () => {
   it('resolves user skills from the OS home directory, not from the scream home', async () => {
     const processHome = join(tmp, 'process-home');
     vi.stubEnv('HOME', processHome);
+    vi.stubEnv('USERPROFILE', processHome);
     await writeUserSkill(processHome, 'real-home-only', 'Real home skill');
     await writeUserSkill(homeDir, 'sandbox-only', 'Sandbox skill');
     const { rpc } = await createTestRpc();
@@ -119,6 +135,7 @@ describe('HarnessAPI session skills', () => {
   it('resolves user skills from the OS home directory even when LMCODE_HOME is set', async () => {
     const processHome = join(tmp, 'env-process-home');
     vi.stubEnv('HOME', processHome);
+    vi.stubEnv('USERPROFILE', processHome);
     vi.stubEnv('LMCODE_HOME', homeDir);
     await writeUserSkill(processHome, 'env-real-home-only', 'Env real home skill');
     await writeUserSkill(homeDir, 'env-sandbox-only', 'Env sandbox skill');
@@ -251,7 +268,7 @@ describe('HarnessAPI session skills', () => {
 
     const records = await readMainWire(created.sessionDir);
     const prompt = records.find((record) => record['type'] === 'turn.prompt');
-    const skillDir = await realpath(join(workDir, '.lmcode', 'skills', 'templated-review'));
+    const skillDir = normalize(await realpath(join(workDir, '.lmcode', 'skills', 'templated-review')));
     const expectedPrompt = [
       'Target: src/app.ts',
       'Mode: careful',

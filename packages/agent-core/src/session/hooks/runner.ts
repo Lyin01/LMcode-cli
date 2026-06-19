@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams, execSync } from 'node:child_process';
 
 import { z } from 'zod';
 
@@ -11,6 +11,20 @@ export interface RunHookOptions {
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
+
+// On Windows, cmd.exe doesn't understand POSIX shell syntax (single quotes,
+// >&2, exit 2, #!/bin/bash scripts, etc.). Use bash.exe (from Git Bash,
+// Cygwin, or WSL) when available for consistent cross-platform behavior.
+// Falls back to cmd.exe when bash is not installed.
+const WINDOWS_SHELL: string | boolean = (() => {
+  if (process.platform !== 'win32') return true;
+  try {
+    execSync('bash --version', { stdio: 'ignore', windowsHide: true });
+    return 'bash.exe';
+  } catch {
+    return true;
+  }
+})();
 const KILL_GRACE_MS = 100;
 const OptionalStringSchema = z.preprocess(
   (value) => {
@@ -46,7 +60,7 @@ export async function runHook(
   let child: ChildProcessWithoutNullStreams;
   try {
     child = spawn(command, {
-      shell: true,
+      shell: WINDOWS_SHELL,
       cwd: options.cwd,
       stdio: 'pipe',
       detached: process.platform !== 'win32',

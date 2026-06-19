@@ -184,7 +184,7 @@ describe('loadRuntimeConfig vs readConfigFile (write-back isolation)', () => {
     const path = join(dir, 'config.toml');
     writeFileSync(
       path,
-      'default_model = "x"\n[providers.x]\ntype = "lm"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
+      'default_model = "x"\n[providers.x]\ntype = "lmcode"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
     );
     try {
       const env = { ...MIN };
@@ -237,7 +237,7 @@ describe('writeConfigFile never persists the env model', () => {
     const path = join(dir, 'config.toml');
     writeFileSync(
       path,
-      'default_model = "x"\ndefault_thinking = false\n[thinking]\nmode = "auto"\n[providers.x]\ntype = "lm"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
+      'default_model = "x"\ndefault_thinking = false\n[thinking]\nmode = "auto"\n[providers.x]\ntype = "lmcode"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
     );
     try {
       // Reproduces the /login round-trip: a runtime config carrying the env
@@ -273,7 +273,7 @@ describe('writeConfigFile never persists the env model', () => {
     const path = join(dir, 'config.toml');
     writeFileSync(
       path,
-      'default_model = "x"\n[providers.x]\ntype = "lm"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
+      'default_model = "x"\n[providers.x]\ntype = "lmcode"\napi_key = "k"\n[models.x]\nprovider = "x"\nmodel = "x"\nmax_context_size = 1000\n',
     );
     try {
       const runtime = loadRuntimeConfig(path, {

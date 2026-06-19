@@ -142,7 +142,7 @@ describe('payload shapes', () => {
     await getRootLogger().flush();
     const text = await readGlobal();
     expect(text).toContain('sessionId=ses_x');
-    expect(text).toContain('model=scream-k2');
+    expect(text).toContain('model=lmcode-k2');
   });
 
   it('bunyan-style: ctx with `error: Error` field hoists stack out', async () => {
@@ -208,7 +208,7 @@ describe('createChild', () => {
     sessionLog.warn('second', { extra: 'x' });
     await getRootLogger().flush();
     const text = await readGlobal();
-    expect(text).toMatch(/first.*sessionId=ses_a.*model=scream-k2/);
+    expect(text).toMatch(/first.*sessionId=ses_a.*model=lmcode-k2/);
     expect(text).toMatch(/second.*extra=x.*sessionId=ses_a/);
   });
 

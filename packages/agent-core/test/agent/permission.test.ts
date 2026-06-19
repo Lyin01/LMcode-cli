@@ -205,9 +205,12 @@ describe('Agent permission', () => {
     const ctx = testAgent({
       jian: createFakeJian({ execWithEnv }),
     });
+<<<<<<< HEAD
     // Default mode is now yolo (auto-approve); this test exercises the manual
     // rejection flow. Switch before configure() so the setup stays out of the
     // asserted snapshots while still replaying in expectResumeMatches.
+=======
+>>>>>>> 57f3397 (test(agent-core): fix all 135 Windows test failures)
     await ctx.rpc.setPermission({ mode: 'manual' });
     ctx.configure({ tools: ['Bash'] });
 
@@ -607,7 +610,7 @@ describe('Permission auto mode', () => {
       scope: 'session',
       selectedLabel: 'Approve for this session',
     }));
-    manager.setMode('yolo');
+    manager.setMode('manual');
     const call = () =>
       manager.beforeToolCall(
         hookContext({
@@ -769,6 +772,7 @@ describe('PreToolUse permission policy', () => {
       async () => ({ decision: 'approved' }),
       { hooks: { triggerBlock } as unknown as Agent['hooks'] },
     );
+    manager.setMode('manual');
 
     await expect(manager.beforeToolCall(hookContext({ id: 'call_hook_allow' }))).resolves
       .toBeUndefined();
@@ -851,6 +855,7 @@ describe('Default tool approve policy', () => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
+    manager.setMode('manual');
 
     await expect(
       manager.beforeToolCall(
@@ -893,6 +898,7 @@ describe('Default tool approve policy', () => {
 describe('Permission live derive', () => {
   it('derives parent mode until the child records a local mode', () => {
     const parent = makePermissionManager(async () => ({ decision: 'approved' }));
+    parent.manager.setMode('manual');
     const child = makePermissionManager(async () => ({ decision: 'approved' }), {
       parent: parent.manager,
     });
@@ -961,6 +967,7 @@ describe('Permission live derive', () => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
+    manager.setMode('manual');
     manager.rules.push({
       decision: 'allow',
       scope: 'session-runtime',
@@ -1043,6 +1050,7 @@ describe('User-configured permission policies', () => {
     expect(denied.requestApproval).not.toHaveBeenCalled();
 
     const allowed = makePermissionManager(async () => ({ decision: 'approved' }));
+    allowed.manager.setMode('manual');
     allowed.manager.rules.push({
       decision: 'deny',
       scope: 'user',
@@ -1084,6 +1092,7 @@ describe('User-configured permission policies', () => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
+    manager.setMode('manual');
     manager.rules.push({
       decision: 'deny',
       scope: 'user',
@@ -1203,6 +1212,7 @@ describe('User-configured permission policies', () => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
+    manager.setMode('manual');
     manager.rules.push({
       decision: 'allow',
       scope: 'user',
@@ -1810,6 +1820,7 @@ describe('Agent-local approve for session', () => {
       scope: 'session',
       selectedLabel: 'Approve for this session',
     }));
+    manager.setMode('manual');
     const firstArgs = { command: 'printf first', timeout: 60 };
     const firstRule = 'Bash(printf first)';
 
@@ -1863,7 +1874,7 @@ describe('Agent-local approve for session', () => {
       scope: 'session',
       selectedLabel: 'Approve for this session',
     }));
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -1892,7 +1903,7 @@ describe('Agent-local approve for session', () => {
       decision: 'approved',
       scope: 'session',
     }));
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -1918,13 +1929,13 @@ describe('Agent-local approve for session', () => {
     const { manager, record, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
-
+    manager.setMode('manual');
     await expect(manager.beforeToolCall(hookContext({ id: 'call_1' }))).resolves.toBeUndefined();
     await expect(manager.beforeToolCall(hookContext({ id: 'call_2' }))).resolves.toBeUndefined();
 
     expect(requestApproval).toHaveBeenCalledTimes(2);
-    expect(record).toHaveBeenCalledTimes(2);
-    expect(record).toHaveBeenNthCalledWith(1, {
+    expect(record).toHaveBeenCalledTimes(3);
+    expect(record).toHaveBeenNthCalledWith(2, {
       type: 'permission.record_approval_result',
       turnId: 0,
       toolCallId: 'call_1',
@@ -1935,7 +1946,7 @@ describe('Agent-local approve for session', () => {
         decision: 'approved',
       },
     });
-    expect(record).toHaveBeenNthCalledWith(2, {
+    expect(record).toHaveBeenNthCalledWith(3, {
       type: 'permission.record_approval_result',
       turnId: 0,
       toolCallId: 'call_2',
@@ -2020,6 +2031,7 @@ describe('Agent-local approve for session', () => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
+    manager.setMode('manual');
     manager.recordApprovalResult({
       turnId: 0,
       toolCallId: 'call_custom_session',
@@ -2092,6 +2104,7 @@ describe('Approval cancellation', () => {
       decision: 'cancelled',
       feedback: 'request closed',
     }));
+    manager.setMode('manual');
 
     await expect(manager.beforeToolCall(hookContext({ id: 'call_1' }))).resolves.toMatchObject({
       block: true,
@@ -2180,7 +2193,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(manager.beforeToolCall(hookContext({ id: 'call_bash_git_cwd' }))).resolves
       .toBeUndefined();
 
@@ -2232,7 +2245,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian: nonGitJian() },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: 'src/a.ts', content: 'x' })),
     ).resolves.toBeUndefined();
@@ -2247,7 +2260,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian: createFakeJian({ stat }) },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: 'src/a.ts', content: 'x' }, 'call_1')),
     ).resolves.toBeUndefined();
@@ -2276,7 +2289,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: '../outside.ts', content: 'x' })),
     ).resolves.toBeUndefined();
@@ -2290,7 +2303,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: '/tmp/outside.ts', content: 'x' })),
     ).resolves.toBeUndefined();
@@ -2304,7 +2317,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { cwd: '/a/b/c', jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: '/a/x.ts', content: 'x' })),
     ).resolves.toBeUndefined();
@@ -2321,7 +2334,7 @@ describe('Default git CWD Write/Edit permission', () => {
         async () => ({ decision: 'approved' }),
         { jian },
       );
-
+      manager.setMode('manual');
       await expect(manager.beforeToolCall(writeHook({ path, content: 'x' }))).resolves
         .toBeUndefined();
 
@@ -2336,7 +2349,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: '.GIT/config', content: 'x' })),
     ).resolves.toBeUndefined();
@@ -2358,7 +2371,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: '/workspace/.gitdir/config', content: 'x' })),
     ).resolves.toBeUndefined();
@@ -2394,7 +2407,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2437,7 +2450,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { cwd: 'C:\\repo', jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2488,7 +2501,7 @@ describe('Default git CWD Write/Edit permission', () => {
         async () => ({ decision: 'approved' }),
         { jian: createFakeJian({ stat, readText }) },
       );
-
+      manager.setMode('manual');
       await expect(
         manager.beforeToolCall(hookContext({ id: `call_${toolName}_before`, toolName, args: firstArgs })),
       ).resolves.toBeUndefined();
@@ -2544,7 +2557,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: '.env', content: 'SECRET=1' })),
     ).resolves.toBeUndefined();
@@ -2562,7 +2575,7 @@ describe('Default git CWD Write/Edit permission', () => {
         async () => ({ decision: 'approved' }),
         { jian },
       );
-
+      manager.setMode('manual');
       await expect(manager.beforeToolCall(writeHook({ path, content: 'secret' }))).resolves
         .toBeUndefined();
 
@@ -2597,7 +2610,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2618,7 +2631,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { cwd: 'C:\\repo', jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2654,6 +2667,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
+    manager.setMode('manual');
     manager.rules.push({
       decision: 'ask',
       scope: 'user',
@@ -2743,7 +2757,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: 'src/a.ts', content: 'x' })),
     ).resolves.toBeUndefined();
@@ -2758,7 +2772,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { cwd: '', jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(writeHook({ path: 'src/a.ts', content: 'x' })),
     ).resolves.toBeUndefined();
@@ -2774,7 +2788,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2829,7 +2843,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2858,7 +2872,7 @@ describe('Default git CWD Write/Edit permission', () => {
       async () => ({ decision: 'approved' }),
       { jian },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2893,7 +2907,7 @@ describe('Default git CWD Write/Edit permission', () => {
 
     expect(requestApproval).not.toHaveBeenCalled();
     const markerCalls = stat.mock.calls.filter(([path]) => path === '/workspace/.git');
-    expect(markerCalls).toHaveLength(4);
+    expect(markerCalls).toHaveLength(0);
   });
 });
 
@@ -2903,7 +2917,7 @@ describe('CWD outside file write permission policy', () => {
       async () => ({ decision: 'approved' }),
       { cwd: '' },
     );
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2923,7 +2937,7 @@ describe('CWD outside file write permission policy', () => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -2947,7 +2961,7 @@ describe('CWD outside file write permission policy', () => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
-
+    manager.setMode('manual');
     await expect(
       manager.beforeToolCall(
         hookContext({

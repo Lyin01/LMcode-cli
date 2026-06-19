@@ -289,6 +289,7 @@ describe('SessionSubagentHost', () => {
 
     const controller = new AbortController();
     const child = testAgent();
+    child.agent.permission.setMode('manual');
     child.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall());
     const session = fakeSession(parent.agent, child.agent);
     const host = new SessionSubagentHost(session, 'main');
@@ -331,6 +332,7 @@ describe('SessionSubagentHost', () => {
     parent.newEvents();
 
     const child = testAgent();
+    child.agent.permission.setMode('manual');
     child.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall());
     const session = fakeSession(parent.agent, child.agent);
     const host = new SessionSubagentHost(session, 'main');
@@ -363,6 +365,7 @@ describe('SessionSubagentHost', () => {
 
     const controller = new AbortController();
     const child = testAgent();
+    child.agent.permission.setMode('manual');
     child.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall());
     const session = fakeSession(parent.agent, child.agent);
     const host = new SessionSubagentHost(session, 'main');
@@ -391,9 +394,9 @@ describe('SessionSubagentHost', () => {
     const parent = testAgent();
     parent.configure();
     parent.newEvents();
-
     const controller = new AbortController();
     const child = testAgent();
+    child.agent.permission.setMode('manual');
     child.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall());
     const session = fakeSession(parent.agent, child.agent);
     const host = new SessionSubagentHost(session, 'main');
@@ -426,6 +429,7 @@ describe('SessionSubagentHost', () => {
 
     const backgroundController = new AbortController();
     const child = testAgent();
+    child.agent.permission.setMode('manual');
     child.mockNextResponse({ type: 'text', text: 'I will run Bash.' }, bashCall());
     const session = fakeSession(parent.agent, child.agent);
     const host = new SessionSubagentHost(session, 'main');

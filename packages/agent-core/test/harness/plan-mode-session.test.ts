@@ -10,7 +10,7 @@ const BASE_CONFIG = `
 default_model = "lmcode/lmcode-for-coding"
 
 [providers."managed:lmcode"]
-type = "lm"
+type = "lmcode"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
@@ -75,7 +75,7 @@ describe('plan-mode bootstrap from config.defaultPlanMode', () => {
   async function countPlanModeEnters(): Promise<number> {
     const suffix = join('agents', 'main', 'wire.jsonl');
     const entries = await readdir(homeDir, { recursive: true });
-    const match = entries.find((entry) => entry.endsWith(suffix));
+    const match = entries.find((entry) => entry.replace(/\\/g, '/').endsWith(suffix));
     if (match === undefined) {
       throw new Error('wire.jsonl not found under session home');
     }

@@ -9,7 +9,7 @@ describe('ConfigState model capabilities', () => {
       providerManager: new ProviderManager({
         config: {
           providers: {
-            scream: {
+            lmcode: {
               type: 'lmcode',
               apiKey: 'test-key',
             },
@@ -41,12 +41,12 @@ describe('ConfigState model capabilities', () => {
     });
   });
 
-  it('does not infer Scream capabilities from the provider catalogue', () => {
+  it('does not infer LMcode capabilities from the provider catalogue', () => {
     const ctx = testAgent({
       providerManager: new ProviderManager({
         config: {
           providers: {
-            scream: {
+            lmcode: {
               type: 'lmcode',
               apiKey: 'test-key',
             },
@@ -79,7 +79,7 @@ it('uses session id as a provider prompt cache hint without storing it on Agent'
         promptCacheKey: 'session-test',
         config: {
           providers: {
-            scream: {
+            lmcode: {
               type: 'lmcode',
               apiKey: 'test-key',
             },

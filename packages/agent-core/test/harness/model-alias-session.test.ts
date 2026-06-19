@@ -15,7 +15,7 @@ const CONFIG = `
 default_model = "lmcode/lmcode-for-coding"
 
 [providers."managed:lmcode"]
-type = "lm"
+type = "lmcode"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
@@ -48,7 +48,18 @@ describe('HarnessAPI session model aliases', () => {
         await session.close().catch(() => {});
       }
     }
-    await rm(tmp, { recursive: true, force: true });
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        await rm(tmp, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code === 'EBUSY' && attempt < 9) {
+          await new Promise((r) => setTimeout(r, 250));
+          continue;
+        }
+        throw error;
+      }
+    }
   });
 
   it('keeps the configured alias separate from the provider model across create, setModel, and resume', async () => {
@@ -191,7 +202,7 @@ reason = "no rm"
     const created = await rpc.createSession({ workDir });
 
     await expect(rpc.getPermission({ sessionId: created.id, agentId: 'main' })).resolves.toEqual({
-      mode: 'manual',
+      mode: 'yolo',
       rules: [
         {
           decision: 'deny',
@@ -207,7 +218,7 @@ reason = "no rm"
     await expect(
       freshRpc.getPermission({ sessionId: created.id, agentId: 'main' }),
     ).resolves.toEqual({
-      mode: 'manual',
+      mode: 'yolo',
       rules: [
         {
           decision: 'deny',
@@ -293,7 +304,7 @@ reason = "no rm"
 default_model = "lmcode/lmcode-for-coding"
 
 [providers."managed:lmcode"]
-type = "lm"
+type = "lmcode"
 api_key = "test-key"
 base_url = "https://api.example/v1"
 
@@ -313,7 +324,9 @@ max_context_size = 1000000
   async function findWireFile(root: string): Promise<string> {
     const suffix = join('agents', 'main', 'wire.jsonl');
     const entries = await readdir(root, { recursive: true });
-    const match = entries.find((entry) => entry.endsWith(suffix));
+    // On Windows, readdir returns paths with `\` but pathe join uses `/`.
+    // Normalize both to forward slashes for a cross-platform match.
+    const match = entries.find((entry) => entry.replace(/\\/g, '/').endsWith(suffix));
     if (match === undefined) {
       throw new Error('wire.jsonl not found under session home');
     }

@@ -76,8 +76,8 @@ describe('skill discovery', () => {
     });
 
     expect(roots.map((root) => root.path)).toEqual([
-      await realpath(join(repoDir, '.lmcode', 'skills')),
-      await realpath(join(homeDir, '.lmcode', 'skills')),
+      normalize(await realpath(join(repoDir, '.lmcode', 'skills'))),
+      normalize(await realpath(join(homeDir, '.lmcode', 'skills'))),
     ]);
   });
 
@@ -561,11 +561,11 @@ describe('resolveSkillRoots ordering and priority', () => {
     });
 
     expect(roots.map((r) => r.path)).toEqual([
-      await realpath(projBrand),
-      await realpath(projGeneric),
-      await realpath(userBrand),
-      await realpath(userGeneric),
-      await realpath(builtin),
+      normalize(await realpath(projBrand)),
+      normalize(await realpath(projGeneric)),
+      normalize(await realpath(userBrand)),
+      normalize(await realpath(userGeneric)),
+      normalize(await realpath(builtin)),
     ]);
   });
 
@@ -594,7 +594,7 @@ describe('resolveSkillRoots ordering and priority', () => {
     const roots = await resolveSkillRoots({ paths: { userHomeDir: homeDir, workDir } });
 
     const paths = roots.map((r) => r.path);
-    expect(paths).toContain(await realpath(join(homeDir, '.lmcode', 'skills')));
+    expect(paths).toContain(normalize(await realpath(join(homeDir, '.lmcode', 'skills'))));
   });
 });
 
@@ -609,7 +609,7 @@ describe('resolveSkillRoots extra dirs', () => {
       extraDirs: [extra],
     });
 
-    expect(roots.map((r) => r.path)).toContain(await realpath(extra));
+    expect(roots.map((r) => r.path)).toContain(normalize(await realpath(extra)));
   });
 
   it('expands a leading ~/ in extra dirs against the user home directory', async () => {
@@ -622,7 +622,7 @@ describe('resolveSkillRoots extra dirs', () => {
       extraDirs: ['~/my-skills'],
     });
 
-    expect(roots.map((r) => r.path)).toContain(await realpath(target));
+    expect(roots.map((r) => r.path)).toContain(normalize(await realpath(target)));
   });
 
   it('resolves a relative extra dir against the project root (.git ancestor), not the work dir', async () => {
@@ -638,7 +638,7 @@ describe('resolveSkillRoots extra dirs', () => {
     });
 
     const paths = roots.map((r) => r.path);
-    expect(paths).toContain(await realpath(extraAtRoot));
+    expect(paths).toContain(normalize(await realpath(extraAtRoot)));
     expect(paths).not.toContain(join(nested, 'my-dir'));
   });
 
@@ -652,7 +652,7 @@ describe('resolveSkillRoots extra dirs', () => {
       extraDirs: [absExtra],
     });
 
-    expect(roots.map((r) => r.path)).toContain(await realpath(absExtra));
+    expect(roots.map((r) => r.path)).toContain(normalize(await realpath(absExtra)));
   });
 
   it('silently drops missing extra-dir entries', async () => {
@@ -666,7 +666,7 @@ describe('resolveSkillRoots extra dirs', () => {
     });
 
     const paths = roots.map((r) => r.path);
-    expect(paths).toContain(await realpath(real));
+    expect(paths).toContain(normalize(await realpath(real)));
     expect(paths).not.toContain(join(repoDir, 'nowhere'));
   });
 
@@ -680,7 +680,7 @@ describe('resolveSkillRoots extra dirs', () => {
       extraDirs: [real, real],
     });
 
-    const realResolved = await realpath(real);
+    const realResolved = normalize(await realpath(real));
     const matches = roots.filter((r) => r.path === realResolved);
     expect(matches).toHaveLength(1);
   });
@@ -705,7 +705,7 @@ describe('resolveSkillRoots extra dirs', () => {
       ],
     });
 
-    const realResolved = await realpath(real);
+    const realResolved = normalize(await realpath(real));
     const matches = roots.filter((r) => r.path === realResolved);
     expect(matches).toHaveLength(1);
     expect(matches[0]?.plugin).toEqual({
@@ -789,10 +789,10 @@ describe('resolveSkillRoots extra dirs', () => {
     });
 
     const paths = roots.map((r) => r.path);
-    expect(paths).toContain(await realpath(cli));
-    expect(paths).toContain(await realpath(extra));
-    expect(paths).not.toContain(await realpath(userBrand));
-    expect(paths).not.toContain(await realpath(projectBrand));
+    expect(paths).toContain(normalize(await realpath(cli)));
+    expect(paths).toContain(normalize(await realpath(extra)));
+    expect(paths).not.toContain(normalize(await realpath(userBrand)));
+    expect(paths).not.toContain(normalize(await realpath(projectBrand)));
   });
 
   it.skipIf(!symlinkSupported)('collapses a real dir and a symlink to the same target into one root', async () => {
@@ -809,7 +809,7 @@ describe('resolveSkillRoots extra dirs', () => {
 
     const extras = roots.filter((r) => r.source === 'extra');
     expect(extras).toHaveLength(1);
-    expect(extras[0]?.path).toBe(await realpath(real));
+    expect(extras[0]?.path).toBe(normalize(await realpath(real)));
   });
 
   it('collapses entries differing only by trailing slash', async () => {
@@ -857,7 +857,7 @@ describe('resolveSkillRoots extra dirs', () => {
 
     const extras = roots.filter((r) => r.source === 'extra');
     expect(extras).toHaveLength(1);
-    expect(extras[0]?.path).toBe(await realpath(real));
+    expect(extras[0]?.path).toBe(normalize(await realpath(real)));
     expect(extras[0]?.path).not.toBe(link);
   });
 
@@ -877,7 +877,7 @@ describe('resolveSkillRoots extra dirs', () => {
       extraDirs: [userBrand],
     });
 
-    const realUserBrand = await realpath(userBrand);
+    const realUserBrand = normalize(await realpath(userBrand));
     const matching = roots.filter((r) => r.path === realUserBrand);
     expect(matching).toHaveLength(1);
     expect(matching[0]?.source).toBe('user');
@@ -1145,11 +1145,11 @@ describe('explicit dir override and scope stamping', () => {
     });
 
     const paths = roots.map((r) => r.path);
-    expect(paths).toContain(await realpath(extraA));
-    expect(paths).toContain(await realpath(extraB));
-    expect(paths).toContain(await realpath(builtin));
-    expect(paths).not.toContain(await realpath(userBrand));
-    expect(paths).not.toContain(await realpath(projBrand));
+    expect(paths).toContain(normalize(await realpath(extraA)));
+    expect(paths).toContain(normalize(await realpath(extraB)));
+    expect(paths).toContain(normalize(await realpath(builtin)));
+    expect(paths).not.toContain(normalize(await realpath(userBrand)));
+    expect(paths).not.toContain(normalize(await realpath(projBrand)));
   });
 
   it('returns both brand and generic user dirs when generic is empty (no shadowing)', async () => {
@@ -1162,10 +1162,10 @@ describe('explicit dir override and scope stamping', () => {
     const roots = await resolveSkillRoots({ paths: { userHomeDir: homeDir, workDir } });
     const userPaths = roots.filter((r) => r.source === 'user').map((r) => r.path);
 
-    expect(userPaths).toContain(await realpath(brand));
-    expect(userPaths).toContain(await realpath(generic));
-    expect(userPaths.indexOf(await realpath(brand))).toBeLessThan(
-      userPaths.indexOf(await realpath(generic)),
+    expect(userPaths).toContain(normalize(await realpath(brand)));
+    expect(userPaths).toContain(normalize(await realpath(generic)));
+    expect(userPaths.indexOf(normalize(await realpath(brand)))).toBeLessThan(
+      userPaths.indexOf(normalize(await realpath(generic))),
     );
   });
 
@@ -1231,7 +1231,7 @@ describe('project root discovery (.git walk-up)', () => {
     });
     const projectPaths = roots.filter((r) => r.source === 'project').map((r) => r.path);
 
-    expect(projectPaths).toContain(await realpath(repoScream));
+    expect(projectPaths).toContain(normalize(await realpath(repoScream)));
   });
 
   it('falls back to the work dir when no .git marker is found anywhere up the chain', async () => {

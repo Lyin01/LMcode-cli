@@ -56,7 +56,7 @@ extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 theme = "dark"
 
 [providers."managed:lmcode"]
-type = "lm"
+type = "lmcode"
 base_url = "https://api.scream.com/coding/v1"
 api_key = "sk-file"
 custom_headers = { "X-Test" = "1" }

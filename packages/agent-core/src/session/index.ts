@@ -213,6 +213,12 @@ export class Session {
       try {
         await this.mcp.shutdown();
       } finally {
+        // Close SQLite memo stores so WAL/SHM file locks are released before
+        // the caller removes the temp directory. On Windows, failing to close
+        // these connections causes EBUSY errors during teardown.
+        await Promise.allSettled(
+          Array.from(this.agents.values(), (agent) => agent.close()),
+        );
         await this.logHandle?.close();
       }
     }

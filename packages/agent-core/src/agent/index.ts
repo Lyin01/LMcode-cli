@@ -584,6 +584,11 @@ export class Agent {
     return text || '(no response)';
   }
 
+  /** Release resources held by this agent, including the SQLite memo store. */
+  close(): void {
+    this.memoStore?.close();
+  }
+
   emitEvent(event: AgentEvent): void {
     if (this.records.restoring) return;
     void this.rpc?.emitEvent?.(event);

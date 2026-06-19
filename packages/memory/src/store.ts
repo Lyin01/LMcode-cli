@@ -235,6 +235,11 @@ export class MemoryMemoStore {
     }
 
     await writeFile(markerPath, `${migratedCount}\n`, 'utf8').catch(() => {});
+    // Close the temporary store's SQLite connection to avoid leaking a
+    // DatabaseSync handle. On Windows, an unclosed connection keeps the
+    // WAL/SHM files locked, causing EBUSY when the caller removes the
+    // parent directory.
+    await target.close();
   }
 
   /** @internal */
@@ -801,6 +806,36 @@ export class MemoryMemoStore {
       projectDir === undefined ? stmt.all(limit, offset) : stmt.all(projectDir, limit, offset)
     ) as Array<Record<string, unknown>>;
     return { rows: rows.map(rowToMemo), total };
+  }
+
+  /**
+   * Close the SQLite database connection and release all file handles.
+   * Call this when the store is no longer needed (e.g., during session teardown)
+   * to prevent EBUSY errors on Windows from lingering WAL/SHM files.
+   *
+   * After calling `close()` the store must not be used for further reads/writes
+   * without calling `init()` again.
+   */
+  close(): void {
+    this.initialized = false;
+    if (this.embeddingTimer !== undefined) {
+      clearTimeout(this.embeddingTimer);
+      this.embeddingTimer = undefined;
+    }
+    if (this.db !== undefined) {
+      try {
+        // Checkpoint and switch to DELETE mode before closing so the WAL and
+        // SHM files are cleaned up immediately rather than left on disk. On
+        // Windows these auxiliary files lock the parent directory and cause
+        // EBUSY errors during teardown.
+        this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+        this.db.exec('PRAGMA journal_mode = DELETE;');
+      } catch {
+        // Best-effort — the close below still releases the connection.
+      }
+      this.db.close();
+      this.db = undefined;
+    }
   }
 
   private async ensureDir(): Promise<void> {

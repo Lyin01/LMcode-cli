@@ -98,7 +98,7 @@ custom_headers = { "X-Test" = "1" }
       `default_model = "default-mock"
 
 [providers.test]
-type = "lm"
+type = "lmcode"
 api_key = "test-key"
 
 [models."default-mock"]
