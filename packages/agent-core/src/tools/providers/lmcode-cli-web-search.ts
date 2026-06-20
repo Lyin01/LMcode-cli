@@ -1,5 +1,5 @@
 /**
- * ScreamCliWebSearchProvider — host-side `WebSearchProvider`.
+ * LmcodeCliWebSearchProvider — host-side `WebSearchProvider`.
  *
  * Auth uses a narrow bearer token provider per request. Host-specific
  * default headers are supplied by runtime and request-level overrides
@@ -12,7 +12,7 @@ export interface BearerTokenProvider {
   getAccessToken(options?: { readonly force?: boolean | undefined }): Promise<string>;
 }
 
-export interface ScreamCliWebSearchProviderOptions {
+export interface LmcodeCliWebSearchProviderOptions {
   tokenProvider?: BearerTokenProvider;
   apiKey?: string;
   baseUrl: string;
@@ -36,7 +36,7 @@ interface ScreamCliSearchResponse {
   search_results?: ScreamCliSearchResult[];
 }
 
-export class ScreamCliWebSearchProvider implements WebSearchProvider {
+export class LmcodeCliWebSearchProvider implements WebSearchProvider {
   private readonly tokenProvider: BearerTokenProvider | undefined;
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string;
@@ -44,7 +44,7 @@ export class ScreamCliWebSearchProvider implements WebSearchProvider {
   private readonly customHeaders: Record<string, string>;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(options: ScreamCliWebSearchProviderOptions) {
+  constructor(options: LmcodeCliWebSearchProviderOptions) {
     this.tokenProvider = options.tokenProvider;
     this.apiKey = options.apiKey;
     this.baseUrl = options.baseUrl;

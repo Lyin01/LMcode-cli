@@ -34,6 +34,11 @@ const DEFAULT_USER_AGENT =
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 
+// Cap on the number of redirect hops we will follow before giving up.
+// Each hop is re-validated by `assertSafeFetchTarget`, so this also bounds
+// the cost of a malicious redirect chain.
+const MAX_REDIRECTS = 5;
+
 // Readability's .d.ts references the global `Document` type, but this
 // package compiles with `lib: ES2023` (no DOM). Extracting the
 // constructor parameter type keeps us off the global `Document` name
@@ -167,11 +172,63 @@ export class LocalFetchURLProvider implements UrlFetcher {
     return result;
   }
 
+  /**
+   * GET `url`, following redirects manually so the SSRF guard runs on
+   * every hop. `redirect: 'manual'` keeps the runtime from auto-following
+   * a 3xx into a private address (e.g. a 302 to the cloud metadata
+   * endpoint), which would otherwise bypass the initial
+   * `assertSafeFetchTarget` check entirely.
+   */
+  private async followRedirects(url: string): Promise<Response> {
+    let currentUrl = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const response = await this.fetchImpl(currentUrl, {
+        method: 'GET',
+        headers: { 'User-Agent': this.userAgent },
+        redirect: 'manual',
+      });
+
+      const isRedirect =
+        response.status >= 300 && response.status < 400 && response.status !== 304;
+      if (!isRedirect) {
+        return response;
+      }
+
+      const location = response.headers.get('location');
+      if (location === null || location === '') {
+        // A 3xx without a usable Location is not actionable — return it and
+        // let the caller's status handling deal with it.
+        return response;
+      }
+
+      // Resolve relative redirects against the current URL, then re-run the
+      // SSRF guard on the absolute target before following.
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        await response.body?.cancel().catch(() => {
+          /* already closed */
+        });
+        throw new Error(`Invalid redirect Location: "${location}"`);
+      }
+
+      assertSafeFetchTarget(nextUrl, this.allowPrivateAddresses);
+
+      // Release the redirect response's body before issuing the next hop so
+      // undici can return the socket to the keep-alive pool.
+      await response.body?.cancel().catch(() => {
+        /* already closed */
+      });
+
+      currentUrl = nextUrl;
+    }
+
+    throw new Error(`Too many redirects (exceeded ${String(MAX_REDIRECTS)}) fetching "${url}".`);
+  }
+
   private async fetchFresh(url: string): Promise<UrlFetchResult> {
-    const response = await this.fetchImpl(url, {
-      method: 'GET',
-      headers: { 'User-Agent': this.userAgent },
-    });
+    const response = await this.followRedirects(url);
 
     if (response.status >= 400) {
       // Drain the unused body so undici can release the socket back to

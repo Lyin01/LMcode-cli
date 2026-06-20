@@ -26,10 +26,43 @@ const SAFE_KEY_RE = /^[\w.-]+$/;
 const ELLIPSIS = '…';
 const TRUNCATED_TAIL = ` …truncated`;
 const REDACTED = '[REDACTED]';
-const RAW_SECRET_PATTERNS: readonly RegExp[] = [
-  /\b(authorization\s*[:=]\s*bearer\s+)[^\s"'`]+/gi,
-  /\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|secret)\s*[:=]\s*)[^\s"'`]+/gi,
-  /\b(cookie\s*[:=]\s*)[^\r\n]+/gi,
+/**
+ * A redaction rule.
+ *
+ * - `re` is a global regex.
+ * - `keyed` rules have a single capturing group around the *key prefix*
+ *   (e.g. `api_key=`); the captured prefix is preserved and only the value
+ *   is replaced.
+ * - `value` rules (no capturing group) match a bare secret *value* by its
+ *   distinctive format and replace the whole match. These are deliberately
+ *   anchored to provider-specific prefixes so ordinary alphanumeric text is
+ *   not mistaken for a secret.
+ */
+interface RedactRule {
+  readonly re: RegExp;
+  readonly keyed: boolean;
+}
+
+const RAW_SECRET_PATTERNS: readonly RedactRule[] = [
+  // --- keyed rules (preserve the "key=" prefix, replace the value) ---
+  { re: /\b(authorization\s*[:=]\s*bearer\s+)[^\s"'`]+/gi, keyed: true },
+  {
+    re: /\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|secret)\s*[:=]\s*)[^\s"'`]+/gi,
+    keyed: true,
+  },
+  { re: /\b(cookie\s*[:=]\s*)[^\r\n]+/gi, keyed: true },
+
+  // --- bare-value rules (whole match replaced; prefix-anchored) ---
+  // OpenAI / Anthropic keys: `sk-...`, `sk-ant-...`, `sk-proj-...`.
+  { re: /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{16,}/g, keyed: false },
+  // GitHub tokens: ghp_/gho_/ghs_/ghu_/ghr_ + 36+ chars.
+  { re: /\bgh[pousr]_[A-Za-z0-9]{36,}/g, keyed: false },
+  // AWS access key id: AKIA + 16 uppercase alphanumerics.
+  { re: /\bAKIA[0-9A-Z]{16}\b/g, keyed: false },
+  // Google API key: AIza + 35 url-safe chars.
+  { re: /\bAIza[0-9A-Za-z_-]{35}\b/g, keyed: false },
+  // JWT: three base64url segments separated by dots, header begins `eyJ`.
+  { re: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, keyed: false },
 ];
 
 const LEVEL_LABEL: Record<Exclude<LogEntry['level'], never>, string> = {
@@ -110,8 +143,8 @@ function serializeValue(raw: unknown): string {
 
 function redactString(value: string): string {
   let out = value;
-  for (const pattern of RAW_SECRET_PATTERNS) {
-    out = out.replace(pattern, `$1${REDACTED}`);
+  for (const rule of RAW_SECRET_PATTERNS) {
+    out = rule.keyed ? out.replace(rule.re, `$1${REDACTED}`) : out.replace(rule.re, REDACTED);
   }
   return out;
 }

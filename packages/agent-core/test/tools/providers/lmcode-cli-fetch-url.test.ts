@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { FetchCache } from '../../../src/tools/providers/fetch-cache';
 import type { UrlFetcher } from '../../../src/tools/builtin/web/fetch-url';
-import { ScreamCliFetchURLProvider } from '../../../src/tools/providers/lmcode-cli-fetch-url';
+import { LmcodeCliFetchURLProvider } from '../../../src/tools/providers/lmcode-cli-fetch-url';
 
 function fakeFetcher(
   content = '',
@@ -11,14 +11,14 @@ function fakeFetcher(
   return { fetch: vi.fn().mockResolvedValue({ content, kind }) };
 }
 
-describe('ScreamCliFetchURLProvider auth fallback', () => {
+describe('LmcodeCliFetchURLProvider auth fallback', () => {
   it('falls back to the configured API key when the token provider has no token', async () => {
     // Mirrors py test_resolve_api_key_falls_back_to_api_key_when_no_token:
     // the host should call scream-cli with the static api key when oauth
     // returns nothing — without needing a separate prime step.
     const getAccessToken = vi.fn<() => Promise<string>>().mockResolvedValue('');
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('ok', { status: 200 }));
-    const provider = new ScreamCliFetchURLProvider({
+    const provider = new LmcodeCliFetchURLProvider({
       tokenProvider: { getAccessToken },
       apiKey: 'fallback-key',
       baseUrl: 'https://fetch.example/v1',
@@ -42,7 +42,7 @@ describe('ScreamCliFetchURLProvider auth fallback', () => {
       .fn<(o?: { force?: boolean }) => Promise<string>>()
       .mockRejectedValue(new Error('revoked'));
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('ok', { status: 200 }));
-    const provider = new ScreamCliFetchURLProvider({
+    const provider = new LmcodeCliFetchURLProvider({
       tokenProvider: { getAccessToken },
       apiKey: 'fallback-key',
       baseUrl: 'https://fetch.example/v1',
@@ -58,13 +58,13 @@ describe('ScreamCliFetchURLProvider auth fallback', () => {
   });
 });
 
-describe('ScreamCliFetchURLProvider content kind', () => {
+describe('LmcodeCliFetchURLProvider content kind', () => {
   it('reports service responses as extracted content', async () => {
     const getAccessToken = vi.fn<() => Promise<string>>().mockResolvedValue('token');
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response('# Extracted markdown', { status: 200 }));
-    const provider = new ScreamCliFetchURLProvider({
+    const provider = new LmcodeCliFetchURLProvider({
       tokenProvider: { getAccessToken },
       baseUrl: 'https://fetch.example/v1',
       localFallback: fakeFetcher('fallback content'),
@@ -81,7 +81,7 @@ describe('ScreamCliFetchURLProvider content kind', () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response('boom', { status: 503 }));
-    const provider = new ScreamCliFetchURLProvider({
+    const provider = new LmcodeCliFetchURLProvider({
       tokenProvider: { getAccessToken },
       baseUrl: 'https://fetch.example/v1',
       localFallback: fakeFetcher('verbatim body', 'passthrough'),
@@ -93,12 +93,12 @@ describe('ScreamCliFetchURLProvider content kind', () => {
     expect(result).toEqual({ content: 'verbatim body', kind: 'passthrough' });
   });
 });
-describe('ScreamCliFetchURLProvider caching', () => {
+describe('LmcodeCliFetchURLProvider caching', () => {
   it('returns a cached result on the second fetch', async () => {
     const getAccessToken = vi.fn<() => Promise<string>>().mockResolvedValue('token');
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('service content', { status: 200 }));
     const cache = new FetchCache();
-    const provider = new ScreamCliFetchURLProvider({
+    const provider = new LmcodeCliFetchURLProvider({
       tokenProvider: { getAccessToken },
       baseUrl: 'https://fetch.example/v1',
       localFallback: fakeFetcher('fallback content'),
@@ -119,7 +119,7 @@ describe('ScreamCliFetchURLProvider caching', () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('boom', { status: 503 }));
     const cache = new FetchCache();
     const fallback = fakeFetcher('fallback content', 'passthrough');
-    const provider = new ScreamCliFetchURLProvider({
+    const provider = new LmcodeCliFetchURLProvider({
       tokenProvider: { getAccessToken },
       baseUrl: 'https://fetch.example/v1',
       localFallback: fallback,

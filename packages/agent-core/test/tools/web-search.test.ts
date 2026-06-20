@@ -11,7 +11,7 @@ import {
   WebSearchTool,
   type WebSearchProvider,
 } from '../../src/tools/builtin/web/web-search';
-import { ScreamCliWebSearchProvider } from '../../src/tools/providers/lmcode-cli-web-search';
+import { LmcodeCliWebSearchProvider } from '../../src/tools/providers/lmcode-cli-web-search';
 import { toolContentString } from './fixtures/fake-jian';
 import { executeTool } from './fixtures/execute-tool';
 
@@ -265,13 +265,13 @@ describe('WebSearchTool', () => {
   });
 });
 
-describe('ScreamCliWebSearchProvider', () => {
+describe('LmcodeCliWebSearchProvider', () => {
   it('does not force-refresh request auth after a 401 response', async () => {
     const getAccessToken = vi.fn().mockResolvedValue('fresh-token');
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response('unauthorized', { status: 401 }));
-    const provider = new ScreamCliWebSearchProvider({
+    const provider = new LmcodeCliWebSearchProvider({
       tokenProvider: { getAccessToken },
       baseUrl: 'https://search.example/v1',
       fetchImpl,

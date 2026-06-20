@@ -12,6 +12,7 @@ import {
 import type { LogEntry } from '#/logging/types';
 
 const FIXED_TIME = Date.UTC(2026, 4, 19, 10, 12, 30, 123);
+const REDACTED_MARKER = '[REDACTED]';
 
 function baseEntry(overrides: Partial<LogEntry> = {}): LogEntry {
   return {
@@ -188,6 +189,57 @@ describe('formatter — auto-redact', () => {
     expect(text).not.toContain('abc123');
     expect(text).not.toContain('def456');
     expect(text).not.toContain('ghi789');
+  });
+
+  it('redacts bare secret tokens by their value format', () => {
+    const { text } = formatEntry(
+      baseEntry({
+        ctx: {
+          stderrTail: [
+            'anthropic sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
+            'openai sk-AbCdEfGhIjKlMnOpQrStUvWx',
+            'github ghp_0123456789abcdefABCDEF0123456789abcdef',
+            'aws AKIAIOSFODNN7EXAMPLE',
+            'google AIzaSyA0123456789abcdefghijklmnopqrstuv',
+            'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dumm_sig-Value',
+          ].join('\n'),
+        },
+      }),
+    );
+    expect(text).not.toContain('sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789');
+    expect(text).not.toContain('sk-AbCdEfGhIjKlMnOpQrStUvWx');
+    expect(text).not.toContain('ghp_0123456789abcdefABCDEF0123456789abcdef');
+    expect(text).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect(text).not.toContain('AIzaSyA0123456789abcdefghijklmnopqrstuv');
+    expect(text).not.toContain('eyJhbGciOiJIUzI1NiJ9');
+    // Each format should have produced a redaction marker.
+    expect(text).toContain(REDACTED_MARKER);
+  });
+
+  it('still redacts keyed secrets and leaves ordinary text intact', () => {
+    const { text } = formatEntry(
+      baseEntry({
+        ctx: {
+          stderrTail:
+            'api_key=topsecretvalue\nthe quick brown fox jumps over the lazy dog 1234567890',
+        },
+      }),
+    );
+    expect(text).toContain('api_key=[REDACTED]');
+    expect(text).not.toContain('topsecretvalue');
+    // Plain prose / ordinary numbers must not be flagged as secrets.
+    expect(text).toContain('the quick brown fox jumps over the lazy dog 1234567890');
+  });
+
+  it('redacts a bare token surfaced in an error message', () => {
+    const { text } = formatEntry(
+      baseEntry({
+        level: 'error',
+        error: { message: 'auth failed with ghp_0123456789abcdefABCDEF0123456789abcdef' },
+      }),
+    );
+    expect(text).not.toContain('ghp_0123456789abcdefABCDEF0123456789abcdef');
+    expect(text).toContain(REDACTED_MARKER);
   });
 
   it('recurses into nested objects', () => {

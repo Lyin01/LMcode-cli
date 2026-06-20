@@ -6,10 +6,10 @@ import { getRootLogger, log } from '#/logging/logger';
 import { PluginManager } from '#/plugin';
 import { FetchCache } from '#/tools/providers/fetch-cache';
 import { LocalFetchURLProvider } from '#/tools/providers/local-fetch-url';
-import { ScreamCliFetchURLProvider } from '#/tools/providers/lmcode-cli-fetch-url';
+import { LmcodeCliFetchURLProvider } from '#/tools/providers/lmcode-cli-fetch-url';
 import { DuckDuckGoSearchProvider } from '#/tools/providers/duckduckgo-search';
 import { FallbackSearchProvider } from '#/tools/providers/fallback-search';
-import { ScreamCliWebSearchProvider } from '#/tools/providers/lmcode-cli-web-search';
+import { LmcodeCliWebSearchProvider } from '#/tools/providers/lmcode-cli-web-search';
 import type { PromisableMethods } from '#/utils/types';
 import { getCoreVersion } from '#/version';
 import { resolveThinkingLevel } from '../agent/config/thinking';
@@ -843,7 +843,7 @@ async function createRuntimeConfig(input: {
     urlFetcher:
       fetchService?.baseUrl === undefined
         ? localFetcher
-        : new ScreamCliFetchURLProvider({
+        : new LmcodeCliFetchURLProvider({
             baseUrl: fetchService.baseUrl,
             localFallback: localFetcher,
             defaultHeaders: input.lmcodeRequestHeaders,
@@ -864,7 +864,7 @@ function buildWebSearcher(input: {
 
   const screamProvider: WebSearchProvider | undefined =
     searchService?.baseUrl !== undefined
-      ? new ScreamCliWebSearchProvider({
+      ? new LmcodeCliWebSearchProvider({
           baseUrl: searchService.baseUrl,
           defaultHeaders: input.lmcodeRequestHeaders,
           ...serviceCredentials(searchService, input.resolveOAuthTokenProvider),

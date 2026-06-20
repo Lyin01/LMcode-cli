@@ -12,7 +12,7 @@ import {
   HttpFetchError,
   type UrlFetcher,
 } from '../../src/tools/builtin/web/fetch-url';
-import { ScreamCliFetchURLProvider } from '../../src/tools/providers/lmcode-cli-fetch-url';
+import { LmcodeCliFetchURLProvider } from '../../src/tools/providers/lmcode-cli-fetch-url';
 import { toolContentString } from './fixtures/fake-jian';
 import { executeTool } from './fixtures/execute-tool';
 
@@ -261,14 +261,14 @@ describe('FetchURLTool', () => {
   });
 });
 
-describe('ScreamCliFetchURLProvider', () => {
+describe('LmcodeCliFetchURLProvider', () => {
   it('does not force-refresh request auth after a 401 response', async () => {
     const getAccessToken = vi.fn().mockResolvedValue('fresh-token');
     const localFallback = fakeFetcher('fallback content');
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response('unauthorized', { status: 401 }));
-    const provider = new ScreamCliFetchURLProvider({
+    const provider = new LmcodeCliFetchURLProvider({
       tokenProvider: { getAccessToken },
       baseUrl: 'https://fetch.example/v1',
       localFallback,

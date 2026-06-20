@@ -1,5 +1,5 @@
 /**
- * ScreamCliFetchURLProvider — host-side UrlFetcher.
+ * LmcodeCliFetchURLProvider — host-side UrlFetcher.
  *
  * Flow:
  *   1. Try ScreamCli coding-fetch service (POST {url}, Bearer token from a
@@ -20,7 +20,7 @@ export interface BearerTokenProvider {
   getAccessToken(options?: { readonly force?: boolean | undefined }): Promise<string>;
 }
 
-export interface ScreamCliFetchURLProviderOptions {
+export interface LmcodeCliFetchURLProviderOptions {
   readonly tokenProvider?: BearerTokenProvider;
   readonly apiKey?: string;
   readonly baseUrl: string;
@@ -35,7 +35,7 @@ function cacheKey(baseUrl: string, url: string): string {
   return `cli:${baseUrl}:${url}`;
 }
 
-export class ScreamCliFetchURLProvider implements UrlFetcher {
+export class LmcodeCliFetchURLProvider implements UrlFetcher {
   private readonly tokenProvider: BearerTokenProvider | undefined;
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string;
@@ -45,7 +45,7 @@ export class ScreamCliFetchURLProvider implements UrlFetcher {
   private readonly fetchImpl: typeof fetch;
   private readonly cache: FetchCache;
 
-  constructor(options: ScreamCliFetchURLProviderOptions) {
+  constructor(options: LmcodeCliFetchURLProviderOptions) {
     this.tokenProvider = options.tokenProvider;
     this.apiKey = options.apiKey;
     this.baseUrl = options.baseUrl;

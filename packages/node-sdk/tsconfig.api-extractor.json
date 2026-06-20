@@ -2,7 +2,21 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // Redirect workspace package names to the rewritten declaration files emitted
+    // into `.tmp-api-extractor/dts` by `scripts/build-dts.mjs`. Those copies have
+    // already had every Node subpath import (`#/...`, mapped via each package's
+    // package.json `imports` field) resolved to plain relative paths. Without this,
+    // api-extractor follows each package's `exports.types` into its real `src`
+    // entry, where the `#/` aliases are unresolvable by api-extractor's compiler
+    // and fail with: getResolvedModule() could not resolve module name "#/...".
+    "baseUrl": ".",
+    "paths": {
+      "@lmcode-cli/agent-core": [".tmp-api-extractor/dts/agent-core/src/index.d.ts"],
+      "@lmcode-cli/jian": [".tmp-api-extractor/dts/jian/src/index.d.ts"],
+      "@lmcode-cli/ltod": [".tmp-api-extractor/dts/ltod/src/index.d.ts"],
+      "@lmcode-cli/config": [".tmp-api-extractor/dts/config/src/index.d.ts"]
+    }
   },
   "include": [".tmp-api-extractor/dts/**/*.d.ts"]
 }
