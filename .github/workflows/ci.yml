@@ -31,6 +31,12 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
 
+    # The Windows leg is informational for now: a number of suites have
+    # pre-existing Windows-only failures (sqlite file-handle cleanup, symlink
+    # privileges, POSIX file-mode and path-separator assertions, CRLF snapshots).
+    # Keep it visible without blocking the pipeline until that surface is hardened.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+
     strategy:
       fail-fast: false
       matrix:

@@ -214,8 +214,8 @@ describe('default agent profiles', () => {
       cwd: '/workspace/two',
     });
 
-    expect(first).toContain('You are LMcode');
-    expect(first).toContain('Available skills');
+    expect(first).toContain('你是 LMcode');
+    expect(first).toContain('当前可用的技能列表');
     expect(first).toContain('/workspace/one');
     expect(second).toContain('/workspace/two');
     expect(second).not.toContain('/workspace/one');

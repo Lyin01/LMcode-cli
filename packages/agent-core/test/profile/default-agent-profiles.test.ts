@@ -18,8 +18,8 @@ describe('default agent profiles', () => {
   it('loads the bundled default system prompt from embedded sources', () => {
     const prompt = DEFAULT_AGENT_PROFILES['agent']?.systemPrompt(promptContext);
 
-    expect(prompt).toContain('You are LMcode');
-    expect(prompt).toContain('Available skills');
+    expect(prompt).toContain('你是 LMcode');
+    expect(prompt).toContain('当前可用的技能列表');
     expect(prompt).toContain('/workspace');
   });
 
