@@ -443,7 +443,10 @@ export class BashTool implements BuiltinTool<BashInput> {
       if (timedOut) {
         const timeoutLabel =
           timeoutMs % 1000 === 0 ? `${String(timeoutMs / 1000)}s` : `${String(timeoutMs)}ms`;
-        return builder.error(`Command killed by timeout (${timeoutLabel})`, {
+        const backgroundHint = this.allowBackground
+          ? ' If this is a long-running process such as a dev server, start it with run_in_background=true instead of running it in the foreground.'
+          : '';
+        return builder.error(`Command killed by timeout (${timeoutLabel}).${backgroundHint}`, {
           brief: `Killed by timeout (${timeoutLabel})`,
         });
       }
@@ -577,14 +580,31 @@ export class BashTool implements BuiltinTool<BashInput> {
   }
 }
 
+// When the command is killed (timeout / user abort), `killProc` destroys the
+// stdout/stderr streams. Async iteration over a destroyed Readable rejects with
+// ERR_STREAM_PREMATURE_CLOSE (and a forced teardown can surface
+// ERR_STREAM_DESTROYED). That is an expected consequence of the kill, not a
+// real read failure — swallowing it lets the caller report the true outcome
+// (timeout / interrupted / exit code) instead of a cryptic "Premature close".
+function isStreamTeardownError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  if (code === 'ERR_STREAM_PREMATURE_CLOSE' || code === 'ERR_STREAM_DESTROYED') return true;
+  return err instanceof Error && err.message === 'Premature close';
+}
+
 async function readStreamIntoBuilder(
   stream: Readable,
   builder: ToolResultBuilder,
 ): Promise<void> {
   const decoder = new StringDecoder('utf8');
-  for await (const chunk of stream) {
-    const buf: Buffer = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : (chunk as Buffer);
-    builder.write(decoder.write(buf));
+  try {
+    for await (const chunk of stream) {
+      const buf: Buffer =
+        typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : (chunk as Buffer);
+      builder.write(decoder.write(buf));
+    }
+  } catch (err) {
+    if (!isStreamTeardownError(err)) throw err;
   }
   builder.write(decoder.end());
 }
