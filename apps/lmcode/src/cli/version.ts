@@ -25,7 +25,9 @@ export function getHostPackageJsonPath(): string {
   for (let i = 0; i < 6; i++) {
     const candidate = resolve(dir, 'package.json');
     if (existsSync(candidate)) {
-      return candidate;
+      // Normalize separators so callers/tests can compare against `/`-style
+      // suffixes regardless of platform (node:path uses `\` on Windows).
+      return candidate.replace(/\\/g, '/');
     }
     const parent = dirname(dir);
     if (parent === dir) break;

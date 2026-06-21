@@ -1,11 +1,33 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { MemoryMemoStore } from '../src/store.js';
 import { createMemoryMemo } from '../src/models.js';
 import type { MemoryMemo } from '../src/models.js';
+
+/**
+ * Remove a temp dir, retrying on Windows where lingering SQLite WAL/SHM file
+ * handles can briefly hold the directory locked (EBUSY/EPERM/ENOTEMPTY) even
+ * after the store connection is closed.
+ */
+async function removeTempDir(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') {
+        throw error;
+      }
+      await delay(10);
+    }
+  }
+  await rm(dir, { recursive: true, force: true });
+}
 
 function makeMemo(overrides: Partial<MemoryMemo> = {}): MemoryMemo {
   return createMemoryMemo({
@@ -31,7 +53,10 @@ describe('SQLite-backed MemoryMemoStore FTS', () => {
   });
 
   afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    // Close the SQLite connection so Windows releases the db/WAL/SHM file
+    // handles before we delete the temp dir, avoiding EBUSY on unlink.
+    store.close();
+    await removeTempDir(tmpDir);
   });
 
   it('indexes mixed CJK and ASCII so English words are searchable', async () => {
@@ -94,6 +119,7 @@ describe('SQLite-backed MemoryMemoStore FTS', () => {
 
     const result = await fresh.list({ search: 'legacy' });
     expect(result.total).toBe(1);
+    fresh.close();
   });
 
   it('handles concurrent appends without data loss', async () => {

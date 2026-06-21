@@ -95,23 +95,33 @@ describe('e2e: process lifecycle', () => {
   });
 
   describe('long-running process → kill', () => {
-    it('start → verify running → kill → confirm exit', async () => {
-      // Process that runs indefinitely
-      const code = `
+    // Windows has no SIGTERM. jian maps a non-SIGKILL signal to a *graceful*
+    // `taskkill /T` (no /F), which only works against a process that has a
+    // window/message loop. This `node -e setInterval(...)` is a windowless
+    // console process, so graceful taskkill cannot terminate it and
+    // proc.wait() would hang. Forced kill (SIGKILL → /F) is the only reliable
+    // Windows path and is covered by the SIGKILL test below. Genuine platform
+    // semantic gap, not a jian bug — skip rather than force /F.
+    it.skipIf(process.platform === 'win32')(
+      'start → verify running → kill → confirm exit',
+      async () => {
+        // Process that runs indefinitely
+        const code = `
         process.stdout.write('started\\n');
         setInterval(() => {}, 1000);
       `;
-      const proc = await jian.exec('node', '-e', code);
+        const proc = await jian.exec('node', '-e', code);
 
-      expect(proc.pid).toBeGreaterThan(0);
+        expect(proc.pid).toBeGreaterThan(0);
 
-      // Kill it
-      await proc.kill('SIGTERM');
+        // Kill it
+        await proc.kill('SIGTERM');
 
-      const exitCode = await proc.wait();
-      // On SIGTERM, node typically exits with non-zero
-      expect(typeof exitCode).toBe('number');
-    });
+        const exitCode = await proc.wait();
+        // On SIGTERM, node typically exits with non-zero
+        expect(typeof exitCode).toBe('number');
+      },
+    );
 
     it('kill with SIGKILL → immediate termination', async () => {
       const code = `

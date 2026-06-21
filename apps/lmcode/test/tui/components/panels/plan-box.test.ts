@@ -1,3 +1,5 @@
+import { pathToFileURL } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import { PlanBoxComponent } from '#/tui/components/messages/plan-box';
@@ -67,9 +69,13 @@ describe('PlanBoxComponent', () => {
   });
 
   it('wraps the basename in an OSC 8 hyperlink targeting file://', () => {
-    const box = new PlanBoxComponent('# Hello', theme, darkColors.success, '/tmp/plan.md');
+    const planPath = '/tmp/plan.md';
+    const box = new PlanBoxComponent('# Hello', theme, darkColors.success, planPath);
     const top = box.render(60)[0]!;
-    expect(top).toContain(`${ESC}]8;;file:///tmp/plan.md${BEL}plan.md${ESC}]8;;${BEL}`);
+    // Derive the expected file:// URL the same way the component does, so the
+    // assertion holds on Windows (where pathToFileURL adds a drive letter).
+    const fileUrl = pathToFileURL(planPath).href;
+    expect(top).toContain(`${ESC}]8;;${fileUrl}${BEL}plan.md${ESC}]8;;${BEL}`);
     // After stripping OSC + CSI, visible width must respect the requested render width.
     expect(strip(top).length).toBeLessThanOrEqual(60);
   });

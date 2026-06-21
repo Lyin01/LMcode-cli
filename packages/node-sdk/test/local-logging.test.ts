@@ -1,6 +1,7 @@
 import { readFile, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import * as zlib from 'node:zlib';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,7 +27,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await __resetRootLoggerForTest();
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
   }
 });
 
@@ -34,6 +35,25 @@ async function makeTempDir(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+// Windows keeps the sqlite memos handle (and its -wal/-shm siblings) briefly
+// locked even after the store closes, so retry the removal on EBUSY/EPERM.
+async function removeTempDir(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') {
+        throw error;
+      }
+      await delay(10);
+    }
+  }
+
+  await rm(dir, { recursive: true, force: true });
 }
 
 async function readOptionalFile(path: string): Promise<string> {
@@ -103,86 +123,104 @@ describe('Local logging — harness integration', () => {
     const workDir = await makeTempDir('scream-log-work-');
 
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
-    const session = await harness.createSession({
-      id: 'ses_logging_int',
-      workDir,
-    });
+    try {
+      const session = await harness.createSession({
+        id: 'ses_logging_int',
+        workDir,
+      });
 
-    log.warn('session diagnostic', { sessionId: session.id });
-    log.warn('untagged event');
+      log.warn('session diagnostic', { sessionId: session.id });
+      log.warn('untagged event');
 
-    // Drain the in-process logger via export's flush path is overkill; just
-    // rely on the configured root logger's flush.
-    const summary = (await harness.listSessions({ workDir })).find(
-      (s) => s.id === session.id,
-    )!;
+      // Drain the in-process logger via export's flush path is overkill; just
+      // rely on the configured root logger's flush.
+      const summary = (await harness.listSessions({ workDir })).find(
+        (s) => s.id === session.id,
+      )!;
 
-    const globalPath = join(homeDir, 'logs', 'lmcode.log');
-    const sessionLogPath = join(summary.sessionDir, 'logs', 'lmcode.log');
+      const globalPath = join(homeDir, 'logs', 'lmcode.log');
+      const sessionLogPath = join(summary.sessionDir, 'logs', 'lmcode.log');
 
-    // Trigger an export — this flushes both global and session via ScreamCore
-    const exportOut = join(workDir, 'out.zip');
-    await harness.exportSession({
-      id: session.id,
-      outputPath: exportOut,
-      includeGlobalLog: true,
-      version: '1.0.0-test',
-    });
+      // Trigger an export — this flushes both global and session via ScreamCore
+      const exportOut = join(workDir, 'out.zip');
+      await harness.exportSession({
+        id: session.id,
+        outputPath: exportOut,
+        includeGlobalLog: true,
+        version: '1.0.0-test',
+      });
 
-    const global = await readFile(globalPath, 'utf-8');
-    const sessionLog = await readFile(sessionLogPath, 'utf-8');
-    expect(global).not.toContain('session diagnostic');
-    expect(sessionLog).toContain('session diagnostic');
-    expect(global).toContain('untagged event');
-    expect(sessionLog).not.toContain('untagged event');
+      const global = await readFile(globalPath, 'utf-8');
+      const sessionLog = await readFile(sessionLogPath, 'utf-8');
+      expect(global).not.toContain('session diagnostic');
+      expect(sessionLog).toContain('session diagnostic');
+      expect(global).toContain('untagged event');
+      expect(sessionLog).not.toContain('untagged event');
+    } finally {
+      await harness.close();
+    }
   });
 
   it('default export bundles session log only; no globalLogPath in manifest', async () => {
     const homeDir = await makeTempDir('scream-log-home-');
     const workDir = await makeTempDir('scream-log-work-');
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
-    const session = await harness.createSession({ id: 'ses_default_export', workDir });
-    log.warn('session export marker', { sessionId: session.id });
+    try {
+      const session = await harness.createSession({ id: 'ses_default_export', workDir });
+      log.warn('session export marker', { sessionId: session.id });
 
-    const outputPath = join(workDir, 'default.zip');
-    const result = await harness.exportSession({ id: session.id, outputPath, version: '1.0.0-test' });
+      const outputPath = join(workDir, 'default.zip');
+      const result = await harness.exportSession({
+        id: session.id,
+        outputPath,
+        version: '1.0.0-test',
+      });
 
-    const zipBuf = await readFile(result.zipPath);
-    const entries = readZipEntries(zipBuf);
-    expect(entries.has('agents/main/wire.jsonl')).toBe(true);
-    expect(entries.has('logs/lmcode.log')).toBe(true);
-    expect(entries.has('logs/global/lmcode.log')).toBe(false);
-    expect(entries.get('logs/lmcode.log')!.toString('utf-8')).toContain(
-      'session export marker',
-    );
-    expect(result.manifest.sessionLogPath).toBe('logs/lmcode.log');
-    expect(result.manifest.globalLogPath).toBeUndefined();
-    const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf-8')) as Record<
-      string,
-      unknown
-    >;
-    expect(manifest['sessionLogPath']).toBe('logs/lmcode.log');
-    expect(manifest['globalLogPath']).toBeUndefined();
+      const zipBuf = await readFile(result.zipPath);
+      const entries = readZipEntries(zipBuf);
+      expect(entries.has('agents/main/wire.jsonl')).toBe(true);
+      expect(entries.has('logs/lmcode.log')).toBe(true);
+      expect(entries.has('logs/global/lmcode.log')).toBe(false);
+      expect(entries.get('logs/lmcode.log')!.toString('utf-8')).toContain('session export marker');
+      expect(result.manifest.sessionLogPath).toBe('logs/lmcode.log');
+      expect(result.manifest.globalLogPath).toBeUndefined();
+      const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf-8')) as Record<
+        string,
+        unknown
+      >;
+      expect(manifest['sessionLogPath']).toBe('logs/lmcode.log');
+      expect(manifest['globalLogPath']).toBeUndefined();
+    } finally {
+      await harness.close();
+    }
   });
 
   it('default export works when no session log file exists', async () => {
     const homeDir = await makeTempDir('scream-log-home-');
     const workDir = await makeTempDir('scream-log-work-');
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
-    const session = await harness.createSession({ id: 'ses_no_session_log', workDir });
+    try {
+      const session = await harness.createSession({ id: 'ses_no_session_log', workDir });
 
-    const outputPath = join(workDir, 'no-log.zip');
-    const result = await harness.exportSession({ id: session.id, outputPath, version: '1.0.0-test' });
+      const outputPath = join(workDir, 'no-log.zip');
+      const result = await harness.exportSession({
+        id: session.id,
+        outputPath,
+        version: '1.0.0-test',
+      });
 
-    const entries = readZipEntries(await readFile(result.zipPath));
-    expect(entries.has('agents/main/wire.jsonl')).toBe(true);
-    expect(entries.has('logs/lmcode.log')).toBe(false);
-    expect(result.manifest.sessionLogPath).toBeUndefined();
-    const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf-8')) as Record<
-      string,
-      unknown
-    >;
-    expect(manifest['sessionLogPath']).toBeUndefined();
+      const entries = readZipEntries(await readFile(result.zipPath));
+      expect(entries.has('agents/main/wire.jsonl')).toBe(true);
+      expect(entries.has('logs/lmcode.log')).toBe(false);
+      expect(result.manifest.sessionLogPath).toBeUndefined();
+      const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf-8')) as Record<
+        string,
+        unknown
+      >;
+      expect(manifest['sessionLogPath']).toBeUndefined();
+    } finally {
+      await harness.close();
+    }
   });
 
   it('default export includes rotated session log files without requiring active lmcode.log', async () => {
@@ -194,31 +232,35 @@ describe('Local logging — harness integration', () => {
       const homeDir = await makeTempDir('scream-log-home-');
       const workDir = await makeTempDir('scream-log-work-');
       const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
-      const session = await harness.createSession({ id: 'ses_rotated_export', workDir });
-      for (let i = 0; i < 16; i++) {
-        log.warn(`rotated session marker ${i}`, {
-          sessionId: session.id,
-          chunk: 'x'.repeat(220),
+      try {
+        const session = await harness.createSession({ id: 'ses_rotated_export', workDir });
+        for (let i = 0; i < 16; i++) {
+          log.warn(`rotated session marker ${i}`, {
+            sessionId: session.id,
+            chunk: 'x'.repeat(220),
+          });
+        }
+
+        const result = await harness.exportSession({
+          id: session.id,
+          outputPath: join(workDir, 'rotated.zip'),
+          version: '1.0.0-test',
         });
-      }
 
-      const result = await harness.exportSession({
-        id: session.id,
-        outputPath: join(workDir, 'rotated.zip'),
-        version: '1.0.0-test',
-      });
-
-      const entries = readZipEntries(await readFile(result.zipPath));
-      const sessionLogEntries = [...entries.keys()].filter(
-        (entry) => entry === 'logs/lmcode.log' || entry.startsWith('logs/lmcode.log.'),
-      );
-      expect(sessionLogEntries.length).toBeGreaterThan(0);
-      expect(sessionLogEntries).toContain('logs/lmcode.log.1');
-      expect(entries.has('logs/global/lmcode.log')).toBe(false);
-      if (entries.has('logs/lmcode.log')) {
-        expect(result.manifest.sessionLogPath).toBe('logs/lmcode.log');
-      } else {
-        expect(result.manifest.sessionLogPath).toBeUndefined();
+        const entries = readZipEntries(await readFile(result.zipPath));
+        const sessionLogEntries = [...entries.keys()].filter(
+          (entry) => entry === 'logs/lmcode.log' || entry.startsWith('logs/lmcode.log.'),
+        );
+        expect(sessionLogEntries.length).toBeGreaterThan(0);
+        expect(sessionLogEntries).toContain('logs/lmcode.log.1');
+        expect(entries.has('logs/global/lmcode.log')).toBe(false);
+        if (entries.has('logs/lmcode.log')) {
+          expect(result.manifest.sessionLogPath).toBe('logs/lmcode.log');
+        } else {
+          expect(result.manifest.sessionLogPath).toBeUndefined();
+        }
+      } finally {
+        await harness.close();
       }
     } finally {
       restoreLogEnv(env);
@@ -229,25 +271,27 @@ describe('Local logging — harness integration', () => {
     const homeDir = await makeTempDir('scream-log-home-');
     const workDir = await makeTempDir('scream-log-work-');
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
-    const session = await harness.createSession({ id: 'ses_global_export', workDir });
-    log.warn('untagged probe');
+    try {
+      const session = await harness.createSession({ id: 'ses_global_export', workDir });
+      log.warn('untagged probe');
 
-    const outputPath = join(workDir, 'with-global.zip');
-    const result = await harness.exportSession({
-      id: session.id,
-      outputPath,
-      includeGlobalLog: true,
-      version: '1.0.0-test',
-    });
-    const zipBuf = await readFile(result.zipPath);
-    const entries = readZipEntries(zipBuf);
-    expect(entries.has('agents/main/wire.jsonl')).toBe(true);
-    expect(entries.has('logs/global/lmcode.log')).toBe(true);
-    expect(result.manifest.globalLogPath).toBe('logs/global/lmcode.log');
-    // Global log carries entries that don't have a sessionId routed to a sink.
-    expect(entries.get('logs/global/lmcode.log')!.toString('utf-8')).toContain(
-      'untagged probe',
-    );
+      const outputPath = join(workDir, 'with-global.zip');
+      const result = await harness.exportSession({
+        id: session.id,
+        outputPath,
+        includeGlobalLog: true,
+        version: '1.0.0-test',
+      });
+      const zipBuf = await readFile(result.zipPath);
+      const entries = readZipEntries(zipBuf);
+      expect(entries.has('agents/main/wire.jsonl')).toBe(true);
+      expect(entries.has('logs/global/lmcode.log')).toBe(true);
+      expect(result.manifest.globalLogPath).toBe('logs/global/lmcode.log');
+      // Global log carries entries that don't have a sessionId routed to a sink.
+      expect(entries.get('logs/global/lmcode.log')!.toString('utf-8')).toContain('untagged probe');
+    } finally {
+      await harness.close();
+    }
   });
 
   it('--include-global-log bundles the active root global log path', async () => {
@@ -311,6 +355,7 @@ describe('Local logging — harness integration', () => {
     } finally {
       flushSessionSpy.mockRestore();
       flushGlobalSpy.mockRestore();
+      await harness.close();
     }
   });
 
@@ -362,15 +407,19 @@ describe('Local logging — harness integration', () => {
       const homeDir = await makeTempDir('scream-log-home-');
       const workDir = await makeTempDir('scream-log-work-');
       const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
-      await harness.createSession({ id: 'ses_off', workDir });
-      log.error('this should not write');
-      let logsDir: string[] = [];
       try {
-        logsDir = await readdir(join(homeDir, 'logs'));
-      } catch {
-        // intentional — directory may not exist when level=off
+        await harness.createSession({ id: 'ses_off', workDir });
+        log.error('this should not write');
+        let logsDir: string[] = [];
+        try {
+          logsDir = await readdir(join(homeDir, 'logs'));
+        } catch {
+          // intentional — directory may not exist when level=off
+        }
+        expect(logsDir).not.toContain('lmcode.log');
+      } finally {
+        await harness.close();
       }
-      expect(logsDir).not.toContain('lmcode.log');
     } finally {
       restoreLogEnv(env);
     }

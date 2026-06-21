@@ -271,6 +271,9 @@ importers:
       '@lmcode-cli/agent-core':
         specifier: workspace:^
         version: link:../agent-core
+      pathe:
+        specifier: ^2.0.3
+        version: 2.0.3
       smol-toml:
         specifier: ^1.6.1
         version: 1.6.1

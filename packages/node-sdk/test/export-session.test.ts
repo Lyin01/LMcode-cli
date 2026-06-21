@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import * as zlib from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -22,7 +23,7 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
   }
 });
 
@@ -30,6 +31,30 @@ async function makeTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'lmcode-sdk-export-'));
   tempDirs.push(dir);
   return dir;
+}
+
+// The SDK resolves output paths through `pathe`, which normalizes to forward
+// slashes. Mirror that normalization here so assertions hold on Windows too,
+// where `node:path` produces backslashes.
+function toPosixPath(value: string): string {
+  return value.replaceAll('\\', '/');
+}
+
+async function removeTempDir(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') {
+        throw error;
+      }
+      await delay(10);
+    }
+  }
+
+  await rm(dir, { recursive: true, force: true });
 }
 
 function readZipEntries(buf: Buffer): Map<string, Buffer> {
@@ -128,7 +153,7 @@ describe('exportSessionDirectory', () => {
       }),
     });
 
-    expect(result.zipPath).toBe(outputPath);
+    expect(result.zipPath).toBe(toPosixPath(outputPath));
     expect(result.sessionDir).toBe(sessionDir);
     expect(result.entries).toEqual([
       'manifest.json',
@@ -176,7 +201,7 @@ describe('exportSessionDirectory', () => {
     });
 
     const expectedPath = resolve(`${sid}.zip`);
-    expect(result.zipPath).toBe(expectedPath);
+    expect(result.zipPath).toBe(toPosixPath(expectedPath));
     expect(existsSync(result.zipPath)).toBe(true);
     await rm(expectedPath, { force: true });
   });
@@ -221,7 +246,7 @@ describe('exportSessionDirectory', () => {
       summary: makeSummary({ id: sid, sessionDir, workDir: tmp }),
     });
 
-    expect(result.zipPath).toBe(outputPath);
+    expect(result.zipPath).toBe(toPosixPath(outputPath));
     expect(existsSync(result.zipPath)).toBe(true);
   });
 
@@ -269,37 +294,49 @@ describe('LmcodeHarness.exportSession', () => {
       homeDir,
     });
 
-    const session = await harness.createSession({
-      id: 'ses_harness_export',
-      workDir,
-    });
-    const sessionDir = (await harness.listSessions({ workDir })).find(
-      (item) => item.id === session.id,
-    )!.sessionDir;
-    await writeFile(join(sessionDir, 'wire.jsonl'), '{}\n', 'utf-8');
-    await mkdir(join(sessionDir, 'subagents'), { recursive: true });
-    await writeFile(join(sessionDir, 'subagents', 'demo.txt'), 'demo', 'utf-8');
+    try {
+      const session = await harness.createSession({
+        id: 'ses_harness_export',
+        workDir,
+      });
+      const sessionDir = (await harness.listSessions({ workDir })).find(
+        (item) => item.id === session.id,
+      )!.sessionDir;
+      await writeFile(join(sessionDir, 'wire.jsonl'), '{}\n', 'utf-8');
+      await mkdir(join(sessionDir, 'subagents'), { recursive: true });
+      await writeFile(join(sessionDir, 'subagents', 'demo.txt'), 'demo', 'utf-8');
 
-    const outputPath = join(workDir, 'export.zip');
-    const result = await harness.exportSession({ id: session.id, outputPath, version: '1.0.0-test' });
+      const outputPath = join(workDir, 'export.zip');
+      const result = await harness.exportSession({
+        id: session.id,
+        outputPath,
+        version: '1.0.0-test',
+      });
 
-    expect(result.zipPath).toBe(outputPath);
-    expect(result.entries).toContain('manifest.json');
-    expect(result.entries).toContain('state.json');
-    expect(result.entries).toContain('wire.jsonl');
-    expect(result.entries).toContain('subagents/demo.txt');
-    expect(result.manifest.sessionId).toBe(session.id);
+      expect(result.zipPath).toBe(toPosixPath(outputPath));
+      expect(result.entries).toContain('manifest.json');
+      expect(result.entries).toContain('state.json');
+      expect(result.entries).toContain('wire.jsonl');
+      expect(result.entries).toContain('subagents/demo.txt');
+      expect(result.manifest.sessionId).toBe(session.id);
+    } finally {
+      await harness.close();
+    }
   });
 
   it('rejects missing session ids', async () => {
     const homeDir = await makeTempDir();
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
-    const missingExport = harness.exportSession({ id: 'ses_missing', version: '1.0.0-test' });
-    await expect(missingExport).rejects.toBeInstanceOf(LmcodeError);
-    await expect(missingExport).rejects.toMatchObject({
-      code: 'session.not_found',
-      details: { sessionId: 'ses_missing' },
-    } satisfies Partial<LmcodeError>);
+    try {
+      const missingExport = harness.exportSession({ id: 'ses_missing', version: '1.0.0-test' });
+      await expect(missingExport).rejects.toBeInstanceOf(LmcodeError);
+      await expect(missingExport).rejects.toMatchObject({
+        code: 'session.not_found',
+        details: { sessionId: 'ses_missing' },
+      } satisfies Partial<LmcodeError>);
+    } finally {
+      await harness.close();
+    }
   });
 });

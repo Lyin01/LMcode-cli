@@ -17,7 +17,10 @@ const newHash = 'sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN=';
 
 const tempRoots: string[] = [];
 
-describe('update-pnpm-deps.sh', () => {
+// The nix pnpmDeps update flow is a Linux/macOS workflow: the fixture builds a
+// fake `nix` binary with a `#!/usr/bin/env bash` shebang, `chmod 0o755`, and a
+// colon-separated PATH — none of which are meaningful on Windows. Skip there.
+describe.skipIf(process.platform === 'win32')('update-pnpm-deps.sh', () => {
   afterEach(async () => {
     await Promise.all(tempRoots.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });

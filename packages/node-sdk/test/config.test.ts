@@ -40,7 +40,7 @@ merge_all_available_skills = true
 extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 
 [providers.lmcode-for-coding]
-type = "lm"
+type = "lmcode"
 base_url = "https://api.scream.com/coding/v1"
 api_key = "sk-xxx"
 custom_headers = { "X-Custom-Header" = "value" }

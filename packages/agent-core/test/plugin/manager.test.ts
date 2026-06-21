@@ -118,7 +118,10 @@ describe('PluginManager', () => {
     await expect(manager.install('relative/plugin')).rejects.toThrow(/absolute path/i);
   });
 
-  it('install() copies a symlinked plugin root into the managed plugins dir', async () => {
+  // Creating real symlinks needs admin/Developer Mode on Windows (EPERM), and a
+  // real symlinked source path is exactly what this test installs from, so it
+  // can't be replicated without one.
+  it.skipIf(process.platform === 'win32')('install() copies a symlinked plugin root into the managed plugins dir', async () => {
     const home = await makeScreamHome();
     const pluginRoot = await makePlugin('demo');
     const link = path.join(await mkdtemp(path.join(tmpdir(), 'plugin-link-')), 'demo-link');

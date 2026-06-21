@@ -55,7 +55,7 @@ describe('runtime provider identity headers', () => {
         },
         models: {
           'scream-model': {
-            provider: 'lmcode',
+            provider: 'scream',
             model: 'scream-model',
             maxContextSize: 1000,
           },
@@ -92,11 +92,11 @@ describe('runtime provider identity headers', () => {
           },
         },
       },
-      defaultProvider: 'lmcode',
+      defaultProvider: 'scream',
       defaultModel: 'scream-model',
       models: {
         'scream-model': {
-          provider: 'lmcode',
+          provider: 'scream',
           model: 'scream-model',
           maxContextSize: 1000,
         },

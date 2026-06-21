@@ -152,7 +152,12 @@ describe('CustomEditor paste marker expansion', () => {
 
     expect(editor.getText()).toMatch(/\[paste #1/);
 
-    editor.handleInput('\x16');
+    // The editor binds paste expansion to Alt+V on Windows (Ctrl+V is reserved
+    // by Windows terminals) and Ctrl+V everywhere else, so emit the
+    // platform-appropriate keystroke. Alt+V is encoded as ESC+v in legacy mode.
+    const ESC = String.fromCharCode(27);
+    const pasteKey = process.platform === 'win32' ? `${ESC}v` : String.fromCharCode(22);
+    editor.handleInput(pasteKey);
 
     expect(editor.getText()).not.toContain('[paste #');
     expect(editor.getText()).toContain(longText);

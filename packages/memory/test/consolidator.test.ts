@@ -1,11 +1,33 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MemoryMemoStore } from '../src/store.js';
 import { createMemoryMemo, type MemoryMemo } from '../src/models.js';
 import { buildConsolidationPlan, applyConsolidation } from '../src/consolidator.js';
+
+/**
+ * Remove a temp dir, retrying on Windows where lingering SQLite WAL/SHM file
+ * handles can briefly hold the directory locked (EBUSY/EPERM/ENOTEMPTY) even
+ * after the store connection is closed.
+ */
+async function removeTempDir(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') {
+        throw error;
+      }
+      await delay(10);
+    }
+  }
+  await rm(dir, { recursive: true, force: true });
+}
 
 function makeMemo(
   id: string,
@@ -37,7 +59,10 @@ describe('buildConsolidationPlan', () => {
   });
 
   afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    // Close the SQLite connection so Windows releases the db/WAL/SHM file
+    // handles before we delete the temp dir, avoiding EBUSY on unlink.
+    store.close();
+    await removeTempDir(tmpDir);
   });
 
   it('detects duplicate groups and tracks counts', async () => {
@@ -146,7 +171,10 @@ describe('applyConsolidation', () => {
   });
 
   afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    // Close the SQLite connection so Windows releases the db/WAL/SHM file
+    // handles before we delete the temp dir, avoiding EBUSY on unlink.
+    store.close();
+    await removeTempDir(tmpDir);
   });
 
   it('does not delete memos in related groups', async () => {

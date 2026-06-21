@@ -1,6 +1,9 @@
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+// Use pathe's `join` (not node:path) so expected paths use forward slashes,
+// matching jian's glob/iterdir output. jian normalizes all emitted paths via
+// pathe, so on Windows node:path's backslashes would never match.
+import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 

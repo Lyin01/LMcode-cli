@@ -3,7 +3,7 @@
  * Supports expand/collapse via Ctrl+O.
  */
 
-import { isAbsolute, relative, sep } from 'node:path';
+import { isAbsolute, relative } from 'node:path';
 
 import { Container, Text, Spacer, visibleWidth } from '@earendil-works/pi-tui';
 import type { Component, MarkdownTheme, TUI } from '@earendil-works/pi-tui';
@@ -350,11 +350,13 @@ function makeWorkspaceRelativePath(filePath: string, workspaceDir: string | unde
   if (workspaceDir === undefined || workspaceDir.length === 0 || !isAbsolute(filePath)) {
     return filePath;
   }
-  const relativePath = relative(workspaceDir, filePath);
+  // Normalize separators to `/` so displayed/stored paths are platform-
+  // independent (node:path.relative emits `\` on Windows).
+  const relativePath = relative(workspaceDir, filePath).replace(/\\/g, '/');
   if (
     relativePath.length === 0 ||
     relativePath === '..' ||
-    relativePath.startsWith(`..${sep}`) ||
+    relativePath.startsWith('../') ||
     isAbsolute(relativePath)
   ) {
     return filePath;

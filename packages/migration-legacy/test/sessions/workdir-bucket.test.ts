@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { computeWorkdirBucket, oldMd5BucketName } from '../../src/sessions/workdir-bucket.js';
 import { createHash } from 'node:crypto';
-import { basename, resolve } from 'node:path';
+// Mirror scream-core: `encodeWorkDirKey` imports its path helpers from `pathe`
+// (packages/agent-core/src/session/store/workdir-key.ts), NOT `node:path`.
+// Using `node:path` here would make this reference diverge from real scream-core
+// on Windows (drive-prefixed, `\`-separated paths → different sha256), so the
+// byte-identical assertions below must use `pathe` too.
+import { basename, resolve } from 'pathe';
 
 /**
  * Reference re-implementation of scream-core `encodeWorkDirKey` +
- * `slugifyWorkDirName` (packages/scream-core/src/harness/session-manager/
- * workdir-key.ts + utils/workdir-slug.ts). Kept inline because those
- * functions are not part of scream-core's public export surface. The migrator's
- * `computeWorkdirBucket` MUST stay byte-identical to this — the session picker
- * locates migrated sessions via `readdir(encodeWorkDirKey(...))`.
+ * `slugifyWorkDirName` (packages/agent-core/src/session/store/workdir-key.ts +
+ * utils/workdir-slug.ts). Kept inline because those functions are not part of
+ * agent-core's public export surface. The migrator's `computeWorkdirBucket` MUST
+ * stay byte-identical to this — the session picker locates migrated sessions via
+ * `readdir(encodeWorkDirKey(...))`.
  */
 function referenceEncodeWorkDirKey(workDir: string): string {
   const normalized = resolve(workDir);

@@ -29,6 +29,22 @@ async function makeTempDir(): Promise<string> {
   return dir;
 }
 
+// `normalizeWorkDir` walks up to the nearest project root (a dir containing
+// `.git`/`package.json`). On machines where the OS temp root happens to contain
+// such a marker, bare temp dirs collapse into the same bucket. Real work dirs
+// are project roots, so mark each test work dir as one to keep them isolated.
+async function makeWorkDir(): Promise<string> {
+  const dir = await makeTempDir();
+  await mkdir(join(dir, '.git'), { recursive: true });
+  return dir;
+}
+
+// The store resolves paths through `pathe`, which normalizes to forward slashes.
+// Mirror that here so assertions hold on Windows, where `node:path` uses `\`.
+function toPosixPath(value: string): string {
+  return value.replaceAll('\\', '/');
+}
+
 async function writeSessionState(
   sessionDir: string,
   state: Record<string, unknown>,
@@ -49,14 +65,14 @@ describe('SessionStore.list', () => {
 
   it('creates workDir-scoped session directories and a root session index', async () => {
     const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
+    const workDir = await makeWorkDir();
     const store = new SessionStore(homeDir);
 
     const summary = await store.create({ id: 'ses_list_full', workDir });
 
     expect(summary).toMatchObject({
       id: 'ses_list_full',
-      workDir,
+      workDir: toPosixPath(workDir),
       title: undefined,
     });
     expect(summary.sessionDir).not.toBe(join(homeDir, 'sessions', 'ses_list_full'));
@@ -69,12 +85,12 @@ describe('SessionStore.list', () => {
     const indexRaw = await readFile(sessionIndexPath(homeDir), 'utf-8');
     expect(indexRaw).toContain('"sessionId":"ses_list_full"');
     expect(indexRaw).toContain(summary.sessionDir);
-    expect(indexRaw).toContain(`"workDir":"${workDir}"`);
+    expect(indexRaw).toContain(`"workDir":"${toPosixPath(workDir)}"`);
   });
 
   it('forks a session directory and rewrites fork metadata', async () => {
     const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
+    const workDir = await makeWorkDir();
     const store = new SessionStore(homeDir);
 
     const source = await store.create({ id: 'ses_fork_source', workDir });
@@ -114,7 +130,7 @@ describe('SessionStore.list', () => {
     expect(forkState.title).toBe('Fork title');
     expect(forkState.isCustomTitle).toBe(true);
     expect(forkState.forkedFrom).toBe(source.id);
-    expect(forkState.agents?.main?.homedir).toBe(join(fork.sessionDir, 'agents', 'main'));
+    expect(forkState.agents?.main?.homedir).toBe(toPosixPath(join(fork.sessionDir, 'agents', 'main')));
     expect(forkState.custom).toMatchObject({ source: true, child: true });
     await expect(readFile(join(fork.sessionDir, 'agents', 'main', 'wire.jsonl'), 'utf-8')).resolves.toBe(
       '{"type":"context.clear"}\n',
@@ -133,8 +149,8 @@ describe('SessionStore.list', () => {
 
   it('returns only sessions from the requested workDir bucket', async () => {
     const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
-    const otherWorkDir = await makeTempDir();
+    const workDir = await makeWorkDir();
+    const otherWorkDir = await makeWorkDir();
     const store = new SessionStore(homeDir);
 
     await store.create({ id: 'ses_list_a', workDir });
@@ -158,8 +174,8 @@ describe('SessionStore.list', () => {
 
   it('falls back to the session index when a workDir-scoped sessionId is not in that bucket', async () => {
     const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
-    const otherWorkDir = await makeTempDir();
+    const workDir = await makeWorkDir();
+    const otherWorkDir = await makeWorkDir();
     const store = new SessionStore(homeDir);
 
     await store.create({ id: 'ses_local', workDir });
@@ -169,7 +185,7 @@ describe('SessionStore.list', () => {
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({
       id: other.id,
-      workDir: otherWorkDir,
+      workDir: toPosixPath(otherWorkDir),
     });
   });
 

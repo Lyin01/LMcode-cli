@@ -34,7 +34,7 @@ describe('install prompt helpers', () => {
 
 describe('promptForInstallConfirmation', () => {
   it('renders changelog hyperlink in the prompt output', async () => {
-    const CHANGELOG_URL = 'https://scream-cli.github.io/lmcode/en/release-notes/changelog.html';
+    const CHANGELOG_URL = 'https://lmcode.chat/en/release-notes/changelog.html';
 
     const input = Object.assign(new EventEmitter(), {
       isRaw: false,

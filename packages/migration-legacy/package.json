@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@lmcode-cli/agent-core": "workspace:^",
+    "pathe": "^2.0.3",
     "smol-toml": "^1.6.1",
     "zod": "catalog:"
   },

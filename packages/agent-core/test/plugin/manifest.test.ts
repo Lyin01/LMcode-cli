@@ -163,7 +163,10 @@ describe('parseManifest', () => {
     );
   });
 
-  it('rejects a skills path that escapes via a symlink', async () => {
+  // Creating real symlinks needs admin/Developer Mode on Windows (EPERM), and a
+  // real symlink is exactly what this test exercises (escape detection via
+  // symlink resolution), so it can't be replicated without one.
+  it.skipIf(process.platform === 'win32')('rejects a skills path that escapes via a symlink', async () => {
     const root = await makePlugin({
       'lmcode.plugin.json': JSON.stringify({ name: 'demo', skills: './sym' }),
     });

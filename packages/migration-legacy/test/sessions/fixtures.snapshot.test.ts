@@ -50,12 +50,20 @@ describe.each(SCENARIOS)('migration snapshot: %s', (name) => {
     // machine-dependent source/target paths so the snapshot is stable across
     // hosts. `agents.main.homedir` is an absolute path under the temp target
     // dir — replace that prefix so only the stable suffix is snapshotted.
+    // `agents.main.homedir` is built with `node:path.join`, so on Windows it
+    // contains `\` separators (JSON-escaped to `\\` in the file text) and the
+    // temp `target` prefix is likewise `\`-separated. Normalize BOTH the JSON
+    // text and the `target` prefix to `/` before redacting, so the snapshot
+    // stays platform-independent (the running app remaps this path on resume
+    // regardless of separator — only the POSIX-normalized form is worth pinning).
+    const targetPosix = target.replaceAll('\\', '/');
     const stableState = state
+      .replaceAll('\\\\', '/')
       .replace(/"createdAt": ".+?"/, '"createdAt": "<REDACTED>"')
       .replace(/"updatedAt": ".+?"/, '"updatedAt": "<REDACTED>"')
       .replace(/"imported_at": ".+?"/, '"imported_at": "<REDACTED>"')
       .replace(/"scream_cli_source_path": ".+?"/, '"scream_cli_source_path": "<REDACTED>"')
-      .split(target)
+      .split(targetPosix)
       .join('<TARGET>');
     // Redact wire created_at timestamp (derived from wire_mtime or Date.now()).
     const stableWire = wire.replace(/"created_at":\s*\d+/, '"created_at":<REDACTED>');

@@ -15,7 +15,9 @@ describe('detectInstallSource', () => {
   });
 
   it('returns source for the legacy ~/.lmcode path even when LMCODE_HOME points elsewhere', () => {
-    const legacyGitDir = `${homedir()}/.lmcode/.git`;
+    // detectInstallSource normalizes separators to `/`, so build the expected
+    // probe path the same way (homedir() uses `\` on Windows).
+    const legacyGitDir = `${homedir().replace(/\\/g, '/')}/.lmcode/.git`;
 
     expect(
       detectInstallSource({

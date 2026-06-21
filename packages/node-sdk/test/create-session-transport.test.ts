@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,12 +24,29 @@ async function makeTempDir(): Promise<string> {
   return dir;
 }
 
+// `normalizeWorkDir` walks up to the nearest project root (a dir containing
+// `.git`/`package.json`). On machines where the OS temp root holds such a
+// marker, bare temp dirs collapse to that ancestor. Real work dirs are project
+// roots, so mark each test work dir as one.
+async function makeWorkDir(): Promise<string> {
+  const dir = await makeTempDir();
+  await mkdir(join(dir, '.git'), { recursive: true });
+  return dir;
+}
+
+// The runtime resolves paths through `pathe`, which normalizes to forward
+// slashes. Mirror that here so assertions hold on Windows, where `node:path`
+// produces backslashes.
+function toPosixPath(value: string): string {
+  return value.replaceAll('\\', '/');
+}
+
 async function writeTestModelConfig(homeDir: string, modelName = 'lmcode-test-model'): Promise<void> {
   await writeFile(
     join(homeDir, 'config.toml'),
     `
 [providers.local]
-type = "lm"
+type = "lmcode"
 base_url = "https://example.test/v1"
 api_key = "sk-test"
 
@@ -71,7 +88,7 @@ describe('LmcodeHarness.createSession transport link', () => {
 
   it('creates metadata and keeps the session active in the harness', async () => {
     const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
+    const workDir = await makeWorkDir();
     await writeTestModelConfig(homeDir);
     const harness = new LmcodeHarness({
       identity: TEST_IDENTITY,
@@ -86,7 +103,7 @@ describe('LmcodeHarness.createSession transport link', () => {
       });
 
       expect(session.id).toBe('ses_transport_link');
-      expect(session.workDir).toBe(workDir);
+      expect(session.workDir).toBe(toPosixPath(workDir));
       await expect(session.getStatus()).resolves.toMatchObject({ model: 'lmcode-test-model' });
       expect(harness.sessions.get(session.id)).toBe(session);
       const configEvent = await waitForAgentWireEvent(
@@ -103,8 +120,8 @@ describe('LmcodeHarness.createSession transport link', () => {
 
       const summaries = await harness.listSessions({ workDir });
       const summary = summaries.find((item) => item.id === session.id);
-      expect(summary?.sessionDir).not.toBe(join(homeDir, 'sessions', session.id));
-      expect(summary?.sessionDir).toContain(join(homeDir, 'sessions'));
+      expect(summary?.sessionDir).not.toBe(toPosixPath(join(homeDir, 'sessions', session.id)));
+      expect(summary?.sessionDir).toContain(toPosixPath(join(homeDir, 'sessions')));
       expect(existsSync(join(summary!.sessionDir, 'state.json'))).toBe(true);
       expect(await readFile(join(homeDir, 'session_index.jsonl'), 'utf-8')).toContain(session.id);
 
@@ -112,7 +129,7 @@ describe('LmcodeHarness.createSession transport link', () => {
       expect(summariesById).toHaveLength(1);
       expect(summariesById[0]).toMatchObject({
         id: session.id,
-        workDir,
+        workDir: toPosixPath(workDir),
       });
       await expect(harness.listSessions({ sessionId: 'ses_missing' })).resolves.toEqual([]);
     } finally {

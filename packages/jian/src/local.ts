@@ -24,6 +24,30 @@ import type { StatResult } from './types';
 const isWindows: boolean = process.platform === 'win32';
 
 /**
+ * Decide whether a spawn of `command` should pass `windowsVerbatimArguments`.
+ *
+ * When the command is `cmd.exe`/`cmd` (Windows only), the remaining args
+ * usually carry a full command line after `/c` — e.g.
+ * `exec('cmd.exe', '/c', 'echo x> "C:\\some path\\f.txt"')`. Node's default
+ * argument escaping rewraps that string and corrupts shell metacharacters
+ * around quoted redirect targets, so cmd.exe sees mangled `>`/`&` operators
+ * and fails with "The filename, directory name, or volume label syntax is
+ * incorrect." Verbatim mode hands the args to cmd.exe untouched, which is the
+ * only correct way to invoke `cmd.exe /c "<command line>"`.
+ *
+ * We deliberately scope this to cmd: ordinary programs (e.g. `node -e '<code>'`)
+ * still need Node's normal per-arg escaping so that spaces/quotes inside a
+ * single argument survive.
+ */
+function shouldUseVerbatimArgs(command: string): boolean {
+  if (!isWindows) return false;
+  // Match `cmd` / `cmd.exe`, optionally with a directory prefix, case-insensitive
+  // (Windows paths are case-insensitive and callers may pass `CMD.EXE`).
+  const base = command.replace(/^.*[\\/]/, '').toLowerCase();
+  return base === 'cmd.exe' || base === 'cmd';
+}
+
+/**
  * Build the `(dev, ino)` cycle-detection key used by `_globWalk`'s
  * visited set. Returns `null` when `ino` is 0, which Node returns on
  * filesystems that don't carry inodes (Windows FAT/exFAT, some SMB/NFS
@@ -533,6 +557,9 @@ export class LocalJian implements Jian {
       // (`taskkill /T` handles the tree there). We do not call `child.unref()`
       // because the parent still waits on the child's exit through `wait()`.
       detached: !isWindows,
+      // See shouldUseVerbatimArgs: only enabled for cmd.exe on Windows so a
+      // `cmd.exe /c "<command line>"` invocation reaches the shell intact.
+      windowsVerbatimArguments: shouldUseVerbatimArgs(command),
     });
     await waitForSpawn(child);
     return new LocalProcess(child);
@@ -550,6 +577,9 @@ export class LocalJian implements Jian {
       cwd: this._cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: !isWindows,
+      // See shouldUseVerbatimArgs: only enabled for cmd.exe on Windows so a
+      // `cmd.exe /c "<command line>"` invocation reaches the shell intact.
+      windowsVerbatimArguments: shouldUseVerbatimArgs(command),
       env,
     });
     await waitForSpawn(child);

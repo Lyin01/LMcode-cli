@@ -14,6 +14,23 @@ afterEach(async () => {
   await removeTempDirs(tempDirs);
 });
 
+// `normalizeWorkDir` walks up to the nearest project root (a dir containing
+// `.git`/`package.json`). On machines where the OS temp root holds such a
+// marker, bare temp dirs collapse to that ancestor. Real work dirs are project
+// roots, so mark each test work dir as one to keep its identity.
+async function makeWorkDir(prefix: string): Promise<string> {
+  const dir = await makeTempDir(tempDirs, prefix);
+  await mkdir(join(dir, '.git'), { recursive: true });
+  return dir;
+}
+
+// The runtime resolves paths through `pathe`, which normalizes to forward
+// slashes. Mirror that here so assertions hold on Windows, where `node:path`
+// produces backslashes.
+function toPosixPath(value: string): string {
+  return value.replaceAll('\\', '/');
+}
+
 describe('Session plan, compact, usage, and resume APIs', () => {
   it('sets plan mode through manualEnterPlan and clears the active plan file', async () => {
     const homeDir = await makeTempDir(tempDirs, 'scream-sdk-plan-home-');
@@ -117,7 +134,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
 
   it('resumes a persisted session and restores runtime plan mode from wire history', async () => {
     const homeDir = await makeTempDir(tempDirs, 'scream-sdk-resume-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-resume-work-');
+    const workDir = await makeWorkDir('scream-sdk-resume-work-');
     await writeTestConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -137,7 +154,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       const resumed = await harness.resumeSession({ id: created.id });
 
       expect(resumed.id).toBe(created.id);
-      expect(resumed.workDir).toBe(workDir);
+      expect(resumed.workDir).toBe(toPosixPath(workDir));
       await expect(resumed.getStatus()).resolves.toMatchObject({
         model: 'test-model',
         planMode: true,
@@ -192,7 +209,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
 
   it('forks a session and returns an active fork session', async () => {
     const homeDir = await makeTempDir(tempDirs, 'scream-sdk-fork-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-fork-work-');
+    const workDir = await makeWorkDir('scream-sdk-fork-work-');
     await writeTestConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -217,7 +234,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       });
 
       expect(fork.id).toBe('ses_fork_runtime_child');
-      expect(fork.workDir).toBe(workDir);
+      expect(fork.workDir).toBe(toPosixPath(workDir));
       await expect(fork.getStatus()).resolves.toMatchObject({ model: 'test-model' });
       expect(harness.getSession(fork.id)).toBe(fork);
       await expect(fork.getUsage()).resolves.toEqual({});
@@ -228,7 +245,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       expect(forkPlan).toEqual({
         id: sourcePlan.id,
         content: 'source plan',
-        path: join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`),
+        path: toPosixPath(join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`)),
       });
       expect(forkPlan?.path).not.toBe(sourcePlan.path);
       const forkWire = await readFile(
@@ -255,7 +272,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       };
       expect(forkState.title).toBe('Forked runtime');
       expect(forkState.forkedFrom).toBe(source.id);
-      expect(forkState.agents?.main?.homedir).toBe(join(forkSummary!.sessionDir, 'agents', 'main'));
+      expect(forkState.agents?.main?.homedir).toBe(toPosixPath(join(forkSummary!.sessionDir, 'agents', 'main')));
       expect(forkState.custom).toMatchObject({ source: true, child: true });
     } finally {
       await harness.close();

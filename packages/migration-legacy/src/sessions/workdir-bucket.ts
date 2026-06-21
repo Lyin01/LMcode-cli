@@ -1,4 +1,11 @@
-import { basename, resolve } from 'node:path';
+// IMPORTANT: import path helpers from `pathe`, NOT `node:path`. scream-core's
+// `encodeWorkDirKey` (packages/agent-core/src/session/store/workdir-key.ts)
+// resolves and slugifies the workdir with `pathe`, which is POSIX-normalized on
+// every platform. `node:path.resolve` on Windows prepends the current drive and
+// uses `\` separators, producing a DIFFERENT sha256 — migrated buckets would no
+// longer match `readdir(encodeWorkDirKey(...))` and sessions would vanish from
+// the picker. Using `pathe` keeps the bucket byte-identical cross-platform.
+import { basename, resolve } from 'pathe';
 import { createHash } from 'node:crypto';
 
 const WORKDIR_KEY_PREFIX = 'wd_';

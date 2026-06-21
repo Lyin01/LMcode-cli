@@ -291,7 +291,7 @@ describe('buildExportMarkdown', () => {
     expect(md).toContain('work_dir: /home/user/project');
     expect(md).toContain('message_count: 2');
     expect(md).toContain('token_count: 1234');
-    expect(md).toContain('# Scream 会话导出');
+    expect(md).toContain('# LMcode 会话导出');
     expect(md).toContain('## 概览');
     expect(md).toContain('Hello world');
     expect(md).toContain('## 轮次 1');

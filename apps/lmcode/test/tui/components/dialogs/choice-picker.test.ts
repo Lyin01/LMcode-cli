@@ -58,8 +58,8 @@ describe('ChoicePickerComponent', () => {
 
     const model = new ModelSelectorComponent({
       models: {
-        scream: {
-          provider: 'managed:lmcode',
+        lmcode: {
+          provider: 'managed:LMcode',
           model: 'lmcode-k2',
           maxContextSize: 200_000,
           displayName: 'Scream K2',
@@ -107,8 +107,8 @@ describe('ChoicePickerComponent', () => {
     const onSelect = vi.fn();
     const picker = new ModelSelectorComponent({
       models: {
-        scream: {
-          provider: 'managed:lmcode',
+        lmcode: {
+          provider: 'managed:LMcode',
           model: 'lmcode-k2',
           maxContextSize: 200_000,
           displayName: 'Scream K2',

@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 describe('parseSlashInput', () => {
   it('parses command names and trimmed args', () => {
     expect(parseSlashInput('/help')).toEqual({ name: 'help', args: '' });
-    expect(parseSlashInput('/model   scream-k2  ')).toEqual({
+    expect(parseSlashInput('/model   lmcode-k2  ')).toEqual({
       name: 'model',
       args: 'lmcode-k2',
     });

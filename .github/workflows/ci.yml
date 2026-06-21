@@ -31,12 +31,11 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
 
-    # The Windows leg is informational for now: a number of suites have
-    # pre-existing Windows-only failures (sqlite file-handle cleanup, symlink
-    # privileges, POSIX file-mode and path-separator assertions, CRLF snapshots).
-    # Keep it visible without blocking the pipeline until that surface is hardened.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
-
+    # Both OS legs are required. The Windows surface has been hardened
+    # (path-separator normalization via pathe, CRLF-tolerant snapshots, sqlite
+    # file-handle cleanup, win32-skips for genuinely POSIX-only tests). Hook and
+    # shell tests rely on bash, which the GitHub windows-latest runner provides
+    # via Git for Windows on PATH.
     strategy:
       fail-fast: false
       matrix:

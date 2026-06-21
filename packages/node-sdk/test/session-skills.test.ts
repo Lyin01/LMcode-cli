@@ -66,10 +66,21 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
+// `normalizeWorkDir` walks up to the nearest project root (a dir containing
+// `.git`/`package.json`). On machines where the OS temp root holds such a
+// marker, bare temp dirs collapse to that ancestor and project skill discovery
+// looks in the wrong directory. Real work dirs are project roots, so mark each
+// test work dir as one.
+async function makeWorkDir(prefix: string): Promise<string> {
+  const dir = await makeTempDir(tempDirs, prefix);
+  await mkdir(join(dir, '.git'), { recursive: true });
+  return dir;
+}
+
 describe('Session skills', () => {
   it('lists session skills without exposing content', async () => {
     const homeDir = await makeTempDir(tempDirs, 'scream-sdk-skills-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-skills-work-');
+    const workDir = await makeWorkDir('scream-sdk-skills-work-');
     await writeSkill(workDir, 'review', [
       '---',
       'name: review',
@@ -102,7 +113,7 @@ describe('Session skills', () => {
 
   it('activates a skill through core and emits the public skill event', async () => {
     const homeDir = await makeTempDir(tempDirs, 'scream-sdk-skills-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-skills-work-');
+    const workDir = await makeWorkDir('scream-sdk-skills-work-');
     await writeSkill(workDir, 'review', [
       '---',
       'name: review',
@@ -195,8 +206,11 @@ describe('Session skills', () => {
   it('resolves user skills from the OS home directory, independently of LMCODE_HOME', async () => {
     const homeDir = await makeTempDir(tempDirs, 'scream-sdk-skills-home-');
     const processHome = await makeTempDir(tempDirs, 'scream-sdk-skills-process-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-skills-work-');
+    const workDir = await makeWorkDir('scream-sdk-skills-work-');
+    // `os.homedir()` reads HOME on POSIX but USERPROFILE on Windows; stub both so
+    // the OS home override applies regardless of platform.
     vi.stubEnv('HOME', processHome);
+    vi.stubEnv('USERPROFILE', processHome);
     vi.stubEnv('LMCODE_HOME', homeDir);
     await writeUserSkill(processHome, 'sdk-real-home-only', 'SDK real home skill');
     await writeUserSkill(homeDir, 'sdk-sandbox-only', 'SDK sandbox skill');
