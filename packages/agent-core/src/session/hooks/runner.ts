@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams, execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
 import { z } from 'zod';
 
@@ -22,6 +23,35 @@ const WINDOWS_SHELL: string | boolean = (() => {
     execSync('bash --version', { stdio: 'ignore', windowsHide: true });
     return 'bash.exe';
   } catch {
+    // Fallback: search common installation paths for Git Bash
+    const commonPaths = [
+      'C:\\Program Files\\Git\\bin\\bash.exe',
+      'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+      'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+      'C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe',
+    ];
+    if (process.env['ProgramFiles']) {
+      commonPaths.push(
+        `${process.env['ProgramFiles']}\\Git\\bin\\bash.exe`,
+        `${process.env['ProgramFiles']}\\Git\\usr\\bin\\bash.exe`
+      );
+    }
+    if (process.env['ProgramFiles(x86)']) {
+      commonPaths.push(
+        `${process.env['ProgramFiles(x86)']}\\Git\\bin\\bash.exe`,
+        `${process.env['ProgramFiles(x86)']}\\Git\\usr\\bin\\bash.exe`
+      );
+    }
+    if (process.env['LocalAppData']) {
+      commonPaths.push(
+        `${process.env['LocalAppData']}\\Programs\\Git\\bin\\bash.exe`,
+        `${process.env['LocalAppData']}\\Programs\\Git\\usr\\bin\\bash.exe`
+      );
+    }
+
+    for (const p of commonPaths) {
+      if (existsSync(p)) return p;
+    }
     return true;
   }
 })();
