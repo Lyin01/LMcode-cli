@@ -2,7 +2,8 @@
   <title>LMcode</title>
   <rect x="16" y="16" width="224" height="224" rx="52" fill="#0d9488"/>
   <g fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M75,76 L75,176"/>
-    <path d="M108,176 L108,130 A18,14 0 0 1 144,130 L144,176 M144,130 A18,14 0 0 1 180,130 L180,176"/>
+    <path d="M58,76 L58,176"/>
+    <path d="M90,176 L90,130 A18,14 0 0 1 126,130 L126,176 M126,130 A18,14 0 0 1 162,130 L162,176"/>
   </g>
+  <rect x="183" y="140" width="26" height="36" rx="7" fill="#ffffff"/>
 </svg>
