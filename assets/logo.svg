@@ -1,0 +1,8 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="LMcode">
+  <title>LMcode</title>
+  <rect x="16" y="16" width="224" height="224" rx="52" fill="#0d9488"/>
+  <g fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M75,76 L75,176"/>
+    <path d="M108,176 L108,130 A18,14 0 0 1 144,130 L144,176 M144,130 A18,14 0 0 1 180,130 L180,176"/>
+  </g>
+</svg>

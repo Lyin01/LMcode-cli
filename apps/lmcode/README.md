@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="807" height="152" alt="LMcode" src="https://github.com/user-attachments/assets/b589a9a5-ad1e-420a-aee0-f86c7ee06873" />
+  <img width="120" height="120" alt="LMcode" src="https://raw.githubusercontent.com/Lyin01/LMcode-cli/main/assets/logo.svg" />
 </p>
 
 <p align="center">
