@@ -17,13 +17,17 @@ export interface RecentSession {
   readonly updatedAt: number;
 }
 
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
+
 export interface AppState {
   model: string;
   workDir: string;
   sessionId: string;
   permissionMode: PermissionMode;
   planMode: boolean;
-  thinking: boolean;
+  thinkingLevel: ThinkingLevel;
   contextUsage: number;
   contextTokens: number;
   maxContextTokens: number;

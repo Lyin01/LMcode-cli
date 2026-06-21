@@ -7,6 +7,7 @@ import type {
 } from '@lmcode-cli/lmcode-sdk';
 import { LLM_NOT_SET_MESSAGE, MAIN_AGENT_ID, NO_ACTIVE_SESSION_MESSAGE } from '../constant/lmcode-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import type { ThinkingLevel } from '../types';
 import { sessionRowsForPicker } from '../utils/session-picker-rows';
 import { createApprovalRequestHandler } from '../reverse-rpc/approval/handler';
 import { createQuestionAskHandler } from '../reverse-rpc/question/handler';
@@ -144,7 +145,7 @@ export class SessionManager {
     this.host.setAppState({
       sessionId: session.id,
       model: status.model ?? '',
-      thinking: status.thinkingLevel !== 'off',
+      thinkingLevel: status.thinkingLevel as ThinkingLevel,
       permissionMode: status.permission,
       planMode: status.planMode,
       contextTokens: status.contextTokens,
@@ -326,9 +327,7 @@ export class SessionManager {
       thinking:
         this.host.session === undefined
           ? undefined
-          : this.host.state.appState.thinking
-            ? 'on'
-            : 'off',
+          : this.host.state.appState.thinkingLevel,
       permission: this.host.state.appState.permissionMode,
       planMode: this.host.state.appState.planMode ? true : undefined,
     });

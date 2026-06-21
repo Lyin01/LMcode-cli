@@ -3,7 +3,7 @@ import type { SkillListSession } from '../commands';
 
 
 import type { SessionEventHandler } from './session-event-handler';
-import type { AppState, LmcodeTUIOptions } from '../types';
+import type { AppState, LmcodeTUIOptions, ThinkingLevel } from '../types';
 import type { TUIState } from '../tui-state';
 
 export interface AuthFlowHost {
@@ -102,7 +102,7 @@ export class AuthFlowController {
       maxContextTokens: selected.maxContextSize,
     };
     if (config.defaultThinking !== undefined) {
-      appStatePatch.thinking = config.defaultThinking;
+      appStatePatch.thinkingLevel = (config.thinking?.effort ?? (config.defaultThinking ? 'high' : 'off')) as ThinkingLevel;
     }
     host.setAppState(appStatePatch);
   }
@@ -113,7 +113,7 @@ export class AuthFlowController {
       availableModels: config.models ?? {},
       availableProviders: config.providers ?? {},
       model: '',
-      thinking: false,
+      thinkingLevel: 'off',
       maxContextTokens: 0,
       contextUsage: 0,
       contextTokens: 0,
