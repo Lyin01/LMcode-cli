@@ -33,13 +33,13 @@ const WELCOME_SESSION_SLOTS = 3;
 const LEFT_COLUMN_WIDTH = 22;
 const MIN_BOX_WIDTH = 50;
 
-// ── Logo face animation frames ──────────────────────────────────────
-const LOGO_FRAMES: [string, string][] = [
-  ['██▄▄▄██', '▐█▄▀▄█▌'], // 回中
-  ['██▄▄▄██', '▐▄▄▀▄▄▌'], // 眯眼
-  ['██▄▄▄██', '▐▄▀▄▄▄▌'], // 细眯眼（左）
-  ['██▄▄▄██', '▐▄▄▄▀▄▌'], // 细眯眼（右）
-  ['██▄▄▄██', '▐█▄▀▄█▌'], // 睁开
+// ── Logo: block-art "lm" with a blinking terminal cursor ────────────
+const LOGO_FRAMES: [string, string, string][] = [
+  ['█ █▀█▀█  ██', '█ █ █ █  ██', '█ █ █ █  ██'], // 光标亮
+  ['█ █▀█▀█    ', '█ █ █ █    ', '█ █ █ █    '], // 光标灭
+  ['█ █▀█▀█  ██', '█ █ █ █  ██', '█ █ █ █  ██'], // 光标亮
+  ['█ █▀█▀█    ', '█ █ █ █    ', '█ █ █ █    '], // 光标灭
+  ['█ █▀█▀█  ██', '█ █ █ █  ██', '█ █ █ █  ██'], // 光标亮
 ];
 
 // ── HSL ↔ RGB helpers ──────────────────────────────────────────────
@@ -197,7 +197,7 @@ export class WelcomeComponent implements Component {
 
     const frameIdx = this.breatheTimer !== null ? Math.floor(this.breatheFrame / 24) % LOGO_FRAMES.length : 0;
     const frame = LOGO_FRAMES[frameIdx]!;
-    const logo = [boxColor(frame[0]), boxColor(frame[1])];
+    const logo = [boxColor(frame[0]), boxColor(frame[1]), boxColor(frame[2])];
 
     // Right column content.
     const tipLines: string[] = [];
@@ -235,6 +235,7 @@ export class WelcomeComponent implements Component {
         '',
         centerText(logo[0]!, leftCol),
         centerText(logo[1]!, leftCol),
+        centerText(logo[2]!, leftCol),
         '',
         centerText(dim(versionValue), leftCol),
         centerText(dim(modelValue), leftCol),
@@ -251,6 +252,7 @@ export class WelcomeComponent implements Component {
         '',
         centerText(logo[0]!, leftCol),
         centerText(logo[1]!, leftCol),
+        centerText(logo[2]!, leftCol),
         '',
         centerText(dim(versionValue), leftCol),
         centerText(dim(modelValue), leftCol),
