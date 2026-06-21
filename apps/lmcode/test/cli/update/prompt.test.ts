@@ -34,7 +34,7 @@ describe('install prompt helpers', () => {
 
 describe('promptForInstallConfirmation', () => {
   it('renders changelog hyperlink in the prompt output', async () => {
-    const CHANGELOG_URL = 'https://lmcode.chat/en/release-notes/changelog.html';
+    const CHANGELOG_URL = 'https://github.com/Lyin01/LMcode-cli/releases';
 
     const input = Object.assign(new EventEmitter(), {
       isRaw: false,

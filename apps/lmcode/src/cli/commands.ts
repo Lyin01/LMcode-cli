@@ -37,7 +37,7 @@ export function createProgram(
     .helpOption('-h, --help', '显示帮助。')
     .addHelpText(
       'after',
-      '\n文档：        https://lmcode.chat/\n'
+      '\n文档：        https://github.com/Lyin01/LMcode-cli\n'
     );
 
   program
