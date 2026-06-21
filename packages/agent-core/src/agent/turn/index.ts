@@ -26,6 +26,8 @@ import { abortable, userCancellationReason } from '../../utils/abort';
 import { USER_PROMPT_ORIGIN, type PromptOrigin } from '../context';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { ToolCallDeduplicator } from './tool-dedup';
+import { resolvePathAccessPath } from '../../tools/policies/path-access';
+import { validateFileSyntaxWithScreenshots } from '../../utils/self-healing';
 
 interface ActiveTurn {
   controller: AbortController;
@@ -563,12 +565,193 @@ export class TurnFlow {
               // Resolve dedup BEFORE firing the PostToolUse hook so same-step
               // dups (whose ctx.result is the dedup placeholder) report the
               // original's real outcome, not an empty success.
-              const finalResult = await deduper.finalizeResult(
+              let finalResult = await deduper.finalizeResult(
                 ctx.toolCall.id,
                 ctx.toolCall.name,
                 ctx.args,
                 ctx.result,
               );
+
+              // ── Post-write self-healing validation ──
+              if (
+                finalResult.isError !== true &&
+                this.agent.lmcodeConfig?.enableSelfHealing !== false &&
+                (ctx.toolCall.name === 'Write' ||
+                  ctx.toolCall.name === 'Edit' ||
+                  ctx.toolCall.name === 'MultiEdit')
+              ) {
+                const args = ctx.args as any;
+                if (args && typeof args.path === 'string') {
+                  try {
+                    const workspace = {
+                      workspaceDir: this.agent.config.cwd,
+                      additionalDirs: [],
+                    };
+                    const resolvedPath = resolvePathAccessPath(args.path, {
+                      jian: this.agent.jian,
+                      workspace,
+                      operation: 'write',
+                    });
+                    const content = await this.agent.jian.readText(resolvedPath);
+                    const validationRes = await validateFileSyntaxWithScreenshots(resolvedPath, content);
+                    if (validationRes.error) {
+                      finalResult = {
+                        isError: true,
+                        output: `Code validation failed. Please fix the following issue:\n${validationRes.error}`,
+                      };
+                    } else {
+                      // 1. Run LMM Visual Auditor if screenshots are captured
+                      let visualRejected = false;
+                      let visualFeedback = '';
+                      if (
+                        validationRes.screenshots &&
+                        validationRes.screenshots.length > 0 &&
+                        this.agent.config.modelCapabilities.image_in
+                      ) {
+                        try {
+                          // Label each frame by its capture time; the last one
+                          // is the terminal/end state where uncleared-buffer
+                          // ghosts and never-ending particle fields surface.
+                          const keyTimes = validationRes.keyframeTimesMs;
+                          const frameLines = validationRes.screenshots
+                            .map((_, i) => {
+                              const isLast = i === validationRes.screenshots!.length - 1;
+                              const at =
+                                keyTimes && keyTimes[i] != null
+                                  ? `${(keyTimes[i] / 1000).toFixed(1)}s`
+                                  : `frame ${i + 1}`;
+                              return `- Screenshot ${i + 1}: ${at}${isLast ? ' — TERMINAL / end state' : ''}`;
+                            })
+                            .join('\n');
+
+                          const visualSystemPrompt = `You are a visual quality inspector (LMM Visual Auditor) for generated graphics/animation code (HTML <canvas>, SVG, WebGL, etc.).
+The conversation above contains the user's actual request. Judge the rendered output against THAT request — do not assume any particular scene or subject.
+
+You are given keyframe screenshots captured from the running output at increasing timestamps, in order:
+${frameLines}
+
+Check for:
+1. Faithfulness to the user's request — correct subject, shapes, colours, motion and timing.
+2. Rendering/runtime failure — a frame that is blank or a single flat colour when content is expected.
+3. THE TERMINAL FRAME especially — once an animation has run to completion, look for artifacts that should NOT be there:
+   - ghost/residual shapes or hard-edged rectangles from a shadow or buffer that was never cleared;
+   - objects that should have disappeared but still persist;
+   - particles that keep spawning forever, leaving a static uniform "starfield"/field that never settles or fades out;
+   - an unexpectedly empty frame when remnants/residue were requested.
+4. Mechanical vs. organic appearance where realism was requested (e.g. perfectly straight or circular edges where irregular/natural ones were asked for).
+
+If you find ANY visual defect, reply starting with:
+VISUAL_REJECT: <specific bugs, naming the screenshot/timestamp>
+
+If the output faithfully matches the request with no artifacts, reply with:
+VISUAL_APPROVE`;
+
+                          const { project: projectVisual } = await import('../context/projector');
+                          const visualHistory = [...projectVisual(this.agent.context.history)];
+                          const contentParts: any[] = [
+                            {
+                              type: 'text',
+                              text: 'Here are the rendered keyframe screenshots, in order. Verify them against the user request above.',
+                            },
+                          ];
+                          for (const base64Img of validationRes.screenshots) {
+                            contentParts.push({
+                              type: 'image_url',
+                              imageUrl: {
+                                url: `data:image/png;base64,${base64Img}`,
+                              },
+                            });
+                          }
+                          visualHistory.push({ role: 'user', content: contentParts, toolCalls: [] });
+
+                          const visualResponse = await this.agent.rawGenerate(
+                            this.agent.config.provider,
+                            visualSystemPrompt,
+                            [],
+                            visualHistory,
+                          );
+                          const visualText = visualResponse.message.content
+                            .filter((p: any) => p.type === 'text')
+                            .map((p: any) => p.text)
+                            .join('');
+
+                          if (visualText.startsWith('VISUAL_REJECT:')) {
+                            visualRejected = true;
+                            visualFeedback = `Visual review rejected by LMM Auditor:\n${visualText.substring(14).trim()}`;
+                          }
+                        } catch (err: any) {
+                          this.agent.log.warn('LMM Visual Auditor failed or timed out', {
+                            error: err.message,
+                          });
+                        }
+                      }
+
+                      if (visualRejected) {
+                        finalResult = {
+                          isError: true,
+                          output: visualFeedback,
+                        };
+                      } else {
+                        // 2. Syntax and Visual passed! Now run Critic LLM review
+                        const systemPrompt = `You are a critical code reviewer (Critic Subagent).
+Your goal is to inspect the proposed code changes for bugs, edge cases, type safety issues, boundary condition violations, and potential runtime or performance issues.
+Analyze the code carefully and be extremely rigorous. Look for:
+1. Missing null/undefined checks, unhandled promise rejections, or TDZ (temporal dead zone) errors.
+2. Inefficient rendering or computation loops (e.g. O(N^2) pixel/noise operations inside animation loops).
+3. Logical inconsistencies or divergence from the user's instructions.
+4. Edge conditions, like what happens when progress variables reach 0 or 1.
+
+If the code has ANY issues, bugs, or improvements needed, reply starting with:
+REJECT: [list of bugs and explanations]
+
+If the code is fully robust, correct, and conforms to all requirements, reply with:
+APPROVE`;
+
+                        const prompt = `File Path: ${resolvedPath}
+
+Please review the current content of this file:
+\`\`\`
+${content}
+\`\`\`
+
+Evaluate if this file meets high-quality software engineering standards and the original requirements. Reply with APPROVE or REJECT.`;
+
+                        const { project } = await import('../context/projector');
+                        const history = [...project(this.agent.context.history)];
+                        history.push({
+                          role: 'user',
+                          content: [{ type: 'text', text: prompt }],
+                          toolCalls: [],
+                        });
+
+                        const criticResponse = await this.agent.rawGenerate(
+                          this.agent.config.provider,
+                          systemPrompt,
+                          [],
+                          history,
+                        );
+                        const criticText = criticResponse.message.content
+                          .filter((p: any) => p.type === 'text')
+                          .map((p: any) => p.text)
+                          .join('');
+
+                        if (criticText.startsWith('REJECT:')) {
+                          finalResult = {
+                            isError: true,
+                            output: `Code review rejected by Critic:\n${criticText.substring(7).trim()}`,
+                          };
+                        }
+                      }
+                    }
+                  } catch (err: any) {
+                    this.agent.log.warn('Self-healing code validation skipped or failed internally', {
+                      error: err.message,
+                      path: args.path,
+                    });
+                  }
+                }
+              }
+
               const { isError, output } = finalResult;
 
               // Count the tool execution for session stats.

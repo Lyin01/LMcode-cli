@@ -126,6 +126,10 @@ importers:
       tsx:
         specifier: ^4.21.0
         version: 4.22.3
+    optionalDependencies:
+      playwright-core:
+        specifier: ^1.61.0
+        version: 1.61.0
 
   packages/agent-core:
     dependencies:
@@ -223,6 +227,10 @@ importers:
       yazl:
         specifier: ^3.3.1
         version: 3.3.1
+    optionalDependencies:
+      playwright-core:
+        specifier: ^1.61.0
+        version: 1.61.0
 
   packages/config: {}
 
@@ -2951,6 +2959,11 @@ packages:
 
   pkg-pr-new@0.0.75:
     resolution: {integrity: sha512-u9mdErTewKSMsr+ceCt8VcNuNP0ro5AXiPXhUVApuEyqr2Zlvt+DdCFBcm+yGWN8mhOdZJ27meIDbnoZgfzpOw==}
+    hasBin: true
+
+  playwright-core@1.61.0:
+    resolution: {integrity: sha512-caX7TrY3Ml6egyDX0WUcTHDxodl/b51y5wJOdCEA36QviK/s2g081hvmGs8eaE3DWb6NYZQ6BjO/QkNRPenoPA==}
+    engines: {node: '>=18'}
     hasBin: true
 
   possible-typed-array-names@1.1.0:
@@ -6176,6 +6189,9 @@ snapshots:
   pkce-challenge@5.0.1: {}
 
   pkg-pr-new@0.0.75: {}
+
+  playwright-core@1.61.0:
+    optional: true
 
   possible-typed-array-names@1.1.0: {}
 

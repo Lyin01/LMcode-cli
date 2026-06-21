@@ -220,6 +220,7 @@ export const ScreamConfigSchema = z.object({
   extraSkillDirs: z.array(z.string()).optional(),
   loopControl: LoopControlSchema.optional(),
   background: BackgroundConfigSchema.optional(),
+  enableSelfHealing: z.boolean().optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -259,6 +260,7 @@ export const ScreamConfigPatchSchema = z
     extraSkillDirs: z.array(z.string()).optional(),
     loopControl: LoopControlPatchSchema.optional(),
     background: BackgroundConfigPatchSchema.optional(),
+    enableSelfHealing: z.boolean().optional(),
   })
   .strict();
 
