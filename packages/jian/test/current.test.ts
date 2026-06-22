@@ -68,11 +68,11 @@ describe('module-level proxy functions', () => {
   });
 
   it('execWithEnv proxies to the current jian', async () => {
-    // Use the real LocalJian to run `env | grep CUSTOM_VAR`
-    const proc = await execWithEnv(['sh', '-c', 'echo "$CUSTOM_VAR"'], {
+    // Use the real LocalJian to run a node script that prints the environment variable,
+    // which is cross-platform and does not depend on sh being present on Windows.
+    const proc = await execWithEnv(['node', '-e', 'console.log(process.env.CUSTOM_VAR)'], {
       CUSTOM_VAR: 'proxy_test_value',
-      // Preserve PATH so sh can be found
-      PATH: process.env['PATH'] ?? '/usr/bin:/bin',
+      PATH: process.env['PATH'] ?? '',
     });
 
     const chunks: Buffer[] = [];
