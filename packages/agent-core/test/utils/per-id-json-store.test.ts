@@ -142,9 +142,13 @@ describe('createPerIdJsonStore', () => {
     const store = newStore();
     await store.write('aaaa', { id: 'aaaa', payload: 'x' });
     const st = await stat(join(rootDir, 'things'));
-    // eslint-disable-next-line no-bitwise
-    // eslint-disable-next-line no-bitwise
-    expect(st.mode & 0o777).toBe(0o666);
+    if (process.platform === 'win32') {
+      // Windows does not honor POSIX mode bits; just assert the dir exists.
+      expect(st.isDirectory()).toBe(true);
+    } else {
+      // eslint-disable-next-line no-bitwise
+      expect(st.mode & 0o777).toBe(0o700);
+    }
   });
 
   it('rejects path-traversal ids on write/read/remove', async () => {
