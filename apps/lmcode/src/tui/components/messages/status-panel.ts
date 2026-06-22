@@ -32,7 +32,7 @@ export interface StatusReportOptions {
   readonly workDir: string;
   readonly sessionId: string;
   readonly sessionTitle: string | null;
-  readonly thinking: boolean;
+  readonly thinkingLevel: string;
   readonly permissionMode: PermissionMode;
   readonly planMode: boolean;
   readonly contextUsage: number;
@@ -56,9 +56,9 @@ function formatModelStatus(options: StatusReportOptions): string {
   const model = options.status?.model ?? options.model;
   if (model.trim().length === 0) return '未设置';
 
-  const thinking = (options.status?.thinkingLevel ?? (options.thinking ? 'on' : 'off')) === 'off'
+  const thinking = (options.status?.thinkingLevel ?? options.thinkingLevel) === 'off'
     ? 'off'
-    : 'on';
+    : options.status?.thinkingLevel ?? options.thinkingLevel;
   return `${displayModelName(model, options.availableModels)} (thinking ${thinking})`;
 }
 

@@ -352,6 +352,11 @@ export class FooterComponent implements Component {
       }
     }
 
+    // Thinking level badge (show only when not 'off')
+    if (state.thinkingLevel !== 'off') {
+      left.push(chalk.hex(colors.primary).bold('[' + state.thinkingLevel + ']'));
+    }
+
     // Background-task badges sit immediately before cwd. `bash-*` tasks
     // (shell processes) and `agent-*` tasks (background subagents) get
     // separate badges so the user can distinguish them at a glance.

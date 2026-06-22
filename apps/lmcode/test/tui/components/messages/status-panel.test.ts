@@ -16,7 +16,7 @@ describe('status panel report lines', () => {
       workDir: '/tmp/project',
       sessionId: 'ses-1',
       sessionTitle: 'Implement status',
-      thinking: true,
+      thinkingLevel: 'high',
       permissionMode: 'manual',
       planMode: false,
       contextUsage: 0.25,
@@ -54,7 +54,7 @@ describe('status panel report lines', () => {
 
     const output = lines.join('\n');
     expect(output).toContain('>_ LMcode (v1.2.3)');
-    expect(output).toMatch(/模型\s+Scream K2 \(thinking on\)/);
+    expect(output).toMatch(/模型\s+Scream K2 \(thinking high\)/);
     expect(output).toMatch(/目录\s+\/tmp\/project/);
     expect(output).toMatch(/权限\s+auto/);
     expect(output).toMatch(/计划模式\s+on/);
@@ -78,7 +78,7 @@ describe('status panel report lines', () => {
       workDir: '/tmp/project',
       sessionId: '',
       sessionTitle: null,
-      thinking: false,
+      thinkingLevel: 'off',
       permissionMode: 'manual',
       planMode: false,
       contextUsage: 0,

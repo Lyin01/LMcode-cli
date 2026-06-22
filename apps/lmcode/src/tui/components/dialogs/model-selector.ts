@@ -14,6 +14,8 @@ import { SearchableList } from '#/tui/utils/searchable-list';
 import { SELECT_POINTER } from '../../constant/symbols';
 
 import type { ChoiceOption } from './choice-picker';
+import type { ThinkingLevel } from '#/tui/types';
+import { THINKING_LEVELS } from '#/tui/types';
 
 type ThinkingAvailability = 'toggle' | 'always-on' | 'unsupported';
 
@@ -25,7 +27,7 @@ interface ModelChoice {
 
 export interface ModelSelection {
   readonly alias: string;
-  readonly thinking: boolean;
+  readonly thinkingLevel: ThinkingLevel;
 }
 
 export function modelDisplayName(alias: string, model: ModelAlias | undefined): string {
@@ -51,7 +53,7 @@ export interface ModelSelectorOptions {
   readonly models: Record<string, ModelAlias>;
   readonly currentValue: string;
   readonly selectedValue?: string;
-  readonly currentThinking: boolean;
+  readonly currentThinkingLevel: ThinkingLevel;
   readonly colors: ColorPalette;
   /** When true, typed characters filter the list (fuzzy) and a search line is shown. */
   readonly searchable?: boolean;
@@ -80,18 +82,18 @@ function thinkingAvailability(model: ModelAlias): ThinkingAvailability {
   return 'unsupported';
 }
 
-function effectiveThinking(model: ModelAlias, thinkingDraft: boolean): boolean {
+function effectiveThinkingLevel(model: ModelAlias, draft: ThinkingLevel): ThinkingLevel {
   const availability = thinkingAvailability(model);
-  if (availability === 'always-on') return true;
-  if (availability === 'unsupported') return false;
-  return thinkingDraft;
+  if (availability === 'always-on') return draft === 'off' ? 'high' : draft;
+  if (availability === 'unsupported') return 'off';
+  return draft;
 }
 
 export class ModelSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: ModelSelectorOptions;
   private readonly list: SearchableList<ModelChoice>;
-  private thinkingDraft: boolean;
+  private thinkingDraft: ThinkingLevel;
 
   constructor(opts: ModelSelectorOptions) {
     super();
@@ -106,7 +108,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
       initialIndex: Math.max(selectedIdx, 0),
       searchable: opts.searchable === true,
     });
-    this.thinkingDraft = opts.currentThinking;
+    this.thinkingDraft = opts.currentThinkingLevel;
   }
 
   handleInput(data: string): void {
@@ -116,15 +118,17 @@ export class ModelSelectorComponent extends Container implements Focusable {
       return;
     }
     const selected = this.list.selected();
-    // Left/Right toggle thinking (only when the model supports it); paging is on
-    // PgUp/PgDn so the horizontal arrows stay free for the thinking control.
+    // Left/Right cycle thinking levels (only when the model supports it); paging
+    // is on PgUp/PgDn so the horizontal arrows stay free for the thinking control.
     if (selected !== undefined && thinkingAvailability(selected.model) === 'toggle') {
       if (matchesKey(data, Key.left)) {
-        this.thinkingDraft = true;
+        const idx = THINKING_LEVELS.indexOf(this.thinkingDraft);
+        this.thinkingDraft = THINKING_LEVELS[Math.max(idx - 1, 0)] ?? 'off';
         return;
       }
       if (matchesKey(data, Key.right)) {
-        this.thinkingDraft = false;
+        const idx = THINKING_LEVELS.indexOf(this.thinkingDraft);
+        this.thinkingDraft = THINKING_LEVELS[Math.min(idx + 1, THINKING_LEVELS.length - 1)] ?? 'max';
         return;
       }
     }
@@ -132,7 +136,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
       if (selected === undefined) return;
       this.opts.onSelect({
         alias: selected.alias,
-        thinking: effectiveThinking(selected.model, this.thinkingDraft),
+        thinkingLevel: effectiveThinkingLevel(selected.model, this.thinkingDraft),
       });
       return;
     }
@@ -205,11 +209,18 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
     const availability = thinkingAvailability(model);
     if (availability === 'always-on') {
-      return `  ${segment('Always on', true)}`;
+      // Show all levels except 'off' (clamp draft to 'high' if it's 'off')
+      const effective = this.thinkingDraft === 'off' ? 'high' : this.thinkingDraft;
+      const levels = THINKING_LEVELS.filter((l) => l !== 'off');
+      return '  ' + levels.map((l) => segment(l, l === effective)).join('') + '  ←/→';
     }
     if (availability === 'unsupported') {
-      return `  ${segment('Off', true)} ${chalk.hex(colors.textMuted)('unsupported')}`;
+      return `  ${segment('off', true)} ${chalk.hex(colors.textMuted)('unsupported')}`;
     }
-    return `  ${segment('On', this.thinkingDraft)}  ${segment('Off', !this.thinkingDraft)}`;
+    return (
+      '  ' +
+      THINKING_LEVELS.map((l) => segment(l, l === this.thinkingDraft)).join('') +
+      '  ←/→'
+    );
   }
 }

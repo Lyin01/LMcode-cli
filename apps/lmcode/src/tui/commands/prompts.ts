@@ -11,6 +11,7 @@ import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import { TextInputDialogComponent, type TextInputResult } from '../components/dialogs/text-input-dialog';
 import type { SlashCommandHost } from './dispatch';
+import type { ThinkingLevel } from '#/tui/types';
 
 export function promptLogoutProviderSelection(
   host: SlashCommandHost,
@@ -98,26 +99,27 @@ export async function promptModelSelectionForCatalog(
   const selection = await runModelSelector(host, modelDict);
   if (selection === undefined) return undefined;
   const model = models.find((m) => `${providerId}/${m.id}` === selection.alias);
-  return model ? { model, thinking: selection.thinking } : undefined;
+  return model ? { model, thinking: selection.thinkingLevel !== 'off' } : undefined;
 }
 
 export function runModelSelector(
   host: SlashCommandHost,
   modelDict: Record<string, ModelAlias>,
-): Promise<{ alias: string; thinking: boolean } | undefined> {
+): Promise<{ alias: string; thinkingLevel: ThinkingLevel } | undefined> {
   return new Promise((resolve) => {
     const firstAlias = Object.keys(modelDict)[0] ?? '';
     const caps = modelDict[firstAlias]?.capabilities ?? [];
-    const initialThinking = caps.includes('always_thinking') || caps.includes('thinking');
+    const initialThinking: ThinkingLevel =
+      caps.includes('always_thinking') || caps.includes('thinking') ? 'high' : 'off';
     const selector = new ModelSelectorComponent({
       models: modelDict,
       currentValue: firstAlias,
-      currentThinking: initialThinking,
+      currentThinkingLevel: initialThinking,
       colors: host.state.theme.colors,
       searchable: true,
-      onSelect: ({ alias, thinking }) => {
+      onSelect: ({ alias, thinkingLevel }) => {
         host.restoreEditor();
-        resolve({ alias, thinking });
+        resolve({ alias, thinkingLevel });
       },
       onCancel: () => {
         host.restoreEditor();

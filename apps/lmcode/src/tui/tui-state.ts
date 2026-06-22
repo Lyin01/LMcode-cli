@@ -94,7 +94,7 @@ export function createTUIState(options: LmcodeTUIOptions): TUIState {
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const editorContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const editor = new CustomEditor(ui, theme.colors);
-  editor.thinking = initialAppState.thinking;
+  editor.thinking = initialAppState.thinkingLevel !== 'off';
   const footer = new FooterComponent({ ...initialAppState }, theme.colors, ui, () => {
     ui.requestRender();
   });
