@@ -238,6 +238,52 @@ describe('BashTool', () => {
     }
   });
 
+  it('reports a timeout (not "Premature close") when a long-lived command is killed', async () => {
+    // Regression: a server-like command keeps stdout/stderr open, so the read
+    // is still in progress when the timeout fires. killProc() destroys the
+    // streams, which makes the stdout async-iteration reject with
+    // ERR_STREAM_PREMATURE_CLOSE. That teardown error must NOT mask the real
+    // "killed by timeout" outcome (it previously surfaced as "Premature close").
+    vi.useFakeTimers();
+    try {
+      const stdout = new PassThrough(); // never ends — like a running server
+      const stderr = new PassThrough();
+      let resolveWait: (code: number) => void = () => {};
+      const waitPromise = new Promise<number>((resolve) => {
+        resolveWait = resolve;
+      });
+      const proc: JianProcess = {
+        stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
+        stdout,
+        stderr,
+        pid: 4242,
+        exitCode: null,
+        wait: vi.fn(async () => waitPromise),
+        kill: vi.fn(async () => {
+          resolveWait(143);
+        }),
+      };
+      const tool = new BashTool(
+        createFakeJian({ execWithEnv: vi.fn().mockResolvedValue(proc), osEnv: posixEnv }),
+        '/workspace',
+        new BackgroundProcessManager(),
+      );
+
+      const running = executeTool(tool, context({ command: 'node server.js', timeout: 1 }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await running;
+
+      expect(proc.kill).toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain('Command killed by timeout (1s)');
+      expect(result.output).not.toContain('Premature close');
+      // BackgroundProcessManager is configured -> teach the run_in_background path.
+      expect(result.output).toContain('run_in_background=true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('renders the available commands section and the /tasks hint', () => {
     const tool = new BashTool(
       createFakeJian({ osEnv: posixEnv }),
