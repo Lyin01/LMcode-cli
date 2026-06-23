@@ -17,5 +17,9 @@ export default defineConfig({
   test: {
     name: 'lmcode-sdk',
     include: ['test/**/*.test.ts'],
+    // These tests spin up a real subprocess transport; cold process spawn on a
+    // loaded CI runner (notably Windows) can exceed vitest's 5s default and flake.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });
