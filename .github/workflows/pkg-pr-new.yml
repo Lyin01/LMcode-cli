@@ -15,7 +15,14 @@ jobs:
   publish:
     name: Publish LMcode preview
     runs-on: ubuntu-latest
-    if: github.repository_owner == 'Lyin01' && github.event.pull_request.draft == false
+    # Opt-in. Publishing requires the pkg-pr-new GitHub App to be installed on
+    # the repo (https://github.com/apps/pkg-pr-new); without it the publish step
+    # 404s and fails every PR. Kept off by default so it doesn't block PRs.
+    # To enable: install the App, then set repo variable ENABLE_PR_PREVIEW=true.
+    if: >-
+      github.repository_owner == 'Lyin01' &&
+      github.event.pull_request.draft == false &&
+      vars.ENABLE_PR_PREVIEW == 'true'
 
     steps:
       - name: Checkout
