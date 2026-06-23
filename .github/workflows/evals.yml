@@ -1,0 +1,85 @@
+name: Agent evals (manual)
+
+# Capability evals are gated and cost provider tokens, so they do NOT run on
+# push/PR. Trigger this from the Actions tab ("Run workflow"). The keyless
+# harness smoke always runs; the real-model tasks run only when the
+# LMCODE_EVAL_API_KEY repo secret is set (otherwise they SKIP, exit 0).
+#
+# The scorecard (task / status / SCORE / duration / tokens) is written to the
+# run's job summary so the number is observable without opening logs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tasks:
+        description: 'Task ids (space-separated). Blank = all.'
+        required: false
+        default: 'env-parser csv-median-debug expr-eval fix-failing-fn'
+      provider:
+        description: 'LMCODE_EVAL_PROVIDER (anthropic | openai | openai_responses | lmcode | google-genai)'
+        required: false
+        default: 'openai'
+      model:
+        description: 'LMCODE_EVAL_MODEL (model id sent to the provider)'
+        required: false
+        default: 'deepseek-v4-flash'
+      base_url:
+        description: 'LMCODE_EVAL_BASE_URL (provider base URL; blank for the default)'
+        required: false
+        default: 'https://api.deepseek.com'
+      max_context:
+        description: 'LMCODE_EVAL_MAX_CONTEXT'
+        required: false
+        default: '262144'
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Keyless plumbing check — proves the harness itself is healthy with no
+      # network and no key. Fails the run if the harness regresses.
+      - name: Keyless harness smoke
+        run: pnpm eval smoke-plumbing
+
+      # Real-model tasks. Inputs are passed via env (never interpolated into the
+      # shell line). With no API key the real tasks SKIP and this still exits 0.
+      - name: Run capability evals
+        env:
+          TASKS: ${{ inputs.tasks }}
+          LMCODE_EVAL_PROVIDER: ${{ inputs.provider }}
+          LMCODE_EVAL_MODEL: ${{ inputs.model }}
+          LMCODE_EVAL_BASE_URL: ${{ inputs.base_url }}
+          LMCODE_EVAL_MAX_CONTEXT: ${{ inputs.max_context }}
+          LMCODE_EVAL_API_KEY: ${{ secrets.LMCODE_EVAL_API_KEY }}
+        run: |
+          set -o pipefail
+          # shellcheck disable=SC2086
+          pnpm eval $TASKS 2>&1 | tee eval-output.txt
+
+      - name: Publish scorecard to job summary
+        if: always()
+        run: |
+          {
+            echo '## Agent eval scorecard'
+            echo ''
+            echo "Model: \`${{ inputs.model }}\` via \`${{ inputs.provider }}\`"
+            echo ''
+            echo '```'
+            cat eval-output.txt 2>/dev/null || echo '(no eval output captured)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
