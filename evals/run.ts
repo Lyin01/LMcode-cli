@@ -21,10 +21,19 @@ import {
   type RunResult,
   type Task,
 } from './framework';
+import { csvMedianDebugTask } from './tasks/csv-median-debug';
+import { envParserTask } from './tasks/env-parser';
+import { exprEvalTask } from './tasks/expr-eval';
 import { fixFailingFnTask } from './tasks/fix-failing-fn';
 import { smokePlumbingTask } from './tasks/smoke-plumbing';
 
-const ALL_TASKS: readonly Task[] = [smokePlumbingTask, fixFailingFnTask];
+const ALL_TASKS: readonly Task[] = [
+  smokePlumbingTask,
+  fixFailingFnTask,
+  envParserTask,
+  csvMedianDebugTask,
+  exprEvalTask,
+];
 
 function selectTasks(argv: readonly string[]): Task[] {
   const filters = argv.filter((a) => !a.startsWith('-'));
@@ -57,7 +66,7 @@ async function runRealTask(task: Task): Promise<RunResult> {
   if (!resolution.setup) {
     return skippedResult(task, resolution.skipReason ?? 'real model not configured');
   }
-  return runTask({ task, provider: resolution.setup });
+  return runTask({ task, provider: resolution.setup, turnTimeoutMs: task.turnTimeoutMs });
 }
 
 async function main(): Promise<void> {

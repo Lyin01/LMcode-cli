@@ -46,6 +46,12 @@ export interface Task {
   /** The instruction handed to the agent verbatim. */
   readonly prompt: string;
   /**
+   * Optional hard ceiling on the single turn (ms). Falls back to the runner
+   * default when omitted. Larger tasks (implement-from-spec, multi-file debug)
+   * set this above the 2-minute default so a slower model isn't cut off.
+   */
+  readonly turnTimeoutMs?: number;
+  /**
    * Inspect the post-run `workdir` and decide pass/fail. Must not depend on the
    * agent transcript — only on observable disk state — so the verdict is
    * reproducible and model-independent.

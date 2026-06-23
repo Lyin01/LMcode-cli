@@ -72,10 +72,39 @@ LMCODE_EVAL_API_KEY=sk-... \
 pnpm eval fix-failing-fn
 ```
 
-`fix-failing-fn` sets up a tiny project with a buggy `sum()` plus a
-dependency-free `check.mjs`, asks the agent to fix it, then runs `node check.mjs`
-and passes iff it exits 0. The session runs in `yolo` permission mode so the
-agent can edit files without an interactive approver.
+The session runs in `yolo` permission mode so the agent can edit files without
+an interactive approver. The shipped real-model tasks:
+
+| Task | Axis | Scoring |
+| ---- | ---- | ------- |
+| `fix-failing-fn` | fix one buggy function | binary: `node check.mjs` exits 0 |
+| `env-parser` | implement a `.env` parser from a written `SPEC.md` | **partial credit**: `score = (visible + hidden) / total`; `passed` = all *visible* cases. The agent sees the visible suite but never the hidden cases, so the hidden pass-rate measures generalization vs. "implemented to the tests". |
+| `csv-median-debug` | localize + fix bugs across two files | `score = passing / 8`; `passed` = all pass. Scored against authoritative inline cases, so editing the workdir test can't inflate it. |
+| `expr-eval` | deep reasoning: a precedence-correct expression evaluator | same visible + hidden scoring as `env-parser`. Hidden cases concentrate on precedence/associativity traps (right-assoc `^`, unary vs. `^`), so this **discriminates between models** the other tasks max out. |
+
+The `score` is a soft [0,1] number, so a model that nails the shown tests but
+misses a spec edge case reports **PASS with a sub-1.0 score** — green, but the
+tracked number shows the gap. Track it across prompt/model changes to turn "the
+prompt feels worse" into a measurement.
+
+Example (DeepSeek, OpenAI-compatible):
+
+```bash
+LMCODE_EVAL_PROVIDER=openai \
+LMCODE_EVAL_BASE_URL=https://api.deepseek.com \
+LMCODE_EVAL_MODEL=deepseek-v4-flash \
+LMCODE_EVAL_API_KEY=sk-... \
+pnpm eval env-parser csv-median-debug
+```
+
+### Observe the number in CI
+
+`.github/workflows/evals.yml` runs these on demand (Actions → **Agent evals
+(manual)** → *Run workflow*) and writes the scorecard to the run's **job
+summary**. It does *not* run on push/PR (real evals cost tokens). Set the repo
+secret **`LMCODE_EVAL_API_KEY`**; provider/model/base-URL are workflow inputs
+(defaulted to DeepSeek). With no secret the real tasks SKIP and the keyless
+harness smoke still runs, so the workflow stays green.
 
 ---
 
@@ -176,4 +205,7 @@ evals/
   tasks/
     smoke-plumbing.ts          keyless plumbing check (fake provider)
     fix-failing-fn.ts          real-model: fix a bug so the check passes
+    env-parser.ts              real-model: implement from spec; visible + hidden scoring
+    csv-median-debug.ts        real-model: localize + fix bugs across two files
+    expr-eval.ts               real-model: precedence-correct evaluator (deep reasoning)
 ```
