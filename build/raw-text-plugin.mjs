@@ -16,7 +16,11 @@ export function rawTextPlugin() {
     load(id) {
       const path = id.split('?', 1)[0] ?? id;
       if (!path.endsWith('.md') && !path.endsWith('.yaml')) return null;
-      const text = readFileSync(path, 'utf-8');
+      // Normalize line endings so the inlined string (and anything derived from
+      // it, like prompt token counts) is identical on every platform. Without
+      // this, a CRLF working tree on Windows yields different content than an LF
+      // checkout, making token-count snapshots diverge across OSes.
+      const text = readFileSync(path, 'utf-8').replace(/\r\n?/g, '\n');
       return { code: `export default ${JSON.stringify(text)};`, map: null };
     },
   };
