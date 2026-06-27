@@ -280,7 +280,14 @@ export class BashTool implements BuiltinTool<BashInput> {
   ) {
     this.isWindowsBash = this.jian.osEnv.osKind === 'Windows';
     this.allowBackground = options?.allowBackground ?? this.backgroundManager !== undefined;
-    const rendered = renderBashDescription(this.jian.osEnv.shellName);
+    let rendered = renderBashDescription(this.jian.osEnv.shellName);
+    if (this.isWindowsBash) {
+      rendered += '\n\n**Windows Host Shell Guidelines:**\n' +
+        '- You are running in Git Bash on a Windows host.\n' +
+        '- Linux utilities like `pgrep` or `ps -ef` are NOT native to Git Bash. To query/find Windows processes, call native Windows utilities instead, such as `tasklist` (e.g., `tasklist | grep -i <name>`).\n' +
+        '- To call PowerShell from Git Bash, wrap your command: `powershell -Command "Get-Process -Name <name>"`. `MSYS_NO_PATHCONV=1` is preset in your env, allowing you to pass slash arguments (like `/PID`, `/F`, `/IM`) safely.\n' +
+        '- Keep shell script comment lines clean. Avoid empty comment lines (`#`) if they cause syntax issues.';
+    }
     this.description = this.allowBackground ? rendered : withoutBackgroundDescription(rendered);
   }
 
@@ -321,6 +328,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       GIT_TERMINAL_PROMPT: process.env['GIT_TERMINAL_PROMPT'] ?? '0',
       SHELL: this.jian.osEnv.shellPath,
       SCREAM_PID: String(process.pid),
+      ...(this.isWindowsBash ? { MSYS_NO_PATHCONV: '1' } : {}),
     };
 
     // Merge ambient env + noninteractive knobs so tools like git / node
