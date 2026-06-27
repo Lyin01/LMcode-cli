@@ -57,7 +57,7 @@ describe('BackgroundProcessManager — readOutput / getOutputPath', () => {
 
   afterEach(() => {
     manager._reset();
-    rmSync(sessionDir, { recursive: true, force: true });
+    rmSync(sessionDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('getOutputPath returns <sessionDir>/tasks/<id>/output.log when persisted output exists', async () => {

@@ -19,39 +19,42 @@ const DEFAULT_TIMEOUT_SECONDS = 30;
 // Falls back to cmd.exe when bash is not installed.
 const WINDOWS_SHELL: string | boolean = (() => {
   if (process.platform !== 'win32') return true;
+
+  // First, check common installation paths to avoid spawning a process (which can hang on some Windows systems)
+  const commonPaths = [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe',
+  ];
+  if (process.env['ProgramFiles']) {
+    commonPaths.push(
+      `${process.env['ProgramFiles']}\\Git\\bin\\bash.exe`,
+      `${process.env['ProgramFiles']}\\Git\\usr\\bin\\bash.exe`
+    );
+  }
+  if (process.env['ProgramFiles(x86)']) {
+    commonPaths.push(
+      `${process.env['ProgramFiles(x86)']}\\Git\\bin\\bash.exe`,
+      `${process.env['ProgramFiles(x86)']}\\Git\\usr\\bin\\bash.exe`
+    );
+  }
+  if (process.env['LocalAppData']) {
+    commonPaths.push(
+      `${process.env['LocalAppData']}\\Programs\\Git\\bin\\bash.exe`,
+      `${process.env['LocalAppData']}\\Programs\\Git\\usr\\bin\\bash.exe`
+    );
+  }
+
+  for (const p of commonPaths) {
+    if (existsSync(p)) return p;
+  }
+
   try {
-    execSync('bash --version', { stdio: 'ignore', windowsHide: true });
+    // If not found in common paths, check if 'bash' is on PATH with a short timeout to prevent hangs
+    execSync('bash --version', { stdio: 'ignore', windowsHide: true, timeout: 1000 });
     return 'bash.exe';
   } catch {
-    // Fallback: search common installation paths for Git Bash
-    const commonPaths = [
-      'C:\\Program Files\\Git\\bin\\bash.exe',
-      'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
-      'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
-      'C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe',
-    ];
-    if (process.env['ProgramFiles']) {
-      commonPaths.push(
-        `${process.env['ProgramFiles']}\\Git\\bin\\bash.exe`,
-        `${process.env['ProgramFiles']}\\Git\\usr\\bin\\bash.exe`
-      );
-    }
-    if (process.env['ProgramFiles(x86)']) {
-      commonPaths.push(
-        `${process.env['ProgramFiles(x86)']}\\Git\\bin\\bash.exe`,
-        `${process.env['ProgramFiles(x86)']}\\Git\\usr\\bin\\bash.exe`
-      );
-    }
-    if (process.env['LocalAppData']) {
-      commonPaths.push(
-        `${process.env['LocalAppData']}\\Programs\\Git\\bin\\bash.exe`,
-        `${process.env['LocalAppData']}\\Programs\\Git\\usr\\bin\\bash.exe`
-      );
-    }
-
-    for (const p of commonPaths) {
-      if (existsSync(p)) return p;
-    }
     return true;
   }
 })();

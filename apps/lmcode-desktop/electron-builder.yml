@@ -1,0 +1,47 @@
+appId: com.lmcode.desktop
+productName: LMCODE
+copyright: Copyright © 2026 Liumir
+directories:
+  buildResources: resources
+  output: release
+# The app is fully self-contained under out/ (main/preload/renderer are bundled,
+# and out/vendor holds the self-contained SDK + memory bundles with their native
+# addons), so node_modules is not shipped.
+files:
+  - out/**/*
+  - "!node_modules/**/*"
+# Keep asar OFF: the vendored bundles load native .node addons via
+# createRequire / import.meta.url, which is most reliable as plain files.
+asar: false
+# Native addons are vendored, not resolved from node_modules — skip the rebuild.
+npmRebuild: false
+# Desktop releases are published to a DEDICATED repo (kept separate from the CLI
+# release line so electron-updater's "latest release" lookup is unambiguous).
+# `electron-builder --publish always` (with GH_TOKEN set) uploads the installer +
+# latest.yml here; the same config is baked into app-update.yml for the updater.
+publish:
+  provider: github
+  owner: Lyin01
+  repo: LMcode-desktop
+  # Publish directly (not as a draft) so each release goes live immediately and
+  # the auto-updater can see it. electron-builder's default is `draft`, which
+  # stays invisible to the public API / electron-updater until manually published.
+  releaseType: release
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: LMCODE-Setup-${version}.${ext}
+nsis:
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LMCODE
+  uninstallDisplayName: LMCODE Desktop
+extraMetadata:
+  main: out/main/index.js

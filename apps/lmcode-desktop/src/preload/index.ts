@@ -1,0 +1,167 @@
+import { contextBridge, ipcRenderer } from 'electron'
+import { electronAPI, exposeElectronAPI } from '@electron-toolkit/preload'
+
+// Expose window.electron (ipcRenderer, webFrame, webUtils, process)
+exposeElectronAPI()
+
+// Custom API exposed as window.lmcodeAPI
+const lmcodeAPI = {
+  // ── Session management ──────────────────────────────────────────
+
+  createSession: (opts: {
+    workDir: string
+    model?: string
+    thinking?: string
+    permission?: string
+  }) => ipcRenderer.invoke('lmcode:createSession', opts),
+
+  resumeSession: (id: string) =>
+    ipcRenderer.invoke('lmcode:resumeSession', id),
+
+  deleteSession: (id: string) =>
+    ipcRenderer.invoke('lmcode:deleteSession', id),
+
+  renameSession: (id: string, title: string) =>
+    ipcRenderer.invoke('lmcode:renameSession', id, title),
+
+  listSessions: () => ipcRenderer.invoke('lmcode:listSessions'),
+
+  // ── Chat ────────────────────────────────────────────────────────
+
+  sendMessage: (sessionId: string, text: string) =>
+    ipcRenderer.invoke('lmcode:sendMessage', sessionId, text),
+
+  cancelResponse: (sessionId: string) =>
+    ipcRenderer.invoke('lmcode:cancelResponse', sessionId),
+
+  getSessionHistory: (sessionId: string) =>
+    ipcRenderer.invoke('lmcode:getSessionHistory', sessionId),
+
+  // ── Session control ─────────────────────────────────────────────
+
+  setModel: (sessionId: string, model: string) =>
+    ipcRenderer.invoke('lmcode:setModel', sessionId, model),
+
+  setThinking: (sessionId: string, level: string) =>
+    ipcRenderer.invoke('lmcode:setThinking', sessionId, level),
+
+  setPermission: (sessionId: string, mode: string) =>
+    ipcRenderer.invoke('lmcode:setPermission', sessionId, mode),
+
+  closeSession: (sessionId: string) =>
+    ipcRenderer.invoke('lmcode:closeSession', sessionId),
+
+  // ── Skills & MCP ────────────────────────────────────────────────
+
+  listSkills: (sessionId: string) =>
+    ipcRenderer.invoke('lmcode:listSkills', sessionId),
+
+  activateSkill: (sessionId: string, name: string, args?: string) =>
+    ipcRenderer.invoke('lmcode:activateSkill', sessionId, name, args),
+
+  listMcpServers: (sessionId: string) =>
+    ipcRenderer.invoke('lmcode:listMcpServers', sessionId),
+
+  reconnectMcpServer: (sessionId: string, name: string) =>
+    ipcRenderer.invoke('lmcode:reconnectMcpServer', sessionId, name),
+
+  addMcpServer: (sessionId: string, name: string, config: Record<string, unknown>) =>
+    ipcRenderer.invoke('lmcode:addMcpServer', sessionId, name, config),
+
+  stopMcpServer: (sessionId: string, name: string) =>
+    ipcRenderer.invoke('lmcode:stopMcpServer', sessionId, name),
+
+  removeMcpServer: (sessionId: string, name: string) =>
+    ipcRenderer.invoke('lmcode:removeMcpServer', sessionId, name),
+
+  // ── Config ──────────────────────────────────────────────────────
+
+  getConfig: () => ipcRenderer.invoke('lmcode:getConfig'),
+
+  setConfig: (patch: any) => ipcRenderer.invoke('lmcode:setConfig', patch),
+
+  // ── File operations ─────────────────────────────────────────────
+
+  readFileContent: (filePath: string) =>
+    ipcRenderer.invoke('lmcode:readFileContent', filePath),
+
+  // ── Version ─────────────────────────────────────────────────────
+
+  getVersion: () => ipcRenderer.invoke('lmcode:getVersion'),
+
+  // ── Misc ────────────────────────────────────────────────────────
+
+  getHomeDir: () => ipcRenderer.invoke('lmcode:getHomeDir'),
+
+  // ── Event listeners (main → renderer) ───────────────────────────
+
+  onSessionEvent: (callback: (event: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+    ipcRenderer.on('lmcode:sessionEvent', handler)
+    return () => {
+      ipcRenderer.removeListener('lmcode:sessionEvent', handler)
+    }
+  },
+
+  onApprovalRequest: (callback: (data: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+    ipcRenderer.on('lmcode:approvalRequest', handler)
+    return () => {
+      ipcRenderer.removeListener('lmcode:approvalRequest', handler)
+    }
+  },
+
+  onQuestionRequest: (callback: (data: any) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+    ipcRenderer.on('lmcode:questionRequest', handler)
+    return () => {
+      ipcRenderer.removeListener('lmcode:questionRequest', handler)
+    }
+  },
+
+  // ── Navigation events (from tray menu) ──────────────────────────
+
+  onNavigate: (callback: (data: { route: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { route: string }) => callback(data)
+    ipcRenderer.on('lmcode:navigate', handler)
+    return () => {
+      ipcRenderer.removeListener('lmcode:navigate', handler)
+    }
+  },
+
+  // ── Approval / Question responses ───────────────────────────────
+
+  respondApproval: (response: { requestId: string; decision: string; scope?: string }) => {
+    ipcRenderer.send('lmcode:respondApproval', response)
+  },
+
+  respondQuestion: (response: { requestId: string; answers: Record<string, string> }) => {
+    ipcRenderer.send('lmcode:respondQuestion', response)
+  },
+
+  // ── Memory ──────────────────────────────────────────────────────
+
+  listMemories: () => ipcRenderer.invoke('lmcode:listMemories'),
+
+  searchMemories: (query: string) =>
+    ipcRenderer.invoke('lmcode:searchMemories', query),
+
+  deleteMemory: (id: string) =>
+    ipcRenderer.invoke('lmcode:deleteMemory', id),
+
+  // ── Background tasks ────────────────────────────────────────────
+
+  stopTask: (taskId: string) =>
+    ipcRenderer.invoke('lmcode:stopTask', taskId),
+
+  getTaskOutput: (taskId: string) =>
+    ipcRenderer.invoke('lmcode:getTaskOutput', taskId),
+
+  // ── App control ─────────────────────────────────────────────────
+
+  quit: () => {
+    ipcRenderer.send('lmcode:quit')
+  },
+}
+
+contextBridge.exposeInMainWorld('lmcodeAPI', lmcodeAPI)

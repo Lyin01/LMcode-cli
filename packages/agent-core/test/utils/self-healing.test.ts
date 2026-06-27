@@ -8,6 +8,9 @@ import {
   validateFileSyntaxWithScreenshots,
   resolveChromiumExecutable,
   RUNTIME_KEYFRAME_TIMES_MS,
+  cleanStack,
+  extractLineNumber,
+  getCodeContext,
 } from '../../src/utils/self-healing';
 
 describe('self-healing: syntax validation', () => {
@@ -143,6 +146,62 @@ describe('self-healing: syntax validation', () => {
       if (typeof result === 'string') {
         expect(existsSync(result)).toBe(true);
       }
+    });
+  });
+
+  describe('cleanStack', () => {
+    it('removes browser/node internal frames and absolute paths', () => {
+      const stack = `TypeError: Cannot read properties of null
+    at draw (file:///C:/Users/18312/AppData/Local/Temp/burn.html:7:26)
+    at Browser.runTask (node:internal/modules/esm:123:45)
+    at onload (C:\\Users\\18312\\AppData\\Local\\Temp\\burn.html:12:24)`;
+      const cleaned = cleanStack(stack, 'C:\\Users\\18312\\AppData\\Local\\Temp\\burn.html');
+      expect(cleaned).toContain('at draw (burn.html:7:26)');
+      expect(cleaned).toContain('at onload (burn.html:12:24)');
+      expect(cleaned).not.toContain('node:internal');
+      expect(cleaned).not.toContain('C:/Users/18312');
+    });
+  });
+
+  describe('extractLineNumber', () => {
+    it('correctly parses line number matching filepath', () => {
+      const stack = `TypeError: Cannot read properties of null
+    at draw (burn.html:7:26)
+    at onload (burn.html:12:24)`;
+      const line = extractLineNumber(stack, 'C:\\Users\\18312\\AppData\\Local\\Temp\\burn.html');
+      expect(line).toBe(7);
+    });
+  });
+
+  describe('getCodeContext', () => {
+    it('generates a snippet with the correct line numbers and marker', () => {
+      const code = 'line1\nline2\nline3\nline4\nline5';
+      const context = getCodeContext(code, 3, 1);
+      expect(context).toBe([
+        '     2 | line2',
+        ' >>> 3 | line3',
+        '     4 | line4',
+      ].join('\n'));
+    });
+  });
+
+  describe('HTML Script line offset mapping', () => {
+    it('offsets local script block errors to absolute HTML document lines', async () => {
+      const html = `<!DOCTYPE html>
+<html>
+<body>
+  <script>
+    // comment 1
+    // comment 2
+    const a = ;
+  </script>
+</body>
+</html>`;
+      const error = await validateHtmlScripts(html, 'C:\\Users\\18312\\AppData\\Local\\Temp\\burn.html');
+      expect(error).toContain('HTML Script block error');
+      expect(error).toContain('burn.html:7');
+      expect(error).toContain('Context around line 7 of HTML');
+      expect(error).toContain(' >>> 7 |     const a = ;');
     });
   });
 });

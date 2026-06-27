@@ -13,7 +13,8 @@ import {
   type ModelCapability,
   type ToolCall,
 } from '@lmcode-cli/ltod';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { DreamTracker } from '@lmcode/memory';
 
 import { HookEngine } from '../../src/session/hooks';
 import type { AgentOptions } from '../../src/agent';
@@ -52,8 +53,13 @@ function captureLogs(): { logger: Logger; entries: CapturedLogEntry[] } {
 }
 
 describe('Agent turn flow', () => {
+  beforeEach(() => {
+    vi.spyOn(DreamTracker.prototype, 'shouldSuggest').mockReturnValue(false);
+  });
 
-
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it('fires PostToolUse for same-step dups with the original real output, not the dedup placeholder', async () => {
     // Hook command asserts the dup's PostToolUse payload carries the real

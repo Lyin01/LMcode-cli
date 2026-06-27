@@ -1,6 +1,9 @@
 packages:
   - packages/*
   - apps/*
+allowBuilds:
+  '[': true
+  ']': true
 
 catalog:
   zod: ^4.3.6

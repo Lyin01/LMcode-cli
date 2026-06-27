@@ -1,0 +1,308 @@
+@import "tailwindcss";
+
+/* ══════════════════════════════════════════════════════════════════
+   LMCODE Desktop — Claude Desktop inspired theme
+   Warm "ivory + clay" palette. Light is the default; dark is warm too.
+   All colors are CSS variables so components stay theme-agnostic.
+   ════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme='light'] {
+  /* Surfaces (warm ivory) */
+  --lm-bg-base: #faf9f5;       /* main conversation canvas */
+  --lm-bg-sidebar: #f0eee6;    /* left rail */
+  --lm-bg-surface: #ffffff;    /* cards, composer */
+  --lm-bg-elevated: #ffffff;   /* popovers, dialogs */
+  --lm-bg-hover: #ece9df;
+  --lm-bg-active: #e4e0d3;
+  --lm-bg-bubble: #f0eee6;     /* user message bubble */
+  --lm-bg-code: #f5f3ec;
+
+  /* Borders */
+  --lm-border: #e7e3d7;
+  --lm-border-strong: #d8d3c2;
+
+  /* Text */
+  --lm-text-primary: #2a2824;
+  --lm-text-secondary: #6b6860;
+  --lm-text-muted: #98948a;
+
+  /* Accent — Claude "clay" */
+  --lm-accent: #c96442;
+  --lm-accent-hover: #b5573a;
+  --lm-accent-fg: #ffffff;
+  --lm-accent-soft: rgba(201, 100, 66, 0.12);
+  --lm-accent-text: #b5573a;
+
+  /* Status */
+  --lm-success: #4f9d69;
+  --lm-warning: #bd8b3e;
+  --lm-error: #c0503e;
+
+  /* Typography */
+  --lm-font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Microsoft YaHei', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --lm-font-serif: 'Tiempos Text', 'Songti SC', Georgia, 'Times New Roman', serif;
+  --lm-font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono',
+    Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --lm-shadow-soft: 0 1px 2px rgba(40, 35, 25, 0.04), 0 4px 16px rgba(40, 35, 25, 0.06);
+  --lm-shadow-pop: 0 8px 28px rgba(40, 35, 25, 0.14);
+
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --lm-bg-base: #262624;
+  --lm-bg-sidebar: #1f1e1d;
+  --lm-bg-surface: #30302e;
+  --lm-bg-elevated: #34332f;
+  --lm-bg-hover: #3a3834;
+  --lm-bg-active: #423f3a;
+  --lm-bg-bubble: #34332f;
+  --lm-bg-code: #1b1a18;
+
+  --lm-border: #3c3a35;
+  --lm-border-strong: #4a463f;
+
+  --lm-text-primary: #f4f2ec;
+  --lm-text-secondary: #c0bbb0;
+  --lm-text-muted: #8b877d;
+
+  --lm-accent: #d97757;
+  --lm-accent-hover: #e2876a;
+  --lm-accent-fg: #1f1e1d;
+  --lm-accent-soft: rgba(217, 119, 87, 0.16);
+  --lm-accent-text: #e09276;
+
+  --lm-success: #6cb98a;
+  --lm-warning: #d6a657;
+  --lm-error: #e0705e;
+
+  --lm-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.25), 0 4px 16px rgba(0, 0, 0, 0.3);
+  --lm-shadow-pop: 0 8px 30px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
+}
+
+/* ─── Base ───────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lm-border-strong) transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--lm-bg-base);
+  color: var(--lm-text-primary);
+  font-family: var(--lm-font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+}
+
+::selection {
+  background-color: var(--lm-accent-soft);
+  color: var(--lm-text-primary);
+}
+
+:focus-visible {
+  outline: 2px solid var(--lm-accent);
+  outline-offset: 2px;
+}
+
+/* Text fields convey focus through their own border/ring (composer card,
+   search boxes, dialog textareas), so suppress the global focus outline to
+   avoid a hard rectangle inside the rounded composer. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  outline-offset: 0;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--lm-border-strong);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--lm-text-muted);
+  background-clip: padding-box;
+}
+
+/* ─── Markdown (theme-aware, replaces @tailwind prose) ───────── */
+.lm-markdown {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--lm-text-primary);
+  word-break: break-word;
+}
+.lm-markdown > *:first-child { margin-top: 0; }
+.lm-markdown > *:last-child { margin-bottom: 0; }
+.lm-markdown p { margin: 0.6em 0; }
+.lm-markdown h1, .lm-markdown h2, .lm-markdown h3,
+.lm-markdown h4, .lm-markdown h5, .lm-markdown h6 {
+  margin: 1.2em 0 0.5em;
+  font-weight: 600;
+  color: var(--lm-text-primary);
+}
+.lm-markdown h1 { font-size: 1.4em; }
+.lm-markdown h2 { font-size: 1.25em; }
+.lm-markdown h3 { font-size: 1.1em; }
+.lm-markdown a {
+  color: var(--lm-accent-text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--lm-accent-soft);
+}
+.lm-markdown a:hover { border-bottom-color: var(--lm-accent); }
+.lm-markdown strong { color: var(--lm-text-primary); font-weight: 650; }
+.lm-markdown ul, .lm-markdown ol { margin: 0.5em 0; padding-left: 1.4em; }
+.lm-markdown li { margin: 0.25em 0; }
+.lm-markdown li::marker { color: var(--lm-text-muted); }
+.lm-markdown blockquote {
+  margin: 0.7em 0;
+  padding-left: 0.9em;
+  border-left: 3px solid var(--lm-accent);
+  color: var(--lm-text-secondary);
+}
+.lm-markdown hr { border: none; border-top: 1px solid var(--lm-border); margin: 1.2em 0; }
+.lm-markdown code {
+  font-family: var(--lm-font-mono);
+  font-size: 0.86em;
+  background: var(--lm-bg-code);
+  color: var(--lm-accent-text);
+  padding: 0.12em 0.38em;
+  border-radius: 5px;
+}
+.lm-markdown pre {
+  margin: 0.7em 0;
+  padding: 0.85em 1em;
+  background: var(--lm-bg-code);
+  border: 1px solid var(--lm-border);
+  border-radius: 10px;
+  overflow-x: auto;
+}
+.lm-markdown pre code {
+  background: transparent;
+  color: var(--lm-text-primary);
+  padding: 0;
+  font-size: 0.84em;
+  line-height: 1.6;
+}
+.lm-markdown table {
+  border-collapse: collapse;
+  margin: 0.7em 0;
+  font-size: 0.92em;
+  display: block;
+  overflow-x: auto;
+}
+.lm-markdown th, .lm-markdown td {
+  border: 1px solid var(--lm-border);
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+.lm-markdown th { background: var(--lm-bg-hover); font-weight: 600; }
+
+/* ─── highlight.js (theme-aware) ─────────────────────────────── */
+.hljs { color: var(--lm-text-primary); background: transparent; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link,
+.hljs-built_in { color: #b5573a; }
+[data-theme='dark'] .hljs-keyword,
+[data-theme='dark'] .hljs-selector-tag,
+[data-theme='dark'] .hljs-literal,
+[data-theme='dark'] .hljs-section,
+[data-theme='dark'] .hljs-link,
+[data-theme='dark'] .hljs-built_in { color: #e09276; }
+.hljs-string, .hljs-title, .hljs-name, .hljs-type, .hljs-attribute,
+.hljs-symbol, .hljs-bullet, .hljs-addition, .hljs-variable,
+.hljs-template-tag, .hljs-template-variable { color: #4f9d69; }
+[data-theme='dark'] .hljs-string,
+[data-theme='dark'] .hljs-title,
+[data-theme='dark'] .hljs-name,
+[data-theme='dark'] .hljs-type,
+[data-theme='dark'] .hljs-attribute,
+[data-theme='dark'] .hljs-symbol,
+[data-theme='dark'] .hljs-addition,
+[data-theme='dark'] .hljs-variable { color: #6cb98a; }
+.hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--lm-text-muted); font-style: italic; }
+.hljs-number, .hljs-regexp { color: #9a6dbf; }
+[data-theme='dark'] .hljs-number,
+[data-theme='dark'] .hljs-regexp { color: #c39be0; }
+.hljs-attr { color: #3b7db5; }
+[data-theme='dark'] .hljs-attr { color: #7aa7d6; }
+
+/* ─── Radix Scroll Area ──────────────────────────────────────── */
+[data-radix-scroll-area-viewport] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lm-border-strong) transparent;
+}
+
+/* ─── Dialog ─────────────────────────────────────────────────── */
+.dialog-overlay {
+  background-color: rgba(30, 26, 20, 0.45);
+  backdrop-filter: blur(2px);
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+.dialog-content {
+  background-color: var(--lm-bg-elevated);
+  border: 1px solid var(--lm-border);
+  border-radius: 16px;
+  box-shadow: var(--lm-shadow-pop);
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 51;
+  width: 90vw;
+  max-width: 500px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 0;
+}
+
+/* ─── Animations ─────────────────────────────────────────────── */
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.animate-blink { animation: blink 1s step-end infinite; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.animate-fade-in { animation: fadeIn 0.25s ease-out; }
+
+@keyframes lmSpin { to { transform: rotate(360deg); } }
+.lm-spin { animation: lmSpin 0.7s linear infinite; }
+
+.typing-cursor::after {
+  content: '▊';
+  color: var(--lm-accent);
+  animation: blink 1s step-end infinite;
+  margin-left: 1px;
+}
+
+/* Thinking shimmer */
+@keyframes lmPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.lm-pulse { animation: lmPulse 1.4s ease-in-out infinite; }
