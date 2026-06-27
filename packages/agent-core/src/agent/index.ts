@@ -485,9 +485,41 @@ export class Agent {
 
     const sessionTitle = await this.getSessionTitle();
 
-    // Sample last 30 messages to stay within reasonable token budget
-    const sampleText = history
-      .slice(-30)
+    // Adaptive sampling: prioritize turns containing tool errors (pitfalls) and their surrounding context,
+    // plus the latest 10 messages to keep the final output/summary.
+    const recentCount = 10;
+    const maxPitfallMessages = 20;
+
+    const selectedIndices = new Set<number>();
+    
+    // 1. Always select the last 10 messages
+    const startIndex = Math.max(0, history.length - recentCount);
+    for (let i = startIndex; i < history.length; i++) {
+      selectedIndices.add(i);
+    }
+
+    // 2. Identify and select errors along with their surrounding context (2 turns before and 2 turns after)
+    const pitfallIndicesSet = new Set<number>();
+    for (let i = 0; i < startIndex; i++) {
+      const msg = history[i];
+      if (msg !== undefined && msg.role === 'tool' && msg.isError === true) {
+        const start = Math.max(0, i - 2);
+        const end = Math.min(startIndex - 1, i + 2);
+        for (let j = start; j <= end; j++) {
+          pitfallIndicesSet.add(j);
+        }
+      }
+    }
+
+    // 3. Limit pitfall messages to prevent token budget overflow, keeping the newest ones
+    const pitfallIndices = Array.from(pitfallIndicesSet).sort((a, b) => a - b);
+    const keptPitfalls = pitfallIndices.slice(-maxPitfallMessages);
+
+    // 4. Combine and sort selected message indices to preserve chronological order
+    const finalIndices = [...keptPitfalls, ...Array.from(selectedIndices)].sort((a, b) => a - b);
+    const sampleMessages = finalIndices.map(idx => history[idx]!);
+
+    const sampleText = sampleMessages
       .map((m) => {
         const text = m.content
           .filter((p) => p.type === 'text')

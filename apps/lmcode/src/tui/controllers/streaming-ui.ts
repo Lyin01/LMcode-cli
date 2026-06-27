@@ -45,6 +45,8 @@ export class StreamingUIController {
   private pendingAssistantFlush = false;
   private pendingThinkingFlush = false;
   readonly pendingToolCallFlushIds = new Set<string>();
+  private lastAssistantText = '';
+  private lastThinkingText = '';
 
   // ---------------------------------------------------------------------------
   // Streaming runtime state (private — accessed via semantic methods below)
@@ -483,6 +485,8 @@ export class StreamingUIController {
     this._assistantDraft = '';
     this._streamingBlock = null;
     this._thinkingDraft = '';
+    this.lastAssistantText = '';
+    this.lastThinkingText = '';
     this.disposeActiveThinkingComponent();
   }
 
@@ -562,6 +566,8 @@ export class StreamingUIController {
   }
 
   onStreamingTextUpdate(fullText: string): void {
+    if (fullText === this.lastAssistantText) return;
+    this.lastAssistantText = fullText;
     const block = this._streamingBlock;
     if (block !== null) {
       block.entry.content = fullText;
@@ -580,6 +586,8 @@ export class StreamingUIController {
   }
 
   onThinkingUpdate(fullText: string): void {
+    if (fullText === this.lastThinkingText) return;
+    this.lastThinkingText = fullText;
     if (fullText.length === 0 && this._activeThinkingComponent === undefined) return;
     const { state } = this.host;
     if (this._activeThinkingComponent === undefined) {

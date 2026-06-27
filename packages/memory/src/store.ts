@@ -1,6 +1,5 @@
 import { createReadStream } from 'node:fs';
 import { mkdir, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
-import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'pathe';
 
 import type { MemoryMemo, MemoryMemoListResult } from './models.js';
@@ -15,7 +14,7 @@ export class MemoryMemoStore {
   private readonly projectDir: string;
   private readonly jsonlPath: string;
   private readonly dbPath: string;
-  private db: DatabaseSync | undefined;
+  private db: any | undefined;
   private initialized = false;
   private writeLock: Promise<unknown> = Promise.resolve();
   private embeddingEngine: EmbeddingEngine | undefined;
@@ -36,10 +35,29 @@ export class MemoryMemoStore {
   async init(): Promise<void> {
     if (this.initialized) return;
     await this.ensureDir();
-    this.db = new DatabaseSync(this.dbPath);
-    this.db.exec('PRAGMA journal_mode = WAL;');
-    this.createSchema();
-    await this.migrateFromJsonl();
+
+    let dbSyncClass: any = undefined;
+    try {
+      const sqliteModule = await import('node:sqlite');
+      dbSyncClass = sqliteModule.DatabaseSync;
+    } catch {
+      // node:sqlite is not supported in this environment
+    }
+
+    if (dbSyncClass === undefined) {
+      this.db = undefined;
+      this.initialized = true;
+      return;
+    }
+
+    try {
+      this.db = new dbSyncClass(this.dbPath);
+      this.db.exec('PRAGMA journal_mode = WAL;');
+      this.createSchema();
+      await this.migrateFromJsonl();
+    } catch {
+      this.db = undefined;
+    }
     this.initialized = true;
   }
 
