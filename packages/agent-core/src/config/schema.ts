@@ -224,6 +224,9 @@ export const ScreamConfigSchema = z.object({
   loopControl: LoopControlSchema.optional(),
   background: BackgroundConfigSchema.optional(),
   enableSelfHealing: z.boolean().optional(),
+  /** One-shot utility-model review of spec compliance when a user turn
+   *  that changed files stops. Defaults to enabled; set false to skip. */
+  enableSpecCritic: z.boolean().optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -264,6 +267,7 @@ export const ScreamConfigPatchSchema = z
     loopControl: LoopControlPatchSchema.optional(),
     background: BackgroundConfigPatchSchema.optional(),
     enableSelfHealing: z.boolean().optional(),
+    enableSpecCritic: z.boolean().optional(),
   })
   .strict();
 

@@ -2,6 +2,7 @@ import {
   APIContextOverflowError,
   grandTotal as ltodGrandTotal,
   type ContentPart,
+  type Message,
 } from '@lmcode-cli/ltod';
 
 import type { Agent } from '..';
@@ -66,6 +67,26 @@ const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
   kind: 'system_trigger',
   name: 'goal_continuation',
 };
+
+const SPEC_CRITIC_MAX_REQUEST_CHARS = 6_000;
+const SPEC_CRITIC_MAX_RESPONSE_CHARS = 4_000;
+const SPEC_CRITIC_MAX_FILES = 30;
+
+/** System prompt for the one-shot spec-consistency review that runs on the
+ *  utility model when a user-driven turn that changed files stops. */
+const SPEC_CRITIC_SYSTEM_PROMPT = [
+  'You are a specification-compliance reviewer for a coding agent.',
+  "Compare the user's original request with the agent's final response and",
+  'the list of files it changed. Identify EXPLICIT requirements from the',
+  'request that were NOT addressed. Only flag concrete, verifiable',
+  'omissions — never stylistic choices, reasonable interpretations, or',
+  'missing extra polish the user did not ask for. Requirements the agent',
+  'explicitly declined with a stated reason count as addressed.',
+  'If every explicit requirement was addressed, reply with exactly: SPEC_OK',
+  'Otherwise reply with: SPEC_MISSING: followed by one bullet per missed',
+  'requirement, quoting the request where possible.',
+  'Output text only. DO NOT CALL ANY TOOLS.',
+].join(' ');
 
 export class TurnFlow {
   private steerBuffer: BufferedSteer[] = [];
@@ -360,7 +381,7 @@ export class TurnFlow {
       if (promptHookEnded !== undefined) {
         ended = promptHookEnded;
       } else {
-        const stopReason = await this.runTurn(turnId, signal);
+        const stopReason = await this.runTurn(turnId, signal, input, origin);
         completedStopReason = stopReason;
         ended = {
           type: 'turn.ended',
@@ -471,8 +492,90 @@ export class TurnFlow {
     return undefined;
   }
 
-  private async runTurn(turnId: number, signal: AbortSignal): Promise<LoopTurnStopReason> {
+  /**
+   * Runs a one-shot spec-consistency review over the finished turn on the
+   * utility model. Returns the critic's list of unaddressed requirements,
+   * or `undefined` when the work passes. The critic must never block a
+   * turn from completing, so every failure path degrades to `undefined`.
+   */
+  private async runSpecCritic(
+    signal: AbortSignal,
+    input: readonly ContentPart[],
+    mutatedPaths: ReadonlySet<string>,
+  ): Promise<string | undefined> {
+    const requestText = input
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .filter((text) => text.length > 0)
+      .join('\n')
+      .slice(0, SPEC_CRITIC_MAX_REQUEST_CHARS);
+    if (requestText.trim().length === 0) return undefined;
+
+    const finalText = lastAssistantText(this.agent.context.history).slice(
+      0,
+      SPEC_CRITIC_MAX_RESPONSE_CHARS,
+    );
+    const files = [...mutatedPaths].slice(0, SPEC_CRITIC_MAX_FILES).join('\n');
+
+    try {
+      const response = await this.agent.generate(
+        this.agent.config.utilityProvider,
+        SPEC_CRITIC_SYSTEM_PROMPT,
+        [],
+        [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  '## Original user request',
+                  requestText,
+                  '',
+                  '## Files the agent changed',
+                  files,
+                  '',
+                  '## Agent final response',
+                  finalText.length > 0 ? finalText : '(no final text)',
+                ].join('\n'),
+              },
+            ],
+            toolCalls: [],
+          } satisfies Message,
+        ],
+        undefined,
+        { signal },
+      );
+      if (response.usage !== null) {
+        this.agent.usage.record(this.agent.config.model, response.usage, 'turn');
+      }
+      const verdict = generateResultText(response).trim();
+      if (verdict.length === 0 || verdict.startsWith('SPEC_OK')) return undefined;
+      const markerIndex = verdict.indexOf('SPEC_MISSING');
+      if (markerIndex < 0) return undefined;
+      const missing = verdict
+        .slice(markerIndex + 'SPEC_MISSING'.length)
+        .replace(/^[:\s]+/, '')
+        .trim();
+      return missing.length > 0 ? missing : undefined;
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      this.agent.log.warn('spec critic failed; completing turn without review', { error });
+      return undefined;
+    }
+  }
+
+  private async runTurn(
+    turnId: number,
+    signal: AbortSignal,
+    input: readonly ContentPart[],
+    origin: PromptOrigin,
+  ): Promise<LoopTurnStopReason> {
     let stopHookContinuationUsed = false;
+    // Spec-consistency critic bookkeeping: paths successfully written this
+    // turn, and a once-per-turn latch so a critic that keeps finding gaps
+    // cannot loop the turn forever.
+    let specCriticUsed = false;
+    const specMutatedPaths = new Set<string>();
     const deduper = new ToolCallDeduplicator();
     await this.agent.mcp?.waitForInitialLoad(signal);
     while (true) {
@@ -525,27 +628,63 @@ export class TurnFlow {
               deduper.endStep();
             },
             // oxlint-disable-next-line no-loop-func -- stop hook continuation state is scoped to this turn.
-            shouldContinueAfterStop: async ({ signal }) => {
+            shouldContinueAfterStop: async ({ signal, stopReason }) => {
               if (this.flushSteerBuffer()) return { continue: true };
               signal.throwIfAborted();
 
               // Stop hooks get one continuation; otherwise a hook that always blocks would loop forever.
-              if (stopHookContinuationUsed) return { continue: false };
-              const stopBlock = await this.agent.hooks?.triggerBlock('Stop', {
-                signal,
-                inputData: { stopHookActive: stopHookContinuationUsed },
-              });
-              signal.throwIfAborted();
-              if (stopBlock !== undefined) {
-                stopHookContinuationUsed = true;
-                this.agent.context.appendUserMessage(
-                  [{ type: 'text', text: stopBlock.reason }],
-                  {
-                    kind: 'system_trigger',
-                    name: 'stop_hook',
-                  },
-                );
-                return { continue: true };
+              if (!stopHookContinuationUsed) {
+                const stopBlock = await this.agent.hooks?.triggerBlock('Stop', {
+                  signal,
+                  inputData: { stopHookActive: stopHookContinuationUsed },
+                });
+                signal.throwIfAborted();
+                if (stopBlock !== undefined) {
+                  stopHookContinuationUsed = true;
+                  this.agent.context.appendUserMessage(
+                    [{ type: 'text', text: stopBlock.reason }],
+                    {
+                      kind: 'system_trigger',
+                      name: 'stop_hook',
+                    },
+                  );
+                  return { continue: true };
+                }
+              }
+
+              // ── Spec-consistency critic ──
+              // One cheap utility-model pass when a user-driven turn that
+              // changed files stops naturally: catch explicit requirements
+              // the final response left unaddressed before declaring the
+              // turn done. Latched to once per turn, main agent only —
+              // subagents are reviewed by their parent.
+              if (
+                stopReason === 'end_turn' &&
+                !specCriticUsed &&
+                origin.kind === 'user' &&
+                this.agent.type === 'main' &&
+                this.agent.lmcodeConfig?.enableSpecCritic !== false &&
+                specMutatedPaths.size > 0
+              ) {
+                specCriticUsed = true;
+                const missing = await this.runSpecCritic(signal, input, specMutatedPaths);
+                signal.throwIfAborted();
+                if (missing !== undefined) {
+                  this.agent.context.appendUserMessage(
+                    [
+                      {
+                        type: 'text',
+                        text:
+                          'Spec-consistency check: the original request contains ' +
+                          'requirements the work above has not addressed yet:\n' +
+                          missing +
+                          '\nAddress each item now, or state explicitly why it does not apply.',
+                      },
+                    ],
+                    { kind: 'system_trigger', name: 'spec_critic' },
+                  );
+                  return { continue: true };
+                }
               }
               return { continue: false };
             },
@@ -571,6 +710,21 @@ export class TurnFlow {
                 ctx.args,
                 ctx.result,
               );
+
+              // Track successful file mutations for the spec-consistency
+              // critic that runs when the turn stops.
+              if (
+                finalResult.isError !== true &&
+                (ctx.toolCall.name === 'Write' ||
+                  ctx.toolCall.name === 'Edit' ||
+                  ctx.toolCall.name === 'MultiEdit')
+              ) {
+                const argRecord = ctx.args as Record<string, unknown>;
+                const pathArg = argRecord['path'] ?? argRecord['file_path'];
+                if (typeof pathArg === 'string' && pathArg.length > 0) {
+                  specMutatedPaths.add(pathArg);
+                }
+              }
 
               // ── Post-write self-healing validation ──
               if (
@@ -1003,4 +1157,26 @@ function summarizeToolArgs(args: unknown): string {
 
 function truncateArg(s: string): string {
   return s.length > 80 ? s.slice(0, 77) + '...' : s;
+}
+
+/** Text of the most recent assistant message that has any, for the spec critic. */
+function lastAssistantText(history: readonly Message[]): string {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const message = history[i];
+    if (message === undefined || message.role !== 'assistant') continue;
+    const text = messageContentText(message.content);
+    if (text.trim().length > 0) return text;
+  }
+  return '';
+}
+
+function generateResultText(result: { message: Message }): string {
+  return messageContentText(result.message.content);
+}
+
+function messageContentText(content: Message['content']): string {
+  if (typeof content === 'string') return content;
+  return content
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join('');
 }
