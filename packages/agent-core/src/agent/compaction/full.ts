@@ -45,6 +45,15 @@ export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
  *  disabled for the remainder of the turn. Resets each turn. */
 const MAX_CONSECUTIVE_FAILURES = 3;
 
+/** Base allowance for one blocked-compaction round-trip. */
+const BLOCK_TIMEOUT_BASE_MS = 60_000;
+/** Extra allowance per 1K tokens of context being summarized — large
+ *  histories take proportionally longer to prefill and summarize, and a
+ *  cancelled attempt still bills the full prefill. */
+const BLOCK_TIMEOUT_PER_1K_TOKENS_MS = 500;
+/** Hard ceiling so a hung provider cannot stall a blocked turn forever. */
+const BLOCK_TIMEOUT_MAX_MS = 300_000;
+
 /** Minimal system prompt used during compaction. The full agent system
  *  prompt contains tool descriptions and runtime injections that contradict
  *  the compaction instruction ("DO NOT CALL ANY TOOLS"). This compact prompt
@@ -260,13 +269,27 @@ export class FullCompaction {
     return this.compacting !== null;
   }
 
+  /** How long a blocked turn waits for compaction before giving up.
+   *  `loopControl.compactionBlockTimeoutMs` wins when set; otherwise the
+   *  allowance scales with how much context the summarization call has
+   *  to read, capped at BLOCK_TIMEOUT_MAX_MS. */
+  private get blockTimeoutMs(): number {
+    const configured =
+      this.agent.lmcodeConfig?.loopControl?.compactionBlockTimeoutMs;
+    if (configured !== undefined) return configured;
+    const scaled =
+      BLOCK_TIMEOUT_BASE_MS +
+      (this.tokenCountWithPending / 1000) * BLOCK_TIMEOUT_PER_1K_TOKENS_MS;
+    return Math.min(Math.round(scaled), BLOCK_TIMEOUT_MAX_MS);
+  }
+
   private async block(signal: AbortSignal): Promise<void> {
     const active = this.compacting;
     if (!active) return;
 
     active.blockedByTurn = true;
 
-    const BLOCK_TIMEOUT_MS = 60_000; // 60 seconds
+    const timeoutMs = this.blockTimeoutMs;
 
     const timeoutId = setTimeout(() => {
       // Only cancel if this exact compaction is still the active one.
@@ -274,10 +297,10 @@ export class FullCompaction {
       // executing (race between microtask queue and timer queue).
       if (this.compacting === active) {
         this.markCanceled(
-          '压缩超时（60秒），已取消。请使用 /compact 手动重试。',
+          `压缩超时（${String(Math.round(timeoutMs / 1000))}秒），已取消。请使用 /compact 手动重试。`,
         );
       }
-    }, BLOCK_TIMEOUT_MS);
+    }, timeoutMs);
 
     const onAbort = (): void => {
       clearTimeout(timeoutId);

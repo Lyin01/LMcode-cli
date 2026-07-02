@@ -656,6 +656,113 @@ describe('Agent compaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('cancels a blocked compaction after the configured timeout', async () => {
+    vi.useFakeTimers();
+    const generateStarted = deferred<void>();
+    let calls = 0;
+    const generate: GenerateFn = (_provider, _system, _tools, _history, _callbacks, options) => {
+      calls += 1;
+      if (calls === 1) {
+        // The compaction call hangs until the block timeout aborts it.
+        return new Promise((_resolve, reject) => {
+          generateStarted.resolve();
+          options?.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(new DOMException('The operation was aborted.', 'AbortError'));
+            },
+            { once: true },
+          );
+        });
+      }
+      return Promise.resolve(textResult('Answer after cancelled compaction.'));
+    };
+    const ctx = testAgent({
+      generate,
+      initialConfig: {
+        providers: {},
+        loopControl: { compactionBlockTimeoutMs: 5_000 },
+      },
+    });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 100);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 950_000);
+    const cancelled = ctx.once('compaction.cancelled');
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger blocked compaction' }] });
+    await generateStarted.promise;
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await cancelled;
+    const events = await ctx.untilTurnEnd();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'compaction.cancelled',
+        args: expect.objectContaining({
+          reason: expect.stringContaining('5秒'),
+        }),
+      }),
+    );
+  });
+
+  it('scales the blocked-compaction timeout with context size up to the cap', async () => {
+    vi.useFakeTimers();
+    const generateStarted = deferred<void>();
+    let calls = 0;
+    const generate: GenerateFn = (_provider, _system, _tools, _history, _callbacks, options) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise((_resolve, reject) => {
+          generateStarted.resolve();
+          options?.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(new DOMException('The operation was aborted.', 'AbortError'));
+            },
+            { once: true },
+          );
+        });
+      }
+      return Promise.resolve(textResult('Answer after cancelled compaction.'));
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 100);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 950_000);
+    const cancelled = ctx.once('compaction.cancelled');
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger blocked compaction' }] });
+    await generateStarted.promise;
+
+    // A ~950K-token context scales past the 60s base straight to the
+    // 300s cap — the legacy fixed timeout must NOT fire.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(240_000);
+    await cancelled;
+    const events = await ctx.untilTurnEnd();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'compaction.cancelled',
+        args: expect.objectContaining({
+          reason: expect.stringContaining('300秒'),
+        }),
+      }),
+    );
+  });
+
   it('reports compaction retry_count when retryable generation failures are exhausted', async () => {
     vi.useFakeTimers();
     let attempts = 0;
