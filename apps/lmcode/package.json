@@ -78,6 +78,7 @@
     "node": ">=22.19.0"
   },
   "optionalDependencies": {
+    "fastembed": "^2.1.0",
     "playwright-core": "^1.61.0"
   }
 }
