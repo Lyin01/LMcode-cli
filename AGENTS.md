@@ -36,7 +36,7 @@
 | `node-sdk` | `packages/node-sdk/` | Node.js SDK（`LmcodeHarness`、`Session`），供应用层使用 |
 | `memory` | `packages/memory/` | 跨会话的记忆存储与评分 |
 | `config` | `packages/config/` | 平台配置、身份标识、模型别名 |
-| `migration-legacy` | `packages/migration-legacy/` | 旧数据迁移 —— **已弃用，请勿扩展** |
+| `migration-legacy` | `packages/migration-legacy/` | 旧数据迁移 —— **已弃用，v1.0 移除**（日落计划见该包 README） |
 | `apps/lmcode` | `apps/lmcode/` | CLI 和终端 UI 应用（`lm` 命令） |
 
 ### 术语说明
