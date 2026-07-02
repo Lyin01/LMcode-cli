@@ -171,6 +171,69 @@ export function validateJavaScript(code: string, filepath: string): string | nul
   return null;
 }
 
+/** V8 messages that mean "this is module-goal syntax", not a real error.
+ *  `vm.Script` only parses the script goal, so import/export/import.meta and
+ *  top-level await always throw there even when the code is a valid module. */
+const MODULE_GOAL_ERROR_RE =
+  /Cannot use import statement outside a module|Cannot use 'import\.meta' outside a module|Unexpected token 'export'|await is only valid in async function/;
+
+/**
+ * Validate module-goal JavaScript. `vm.Script` cannot parse import/export
+ * (and `vm.SourceTextModule` needs a runtime flag), so this uses the
+ * TypeScript parser. Fails open when typescript is unavailable — a missed
+ * validation is recoverable, a false "syntax error" on valid code is not.
+ */
+export async function validateJavaScriptModule(
+  code: string,
+  filepath: string,
+): Promise<string | null> {
+  const ts = await getTs();
+  if (!ts) return null;
+  try {
+    const sourceFile = ts.createSourceFile(
+      filepath,
+      code,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.JS,
+    );
+    const diagnostics = sourceFile.parseDiagnostics;
+    if (diagnostics && diagnostics.length > 0) {
+      const first = diagnostics[0];
+      const message = ts.flattenDiagnosticMessageText(first.messageText, '\n');
+      const position = first.start !== undefined
+        ? sourceFile.getLineAndCharacterOfPosition(first.start)
+        : null;
+      const lineNum = position ? position.line + 1 : null;
+      const lineStr = position ? ` at line ${position.line + 1}, col ${position.character + 1}` : '';
+      const context = lineNum ? `\n\nContext around line ${lineNum}:\n${getCodeContext(code, lineNum)}` : '';
+      return `JavaScript syntax error: ${message}${lineStr}${context}`;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Validate a `.js` file whose parse goal is ambiguous (script vs module —
+ * depends on the nearest package.json `type`, which we do not resolve).
+ * Try the script goal first; when the only complaint is module-goal syntax
+ * (import/export/import.meta/top-level await), re-validate as a module so
+ * plain ESM `.js` files stop being flagged as broken.
+ */
+export async function validateJavaScriptAuto(
+  code: string,
+  filepath: string,
+): Promise<string | null> {
+  const scriptError = validateJavaScript(code, filepath);
+  if (scriptError === null) return null;
+  if (MODULE_GOAL_ERROR_RE.test(scriptError)) {
+    return validateJavaScriptModule(code, filepath);
+  }
+  return scriptError;
+}
+
 export async function validateTypeScript(code: string, filepath: string): Promise<string | null> {
   const ts = await getTs();
   if (!ts) {
@@ -196,15 +259,45 @@ export async function validateTypeScript(code: string, filepath: string): Promis
   return null;
 }
 
+/** JavaScript MIME types that mark a classic script per the HTML spec. */
+const JS_MIME_TYPE_RE = /^(?:text|application)\/(?:x-)?(?:java|ecma)script$/;
+
+type ScriptBlockKind = 'classic' | 'module' | 'typescript' | 'data';
+
+/**
+ * Classify a `<script>` element by its `type`/`lang` attributes the way a
+ * browser would. Anything that is not JavaScript or TypeScript — importmap,
+ * speculationrules, application/json, ld+json, inline templates — is a DATA
+ * BLOCK the browser never executes, and must not be parsed as JS. Doing so
+ * used to reject every valid page using import maps with
+ * "Unexpected token ':'".
+ */
+function classifyScriptBlock(script: {
+  getAttribute(name: string): string | null;
+}): ScriptBlockKind {
+  if (script.getAttribute('lang') === 'ts') return 'typescript';
+  const type = (script.getAttribute('type') ?? '').trim().toLowerCase();
+  if (type === 'text/typescript') return 'typescript';
+  if (type === '' || JS_MIME_TYPE_RE.test(type)) return 'classic';
+  if (type === 'module') return 'module';
+  return 'data';
+}
+
 export async function validateHtmlScripts(html: string, filepath: string): Promise<string | null> {
   try {
     const { document } = parseHTML(html);
     const scripts = document.querySelectorAll('script');
     for (const script of scripts) {
       if (script.hasAttribute('src')) continue;
+      const kind = classifyScriptBlock(script);
+      if (kind === 'data') continue;
       const code = script.textContent || '';
-      const isTs = script.getAttribute('lang') === 'ts' || script.getAttribute('type') === 'text/typescript';
-      const error = isTs ? await validateTypeScript(code, filepath) : validateJavaScript(code, filepath);
+      const error =
+        kind === 'typescript'
+          ? await validateTypeScript(code, filepath)
+          : kind === 'module'
+            ? await validateJavaScriptModule(code, filepath)
+            : validateJavaScript(code, filepath);
       if (error) {
         // Adjust local line numbers to be absolute line numbers relative to the parent HTML file
         const byteOffset = html.indexOf(code);
@@ -349,9 +442,16 @@ export async function validateFileSyntaxWithScreenshots(
 ): Promise<{ error: string | null; screenshots?: string[]; keyframeTimesMs?: number[] }> {
   const ext = filepath.split('.').pop()?.toLowerCase();
   if (ext === 'js') {
+    // Ambiguous goal: plain ESM `.js` is everywhere, so auto-detect.
+    return { error: await validateJavaScriptAuto(content, filepath) };
+  }
+  if (ext === 'mjs') {
+    return { error: await validateJavaScriptModule(content, filepath) };
+  }
+  if (ext === 'cjs') {
     return { error: validateJavaScript(content, filepath) };
   }
-  if (ext === 'ts') {
+  if (ext === 'ts' || ext === 'mts' || ext === 'cts') {
     return { error: await validateTypeScript(content, filepath) };
   }
   if (ext === 'html' || ext === 'htm') {

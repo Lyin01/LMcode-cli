@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   validateJavaScript,
+  validateJavaScriptAuto,
+  validateJavaScriptModule,
   validateTypeScript,
   validateHtmlScripts,
   validateFileSyntax,
@@ -85,12 +87,83 @@ describe('self-healing: syntax validation', () => {
       const result = await validateHtmlScripts(html, 'test.html');
       expect(result).toBeNull();
     });
+
+    // Data blocks per the HTML spec — never executed by the browser, and
+    // must never be parsed as JavaScript. Regression tests for the
+    // "Unexpected token ':'" false positive on import maps.
+    it('skips importmap data blocks', async () => {
+      const html = `<html><head>
+        <script type="importmap">{ "imports": { "three": "https://cdn.example/three.module.js" } }</script>
+      </head></html>`;
+      expect(await validateHtmlScripts(html, 'test.html')).toBeNull();
+    });
+
+    it('skips application/json and ld+json data blocks', async () => {
+      const html = `<html><head>
+        <script type="application/json">{"a": 1}</script>
+        <script type="application/ld+json">{"@context": "https://schema.org"}</script>
+        <script type="text/x-template"><div>{{ not js }}</div></script>
+      </head></html>`;
+      expect(await validateHtmlScripts(html, 'test.html')).toBeNull();
+    });
+
+    it('accepts import/export inside <script type="module">', async () => {
+      const html = `<html><body>
+        <script type="module">
+          import * as THREE from 'three';
+          export const scene = new THREE.Scene();
+          await Promise.resolve();
+        </script>
+      </body></html>`;
+      expect(await validateHtmlScripts(html, 'test.html')).toBeNull();
+    });
+
+    it('still flags real syntax errors inside <script type="module">', async () => {
+      const html = `<html><body>
+        <script type="module">const x = ;</script>
+      </body></html>`;
+      expect(await validateHtmlScripts(html, 'test.html')).toContain('HTML Script block error');
+    });
+
+    it('still flags import statements in classic scripts (real browser error)', async () => {
+      const html = `<html><body>
+        <script>import x from 'y';</script>
+      </body></html>`;
+      expect(await validateHtmlScripts(html, 'test.html')).toContain('HTML Script block error');
+    });
+  });
+
+  describe('validateJavaScriptModule / validateJavaScriptAuto', () => {
+    it('accepts plain ESM in .js via auto goal detection', async () => {
+      const code = `import { readFile } from 'node:fs/promises';\nexport const x = await readFile('a');`;
+      expect(await validateJavaScriptAuto(code, 'test.js')).toBeNull();
+    });
+
+    it('still reports genuine errors in ESM code', async () => {
+      const result = await validateJavaScriptModule(`import { a } from 'b';\nconst y = ;`, 'test.mjs');
+      expect(result).toContain('JavaScript syntax error');
+    });
+
+    it('keeps the script-goal error when the code is broken either way', async () => {
+      expect(await validateJavaScriptAuto('const x = ;', 'test.js')).toContain(
+        'JavaScript syntax error',
+      );
+    });
   });
 
   describe('validateFileSyntax', () => {
     it('correctly routes js files', async () => {
       const result = await validateFileSyntax('foo.js', 'const x = ;');
       expect(result).toContain('JavaScript syntax error');
+    });
+
+    it('accepts ESM syntax in .js and .mjs files', async () => {
+      expect(await validateFileSyntax('foo.js', `import x from 'y';\nexport default x;`)).toBeNull();
+      expect(await validateFileSyntax('foo.mjs', `export const a = 1;`)).toBeNull();
+    });
+
+    it('routes .cjs as script goal', async () => {
+      expect(await validateFileSyntax('foo.cjs', `const x = require('y'); module.exports = x;`)).toBeNull();
     });
 
     it('correctly routes ts files', async () => {
