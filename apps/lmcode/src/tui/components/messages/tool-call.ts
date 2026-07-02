@@ -3,8 +3,6 @@
  * Supports expand/collapse via Ctrl+O.
  */
 
-import { isAbsolute, relative } from 'node:path';
-
 import { Container, Text, Spacer, visibleWidth } from '@earendil-works/pi-tui';
 import type { Component, MarkdownTheme, TUI } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
@@ -12,10 +10,7 @@ import chalk from 'chalk';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import { COMMAND_PREVIEW_LINES } from '#/tui/constant/rendering';
-import {
-  STREAMING_ARGS_FIELD_RE,
-  STREAMING_ARGS_PREVIEW_MAX_CHARS,
-} from '#/tui/constant/streaming';
+import { STREAMING_ARGS_PREVIEW_MAX_CHARS } from '#/tui/constant/streaming';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
@@ -23,42 +18,44 @@ import type { TokenUsage } from '@lmcode-cli/lmcode-sdk';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 
+import {
+  extractApprovedPlan,
+  interpretExitPlanModeOutcome,
+  isExitPlanModeOutcomeOutput,
+} from './exit-plan-outcome';
 import { PlanBoxComponent } from './plan-box';
 import { ShellExecutionComponent } from './shell-execution';
+import {
+  computeLatestActivity,
+  MAX_SUB_TOOL_CALLS_SHOWN,
+  type FinishedSubCall,
+  type OngoingSubCall,
+  type SubagentTextKind,
+  type SubToolActivity,
+} from './subagent-activity';
+import {
+  backgroundFailureMessage,
+  extractKeyArgument,
+  extractPartialStringField,
+  formatByteSize,
+  formatElapsed,
+  formatSubagentContextTokens,
+  formatSubagentLabel,
+  formatSubagentTokens,
+  formatTokens,
+  makeWorkspaceRelativePath,
+  parseArgsPreview,
+  str,
+  tailNonEmptyLines,
+  usageTotal,
+} from './tool-call-format';
 import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
 import { pickResultRenderer } from './tool-renderers/registry';
 
-const MAX_ARG_LENGTH = 60;
-const MAX_SUB_TOOL_CALLS_SHOWN = 4;
 const MAX_SINGLE_SUBAGENT_TOOL_ROWS = 4;
-const APPROVED_PLAN_MARKER = '## Approved Plan:';
 const STREAMING_PROGRESS_INTERVAL_MS = 1000;
 const SUBAGENT_ELAPSED_INTERVAL_MS = 1000;
 const PROGRESS_URL_RE = /https?:\/\/\S+/g;
-
-type SubagentTextKind = 'thinking' | 'text';
-
-
-interface FinishedSubCall {
-  readonly name: string;
-  readonly args: Record<string, unknown>;
-  readonly output: string;
-  readonly isError: boolean;
-}
-
-interface OngoingSubCall {
-  readonly name: string;
-  readonly args: Record<string, unknown>;
-  readonly streamingArguments?: string | undefined;
-}
-
-interface SubToolActivity {
-  readonly id: string;
-  name: string;
-  args: Record<string, unknown>;
-  phase: 'ongoing' | 'done' | 'failed';
-  readonly orderSeq: number;
-}
 
 /**
  * Immutable subagent state snapshot. `AgentGroupComponent` reads one-time
@@ -94,338 +91,6 @@ export interface ToolCallReadSnapshot {
   readonly filePath: string | undefined;
   readonly phase: 'pending' | 'done' | 'failed';
   readonly lines: number;
-}
-
-function backgroundFailureMessage(
-  status: 'completed' | 'failed' | 'killed' | 'lost' | undefined,
-): string | undefined {
-  switch (status) {
-    case 'lost':
-      return '后台 agent 丢失（会话在完成前已重启）';
-    case 'killed':
-      return '后台 agent 已终止';
-    case 'failed':
-      return '后台 agent 失败';
-    case 'completed':
-    case undefined:
-      return undefined;
-  }
-}
-
-function str(v: unknown): string {
-  return typeof v === 'string' ? v : '';
-}
-
-function formatSubagentContextTokens(contextTokens: number | undefined): string | undefined {
-  if (contextTokens === undefined || contextTokens <= 0) return undefined;
-  const formatted = contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : String(contextTokens);
-  return `${formatted} tok`;
-}
-
-function usageInputTotal(usage: TokenUsage): number {
-  return (usage.inputOther ?? 0) + (usage.inputCacheRead ?? 0) + (usage.inputCacheCreation ?? 0);
-}
-
-function usageTotal(usage: TokenUsage | undefined): number {
-  if (usage === undefined) return 0;
-  return usageInputTotal(usage) + usage.output;
-}
-
-function formatSubagentTokens(usage: TokenUsage | undefined): string | undefined {
-  const total = usageTotal(usage);
-  if (total <= 0) return undefined;
-  const formatted = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total);
-  return `${formatted} tok`;
-}
-
-function formatByteSize(bytes: number): string {
-  if (bytes < 1024) return `${String(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${String(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return `${String(minutes)}m ${String(remainder)}s`;
-}
-
-function extractApprovedPlan(output: string): string {
-  const markerIndex = output.indexOf(APPROVED_PLAN_MARKER);
-  if (markerIndex < 0) return '';
-  return output.slice(markerIndex + APPROVED_PLAN_MARKER.length).trim();
-}
-
-interface ExitPlanModeOutcome {
-  readonly kind: 'approved' | 'rejected';
-  readonly chosen?: string;
-  readonly feedback?: string;
-  readonly path?: string;
-}
-
-const REJECT_PREFIX = 'User rejected the plan.';
-const REJECT_FEEDBACK_PREFIX = 'User rejected the plan. Feedback:';
-const APPROVED_OPTION_RE = /^User approved option "([^"]+)"\./;
-const PLAN_REJECT_PREFIX = 'Plan rejected by user.';
-const SELECTED_APPROACH_RE = /^Exited plan mode\. Selected approach: ([^\n]+)\n/;
-const PLAN_SAVED_TO_RE = /\nPlan saved to: ([^\n]+)\n/;
-
-/**
- * Parses the ExitPlanMode result content string to recover the approval outcome
- * and optional plan path. Core-side templates live in
- * `packages/agent-core/src/tools/builtin/planning/exit-plan-mode.ts`:
- *   - Approved output starts with 'Exited plan mode.' and selected options
- *     are reported as 'Selected approach: <label>'. Older outputs may start
- *     with 'User approved option "<label>".' Plan-file mode may include
- *     'Plan saved to: <path>'.
- *   - Rejected output starts with 'Plan rejected by user.' or older
- *     'User rejected the plan.'; feedback uses 'User rejected the plan.
- *     Feedback:\n\n<text>'.
- * This is a string protocol rather than a structured payload. Prefer a
- * structured event payload if core starts emitting one.
- */
-function interpretExitPlanModeOutcome(output: string): ExitPlanModeOutcome {
-  if (output.startsWith(REJECT_PREFIX)) {
-    if (output.startsWith(REJECT_FEEDBACK_PREFIX)) {
-      const feedback = output.slice(REJECT_FEEDBACK_PREFIX.length).trimStart();
-      return { kind: 'rejected', feedback };
-    }
-    return { kind: 'rejected' };
-  }
-  if (output.startsWith(PLAN_REJECT_PREFIX)) {
-    return { kind: 'rejected' };
-  }
-  const pathMatch = PLAN_SAVED_TO_RE.exec(output);
-  const path = pathMatch?.[1]?.trim();
-  const optionMatch = SELECTED_APPROACH_RE.exec(output) ?? APPROVED_OPTION_RE.exec(output);
-  if (optionMatch !== null) {
-    return path !== undefined && path.length > 0
-      ? { kind: 'approved', chosen: optionMatch[1], path }
-      : { kind: 'approved', chosen: optionMatch[1] };
-  }
-  return path !== undefined && path.length > 0 ? { kind: 'approved', path } : { kind: 'approved' };
-}
-
-function isExitPlanModeOutcomeOutput(output: string): boolean {
-  return (
-    output.startsWith(REJECT_PREFIX) ||
-    output.startsWith(PLAN_REJECT_PREFIX) ||
-    output.startsWith('Exited plan mode.') ||
-    APPROVED_OPTION_RE.test(output) ||
-    output.includes(APPROVED_PLAN_MARKER)
-  );
-}
-
-function unescapeJsonString(s: string): string {
-  return s.replaceAll(/\\(["\\/bfnrt])/g, (_, ch: string) => {
-    switch (ch) {
-      case 'n':
-        return '\n';
-      case 't':
-        return '\t';
-      case 'r':
-        return '\r';
-      case 'b':
-        return '\b';
-      case 'f':
-        return '\f';
-      case '"':
-        return '"';
-      case '\\':
-        return '\\';
-      case '/':
-        return '/';
-      default:
-        return ch;
-    }
-  });
-}
-
-/**
- * Pull the live value of a JSON string field out of partially-streamed
- * arguments, even if the closing quote hasn't arrived yet. Handles the
- * common JSON string escapes so `\n` in a streamed `content` becomes a
- * real newline we can highlight. Returns `undefined` if the field hasn't
- * started streaming yet.
- */
-function extractPartialStringField(text: string, key: string): string | undefined {
-  const opener = new RegExp(`"${key}"\\s*:\\s*"`);
-  const match = opener.exec(text);
-  if (match === null) return undefined;
-  const start = match.index + match[0].length;
-  let out = '';
-  let i = start;
-  while (i < text.length) {
-    const ch = text[i];
-    if (ch === '\\') {
-      const next = text[i + 1];
-      if (next === undefined) return out;
-      switch (next) {
-        case 'n':
-          out += '\n';
-          break;
-        case 't':
-          out += '\t';
-          break;
-        case 'r':
-          out += '\r';
-          break;
-        case 'b':
-          out += '\b';
-          break;
-        case 'f':
-          out += '\f';
-          break;
-        case '"':
-          out += '"';
-          break;
-        case '\\':
-          out += '\\';
-          break;
-        case '/':
-          out += '/';
-          break;
-        case 'u': {
-          if (i + 5 >= text.length) return out;
-          const hex = text.slice(i + 2, i + 6);
-          const code = Number.parseInt(hex, 16);
-          if (Number.isNaN(code)) return out;
-          out += String.fromCodePoint(code);
-          i += 6;
-          continue;
-        }
-        default:
-          out += next;
-      }
-      i += 2;
-      continue;
-    }
-    if (ch === '"') return out;
-    out += ch;
-    i++;
-  }
-  return out;
-}
-
-function parseArgsPreview(value: string): Record<string, unknown> {
-  const previewText = value.slice(0, STREAMING_ARGS_PREVIEW_MAX_CHARS);
-  if (previewText.trim().length === 0) return {};
-  if (
-    value.length <= STREAMING_ARGS_PREVIEW_MAX_CHARS &&
-    previewText.trimEnd().endsWith('}')
-  ) {
-    try {
-      const parsed = JSON.parse(previewText) as unknown;
-      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      // fall through to partial scan
-    }
-  }
-  const result: Record<string, unknown> = {};
-  for (const match of previewText.matchAll(STREAMING_ARGS_FIELD_RE)) {
-    const key = match[1];
-    const rawValue = match[2];
-    if (key === undefined || rawValue === undefined) continue;
-    if (!(key in result)) result[key] = unescapeJsonString(rawValue);
-  }
-  return result;
-}
-
-const PATH_KEYS = new Set(['path', 'file_path']);
-
-function truncateArgValue(key: string, value: string): string {
-  if (value.length <= MAX_ARG_LENGTH) return value;
-  if (PATH_KEYS.has(key)) {
-    // Preserve the tail (filename) — drop the prefix so the user can
-    // still tell which file is being touched.
-    return '…' + value.slice(value.length - (MAX_ARG_LENGTH - 1));
-  }
-  return value.slice(0, MAX_ARG_LENGTH - 3) + '...';
-}
-
-function makeWorkspaceRelativePath(filePath: string, workspaceDir: string | undefined): string {
-  if (workspaceDir === undefined || workspaceDir.length === 0 || !isAbsolute(filePath)) {
-    return filePath;
-  }
-  // Normalize separators to `/` so displayed/stored paths are platform-
-  // independent (node:path.relative emits `\` on Windows).
-  const relativePath = relative(workspaceDir, filePath).replace(/\\/g, '/');
-  if (
-    relativePath.length === 0 ||
-    relativePath === '..' ||
-    relativePath.startsWith('../') ||
-    isAbsolute(relativePath)
-  ) {
-    return filePath;
-  }
-  return relativePath;
-}
-
-function formatKeyArgument(
-  toolName: string,
-  key: string,
-  value: string,
-  workspaceDir: string | undefined,
-): string {
-  const displayValue =
-    toolName === 'Read' && PATH_KEYS.has(key)
-      ? makeWorkspaceRelativePath(value, workspaceDir)
-      : value;
-  return truncateArgValue(key, displayValue);
-}
-
-function extractKeyArgument(
-  toolName: string,
-  args: Record<string, unknown>,
-  workspaceDir?: string,
-): string | null {
-  const keyMap: Record<string, string[]> = {
-    Bash: ['command'],
-    Read: ['path', 'file_path'],
-    Write: ['path', 'file_path'],
-    Edit: ['path', 'file_path'],
-    Grep: ['pattern'],
-    Glob: ['pattern'],
-    FetchURL: ['url'],
-    WebSearch: ['query'],
-    // Prefer the short `description` so the header preview never spills a
-    // multi-line `prompt` into the TUI chrome.
-    Agent: ['description', 'prompt'],
-  };
-
-  const candidates = keyMap[toolName] ?? Object.keys(args);
-  for (const key of candidates) {
-    const val = args[key];
-    if (typeof val === 'string' && val.length > 0) {
-      const firstLine = val.split('\n')[0] ?? val;
-      return formatKeyArgument(toolName, key, firstLine, workspaceDir);
-    }
-  }
-  return null;
-}
-
-function formatSubagentLabel(agentName: string | undefined): string {
-  const raw = agentName?.trim();
-  if (raw === undefined || raw.length === 0) return 'SubAgent';
-  const label = raw
-    .split(/[-_\s]+/)
-    .filter((part) => part.length > 0)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-  if (/\bagent$/i.test(label)) return label;
-  return `${label} Agent`;
-}
-
-function tailNonEmptyLines(text: string, maxLines: number): string[] {
-  if (text.length === 0) return [];
-  return text
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0)
-    .slice(-maxLines);
 }
 
 class PrefixedWrappedLine implements Component {
@@ -1844,54 +1509,4 @@ export class ToolCallComponent extends Container {
     }
     return true;
   }
-}
-
-/**
- * Computes the second-level "latest activity" line for group rows:
- *   1. latest ongoing sub-tool (`Using {name} ({keyArg})`)
- *   2. latest finished sub-tool (`Used {name} ({keyArg})`)
- *   3. last non-empty line from accumulated subagent text
- */
-function computeLatestActivity(
-  ongoing: ReadonlyMap<string, OngoingSubCall>,
-  finished: readonly FinishedSubCall[],
-  text: string,
-  workspaceDir?: string,
-): string | undefined {
-  if (ongoing.size > 0) {
-    const lastOngoing = [...ongoing.values()].at(-1);
-    if (lastOngoing !== undefined) {
-      return formatActivityLine('Using', lastOngoing.name, lastOngoing.args, workspaceDir);
-    }
-  }
-  if (finished.length > 0) {
-    const last = finished.at(-1);
-    if (last !== undefined) {
-      return formatActivityLine('Used', last.name, last.args, workspaceDir);
-    }
-  }
-  if (text.length > 0) {
-    const tail = text
-      .split('\n')
-      .toReversed()
-      .find((l) => l.trim().length > 0);
-    if (tail !== undefined) return tail.trim();
-  }
-  return undefined;
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M tok`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k tok`;
-  return `${String(n)} tok`;
-}
-
-function formatActivityLine(
-  verb: string,
-  toolName: string,
-  args: Record<string, unknown>,
-  workspaceDir?: string,
-): string {
-  const keyArg = extractKeyArgument(toolName, args, workspaceDir);
-  return keyArg ? `${verb} ${toolName} (${keyArg})` : `${verb} ${toolName}`;
 }
