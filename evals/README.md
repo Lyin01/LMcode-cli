@@ -81,6 +81,7 @@ an interactive approver. The shipped real-model tasks:
 | `env-parser` | implement a `.env` parser from a written `SPEC.md` | **partial credit**: `score = (visible + hidden) / total`; `passed` = all *visible* cases. The agent sees the visible suite but never the hidden cases, so the hidden pass-rate measures generalization vs. "implemented to the tests". |
 | `csv-median-debug` | localize + fix bugs across two files | `score = passing / 8`; `passed` = all pass. Scored against authoritative inline cases, so editing the workdir test can't inflate it. |
 | `expr-eval` | deep reasoning: a precedence-correct expression evaluator | same visible + hidden scoring as `env-parser`. Hidden cases concentrate on precedence/associativity traps (right-assoc `^`, unary vs. `^`), so this **discriminates between models** the other tasks max out. |
+| `spec-drift` | spec consistency: one prompt embedding five explicit details (second file, edge-case rules mid-sentence) | **detail coverage**: `score = details met / 5`; `passed` = all five. Measures whether the agent addresses *everything* asked — the axis the spec-consistency critic targets — rather than just the headline task. |
 
 The `score` is a soft [0,1] number, so a model that nails the shown tests but
 misses a spec edge case reports **PASS with a sub-1.0 score** — green, but the
@@ -208,4 +209,5 @@ evals/
     env-parser.ts              real-model: implement from spec; visible + hidden scoring
     csv-median-debug.ts        real-model: localize + fix bugs across two files
     expr-eval.ts               real-model: precedence-correct evaluator (deep reasoning)
+    spec-drift.ts              real-model: five embedded spec details, scored by coverage
 ```

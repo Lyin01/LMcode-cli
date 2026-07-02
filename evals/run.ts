@@ -26,6 +26,7 @@ import { envParserTask } from './tasks/env-parser';
 import { exprEvalTask } from './tasks/expr-eval';
 import { fixFailingFnTask } from './tasks/fix-failing-fn';
 import { smokePlumbingTask } from './tasks/smoke-plumbing';
+import { specDriftTask } from './tasks/spec-drift';
 
 const ALL_TASKS: readonly Task[] = [
   smokePlumbingTask,
@@ -33,6 +34,7 @@ const ALL_TASKS: readonly Task[] = [
   envParserTask,
   csvMedianDebugTask,
   exprEvalTask,
+  specDriftTask,
 ];
 
 function selectTasks(argv: readonly string[]): Task[] {
