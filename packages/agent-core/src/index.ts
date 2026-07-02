@@ -43,6 +43,7 @@ export type {
 } from './tools/background/manager';
 export type { ToolServices } from './tools/support/services';
 export { toInputJsonSchema } from './tools/support/input-schema';
+export { normalizeWorkDir } from './session/store/workdir-key';
 export { SingleModelProvider } from './session/provider-manager';
 export type {
   BearerTokenProvider,

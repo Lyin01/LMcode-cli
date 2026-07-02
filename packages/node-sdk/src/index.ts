@@ -41,6 +41,7 @@ export {
 export {
   flushDiagnosticLogs,
   log,
+  normalizeWorkDir,
   redact,
   resolveGlobalLogPath,
   resolveLmcodeHome,

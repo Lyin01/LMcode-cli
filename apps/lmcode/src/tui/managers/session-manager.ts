@@ -1,3 +1,4 @@
+import { normalizeWorkDir } from '@lmcode-cli/lmcode-sdk';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -90,7 +91,9 @@ export class SessionManager {
         if (target === undefined) {
           throw new Error(`未找到会话 "${startup.sessionFlag}"。`);
         }
-        if (target.workDir !== workDir) {
+        // Normalize both sides: stored workDirs use pathe forward slashes
+        // while process.cwd() is backslash-separated on Windows.
+        if (normalizeWorkDir(target.workDir) !== normalizeWorkDir(workDir)) {
           throw new Error(
             `会话 "${startup.sessionFlag}" 是在其他目录下创建的。\n  cd "${target.workDir}" && lm -r ${startup.sessionFlag}`,
           );
