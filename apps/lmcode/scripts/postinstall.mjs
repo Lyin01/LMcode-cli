@@ -114,6 +114,7 @@ import {
   renameInPlace,
 } from './postinstall/migrate.mjs';
 import { createDesktopShortcut } from './postinstall/shortcut.mjs';
+import { fixWindowsShimEncoding } from './postinstall/win-encoding.mjs';
 import {
   logForeignScreamInTheWay,
   logMigrationBlocked,
@@ -129,6 +130,10 @@ async function main() {
   // marker sniff for uv's launcher .exe, extension-preserving
   // rename) live in the helpers.
   if (!isGlobalInstall()) return;
+
+  // Windows: patch the npm-generated lm.ps1 shim so UTF-8 output
+  // survives capture/piping on GBK consoles. Idempotent, never throws.
+  fixWindowsShimEncoding();
 
   // Step 2: locate our own installed package root once and share it
   // with both detection (skip files inside our package) and
