@@ -37,12 +37,9 @@ export function validateOptions(opts: CLIOptions): ValidatedOptions {
   if (!promptMode && opts.outputFormat !== undefined) {
     throw new OptionConflictError('输出格式仅在提示模式下支持。');
   }
-  if (promptMode && opts.yolo) {
-    throw new OptionConflictError('--prompt 不能与 --yolo 同时使用。');
-  }
-  if (promptMode && opts.auto) {
-    throw new OptionConflictError('--prompt 不能与 --auto 同时使用。');
-  }
+  // --yolo / --auto are redundant in prompt mode (it always forces auto
+  // permission with headless approval), so they pass through as no-ops
+  // instead of erroring — habit-compatible with `lm -p "..." -y`.
   if (promptMode && opts.plan) {
     throw new OptionConflictError('--prompt 不能与 --plan 同时使用。');
   }

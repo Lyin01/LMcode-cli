@@ -48,8 +48,7 @@ export function createProgram(
       ).argParser((val: string | boolean) => (val === true ? '' : (val as string))),
     )
     .addOption(
-      new Option('-r, --resume [id]')
-        .hideHelp()
+      new Option('-r, --resume [id]', '-S/--session 的别名。')
         .argParser((val: string | boolean) => (val === true ? '' : (val as string))),
     )
     .option('-C, --continue', '继续当前工作目录的上一个会话。', false)

@@ -214,10 +214,14 @@ describe('CLI options parsing', () => {
       expect(() => validateOptions(opts)).toThrow('在提示模式下不能使用不带 ID 的 --session。');
     });
 
-    it('rejects prompt mode with --yolo because prompt mode always uses auto permission', () => {
+    it('allows prompt mode with --yolo — prompt mode already auto-approves, so it is a no-op', () => {
       const opts = parse(['-p', 'run this', '--yolo']);
-      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
-      expect(() => validateOptions(opts)).toThrow('--prompt 不能与 --yolo 同时使用。');
+      expect(validateOptions(opts).uiMode).toBe('print');
+    });
+
+    it('allows prompt mode with --auto as a no-op', () => {
+      const opts = parse(['-p', 'run this', '--auto']);
+      expect(validateOptions(opts).uiMode).toBe('print');
     });
 
     it('rejects prompt mode with --plan', () => {
