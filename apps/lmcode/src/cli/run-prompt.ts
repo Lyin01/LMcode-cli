@@ -1,4 +1,4 @@
-import chalk from 'chalk';
+import chalk, { chalkStderr } from 'chalk';
 import {
   LmcodeHarness,
   log,
@@ -397,7 +397,10 @@ class PromptTranscriptWriter implements PromptTurnWriter {
 
   constructor(stdout: PromptOutput, stderr: PromptOutput) {
     this.assistantWriter = new PromptBlockWriter(stdout);
-    this.thinkingWriter = new PromptBlockWriter(stderr);
+    // Thinking shares the terminal with the answer (stderr vs stdout), so
+    // dim it — otherwise both render as identical "• " blocks and long
+    // reasoning drowns the actual response.
+    this.thinkingWriter = new PromptBlockWriter(stderr, (text) => chalkStderr.dim(text));
   }
 
   writeAssistantDelta(delta: string): void {
@@ -589,7 +592,10 @@ class PromptBlockWriter {
   private lineWidth = 0;
   private readonly wrapWidth: number | undefined;
 
-  constructor(private readonly output: PromptOutput) {
+  constructor(
+    private readonly output: PromptOutput,
+    private readonly style: (text: string) => string = (text) => text,
+  ) {
     this.wrapWidth =
       typeof output.columns === 'number' && output.columns > PROMPT_BLOCK_INDENT.length + 1
         ? output.columns
@@ -623,7 +629,7 @@ class PromptBlockWriter {
         this.lineWidth += charWidth;
       }
     }
-    this.output.write(rendered);
+    this.output.write(this.style(rendered));
   }
 
   finish(): void {
