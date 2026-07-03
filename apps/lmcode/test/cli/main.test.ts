@@ -162,16 +162,16 @@ describe('main entry command handling', () => {
 
   it('keeps generic startup errors on the legacy fallback path', () => {
     expect(formatStartupError(new Error('Provider not set'), { errorStyle: (text) => text })).toBe(
-      '错误：start shell 失败：Provider not set\n',
+      '错误：启动失败：Provider not set\n',
     );
   });
 
-  it('formats generic prompt mode errors without saying shell', () => {
+  it('formats generic prompt mode errors with the operation inlined', () => {
     expect(
       formatStartupError(new Error('Provider not set'), {
         errorStyle: (text) => text,
-        operation: 'run prompt',
+        operation: '运行提示',
       }),
-    ).toBe('错误：run prompt 失败：Provider not set\n');
+    ).toBe('错误：运行提示失败：Provider not set\n');
   });
 });

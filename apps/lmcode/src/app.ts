@@ -67,7 +67,7 @@ export function main(): void {
     version,
     (opts) => {
       void handleMainCommand(opts, version).catch(async (error: unknown) => {
-        const operation = opts.prompt !== undefined ? '运行提示' : '启动 shell';
+        const operation = opts.prompt !== undefined ? '运行提示' : '启动交互终端';
         await logStartupFailure(operation, error);
         process.stderr.write(
           formatStartupError(error, {

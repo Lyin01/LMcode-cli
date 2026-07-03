@@ -19,8 +19,8 @@ export function formatStartupError(
   const errorStyle = options.errorStyle ?? chalkStderr.hex(STARTUP_ERROR_COLOR);
 
   if (!isLmcodeError(error)) {
-    const operation = options.operation ?? 'start shell';
-    return `${errorStyle(`错误：${operation} 失败：${formatUnknownErrorMessage(error)}`)}\n`;
+    const operation = options.operation ?? '启动';
+    return `${errorStyle(`错误：${operation}失败：${formatUnknownErrorMessage(error)}`)}\n`;
   }
 
   const info = SCREAM_ERROR_INFO[error.code];
