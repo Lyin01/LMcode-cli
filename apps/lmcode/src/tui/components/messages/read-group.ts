@@ -216,7 +216,7 @@ export class ReadGroupComponent extends Container {
 
   private buildHeader(total: number, pending: number, failed: number, totalLines: number): string {
     const colors = this.colors;
-    const dim = chalk.dim;
+    const dim = chalk.hex(colors.textDim);
 
     if (pending > 0) {
       const bullet = chalk.hex(colors.roleAssistant)(STATUS_BULLET);
@@ -240,7 +240,7 @@ export class ReadGroupComponent extends Container {
 
   private buildBodyLine(snap: ToolCallReadSnapshot, isLast: boolean): string {
     const colors = this.colors;
-    const dim = chalk.dim;
+    const dim = chalk.hex(colors.textDim);
     const branch = isLast ? '└─' : '├─';
     const path = snap.filePath ?? '';
     const pathPart = chalk.hex(colors.text)(path);
@@ -258,7 +258,7 @@ export class ReadGroupComponent extends Container {
 
   private buildDirectBodyLine(result: DirectResult, isLast: boolean): string {
     const colors = this.colors;
-    const dim = chalk.dim;
+    const dim = chalk.hex(colors.textDim);
     const branch = isLast ? '└─' : '├─';
     const pathPart = chalk.hex(colors.text)(result.filePath);
 

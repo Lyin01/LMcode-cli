@@ -18,8 +18,8 @@ const DIM_DOT = '⬝';
  *
  * Colouring mirrors Grok's PromptLoadingBoxes:
  *   - active box (distance 0) → full primary colour
- *   - trailing box (distance 1) → ~72 % opacity via chalk dim
- *   - dim dot (distance ≥ 2) → muted
+ *   - trailing box (distance 1) → dim primary colour
+ *   - dim dot (distance ≥ 2) → dim primary colour
  *
  * The component auto-starts on construction. Call `stop()` to tear
  * down the interval timer.
@@ -70,6 +70,6 @@ export class PulseWaveLoader extends Text {
 
     if (distance === 0) return chalk.hex(this.colorHex)(glyph);
     if (distance === 1) return chalk.hex(this.colorHex).dim(glyph);
-    return chalk.dim(glyph);
+    return chalk.hex(this.colorHex).dim(glyph);
   }
 }

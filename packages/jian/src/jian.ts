@@ -3,7 +3,7 @@ import type { JianProcess } from './process';
 import type { StatResult } from './types';
 
 /**
- * Scream Agent Operating System (JIAN) interface.
+ * LMcode Agent Operating System (JIAN) interface.
  *
  * This is the core abstraction that allows the agent to interact with
  * different execution environments (local, SSH, containers, etc.)

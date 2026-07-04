@@ -1,5 +1,43 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI, exposeElectronAPI } from '@electron-toolkit/preload'
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  Event,
+  LmcodeConfigPatch,
+  QuestionRequest,
+  QuestionResult,
+} from '@lmcode-cli/lmcode-sdk'
+
+interface SessionEventPayload {
+  readonly sessionId: string
+  readonly event: Event
+}
+
+interface ApprovalRequestPayload extends ApprovalRequest {
+  readonly sessionId: string
+  readonly requestId: string
+  readonly request: ApprovalRequest
+}
+
+interface QuestionRequestPayload {
+  readonly sessionId: string
+  readonly requestId: string
+  readonly questionId: string
+  readonly question: string
+  readonly options: QuestionRequest['questions'][number]['options']
+  readonly request: QuestionRequest
+}
+
+interface ApprovalResponsePayload {
+  readonly requestId: string
+  readonly response: ApprovalResponse
+}
+
+interface QuestionResponsePayload {
+  readonly requestId: string
+  readonly answers: QuestionResult
+}
 
 // Expose window.electron (ipcRenderer, webFrame, webUtils, process)
 exposeElectronAPI()
@@ -12,7 +50,7 @@ const lmcodeAPI = {
     workDir: string
     model?: string
     thinking?: string
-    permission?: string
+    permission?: 'yolo' | 'manual' | 'auto'
   }) => ipcRenderer.invoke('lmcode:createSession', opts),
 
   resumeSession: (id: string) =>
@@ -78,7 +116,7 @@ const lmcodeAPI = {
 
   getConfig: () => ipcRenderer.invoke('lmcode:getConfig'),
 
-  setConfig: (patch: any) => ipcRenderer.invoke('lmcode:setConfig', patch),
+  setConfig: (patch: LmcodeConfigPatch) => ipcRenderer.invoke('lmcode:setConfig', patch),
 
   // ── File operations ─────────────────────────────────────────────
 
@@ -95,24 +133,24 @@ const lmcodeAPI = {
 
   // ── Event listeners (main → renderer) ───────────────────────────
 
-  onSessionEvent: (callback: (event: any) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+  onSessionEvent: (callback: (event: SessionEventPayload) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: SessionEventPayload) => callback(data)
     ipcRenderer.on('lmcode:sessionEvent', handler)
     return () => {
       ipcRenderer.removeListener('lmcode:sessionEvent', handler)
     }
   },
 
-  onApprovalRequest: (callback: (data: any) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+  onApprovalRequest: (callback: (data: ApprovalRequestPayload) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: ApprovalRequestPayload) => callback(data)
     ipcRenderer.on('lmcode:approvalRequest', handler)
     return () => {
       ipcRenderer.removeListener('lmcode:approvalRequest', handler)
     }
   },
 
-  onQuestionRequest: (callback: (data: any) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data)
+  onQuestionRequest: (callback: (data: QuestionRequestPayload) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: QuestionRequestPayload) => callback(data)
     ipcRenderer.on('lmcode:questionRequest', handler)
     return () => {
       ipcRenderer.removeListener('lmcode:questionRequest', handler)
@@ -131,12 +169,12 @@ const lmcodeAPI = {
 
   // ── Approval / Question responses ───────────────────────────────
 
-  respondApproval: (response: { requestId: string; decision: string; scope?: string }) => {
-    ipcRenderer.send('lmcode:respondApproval', response)
+  respondApproval: (payload: ApprovalResponsePayload) => {
+    ipcRenderer.send('lmcode:respondApproval', payload)
   },
 
-  respondQuestion: (response: { requestId: string; answers: Record<string, string> }) => {
-    ipcRenderer.send('lmcode:respondQuestion', response)
+  respondQuestion: (payload: QuestionResponsePayload) => {
+    ipcRenderer.send('lmcode:respondQuestion', payload)
   },
 
   // ── Memory ──────────────────────────────────────────────────────

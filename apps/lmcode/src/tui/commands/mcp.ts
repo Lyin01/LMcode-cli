@@ -18,6 +18,7 @@ import chalk from 'chalk';
 
 import { getDataDir } from '#/utils/paths';
 import type { ColorPalette } from '#/tui/theme/colors';
+import { printableChar } from '#/tui/utils/printable-key';
 import { SELECT_POINTER } from '../constant/symbols';
 import type { SlashCommandHost } from './dispatch';
 
@@ -451,7 +452,8 @@ class McpPickerComponent extends Container implements Focusable {
       this.selectedIndex = this.nextSelectable(this.selectedIndex);
       return;
     }
-    if (data === 'd' || data === 'D') {
+    const key = printableChar(data).toLowerCase();
+    if (key === 'd') {
       const row = this.rows[this.selectedIndex];
       if (row && row.kind === 'installed' && row.status && row.status !== '__section' && row.status !== '__empty') {
         this.onDelete(row);

@@ -243,16 +243,6 @@ describe('CronCreateTool', () => {
     expect(manager.store.list()).toHaveLength(0);
   });
 
-  it('documents empty-prompt handling as a loop-layer concern', () => {
-    // zod's `.min(1)` on `prompt` lives in the input schema, which
-    // the loop's AJV validator enforces before `resolveExecution` is
-    // ever invoked. The tool itself does not re-check that — see the
-    // module header for the rationale. This test exists as
-    // documentation rather than as a real assertion, so the rationale
-    // is co-located with the test list called out in the spec.
-    expect(true).toBe(true);
-  });
-
   describe('whitespace normalization', () => {
     it('normalizes newline-separated cron fields to single spaces in the store', async () => {
       const { manager, tool } = makeHarness();

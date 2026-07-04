@@ -1,6 +1,11 @@
 import { useEffect } from 'react'
 import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
+import type {
+  ApprovalRequestPayload,
+  QuestionRequestPayload,
+  SessionEventPayload,
+} from '@/types'
 
 export function useEvents() {
   const handleEvent = useSessionStore((s) => s.handleEvent)
@@ -10,10 +15,8 @@ export function useEvents() {
   const addOrUpdateTask = useTaskStore((s) => s.addOrUpdateTask)
 
   useEffect(() => {
-    const unsubEvent = window.lmcodeAPI.onSessionEvent((payload: any) => {
-      const sessionId = payload?.sessionId
-      const event = payload?.event
-      if (!sessionId || !event) return
+    const unsubEvent = window.lmcodeAPI.onSessionEvent((payload: SessionEventPayload) => {
+      const { sessionId, event } = payload
 
       // Forward the actual Event (not the {sessionId, event} envelope) to the
       // session store for chat/message rendering.
@@ -29,11 +32,11 @@ export function useEvents() {
       }
     })
 
-    const unsubApproval = window.lmcodeAPI.onApprovalRequest((request: any) => {
+    const unsubApproval = window.lmcodeAPI.onApprovalRequest((request: ApprovalRequestPayload) => {
       setPendingApproval(request)
     })
 
-    const unsubQuestion = window.lmcodeAPI.onQuestionRequest((request: any) => {
+    const unsubQuestion = window.lmcodeAPI.onQuestionRequest((request: QuestionRequestPayload) => {
       setPendingQuestion(request)
     })
 

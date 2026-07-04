@@ -44,7 +44,7 @@ export class CompactionComponent extends Container {
     this.headerText = new Text(this.buildHeader(), 0, 0);
     this.addChild(this.headerText);
     if (instruction !== undefined) {
-      this.addChild(new Text(chalk.dim(`  ${instruction}`), 0, 0));
+      this.addChild(new Text(chalk.hex(this.colors.textDim)(`  ${instruction}`), 0, 0));
     }
 
     this.startBlink();
@@ -78,7 +78,9 @@ export class CompactionComponent extends Container {
       const label = chalk.hex(this.colors.success).bold('压缩完成');
       const detail =
         this.tokensBefore !== undefined && this.tokensAfter !== undefined
-          ? chalk.dim(` (${String(this.tokensBefore)} → ${String(this.tokensAfter)} token)`)
+          ? chalk.hex(this.colors.textDim)(
+            ` (${String(this.tokensBefore)} → ${String(this.tokensAfter)} token)`,
+          )
           : '';
       return `${bullet}${label}${detail}`;
     }

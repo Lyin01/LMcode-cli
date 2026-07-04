@@ -1,5 +1,5 @@
 /**
- * Scream host and device identity header factories.
+ * LMcode host and device identity header factories.
  *
  * The caller owns the host identity (product name + host app version)
  * and the `homeDir` where the stable device id is stored. This module
@@ -35,11 +35,14 @@ export interface LmcodeIdentityOptions extends LmcodeHostIdentity {
   readonly homeDir: string;
 }
 
-export interface CreateScreamDeviceIdOptions {}
+export interface CreateLmcodeDeviceIdOptions {}
+
+/** @deprecated Use CreateLmcodeDeviceIdOptions. */
+export type CreateScreamDeviceIdOptions = CreateLmcodeDeviceIdOptions;
 
 export function createLmcodeDeviceId(
   homeDir: string,
-  _options: CreateScreamDeviceIdOptions = {},
+  _options: CreateLmcodeDeviceIdOptions = {},
 ): string {
   const deviceIdPath = join(homeDir, 'device_id');
   if (existsSync(deviceIdPath)) {
@@ -101,7 +104,7 @@ export function createLmcodeDefaultHeaders(options: LmcodeIdentityOptions): Reco
 
 export function assertLmcodeHostIdentity(identity: LmcodeHostIdentity | undefined): LmcodeHostIdentity {
   if (identity === undefined) {
-    throw new Error('Scream host identity is required. Pass the host product name and version.');
+    throw new Error('LMcode host identity is required. Pass the host product name and version.');
   }
   requiredAsciiHeader(identity.userAgentProduct, 'LMcode identity product');
   requiredAsciiHeader(identity.version, 'LMcode identity version');

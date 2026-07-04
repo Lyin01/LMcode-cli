@@ -34,7 +34,14 @@ export function createPermissionDecisionPolicies(agent: Agent): readonly Permiss
     new PlanModeGuardDenyPermissionPolicy(agent),
     // User-configured deny rule matches → deny.
     new UserConfiguredDenyPermissionPolicy(agent),
-    // auto mode → approve (any auto-mode block must be a deny rule above this).
+    // Hard file-access boundaries run before auto/session/user allow rules; only yolo bypasses them.
+    // Access touches a sensitive file (.env, SSH key, credentials) → ask (skipped in yolo).
+    new SensitiveFileAccessAskPermissionPolicy(agent),
+    // Access touches .git or a git control-dir path → ask (skipped in yolo).
+    new GitControlPathAccessAskPermissionPolicy(agent),
+    // Write target is outside cwd → ask (skipped in yolo). Reads and searches outside cwd are allowed without prompting.
+    new CwdOutsideFileWriteAskPermissionPolicy(agent),
+    // auto mode → approve after hard file-access boundaries.
     new AutoModeApprovePermissionPolicy(agent),
     // Approve-for-session memorized rule matches → approve. Runs before user-configured ask rules so an in-session grant beats a still-matching ask rule on later calls.
     new SessionApprovalHistoryPermissionPolicy(agent),
@@ -46,15 +53,9 @@ export function createPermissionDecisionPolicies(agent: Agent): readonly Permiss
     new ExitPlanModeReviewAskPermissionPolicy(agent),
     // EnterPlanMode, Write/Edit on the plan file, or ExitPlanMode with no actionable plan_review → approve.
     new PlanModeToolApprovePermissionPolicy(agent),
-    // yolo mode → approve (full access — must run before file-access policies).
+    // yolo mode → approve (full access, except explicit denies, plan review, and hard file-access checks above).
     new YoloModeApprovePermissionPolicy(agent),
-    // Access touches a sensitive file (.env, SSH key, credentials) → ask (skipped in yolo).
-    new SensitiveFileAccessAskPermissionPolicy(agent),
-    // Access touches .git or a git control-dir path → ask (skipped in yolo).
-    new GitControlPathAccessAskPermissionPolicy(agent),
-    // Write target is outside cwd → ask (skipped in yolo). Reads and searches outside cwd are allowed without prompting.
-    new CwdOutsideFileWriteAskPermissionPolicy(agent),
-    // WolfPack mode active → approve.
+    // WolfPack mode active → approve after hard file-access boundaries.
     new WolfPackModeApprovePermissionPolicy(agent),
     // Tool is in the default-approve list (read-only / UI helpers) → approve.
     new DefaultToolApprovePermissionPolicy(),

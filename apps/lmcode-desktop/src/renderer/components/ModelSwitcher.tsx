@@ -22,18 +22,18 @@ export function ModelSwitcher() {
     if (!config) return
     const entries: ModelEntry[] = []
 
-    if (config.models && typeof config.models === 'object') {
-      for (const [id, alias] of Object.entries(config.models as Record<string, any>)) {
+    if (config.models) {
+      for (const [id, alias] of Object.entries(config.models)) {
         entries.push({
           id,
-          label: alias.displayName || alias.model || id,
-          provider: alias.provider || '',
+          label: alias.displayName ?? alias.model ?? id,
+          provider: alias.provider,
         })
       }
     }
 
-    if (entries.length === 0 && config.providers && typeof config.providers === 'object') {
-      for (const [providerId, provider] of Object.entries(config.providers as Record<string, any>)) {
+    if (entries.length === 0 && config.providers) {
+      for (const [providerId, provider] of Object.entries(config.providers)) {
         if (provider.defaultModel) {
           entries.push({
             id: `${providerId}:${provider.defaultModel}`,
@@ -45,7 +45,7 @@ export function ModelSwitcher() {
     }
 
     if (config.defaultModel && !entries.some((e) => e.id === config.defaultModel)) {
-      entries.push({ id: config.defaultModel as string, label: config.defaultModel as string, provider: '' })
+      entries.push({ id: config.defaultModel, label: config.defaultModel, provider: '' })
     }
 
     entries.sort((a, b) => a.label.localeCompare(b.label))
@@ -68,7 +68,7 @@ export function ModelSwitcher() {
 
   // Before the first turn the session model is unknown; fall back to the
   // configured default so the composer shows the active model immediately.
-  const effectiveModel = model || (config?.defaultModel as string) || ''
+  const effectiveModel = model || config?.defaultModel || ''
 
   if (models.length === 0 && !effectiveModel) return null
 

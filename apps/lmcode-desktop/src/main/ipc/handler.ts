@@ -1,6 +1,7 @@
 import { app, ipcMain, BrowserWindow, Notification } from 'electron'
 import { LmcodeHarness } from '@lmcode-cli/lmcode-sdk'
 import { MemoryMemoStore } from '@lmcode/memory'
+import type { MemoryMemoSummary } from '@lmcode/memory'
 import type {
   Session,
   Event,
@@ -10,6 +11,8 @@ import type {
   QuestionResult,
   SessionSummary,
   ResumedSessionState,
+  LmcodeConfig,
+  LmcodeConfigPatch,
 } from '@lmcode-cli/lmcode-sdk'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
@@ -18,6 +21,11 @@ import fs from 'node:fs'
 interface SessionEntry {
   session: Session
   unsubscribeEvent: () => void
+}
+
+interface BackgroundTaskSession extends Session {
+  stopBackground?: (input: { taskId: string }) => Promise<void> | void
+  getBackgroundOutput?: (input: { taskId: string }) => Promise<string> | string
 }
 
 const activeSessions = new Map<string, SessionEntry>()
@@ -88,6 +96,7 @@ function setupSessionListeners(session: Session, mainWindow: BrowserWindow): voi
         mainWindow.webContents.send('lmcode:approvalRequest', {
           sessionId: session.id,
           requestId,
+          ...request,
           request,
         })
       } else {
@@ -104,9 +113,13 @@ function setupSessionListeners(session: Session, mainWindow: BrowserWindow): voi
       pendingQuestions.set(requestId, { resolve, reject })
 
       if (!mainWindow.isDestroyed()) {
+        const firstQuestion = request.questions[0]
         mainWindow.webContents.send('lmcode:questionRequest', {
           sessionId: session.id,
           requestId,
+          questionId: '0',
+          question: firstQuestion?.question ?? '',
+          options: firstQuestion?.options ?? [],
           request,
         })
       } else {
@@ -293,12 +306,12 @@ export function registerAllHandlers(
 
   // ── Config ──────────────────────────────────────────────────────
 
-  ipcMain.handle('lmcode:getConfig', async (): Promise<unknown> => {
+  ipcMain.handle('lmcode:getConfig', async (): Promise<LmcodeConfig> => {
     return harness.getConfig()
   })
 
-  ipcMain.handle('lmcode:setConfig', async (_event, patch: unknown): Promise<unknown> => {
-    return harness.setConfig(patch as any)
+  ipcMain.handle('lmcode:setConfig', async (_event, patch: LmcodeConfigPatch): Promise<LmcodeConfig> => {
+    return harness.setConfig(patch)
   })
 
   // ── File operations ─────────────────────────────────────────────
@@ -323,25 +336,23 @@ export function registerAllHandlers(
   // ── Approval / Question responses (fire-and-forget from renderer) ─
 
   ipcMain.on('lmcode:respondApproval', (_event, payload: {
-    sessionId: string
     requestId: string
-    decision: any
+    response: ApprovalResponse
   }) => {
     const pending = pendingApprovals.get(payload.requestId)
     if (pending) {
-      pending.resolve(payload.decision as ApprovalResponse)
+      pending.resolve(payload.response)
       pendingApprovals.delete(payload.requestId)
     }
   })
 
   ipcMain.on('lmcode:respondQuestion', (_event, payload: {
-    sessionId: string
     requestId: string
-    answers: any
+    answers: QuestionResult
   }) => {
     const pending = pendingQuestions.get(payload.requestId)
     if (pending) {
-      pending.resolve(payload.answers as QuestionResult)
+      pending.resolve(payload.answers)
       pendingQuestions.delete(payload.requestId)
     }
   })
@@ -358,14 +369,14 @@ export function registerAllHandlers(
   // shared config, so the desktop sees the memories the CLI recorded.
   const memoryStore = new MemoryMemoStore(dirname(harness.configPath))
 
-  ipcMain.handle('lmcode:listMemories', async (): Promise<any[]> => {
+  ipcMain.handle('lmcode:listMemories', async (): Promise<MemoryMemoSummary[]> => {
     const result = await memoryStore.list({ limit: 100 })
-    return result.memos as any[]
+    return result.memos
   })
 
-  ipcMain.handle('lmcode:searchMemories', async (_event, query: string): Promise<any[]> => {
+  ipcMain.handle('lmcode:searchMemories', async (_event, query: string): Promise<MemoryMemoSummary[]> => {
     const result = await memoryStore.list({ search: query, limit: 20 })
-    return result.memos as any[]
+    return result.memos
   })
 
   ipcMain.handle('lmcode:deleteMemory', async (_event, id: string): Promise<void> => {
@@ -377,7 +388,7 @@ export function registerAllHandlers(
   ipcMain.handle('lmcode:stopTask', async (_event, taskId: string): Promise<void> => {
     for (const [_sid, entry] of activeSessions) {
       try {
-        await (entry.session as any).stopBackground?.({ taskId })
+        await (entry.session as BackgroundTaskSession).stopBackground?.({ taskId })
         return
       } catch {
         // Session doesn't support this method
@@ -389,8 +400,8 @@ export function registerAllHandlers(
   ipcMain.handle('lmcode:getTaskOutput', async (_event, taskId: string): Promise<string> => {
     for (const [_sid, entry] of activeSessions) {
       try {
-        const output = (entry.session as any).getBackgroundOutput?.({ taskId })
-        if (output !== undefined) return String(output)
+        const output = await (entry.session as BackgroundTaskSession).getBackgroundOutput?.({ taskId })
+        if (output !== undefined) return output
       } catch {
         // Session doesn't support this method
       }

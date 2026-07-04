@@ -50,6 +50,7 @@ export class TruncatedOutputComponent implements Component {
   private readonly expanded: boolean;
   private readonly maxLines: number;
   private readonly hintFormatter: ((remaining: number) => string) | undefined;
+  private readonly colors: ColorPalette;
 
   constructor(
     output: string,
@@ -65,7 +66,8 @@ export class TruncatedOutputComponent implements Component {
     this.expanded = options.expanded;
     this.maxLines = options.maxLines ?? PREVIEW_LINES;
     this.hintFormatter = options.hintFormatter;
-    const tint = options.isError ? chalk.hex(options.colors.error) : chalk.dim;
+    this.colors = options.colors;
+    const tint = options.isError ? chalk.hex(options.colors.error) : chalk.hex(options.colors.textDim);
     const cleaned = trimTrailingEmptyLines(output.split('\n')).join('\n');
     const truncated =
       options.maxBytes === undefined
@@ -90,7 +92,7 @@ export class TruncatedOutputComponent implements Component {
     const hint = this.hintFormatter
       ? this.hintFormatter(remaining)
       : `... (${String(remaining)} more lines, ctrl+o to expand)`;
-    return [...shown, chalk.dim(hint)];
+    return [...shown, chalk.hex(this.colors.textDim)(hint)];
   }
 }
 

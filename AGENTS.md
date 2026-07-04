@@ -335,7 +335,7 @@ ScreamCode 内置了 MCP 客户端。Agent 可以通过模型上下文协议（M
 - **状态机**：`packages/agent-core/src/agent/wolfpack/index.ts` —— `WolfPackMode`（enter / exit / restoreEnter / isActive）
 - **注入器**：`packages/agent-core/src/agent/injection/wolfpack.ts` —— `WolfPackModeInjector`，在进入/退出时注入使用说明
 - **工具**：`packages/agent-core/src/tools/builtin/collaboration/wolfpack.ts` —— `WolfPackTool`，运行时由 `wolfpackMode.isActive` 控制
-- **权限策略**：`packages/agent-core/src/agent/permission/policies/wolfpack-mode-approve.ts` —— WolfPack 激活时自动批准所有工具
+- **权限策略**：`packages/agent-core/src/agent/permission/policies/wolfpack-mode-approve.ts` —— WolfPack 激活时自动批准普通工具；敏感文件、Git 控制路径和 cwd 外写入仍会优先触发确认，只有 yolo 模式绕过这些硬边界
 - **记录**：`wolfpack.enter` / `wolfpack.exit` 用于会话重放恢复
 - **页脚徽章**：激活时以品牌蓝色显示 `wolfpack`
 

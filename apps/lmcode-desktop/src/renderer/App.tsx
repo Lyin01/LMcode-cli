@@ -13,6 +13,7 @@ import { TasksPanel } from '@/components/TasksPanel'
 import { ExtensionsPanel } from '@/components/ExtensionsPanel'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
 import { historyToMessages } from '@/lib/history'
+import type { SessionInfo } from '@/types'
 
 export default function App() {
   const loadConfig = useConfigStore((s) => s.loadConfig)
@@ -81,7 +82,7 @@ export default function App() {
     ;(async () => {
       try {
         const rawSessions = await window.lmcodeAPI.listSessions()
-        const mapped: import('@/types').SessionInfo[] = (rawSessions as any[]).map((s) => ({
+        const mapped: SessionInfo[] = rawSessions.map((s) => ({
           id: s.id,
           title: s.title,
           workDir: s.workDir,

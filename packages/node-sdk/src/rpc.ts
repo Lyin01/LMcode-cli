@@ -13,8 +13,10 @@ import {
   type OAuthTokenProviderResolver,
   type QuestionRequest,
   type QuestionResult,
+  type GetGoalResult,
+  type GoalSnapshotData,
+  type RPCMethods,
   type SDKAPI,
-  type SDKRPCClient,
   type SessionMeta,
   type ToolCallRequest,
   type ToolCallResponse,
@@ -130,7 +132,7 @@ export interface RemoveMcpServerRpcInput extends SessionIdRpcInput {
   readonly name: string;
 }
 
-type ResolvedCoreAPI = Awaited<ReturnType<SDKRPCClient>>;
+type ResolvedCoreAPI = RPCMethods<CoreAPI>;
 
 export class SDKRpcClient {
   readonly core: LmcodeCore;
@@ -307,7 +309,7 @@ export class SDKRpcClient {
     });
   }
 
-  async createGoal(input: CreateGoalRpcInput): Promise<import('@lmcode-cli/agent-core').GoalSnapshotData> {
+  async createGoal(input: CreateGoalRpcInput): Promise<GoalSnapshotData> {
     const rpc = await this.getRpc();
     return rpc.createGoal({
       sessionId: input.sessionId,
@@ -318,7 +320,7 @@ export class SDKRpcClient {
     });
   }
 
-  async updateGoalStatus(input: UpdateGoalStatusRpcInput): Promise<import('@lmcode-cli/agent-core').GoalSnapshotData | null> {
+  async updateGoalStatus(input: UpdateGoalStatusRpcInput): Promise<GoalSnapshotData | null> {
     const rpc = await this.getRpc();
     return rpc.updateGoalStatus({
       sessionId: input.sessionId,
@@ -327,7 +329,7 @@ export class SDKRpcClient {
     });
   }
 
-  async cancelGoal(input: SessionIdRpcInput): Promise<import('@lmcode-cli/agent-core').GoalSnapshotData | null> {
+  async cancelGoal(input: SessionIdRpcInput): Promise<GoalSnapshotData | null> {
     const rpc = await this.getRpc();
     return rpc.cancelGoal({
       sessionId: input.sessionId,
@@ -335,7 +337,7 @@ export class SDKRpcClient {
     });
   }
 
-  async getGoal(input: SessionIdRpcInput): Promise<import('@lmcode-cli/agent-core').GetGoalResult> {
+  async getGoal(input: SessionIdRpcInput): Promise<GetGoalResult> {
     const rpc = await this.getRpc();
     return rpc.getGoal({
       sessionId: input.sessionId,
@@ -343,7 +345,7 @@ export class SDKRpcClient {
     });
   }
 
-  async setGoalBudget(input: SetGoalBudgetRpcInput): Promise<import('@lmcode-cli/agent-core').GoalSnapshotData> {
+  async setGoalBudget(input: SetGoalBudgetRpcInput): Promise<GoalSnapshotData> {
     const rpc = await this.getRpc();
     return rpc.setGoalBudget({
       sessionId: input.sessionId,

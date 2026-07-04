@@ -25,6 +25,7 @@ export interface PlanBoxOptions {
     readonly label: string;
     readonly colorHex: string;
   };
+  dimHex?: string;
 }
 
 export class PlanBoxComponent implements Component {
@@ -32,6 +33,7 @@ export class PlanBoxComponent implements Component {
   private readonly maxContentLines: number | undefined;
   private readonly expanded: boolean;
   private readonly status: PlanBoxOptions['status'];
+  private readonly dimHex: string;
   private cachedWidth: number | undefined;
   private cachedLines: string[] | undefined;
 
@@ -50,6 +52,7 @@ export class PlanBoxComponent implements Component {
     this.maxContentLines = opts?.maxContentLines;
     this.expanded = opts?.expanded ?? false;
     this.status = opts?.status;
+    this.dimHex = opts?.dimHex ?? borderHex;
   }
 
   invalidate(): void {
@@ -89,7 +92,7 @@ export class PlanBoxComponent implements Component {
       lines.push(indent + paint('│') + ' ' + raw + ' '.repeat(pad) + ' ' + paint('│'));
     }
     if (hiddenCount > 0) {
-      const footer = chalk.dim(
+      const footer = chalk.hex(this.dimHex)(
         `...（还有 ${String(hiddenCount)} 行，按 ctrl+e 展开）`,
       );
       const pad = Math.max(0, contentWidth - visibleWidth(footer));

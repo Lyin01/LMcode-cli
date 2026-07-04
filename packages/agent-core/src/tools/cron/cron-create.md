@@ -59,7 +59,7 @@ Anti-herd jitter is applied deterministically per task id:
   - Recurring: ideal fire time is shifted **forward** by an offset ≤ min(10% of the cron period, 15 minutes). A `*/5 * * * *` task can drift up to 30s; a `0 9 * * *` task can drift up to 15 minutes.
   - One-shot: only when the ideal fire lands on `:00` or `:30` of the hour, the fire is pulled **earlier** by ≤ 90 seconds. Other minutes pass through unchanged.
 
-Bench / acceptance tests can set `SCREAM_CRON_NO_JITTER=1` to disable jitter entirely.
+Bench / acceptance tests can set `LMCODE_CRON_NO_JITTER=1` to disable jitter entirely.
 
 ## One-shot vs recurring — when to pick which
 
@@ -67,8 +67,8 @@ Use `recurring: false` for "remind me at X" style requests, single deadlines, "i
 
 ## Session lifetime
 
-Cron tasks live in the current scream CLI session. When you exit, they
-are persisted under the session homedir; the next `scream resume` of the
+Cron tasks live in the current LMcode CLI session. When you exit, they
+are persisted under the session homedir; the next `lm resume` of the
 same session reloads them and the scheduler resumes from each task's
 `createdAt`. Fire times that fell during the offline window are
 collapsed into a single delivery via `coalescedCount` (and recurring

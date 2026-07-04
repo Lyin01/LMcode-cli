@@ -867,14 +867,15 @@ export class ToolCallComponent extends Container {
     const verb = isFinished ? '已使用' : isTruncated ? '已截断' : '正在使用';
     const keyArg = extractKeyArgument(toolCall.name, toolCall.args, this.workspaceDir);
     const decoded = decodeMcpToolName(toolCall.name);
+    const dim = chalk.hex(colors.textDim);
     const verbStyled = isTruncated
       ? chalk.hex(colors.error)(verb)
       : verb;
     const toolLabel =
       decoded !== null
-        ? `${chalk.hex(colors.primary).bold(decoded.toolName)}${chalk.dim(` · MCP/${decoded.serverName}`)}`
+        ? `${chalk.hex(colors.primary).bold(decoded.toolName)}${dim(` · MCP/${decoded.serverName}`)}`
         : chalk.hex(colors.primary).bold(toolCall.name);
-    const argStr = keyArg ? chalk.dim(` (${keyArg})`) : '';
+    const argStr = keyArg ? dim(` (${keyArg})`) : '';
     let chipStr = '';
     if (isFinished && result) chipStr = this.buildHeaderChip(result);
     return `${bullet}${verbStyled} ${toolLabel}${argStr}${chipStr}`;
@@ -885,7 +886,7 @@ export class ToolCallComponent extends Container {
     if (provider === undefined) return '';
     const text = provider(this.toolCall, result);
     if (text.length === 0) return '';
-    const tone = result.is_error ? chalk.hex(this.colors.error) : chalk.dim;
+    const tone = result.is_error ? chalk.hex(this.colors.error) : chalk.hex(this.colors.textDim);
     return tone(` · ${text}`);
   }
 
@@ -933,7 +934,7 @@ export class ToolCallComponent extends Container {
           const visible = chalk.hex(this.colors.warning).underline(url);
           return `\u001B]8;;${url}\u001B\\${visible}\u001B]8;;\u001B\\`;
         })
-        : chalk.dim(raw);
+        : chalk.hex(this.colors.textDim)(raw);
       PROGRESS_URL_RE.lastIndex = 0;
       this.addChild(new Text(styled, 2, 0));
     }
@@ -956,7 +957,7 @@ export class ToolCallComponent extends Container {
       return;
     }
 
-    const dim = chalk.dim;
+    const dim = chalk.hex(this.colors.textDim);
     const phaseChip = this.formatPhaseChip();
     const headerLabel =
       this.subagentAgentName !== undefined
@@ -1027,7 +1028,7 @@ export class ToolCallComponent extends Container {
    */
   private formatPhaseChip(): string {
     if (this.subagentPhase === undefined) return '';
-    const dim = chalk.dim;
+    const dim = chalk.hex(this.colors.textDim);
     const parts: string[] = [];
     switch (this.subagentPhase) {
       case 'spawning':
@@ -1106,13 +1107,14 @@ export class ToolCallComponent extends Container {
     const status = this.formatSingleSubagentStatus(phase);
     const description = str(this.toolCall.args['description']);
     const descriptionPlain = description.length > 0 ? ` (${description})` : '';
-    const descriptionText = descriptionPlain.length > 0 ? chalk.dim(descriptionPlain) : '';
+    const dim = chalk.hex(this.colors.textDim);
+    const descriptionText = descriptionPlain.length > 0 ? dim(descriptionPlain) : '';
     const statsText = this.formatSingleSubagentStatsText();
     if (isDone) {
       const success = chalk.hex(this.colors.success);
       return `${bullet}${success.bold(labelText)} ${success(`已完成${descriptionPlain}${statsText}`)}`;
     }
-    const stats = chalk.dim(statsText);
+    const stats = dim(statsText);
     return `${bullet}${label} ${status}${descriptionText}${stats}`;
   }
 
@@ -1184,9 +1186,10 @@ export class ToolCallComponent extends Container {
 
     const outputLine = tailNonEmptyLines(this.subagentText, 1).at(-1);
     const thinkingLine = tailNonEmptyLines(this.subagentThinkingText, 1).at(-1);
+    const dim = chalk.hex(this.colors.textDim);
     if (this.getDerivedSubagentPhase() !== 'done' && thinkingLine !== undefined) {
       this.addChild(
-        new PrefixedWrappedLine(`  ${chalk.dim('◌')} `, '    ', chalk.dim(thinkingLine)),
+        new PrefixedWrappedLine(`  ${dim('◌')} `, '    ', dim(thinkingLine)),
       );
     }
     if (outputLine !== undefined) {
@@ -1209,7 +1212,7 @@ export class ToolCallComponent extends Container {
   private formatSubToolActivity(verb: string, activity: SubToolActivity): string {
     const keyArg = extractKeyArgument(activity.name, activity.args, this.workspaceDir);
     const nameCol = chalk.hex(this.colors.primary)(activity.name);
-    const argCol = keyArg ? chalk.dim(` (${keyArg})`) : '';
+    const argCol = keyArg ? chalk.hex(this.colors.textDim)(` (${keyArg})`) : '';
     return `${verb} ${nameCol}${argCol}`;
   }
 
@@ -1222,7 +1225,7 @@ export class ToolCallComponent extends Container {
     if (this.result === undefined && this.toolCall.truncated === true) {
       this.addChild(
         new Text(
-          chalk.dim('Tool 调用参数因 max_tokens 被截断 — 调用未执行。'),
+          chalk.hex(this.colors.textDim)('Tool 调用参数因 max_tokens 被截断 — 调用未执行。'),
           2,
           0,
         ),
@@ -1247,14 +1250,15 @@ export class ToolCallComponent extends Container {
       const writeShouldCap = !this.expanded;
       const shown = writeShouldCap ? allLines.slice(0, COMMAND_PREVIEW_LINES) : allLines;
       const remaining = allLines.length - shown.length;
+      const dim = chalk.hex(this.colors.textDim);
       for (const [i, line] of shown.entries()) {
-        const lineNum = chalk.dim(String(i + 1).padStart(4) + '  ');
+        const lineNum = dim(String(i + 1).padStart(4) + '  ');
         this.addChild(new Text(lineNum + line, 2, 0));
       }
       if (writeShouldCap && remaining > 0) {
         this.addChild(
           new Text(
-            chalk.dim(
+            dim(
               `...（还有 ${String(remaining)} 行，共 ${String(allLines.length)} 行，按 ctrl+o 展开）`,
             ),
             2,
@@ -1280,7 +1284,7 @@ export class ToolCallComponent extends Container {
     // show the one-line description so the expanded card isn't blank.
     const description = str(this.toolCall.description);
     if (this.expanded && description.length > 0) {
-      this.addChild(new Text(chalk.dim(description), 2, 0));
+      this.addChild(new Text(chalk.hex(this.colors.textDim)(description), 2, 0));
     }
   }
 
@@ -1316,7 +1320,9 @@ export class ToolCallComponent extends Container {
           allLines.length > maxLines
             ? allLines.length - maxLines + i
             : i;
-        const lineNum = chalk.dim(String(originalLineNumber + 1).padStart(4) + '  ');
+        const lineNum = chalk.hex(this.colors.textDim)(
+          String(originalLineNumber + 1).padStart(4) + '  ',
+        );
         this.addChild(new Text(lineNum + line, 2, 0));
       }
       return;
@@ -1334,7 +1340,7 @@ export class ToolCallComponent extends Container {
       const progress = `正在准备变更${target}... ${formatByteSize(bytes)} · 已用 ${formatElapsed(
         elapsedSeconds,
       )}`;
-      this.addChild(new Text(chalk.dim(progress), 2, 0));
+      this.addChild(new Text(chalk.hex(this.colors.textDim)(progress), 2, 0));
       return;
     }
     if (name === 'Bash') {
@@ -1367,10 +1373,11 @@ export class ToolCallComponent extends Container {
           maxContentLines: this.computePlanBoxMaxContentLines(),
           expanded: this.planExpanded,
           status: this.resolvePlanBoxStatus(),
+          dimHex: this.colors.textDim,
         }),
       );
     } else {
-      this.addChild(new Text(chalk.dim(plan), 2, 0));
+      this.addChild(new Text(chalk.hex(this.colors.textDim)(plan), 2, 0));
     }
   }
 
@@ -1486,7 +1493,7 @@ export class ToolCallComponent extends Container {
     if (typeof parsed !== 'object' || parsed === null) return false;
 
     const colors = this.colors;
-    const dim = chalk.dim;
+    const dim = chalk.hex(colors.textDim);
     const accent = chalk.hex(colors.primary);
 
     const answers = (parsed as { answers?: unknown }).answers;

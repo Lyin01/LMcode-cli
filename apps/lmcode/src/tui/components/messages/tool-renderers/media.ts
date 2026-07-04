@@ -138,7 +138,7 @@ export const readMediaSummary: ResultRenderer = (toolCall, result, ctx) => {
   if (summary === null) return renderTruncated(toolCall, result, ctx);
   if (!ctx.expanded) return [];
 
-  const dim = chalk.dim;
+  const dim = chalk.hex(ctx.colors.textDim);
   const out: Component[] = [];
   if (summary.path !== undefined) {
     out.push(new Text(`  ${dim(summary.path)}`, 0, 0));

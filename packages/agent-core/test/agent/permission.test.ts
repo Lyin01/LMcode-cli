@@ -395,11 +395,11 @@ describe('Permission auto mode', () => {
     },
   );
 
-  // Only manual still asks for outside-cwd writes. In yolo (Full Access) the
-  // YoloModeApprovePermissionPolicy runs before the cwd-outside check and
+  // Manual and auto still ask for outside-cwd writes. In yolo (Full Access)
+  // the YoloModeApprovePermissionPolicy runs before the cwd-outside check and
   // auto-approves — covered by the yolo Full Access test below.
   it.each(
-    (['manual'] as const).flatMap((mode) =>
+    (['manual', 'auto'] as const).flatMap((mode) =>
       [
         [mode, 'Write', { path: '/tmp/notes.md', content: 'x' }, 'write', 'write file'],
         [mode, 'Edit', { path: '/tmp/notes.md', old_string: 'a', new_string: 'b' }, 'edit', 'edit file'],
@@ -459,8 +459,6 @@ describe('Permission auto mode', () => {
   it.each([
     ['Read', { path: '/tmp/notes.md' }],
     ['ReadMediaFile', { path: '/tmp/image.png' }],
-    ['Write', { path: '/tmp/notes.md', content: 'x' }],
-    ['Edit', { path: '/tmp/notes.md', old_string: 'a', new_string: 'b' }],
   ] as const)('approves %s outside the cwd in auto mode', async (toolName, args) => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
@@ -515,6 +513,25 @@ describe('Permission auto mode', () => {
 
     expect(requestApproval).not.toHaveBeenCalled();
     
+  });
+
+  it('requests approval for sensitive files before auto mode approval', async () => {
+    const { manager, requestApproval } = makePermissionManager(async () => ({
+      decision: 'approved',
+    }));
+    manager.setMode('auto');
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_read_env_auto',
+          toolName: 'Read',
+          args: { path: '.env' },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
   });
 
   it('keeps explicit deny rules higher priority than yolo outside-workspace approval', async () => {
@@ -626,6 +643,31 @@ describe('Permission auto mode', () => {
   });
 });
 
+describe('Wolfpack permission mode', () => {
+  it('approves ordinary tools but still asks for hard file-access boundaries', async () => {
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { wolfpackActive: true },
+    );
+
+    await expect(manager.beforeToolCall(hookContext({ id: 'call_wolfpack_bash' }))).resolves
+      .toBeUndefined();
+    expect(requestApproval).not.toHaveBeenCalled();
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_wolfpack_outside_write',
+          toolName: 'Write',
+          args: { path: '/tmp/notes.md', content: 'x' },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('Permission policy chain', () => {
   it('keeps built-in policies in document order', () => {
     expect(createPermissionDecisionPolicies({} as Agent).map((policy) => policy.name)).toEqual([
@@ -633,6 +675,9 @@ describe('Permission policy chain', () => {
       'auto-mode-ask-user-question-deny',
       'plan-mode-guard-deny',
       'user-configured-deny',
+      'sensitive-file-access-ask',
+      'git-control-path-access-ask',
+      'cwd-outside-file-write-ask',
       'auto-mode-approve',
       'session-approval-history',
       'user-configured-ask',
@@ -640,9 +685,6 @@ describe('Permission policy chain', () => {
       'exit-plan-mode-review-ask',
       'plan-mode-tool-approve',
       'yolo-mode-approve',
-      'sensitive-file-access-ask',
-      'git-control-path-access-ask',
-      'cwd-outside-file-write-ask',
       'wolfpack-mode-approve',
       'default-tool-approve',
       'git-cwd-write-approve',
@@ -3189,6 +3231,7 @@ function makePermissionManager(
     readonly agentType?: Agent['type'];
     readonly hooks?: Agent['hooks'];
     readonly mode?: PermissionMode | undefined;
+    readonly wolfpackActive?: boolean | undefined;
   } = {},
 ): {
   manager: PermissionManager;
@@ -3216,6 +3259,11 @@ function makePermissionManager(
       },
       data: vi.fn(async () => null),
       exit: vi.fn(),
+    },
+    wolfpackMode: {
+      get isActive() {
+        return options.wolfpackActive ?? false;
+      },
     },
   } as unknown as Agent;
   manager = new PermissionManager(agent, options);

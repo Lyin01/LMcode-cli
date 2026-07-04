@@ -23,6 +23,7 @@ export type ThinkingRenderMode = 'live' | 'finalized';
 export class ThinkingComponent implements Component {
   private text: string;
   private color: string;
+  private dimColor: string;
   private showMarker: boolean;
   private mode: ThinkingRenderMode;
   private expanded = false;
@@ -46,6 +47,7 @@ export class ThinkingComponent implements Component {
   ) {
     this.text = text;
     this.color = colors.roleThinking;
+    this.dimColor = colors.textDim;
     this.showMarker = showMarker;
     this.mode = mode;
     this.ui = ui;
@@ -132,7 +134,8 @@ export class ThinkingComponent implements Component {
     const truncated = rendered.slice(0, 1 + THINKING_PREVIEW_LINES);
     const remaining = contentLines.length - THINKING_PREVIEW_LINES;
     truncated.push(
-      MESSAGE_INDENT + chalk.dim(`... (${String(remaining)} more lines, ctrl+o to expand)`),
+      MESSAGE_INDENT +
+      chalk.hex(this.dimColor)(`... (${String(remaining)} more lines, ctrl+o to expand)`),
     );
     this.cachedWidth = width;
     this.cachedLines = truncated;

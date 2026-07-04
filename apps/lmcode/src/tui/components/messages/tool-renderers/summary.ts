@@ -28,15 +28,16 @@ function withGlance(glance: GlanceFn | null): ResultRenderer {
   return (toolCall, result, ctx) => {
     if (result.is_error) return renderTruncated(toolCall, result, ctx);
 
+    const dim = chalk.hex(ctx.colors.textDim);
     const out: Component[] = [];
     if (glance !== null) {
       const line = glance(toolCall, result);
       if (line.length > 0) {
-        out.push(new Text(`  ${chalk.dim(line)}`, 0, 0));
+        out.push(new Text(`  ${dim(line)}`, 0, 0));
       }
     }
     if (ctx.expanded && result.output.length > 0) {
-      out.push(new Text(chalk.dim(result.output), 4, 0));
+      out.push(new Text(dim(result.output), 4, 0));
     }
     return out;
   };

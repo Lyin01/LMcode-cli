@@ -5,7 +5,7 @@ Thank you for your interest in contributing!
 ## Getting Started
 
 - Node.js >= 22.0.0
-- pnpm 10.33.0
+- pnpm 11.7.0
 
 ```bash
 pnpm install
@@ -23,9 +23,10 @@ pnpm test
 ## Project Structure
 
 - `apps/lmcode`: CLI / TUI application
-- `apps/vis`: Visual debugging tools
+- `apps/lmcode-desktop`: Desktop application
 - `packages/agent-core`: Agent engine
 - `packages/node-sdk`: Public TypeScript SDK
 - `packages/ltod`: LLM provider abstraction
 - `packages/jian`: Execution environment
-- `packages/oauth`: OAuth utilities
+- `packages/memory`: Memory storage and scoring
+- `packages/config`: Shared configuration and model aliases

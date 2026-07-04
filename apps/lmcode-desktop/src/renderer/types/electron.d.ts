@@ -1,4 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  Event,
+  LmcodeConfig,
+  LmcodeConfigPatch,
+  QuestionRequest,
+  QuestionResult,
+} from '@lmcode-cli/lmcode-sdk'
 
 interface SessionSummary {
   readonly id: string
@@ -31,6 +39,36 @@ interface MemorySummary {
   readonly recordedAt: number
   readonly projectDir: string
   readonly tags?: string[]
+}
+
+interface SessionEventPayload {
+  readonly sessionId: string
+  readonly event: Event
+}
+
+interface ApprovalRequestPayload extends ApprovalRequest {
+  readonly sessionId: string
+  readonly requestId: string
+  readonly request: ApprovalRequest
+}
+
+interface QuestionRequestPayload {
+  readonly sessionId: string
+  readonly requestId: string
+  readonly questionId: string
+  readonly question: string
+  readonly options: QuestionRequest['questions'][number]['options']
+  readonly request: QuestionRequest
+}
+
+interface ApprovalResponsePayload {
+  readonly requestId: string
+  readonly response: ApprovalResponse
+}
+
+interface QuestionResponsePayload {
+  readonly requestId: string
+  readonly answers: QuestionResult
 }
 
 interface BackgroundTaskInfo {
@@ -70,7 +108,7 @@ interface LmcodeAPI {
     workDir: string
     model?: string
     thinking?: string
-    permission?: string
+    permission?: 'yolo' | 'manual' | 'auto'
   }) => Promise<SessionSummary | undefined>
 
   resumeSession: (id: string) => Promise<{
@@ -110,9 +148,9 @@ interface LmcodeAPI {
   closeSession: (sessionId: string) => Promise<void>
 
   // Config
-  getConfig: () => Promise<any>
+  getConfig: () => Promise<LmcodeConfig>
 
-  setConfig: (patch: any) => Promise<any>
+  setConfig: (patch: LmcodeConfigPatch) => Promise<LmcodeConfig>
 
   // File operations
   readFileContent: (filePath: string) => Promise<string>
@@ -124,11 +162,11 @@ interface LmcodeAPI {
   getHomeDir: () => Promise<string>
 
   // Event listeners
-  onSessionEvent: (callback: (event: any) => void) => () => void
+  onSessionEvent: (callback: (event: SessionEventPayload) => void) => () => void
 
-  onApprovalRequest: (callback: (data: any) => void) => () => void
+  onApprovalRequest: (callback: (data: ApprovalRequestPayload) => void) => () => void
 
-  onQuestionRequest: (callback: (data: any) => void) => () => void
+  onQuestionRequest: (callback: (data: QuestionRequestPayload) => void) => () => void
 
   // Navigation events (from tray menu)
   onNavigate: (callback: (data: { route: string }) => void) => () => void
@@ -146,9 +184,9 @@ interface LmcodeAPI {
   getTaskOutput: (taskId: string) => Promise<string>
 
   // Approval/Question responses
-  respondApproval: (sessionId: string, decision: any) => void
+  respondApproval: (payload: ApprovalResponsePayload) => void
 
-  respondQuestion: (sessionId: string, answers: any) => void
+  respondQuestion: (payload: QuestionResponsePayload) => void
 
   // App control
   quit: () => void
@@ -159,3 +197,5 @@ declare global {
     lmcodeAPI: LmcodeAPI
   }
 }
+
+export {}

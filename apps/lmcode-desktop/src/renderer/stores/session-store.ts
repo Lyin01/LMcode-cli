@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import type { Message, SessionInfo, ToolCallInfo } from '@/types'
+import type {
+  ApprovalRequestPayload,
+  Message,
+  QuestionRequestPayload,
+  SessionInfo,
+  ToolCallInfo,
+} from '@/types'
 import { getStoredThinking } from '@/lib/thinking'
 import type {
   Event,
@@ -278,8 +284,8 @@ export interface SessionStore {
   contextTokens: number
   maxContextTokens: number
 
-  pendingApproval: any | null
-  pendingQuestion: any | null
+  pendingApproval: ApprovalRequestPayload | null
+  pendingQuestion: QuestionRequestPayload | null
 
   setSessions: (sessions: SessionInfo[]) => void
   selectSession: (id: string) => void
@@ -296,8 +302,8 @@ export interface SessionStore {
   /** True if the given session is streaming, whether it's in view or backgrounded. */
   isSessionStreaming: (id: string) => boolean
 
-  setPendingApproval: (req: any | null) => void
-  setPendingQuestion: (req: any | null) => void
+  setPendingApproval: (req: ApprovalRequestPayload | null) => void
+  setPendingQuestion: (req: QuestionRequestPayload | null) => void
 }
 
 function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): SessionInfo {

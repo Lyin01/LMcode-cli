@@ -11,6 +11,10 @@ interface ComposerProps {
   autoFocus?: boolean
 }
 
+interface ElectronFile extends File {
+  readonly path?: string
+}
+
 export function Composer({ autoFocus }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -48,7 +52,7 @@ export function Composer({ autoFocus }: ComposerProps) {
   // ── Attach a file (shared by drop + file picker) ───────────────────
   const attachFile = useCallback(
     async (file: File) => {
-      const filePath = (file as any).path as string | undefined
+      const filePath = (file as ElectronFile).path
       if (!filePath) {
         insertAtCursor(`[拖入文件: ${file.name}]`)
         return

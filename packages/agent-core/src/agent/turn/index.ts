@@ -27,6 +27,9 @@ import { abortable, userCancellationReason } from '../../utils/abort';
 import { USER_PROMPT_ORIGIN, type PromptOrigin } from '../context';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { ToolCallDeduplicator } from './tool-dedup';
+import CRITIC_SYSTEM_PROMPT from './critic-system.md';
+import SPEC_CRITIC_SYSTEM_PROMPT from './spec-critic-system.md';
+import VISUAL_AUDITOR_SYSTEM_PROMPT from './visual-auditor-system.md';
 import { resolvePathAccessPath } from '../../tools/policies/path-access';
 import { validateFileSyntaxWithScreenshots } from '../../utils/self-healing';
 
@@ -71,22 +74,6 @@ const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
 const SPEC_CRITIC_MAX_REQUEST_CHARS = 6_000;
 const SPEC_CRITIC_MAX_RESPONSE_CHARS = 4_000;
 const SPEC_CRITIC_MAX_FILES = 30;
-
-/** System prompt for the one-shot spec-consistency review that runs on the
- *  utility model when a user-driven turn that changed files stops. */
-const SPEC_CRITIC_SYSTEM_PROMPT = [
-  'You are a specification-compliance reviewer for a coding agent.',
-  "Compare the user's original request with the agent's final response and",
-  'the list of files it changed. Identify EXPLICIT requirements from the',
-  'request that were NOT addressed. Only flag concrete, verifiable',
-  'omissions — never stylistic choices, reasonable interpretations, or',
-  'missing extra polish the user did not ask for. Requirements the agent',
-  'explicitly declined with a stated reason count as addressed.',
-  'If every explicit requirement was addressed, reply with exactly: SPEC_OK',
-  'Otherwise reply with: SPEC_MISSING: followed by one bullet per missed',
-  'requirement, quoting the request where possible.',
-  'Output text only. DO NOT CALL ANY TOOLS.',
-].join(' ');
 
 export class TurnFlow {
   private steerBuffer: BufferedSteer[] = [];
@@ -734,14 +721,14 @@ export class TurnFlow {
                   ctx.toolCall.name === 'Edit' ||
                   ctx.toolCall.name === 'MultiEdit')
               ) {
-                const args = ctx.args as any;
-                if (args && typeof args.path === 'string') {
+                const path = pathArgFromToolArgs(ctx.args);
+                if (path !== undefined) {
                   try {
                     const workspace = {
                       workspaceDir: this.agent.config.cwd,
                       additionalDirs: [],
                     };
-                    const resolvedPath = resolvePathAccessPath(args.path, {
+                    const resolvedPath = resolvePathAccessPath(path, {
                       jian: this.agent.jian,
                       workspace,
                       operation: 'write',
@@ -778,31 +765,14 @@ export class TurnFlow {
                             })
                             .join('\n');
 
-                          const visualSystemPrompt = `You are a visual quality inspector (LMM Visual Auditor) for generated graphics/animation code (HTML <canvas>, SVG, WebGL, etc.).
-The conversation above contains the user's actual request. Judge the rendered output against THAT request — do not assume any particular scene or subject.
-
-You are given keyframe screenshots captured from the running output at increasing timestamps, in order:
-${frameLines}
-
-Check for:
-1. Faithfulness to the user's request — correct subject, shapes, colours, motion and timing.
-2. Rendering/runtime failure — a frame that is blank or a single flat colour when content is expected.
-3. THE TERMINAL FRAME especially — once an animation has run to completion, look for artifacts that should NOT be there:
-   - ghost/residual shapes or hard-edged rectangles from a shadow or buffer that was never cleared;
-   - objects that should have disappeared but still persist;
-   - particles that keep spawning forever, leaving a static uniform "starfield"/field that never settles or fades out;
-   - an unexpectedly empty frame when remnants/residue were requested.
-4. Mechanical vs. organic appearance where realism was requested (e.g. perfectly straight or circular edges where irregular/natural ones were asked for).
-
-If you find ANY visual defect, reply starting with:
-VISUAL_REJECT: <specific bugs, naming the screenshot/timestamp>
-
-If the output faithfully matches the request with no artifacts, reply with:
-VISUAL_APPROVE`;
+                          const visualSystemPrompt = VISUAL_AUDITOR_SYSTEM_PROMPT.replace(
+                            '{{FRAME_LINES}}',
+                            frameLines,
+                          );
 
                           const { project: projectVisual } = await import('../context/projector');
                           const visualHistory = [...projectVisual(this.agent.context.history)];
-                          const contentParts: any[] = [
+                          const contentParts: ContentPart[] = [
                             {
                               type: 'text',
                               text: 'Here are the rendered keyframe screenshots, in order. Verify them against the user request above.',
@@ -824,18 +794,15 @@ VISUAL_APPROVE`;
                             [],
                             visualHistory,
                           );
-                          const visualText = visualResponse.message.content
-                            .filter((p: any) => p.type === 'text')
-                            .map((p: any) => p.text)
-                            .join('');
+                          const visualText = contentPartsText(visualResponse.message.content);
 
                           if (visualText.startsWith('VISUAL_REJECT:')) {
                             visualRejected = true;
                             visualFeedback = `Visual review rejected by LMM Auditor:\n${visualText.substring(14).trim()}`;
                           }
-                        } catch (err: any) {
+                        } catch (error) {
                           this.agent.log.warn('LMM Visual Auditor failed or timed out', {
-                            error: err.message,
+                            error: errorMessage(error),
                           });
                         }
                       }
@@ -847,20 +814,6 @@ VISUAL_APPROVE`;
                         };
                       } else {
                         // 2. Syntax and Visual passed! Now run Critic LLM review
-                        const systemPrompt = `You are a critical code reviewer (Critic Subagent).
-Your goal is to inspect the proposed code changes for bugs, edge cases, type safety issues, boundary condition violations, and potential runtime or performance issues.
-Analyze the code carefully and be extremely rigorous. Look for:
-1. Missing null/undefined checks, unhandled promise rejections, or TDZ (temporal dead zone) errors.
-2. Inefficient rendering or computation loops (e.g. O(N^2) pixel/noise operations inside animation loops).
-3. Logical inconsistencies or divergence from the user's instructions.
-4. Edge conditions, like what happens when progress variables reach 0 or 1.
-
-If the code has ANY issues, bugs, or improvements needed, reply starting with:
-REJECT: [list of bugs and explanations]
-
-If the code is fully robust, correct, and conforms to all requirements, reply with:
-APPROVE`;
-
                         const prompt = `File Path: ${resolvedPath}
 
 Please review the current content of this file:
@@ -880,14 +833,11 @@ Evaluate if this file meets high-quality software engineering standards and the 
 
                         const criticResponse = await this.agent.rawGenerate(
                           this.agent.config.provider,
-                          systemPrompt,
+                          CRITIC_SYSTEM_PROMPT,
                           [],
                           history,
                         );
-                        const criticText = criticResponse.message.content
-                          .filter((p: any) => p.type === 'text')
-                          .map((p: any) => p.text)
-                          .join('');
+                        const criticText = contentPartsText(criticResponse.message.content);
 
                         if (criticText.startsWith('REJECT:')) {
                           finalResult = {
@@ -897,10 +847,10 @@ Evaluate if this file meets high-quality software engineering standards and the 
                         }
                       }
                     }
-                  } catch (err: any) {
+                  } catch (error) {
                     this.agent.log.warn('Self-healing code validation skipped or failed internally', {
-                      error: err.message,
-                      path: args.path,
+                      error: errorMessage(error),
+                      path,
                     });
                   }
                 }
@@ -1157,6 +1107,23 @@ function summarizeToolArgs(args: unknown): string {
 
 function truncateArg(s: string): string {
   return s.length > 80 ? s.slice(0, 77) + '...' : s;
+}
+
+function pathArgFromToolArgs(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null) return undefined;
+  const record = args as Record<string, unknown>;
+  const path = record['path'] ?? record['file_path'];
+  return typeof path === 'string' && path.length > 0 ? path : undefined;
+}
+
+function contentPartsText(content: readonly ContentPart[]): string {
+  return content
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join('');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Text of the most recent assistant message that has any, for the spec critic. */

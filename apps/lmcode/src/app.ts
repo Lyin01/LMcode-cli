@@ -16,7 +16,7 @@ import {
 
 import { createProgram } from './cli/commands';
 
-import type { CLIOptions } from './cli/options';
+import type { CLIOptions, ValidatedOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
 import { runPrompt } from './cli/run-prompt';
 import { runShell } from './cli/run-shell';
@@ -28,7 +28,7 @@ import { getVersion } from './cli/version';
 import { initProcessName } from './utils/process/proctitle';
 
 export async function handleMainCommand(opts: CLIOptions, version: string): Promise<void> {
-  let validated: ReturnType<typeof validateOptions>;
+  let validated: ValidatedOptions;
   try {
     validated = validateOptions(opts);
   } catch (error) {

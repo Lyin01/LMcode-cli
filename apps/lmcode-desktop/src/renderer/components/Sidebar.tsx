@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
+import type { SessionInfo } from '@/types'
 
 interface SidebarProps {
   open: boolean
@@ -53,7 +54,7 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
 
   const refreshSessions = useCallback(async () => {
     const raw = await window.lmcodeAPI.listSessions()
-    const mapped = (raw as any[]).map((s: any) => ({
+    const mapped: SessionInfo[] = raw.map((s) => ({
       id: s.id,
       title: s.title,
       workDir: s.workDir,

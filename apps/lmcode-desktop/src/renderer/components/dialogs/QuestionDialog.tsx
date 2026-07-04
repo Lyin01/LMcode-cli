@@ -72,13 +72,13 @@ export function QuestionDialog() {
             {/* Options or text input */}
             {hasOptions ? (
               <div className="flex flex-col gap-1.5">
-                {pendingQuestion.options.map((opt: any, idx: number) => (
+                {pendingQuestion.options.map((opt, idx) => (
                   <button
                     key={idx}
-                    onClick={() => handleOptionSelect(opt.value ?? opt.label ?? opt)}
+                    onClick={() => handleOptionSelect(opt.label)}
                     className="rounded-lg border border-[var(--lm-border-strong)] px-3.5 py-2.5 text-left text-[14px] text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-accent)] hover:bg-[var(--lm-bg-hover)]"
                   >
-                    {opt.label ?? opt.value ?? opt}
+                    {opt.label}
                   </button>
                 ))}
               </div>

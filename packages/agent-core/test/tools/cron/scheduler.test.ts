@@ -1,6 +1,6 @@
 /**
  * Tests for `tools/cron/scheduler.ts`. Time is injected via
- * `ClockSources`; `SCREAM_CRON_NO_JITTER=1` pins fire counts on the
+ * `ClockSources`; `LMCODE_CRON_NO_JITTER=1` pins fire counts on the
  * recurring tests.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

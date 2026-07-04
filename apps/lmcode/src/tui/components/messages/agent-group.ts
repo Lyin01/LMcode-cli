@@ -154,7 +154,7 @@ export class AgentGroupComponent extends Container {
           : `${String(total)} 个 agent 已完成`;
       const totalTools = snapshots.reduce((acc, s) => acc + s.toolCount, 0);
       const totalTokens = snapshots.reduce((acc, s) => acc + s.tokens, 0);
-      const tail = formatHeaderTail(totalTools, totalTokens);
+      const tail = formatHeaderTail(totalTools, totalTokens, colors);
       return `${bullet}${chalk.hex(colors.primary).bold(headerLabel)}${tail}`;
     }
 
@@ -173,7 +173,7 @@ export class AgentGroupComponent extends Container {
 
   private appendLines(snap: ToolCallSubagentSnapshot, isLast: boolean): void {
     const colors = this.colors;
-    const dim = chalk.dim;
+    const dim = chalk.hex(colors.textDim);
 
     // First-level branch line.
     const branch1 = isLast ? '└─' : '├─';
@@ -182,7 +182,7 @@ export class AgentGroupComponent extends Container {
     const tail = formatLineTail(snap, colors);
     const namePart = chalk.hex(colors.primary)(agentType);
     const descPart = dim(`· ${desc}`);
-    const stats = formatStats(snap);
+    const stats = formatStats(snap, colors);
     const line1 = `  ${branch1} ${namePart} ${descPart}${stats}${tail}`;
     this.bodyContainer.addChild(new Text(line1, 0, 0));
 
@@ -216,28 +216,29 @@ export class AgentGroupComponent extends Container {
   }
 }
 
-function formatStats(snap: ToolCallSubagentSnapshot): string {
-  const dim = chalk.dim;
+function formatStats(snap: ToolCallSubagentSnapshot, colors: ColorPalette): string {
+  const dim = chalk.hex(colors.textDim);
   const tools = ` · ${String(snap.toolCount)} tool${snap.toolCount === 1 ? '' : 's'}`;
   const tokens = snap.tokens > 0 ? ` · ${formatTokens(snap.tokens)}` : '';
   return dim(`${tools}${tokens}`);
 }
 
 function formatLineTail(snap: ToolCallSubagentSnapshot, colors: ColorPalette): string {
+  const dim = chalk.hex(colors.textDim);
   if (snap.phase === 'done') {
-    return chalk.dim(' · ') + chalk.hex(colors.success)('✓ 已完成');
+    return dim(' · ') + chalk.hex(colors.success)('✓ 已完成');
   }
   if (snap.phase === 'failed') {
-    return chalk.dim(' · ') + chalk.hex(colors.error)('✗ 失败');
+    return dim(' · ') + chalk.hex(colors.error)('✗ 失败');
   }
   if (snap.phase === 'backgrounded') {
-    return chalk.dim(' · ◐ 后台运行');
+    return dim(' · ◐ 后台运行');
   }
   return '';
 }
 
-function formatHeaderTail(toolCount: number, tokens: number): string {
-  const dim = chalk.dim;
+function formatHeaderTail(toolCount: number, tokens: number, colors: ColorPalette): string {
+  const dim = chalk.hex(colors.textDim);
   const parts: string[] = [];
   if (toolCount > 0) parts.push(`${String(toolCount)} tool${toolCount === 1 ? '' : 's'}`);
   if (tokens > 0) parts.push(formatTokens(tokens));

@@ -13,7 +13,7 @@
  *   - translate a fired `CronTask` into a `steer(...)` call carrying a
  *     `CronJobOrigin` and emitting a `cron.fired` event;
  *   - mirror every store mutation to `<sessionDir>/cron/<id>.json`
- *     (via {@link addTask} / {@link removeTasks}) so that `scream resume`
+ *     (via {@link addTask} / {@link removeTasks}) so that `lm resume`
  *     can call {@link loadFromDisk} to rehydrate previously-scheduled
  *     tasks. When no `sessionDir` is supplied (subagents, tests,
  *     ephemeral sessions) the manager stays purely in-memory.
@@ -121,7 +121,7 @@ export class CronManager {
    * `sessionDir` was supplied — the manager then behaves as pure
    * in-memory, matching pre-persistence semantics. When defined,
    * `addTask` / `removeTasks` schedule fire-and-forget writes so a
-   * later `scream resume` can reload via {@link loadFromDisk}.
+   * later `lm resume` can reload via {@link loadFromDisk}.
    */
   private readonly persistStore: PerIdJsonStore<CronTask> | undefined;
 
@@ -217,7 +217,7 @@ export class CronManager {
 
   /**
    * Persist the scheduler's `lastFiredAt` cursor for a recurring task
-   * so a `scream resume` does not coalesce-replay an already-delivered
+   * so an `lm resume` does not coalesce-replay an already-delivered
    * fire. Called by the scheduler's `onAdvanceCursor` callback after a
    * successful recurring fire.
    *
@@ -238,7 +238,7 @@ export class CronManager {
 
   /**
    * Rehydrate the in-memory store from `<sessionDir>/cron/` after
-   * `scream resume`. No-op when persistence is not attached. Idempotent:
+   * `lm resume`. No-op when persistence is not attached. Idempotent:
    * clears the in-memory map and re-inserts every record on disk.
    *
    * Tasks are inserted via {@link SessionCronStore.adopt} so the

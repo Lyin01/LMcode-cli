@@ -80,6 +80,6 @@ export type { ToolCallIdPolicy } from './providers/tool-call-id';
 /**
  * Concrete provider adapters stay off the root barrel because their SDK type
  * graphs pollute downstream declaration bundles. Import them from subpaths:
- * `@lmcode-cli/ltod/providers/scream`,
+ * `@lmcode-cli/ltod/providers/lmcode`,
  * `@lmcode-cli/ltod/providers/openai-legacy`, etc.
  */

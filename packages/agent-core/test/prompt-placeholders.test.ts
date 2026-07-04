@@ -28,6 +28,7 @@ const TEMPLATED = new Set([
   'tools/builtin/file/read-media.md',
   'tools/builtin/shell/bash.md',
   'tools/builtin/collaboration/skill-tool.md',
+  'agent/turn/visual-auditor-system.md',
 ]);
 
 const mdFiles = globSync('**/*.md', { cwd: SRC })

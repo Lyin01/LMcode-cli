@@ -30,7 +30,7 @@ export class ShellExecutionComponent extends Container {
     super();
 
     if (options.showCommand === true) {
-      this.addCommandPreview(options.command ?? '', options.commandPreviewLines);
+      this.addCommandPreview(options.command ?? '', options.colors, options.commandPreviewLines);
     }
 
     if (options.result !== undefined) {
@@ -43,13 +43,18 @@ export class ShellExecutionComponent extends Container {
     }
   }
 
-  private addCommandPreview(command: string, previewLines: number | undefined): void {
+  private addCommandPreview(
+    command: string,
+    colors: ColorPalette,
+    previewLines: number | undefined,
+  ): void {
     if (command.length === 0) return;
     const allLines = command.split('\n');
     const lines = previewLines === undefined ? allLines : allLines.slice(0, previewLines);
+    const dim = chalk.hex(colors.textDim);
     for (const [i, line] of lines.entries()) {
       const prefix = i === 0 ? '$ ' : '  ';
-      this.addChild(new Text(chalk.dim(prefix + line), 2, 0));
+      this.addChild(new Text(dim(prefix + line), 2, 0));
     }
   }
 
