@@ -6,7 +6,7 @@ import {
 } from '@lmcode-cli/ltod';
 
 import { LmcodeError } from './classes';
-import { ErrorCodes, SCREAM_ERROR_INFO, type LmcodeErrorCode } from './codes';
+import { ErrorCodes, LMCODE_ERROR_INFO, type LmcodeErrorCode } from './codes';
 
 /**
  * Wire-safe payload of a Scream error.
@@ -35,7 +35,7 @@ export function isLmcodeError(error: unknown): error is LmcodeError {
  * Build a LmcodeErrorPayload directly from a code + message (no Error instance
  * needed). Use this for synthetic error events that are signaled, not thrown
  * -- e.g. "turn busy" or "compaction failed". `retryable` is filled from
- * SCREAM_ERROR_INFO so callers cannot drift out of sync with the registry.
+ * LMCODE_ERROR_INFO so callers cannot drift out of sync with the registry.
  */
 export function makeErrorPayload(
   code: LmcodeErrorCode,
@@ -47,7 +47,7 @@ export function makeErrorPayload(
     message,
     name: options?.name,
     details: options?.details,
-    retryable: SCREAM_ERROR_INFO[code].retryable,
+    retryable: LMCODE_ERROR_INFO[code].retryable,
   };
 }
 
@@ -70,7 +70,7 @@ export function toLmcodeErrorPayload(error: unknown): LmcodeErrorPayload {
       message: error.message,
       name: error.name,
       details: error.details,
-      retryable: SCREAM_ERROR_INFO[error.code].retryable,
+      retryable: LMCODE_ERROR_INFO[error.code].retryable,
     };
   }
 
@@ -89,7 +89,7 @@ export function toLmcodeErrorPayload(error: unknown): LmcodeErrorPayload {
         statusCode: error.statusCode,
         requestId: error.requestId,
       },
-      retryable: SCREAM_ERROR_INFO[code].retryable,
+      retryable: LMCODE_ERROR_INFO[code].retryable,
     };
   }
 
@@ -98,7 +98,7 @@ export function toLmcodeErrorPayload(error: unknown): LmcodeErrorPayload {
       code: ErrorCodes.PROVIDER_CONNECTION_ERROR,
       message: error.message,
       name: error.name,
-      retryable: SCREAM_ERROR_INFO[ErrorCodes.PROVIDER_CONNECTION_ERROR].retryable,
+      retryable: LMCODE_ERROR_INFO[ErrorCodes.PROVIDER_CONNECTION_ERROR].retryable,
     };
   }
 
@@ -107,7 +107,7 @@ export function toLmcodeErrorPayload(error: unknown): LmcodeErrorPayload {
       code: ErrorCodes.PROVIDER_API_ERROR,
       message: error.message,
       name: error.name,
-      retryable: SCREAM_ERROR_INFO[ErrorCodes.PROVIDER_API_ERROR].retryable,
+      retryable: LMCODE_ERROR_INFO[ErrorCodes.PROVIDER_API_ERROR].retryable,
     };
   }
 
@@ -116,14 +116,14 @@ export function toLmcodeErrorPayload(error: unknown): LmcodeErrorPayload {
       code: ErrorCodes.INTERNAL,
       message: error.message,
       name: error.name,
-      retryable: SCREAM_ERROR_INFO[ErrorCodes.INTERNAL].retryable,
+      retryable: LMCODE_ERROR_INFO[ErrorCodes.INTERNAL].retryable,
     };
   }
 
   return {
     code: ErrorCodes.INTERNAL,
     message: String(error),
-    retryable: SCREAM_ERROR_INFO[ErrorCodes.INTERNAL].retryable,
+    retryable: LMCODE_ERROR_INFO[ErrorCodes.INTERNAL].retryable,
   };
 }
 

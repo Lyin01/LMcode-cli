@@ -17,7 +17,7 @@
  *   LMCODE_EVAL_MAX_CONTEXT  optional max context size; default 262144.
  */
 
-import type { ScreamConfigPatch } from '@lmcode-cli/lmcode-sdk';
+import type { LmcodeConfigPatch } from '@lmcode-cli/lmcode-sdk';
 
 import type { ProviderSetup } from './runner';
 
@@ -92,7 +92,7 @@ export function resolveRealModel(env: NodeJS.ProcessEnv = process.env): RealMode
     return { skipReason: `invalid LMCODE_EVAL_MAX_CONTEXT "${maxContextRaw}"` };
   }
 
-  const config: ScreamConfigPatch = {
+  const config: LmcodeConfigPatch = {
     providers: {
       eval: {
         type: providerType,

@@ -68,12 +68,12 @@ kill_grace_period_ms = 2000
 agent_task_timeout_s = 900
 print_wait_ceiling_s = 3600
 
-[services.scream_cli_search]
+[services.lmcode_cli_search]
 base_url = "https://api.scream.com/coding/v1/search"
 api_key = "sk-search"
 custom_headers = { "X-Search" = "1" }
 
-[services.scream_cli_fetch]
+[services.lmcode_cli_fetch]
 base_url = "https://api.scream.com/coding/v1/fetch"
 api_key = "sk-fetch"
 
@@ -122,8 +122,8 @@ describe('SDK config TOML', () => {
       agentTaskTimeoutS: 900,
       printWaitCeilingS: 3600,
     });
-    expect(config.services?.screamCliSearch?.customHeaders).toEqual({ 'X-Search': '1' });
-    expect(config.services?.screamCliFetch?.apiKey).toBe('sk-fetch');
+    expect(config.services?.lmcodeCliSearch?.customHeaders).toEqual({ 'X-Search': '1' });
+    expect(config.services?.lmcodeCliFetch?.apiKey).toBe('sk-fetch');
 
     expect('theme' in config).toBe(false);
     expect(config.raw?.['theme']).toBe('dark');
@@ -179,7 +179,7 @@ maxContextSize = 128000
 displayName = "Camel Model"
 custom_model_field = "raw-only"
 
-[services.screamCliSearch]
+[services.lmcodeCliSearch]
 baseUrl = "https://example.test/search"
 apiKey = "sk-search"
 
@@ -200,7 +200,7 @@ maxRunningTasks = 2
       maxContextSize: 128000,
       displayName: 'Camel Model',
     });
-    expect(config.services?.screamCliSearch).toMatchObject({
+    expect(config.services?.lmcodeCliSearch).toMatchObject({
       baseUrl: 'https://example.test/search',
       apiKey: 'sk-search',
     });
@@ -232,7 +232,7 @@ describe('LmcodeHarness config API', () => {
         },
       },
       services: {
-        screamCliSearch: {
+        lmcodeCliSearch: {
           apiKey: 'sk-search-updated',
         },
       },
@@ -245,7 +245,7 @@ describe('LmcodeHarness config API', () => {
       apiKey: 'sk-updated',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });
-    expect(config.services?.screamCliSearch?.apiKey).toBe('sk-search-updated');
+    expect(config.services?.lmcodeCliSearch?.apiKey).toBe('sk-search-updated');
     expect(config.raw?.['theme']).toBe('dark');
 
     const text = await readFile(configPath, 'utf-8');

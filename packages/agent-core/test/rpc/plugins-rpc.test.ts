@@ -4,9 +4,9 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { ScreamCore } from '../../src/rpc/core-impl';
+import { LmcodeCore } from '../../src/rpc/core-impl';
 
-describe('ScreamCore plugin RPCs', () => {
+describe('LmcodeCore plugin RPCs', () => {
   it('install → list → setEnabled → remove round trip', async () => {
     const home = await mkdtemp(path.join(tmpdir(), 'lmcode-home-'));
     const pluginRoot = await mkdtemp(path.join(tmpdir(), 'plugin-'));
@@ -16,7 +16,7 @@ describe('ScreamCore plugin RPCs', () => {
       'utf8',
     );
 
-    const core = new ScreamCore(async () => ({}) as never, { homeDir: home });
+    const core = new LmcodeCore(async () => ({}) as never, { homeDir: home });
     await new Promise((r) => setImmediate(r));
 
     const installed = await core.installPlugin({ source: pluginRoot });
@@ -43,7 +43,7 @@ describe('ScreamCore plugin RPCs', () => {
       'utf8',
     );
 
-    const core = new ScreamCore(async () => ({}) as never, { homeDir: home });
+    const core = new LmcodeCore(async () => ({}) as never, { homeDir: home });
     await new Promise((r) => setImmediate(r));
 
     const installed = await core.installPlugin({
@@ -68,7 +68,7 @@ describe('ScreamCore plugin RPCs', () => {
       'utf8',
     );
 
-    const core = new ScreamCore(async () => ({}) as never, { homeDir: home });
+    const core = new LmcodeCore(async () => ({}) as never, { homeDir: home });
     await new Promise((r) => setImmediate(r));
 
     await core.installPlugin({ source: pluginRoot });
@@ -88,7 +88,7 @@ describe('ScreamCore plugin RPCs', () => {
     await mkdir(path.join(home, 'plugins'), { recursive: true });
     await writeFile(path.join(home, 'plugins', 'installed.json'), '{ not json', 'utf8');
 
-    const core = new ScreamCore(async () => ({}) as never, { homeDir: home });
+    const core = new LmcodeCore(async () => ({}) as never, { homeDir: home });
 
     // Driving an awaiting RPC first ensures the load promise has settled
     // and captured pluginsLoadError before the read RPCs run.
@@ -142,7 +142,7 @@ describe('ScreamCore plugin RPCs', () => {
       'utf8',
     );
 
-    const core = new ScreamCore(async () => ({}) as never, { homeDir: home });
+    const core = new LmcodeCore(async () => ({}) as never, { homeDir: home });
 
     await expect(core.listPlugins({})).resolves.toContainEqual(
       expect.objectContaining({ id: 'demo' }),

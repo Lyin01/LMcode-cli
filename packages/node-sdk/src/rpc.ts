@@ -1,7 +1,7 @@
 import {
   createRPC,
   ErrorCodes,
-  ScreamCore,
+  LmcodeCore,
   makeErrorPayload,
   resolveLmcodeHome,
   type AgentContextData,
@@ -29,8 +29,8 @@ import type {
   ExportSessionResult,
   ForkSessionInput,
   GetConfigOptions,
-  ScreamConfig,
-  ScreamConfigPatch,
+  LmcodeConfig,
+  LmcodeConfigPatch,
   ListSessionsOptions,
   McpServerInfo,
   McpStartupMetrics,
@@ -133,7 +133,7 @@ export interface RemoveMcpServerRpcInput extends SessionIdRpcInput {
 type ResolvedCoreAPI = Awaited<ReturnType<SDKRPCClient>>;
 
 export class SDKRpcClient {
-  readonly core: ScreamCore;
+  readonly core: LmcodeCore;
   interactiveAgentId = MAIN_AGENT_ID;
   private readonly ready: Promise<void>;
   private rpc: ResolvedCoreAPI | undefined;
@@ -148,7 +148,7 @@ export class SDKRpcClient {
       options.identity === undefined
         ? undefined
         : createLmcodeDefaultHeaders({ homeDir, ...options.identity });
-    this.core = new ScreamCore(coreRpc, {
+    this.core = new LmcodeCore(coreRpc, {
       homeDir: options.homeDir,
       configPath: options.configPath,
       lmcodeRequestHeaders,
@@ -229,9 +229,9 @@ export class SDKRpcClient {
     });
   }
 
-  async getConfig(input?: GetConfigOptions): Promise<ScreamConfig> {
+  async getConfig(input?: GetConfigOptions): Promise<LmcodeConfig> {
     const rpc = await this.getRpc();
-    return rpc.getScreamConfig(input ?? {});
+    return rpc.getGlobalConfig(input ?? {});
   }
 
   async getExperimentalFlags(): Promise<ExperimentalFlagMap> {
@@ -239,14 +239,14 @@ export class SDKRpcClient {
     return rpc.getExperimentalFlags({});
   }
 
-  async setConfig(input: ScreamConfigPatch): Promise<ScreamConfig> {
+  async setConfig(input: LmcodeConfigPatch): Promise<LmcodeConfig> {
     const rpc = await this.getRpc();
-    return rpc.setScreamConfig(input);
+    return rpc.setGlobalConfig(input);
   }
 
-  async removeProvider(providerId: string): Promise<ScreamConfig> {
+  async removeProvider(providerId: string): Promise<LmcodeConfig> {
     const rpc = await this.getRpc();
-    return rpc.removeScreamProvider({ providerId });
+    return rpc.removeProvider({ providerId });
   }
 
   async prompt(input: SessionPromptRpcInput): Promise<void> {

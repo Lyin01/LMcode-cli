@@ -13,11 +13,11 @@ import { TEST_IDENTITY } from './test-identity';
 const tempDirs: string[] = [];
 
 const LOG_ENV_KEYS = [
-  'SCREAM_LOG_LEVEL',
-  'SCREAM_LOG_GLOBAL_MAX_BYTES',
-  'SCREAM_LOG_GLOBAL_FILES',
-  'SCREAM_LOG_SESSION_MAX_BYTES',
-  'SCREAM_LOG_SESSION_FILES',
+  'LMCODE_LOG_LEVEL',
+  'LMCODE_LOG_GLOBAL_MAX_BYTES',
+  'LMCODE_LOG_GLOBAL_FILES',
+  'LMCODE_LOG_SESSION_MAX_BYTES',
+  'LMCODE_LOG_SESSION_FILES',
 ] as const;
 
 beforeEach(async () => {
@@ -225,9 +225,9 @@ describe('Local logging — harness integration', () => {
 
   it('default export includes rotated session log files without requiring active lmcode.log', async () => {
     const env = snapshotLogEnv();
-    process.env['SCREAM_LOG_LEVEL'] = 'warn';
-    process.env['SCREAM_LOG_SESSION_MAX_BYTES'] = '1024';
-    process.env['SCREAM_LOG_SESSION_FILES'] = '2';
+    process.env['LMCODE_LOG_LEVEL'] = 'warn';
+    process.env['LMCODE_LOG_SESSION_MAX_BYTES'] = '1024';
+    process.env['LMCODE_LOG_SESSION_FILES'] = '2';
     try {
       const homeDir = await makeTempDir('scream-log-home-');
       const workDir = await makeTempDir('scream-log-work-');
@@ -402,7 +402,7 @@ describe('Local logging — harness integration', () => {
   it('checks that an empty session log directory does not get a log file', async () => {
     // Sanity: if level is off, no log files should be created
     const env = snapshotLogEnv();
-    process.env['SCREAM_LOG_LEVEL'] = 'off';
+    process.env['LMCODE_LOG_LEVEL'] = 'off';
     try {
       const homeDir = await makeTempDir('scream-log-home-');
       const workDir = await makeTempDir('scream-log-work-');

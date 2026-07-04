@@ -5,13 +5,13 @@ import type { Jian } from '@lmcode-cli/jian';
 import { ErrorCodes, LmcodeError } from '#/errors';
 import { getRootLogger, log } from '#/logging/logger';
 import type { Logger, SessionLogHandle } from '#/logging/types';
-import type { ScreamConfig, SDKSessionRPC } from '#/rpc';
+import type { SDKSessionRPC } from '#/rpc';
 import { proxyWithExtraPayload } from '#/rpc/types';
 
 import { Agent, type AgentOptions, type AgentType } from '../agent';
 import { HookEngine, type HookDef } from './hooks';
 import type { PermissionManagerOptions, PermissionRule } from '../agent/permission';
-import { parseBooleanEnv, resolveConfigValue, type BackgroundConfig } from '../config';
+import { parseBooleanEnv, resolveConfigValue, type BackgroundConfig, type LmcodeConfig } from '../config';
 import { makeErrorPayload } from '../errors';
 import {
   McpConnectionManager,
@@ -41,7 +41,7 @@ import type { ToolServices } from '../tools/support/services';
 
 export interface SessionOptions {
   readonly jian: Jian;
-  readonly config?: ScreamConfig;
+  readonly config?: LmcodeConfig;
   readonly id?: string | undefined;
   readonly homedir: string;
   readonly lmcodeHomeDir?: string;

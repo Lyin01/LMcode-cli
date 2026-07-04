@@ -18,7 +18,7 @@ import {
   AGENT_WIRE_PROTOCOL_VERSION,
   InMemoryAgentRecordPersistence,
 } from '../../../src/agent/records';
-import type { ScreamConfig } from '../../../src/config';
+import type { LmcodeConfig } from '../../../src/config';
 import type { ExecutableToolResult } from '../../../src/loop';
 import type { Logger } from '../../../src/logging';
 import { ProviderManager } from '../../../src/session/provider-manager';
@@ -96,7 +96,7 @@ export interface TestAgentOptions {
   readonly type?: AgentOptions['type'];
   readonly permission?: AgentOptions['permission'];
   readonly providerManager?: ProviderManager;
-  readonly initialConfig?: ScreamConfig;
+  readonly initialConfig?: LmcodeConfig;
   readonly providerManagerOverrides?: Omit<ConstructorParameters<typeof ProviderManager>[0], 'config'>;
   readonly sessionId?: string;
   readonly subagentHost?: AgentOptions['subagentHost'];
@@ -155,7 +155,7 @@ export class AgentTestContext {
   readonly mockNextResponse = this.scriptedGenerate.mockNextResponse;
   readonly mockNextProviderResponse = this.scriptedGenerate.mockNextProviderResponse;
 
-  private lmcodeConfig: ScreamConfig;
+  private lmcodeConfig: LmcodeConfig;
 
   constructor(options: TestAgentOptions = {}) {
     this.options = options;
@@ -1036,15 +1036,15 @@ function configStateSnapshot(agent: Agent): ResumeStateSnapshot['config'] {
   };
 }
 
-function emptyConfig(): ScreamConfig {
+function emptyConfig(): LmcodeConfig {
   return configWithProvider({ providers: {} }, MOCK_PROVIDER, undefined);
 }
 
 function configWithProvider(
-  config: ScreamConfig,
+  config: LmcodeConfig,
   provider: ProviderConfig,
   modelCapabilities: ModelCapability | undefined,
-): ScreamConfig {
+): LmcodeConfig {
   const providerName = 'test-provider';
   const maxContextSize = modelCapabilities?.max_context_tokens;
   return {
@@ -1066,7 +1066,7 @@ function configWithProvider(
   };
 }
 
-function providerConfigForAlias(provider: ProviderConfig): ScreamConfig['providers'][string] {
+function providerConfigForAlias(provider: ProviderConfig): LmcodeConfig['providers'][string] {
   return {
     type: provider.type,
     apiKey: 'apiKey' in provider ? provider.apiKey : undefined,

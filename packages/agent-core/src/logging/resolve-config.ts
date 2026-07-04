@@ -19,20 +19,20 @@ export interface ResolveLoggingInput {
  * flux and reading it adds a startup-time failure surface. Users who need to
  * override the defaults set env vars:
  *
- *   SCREAM_LOG_LEVEL=debug
- *   SCREAM_LOG_GLOBAL_MAX_BYTES=... SCREAM_LOG_GLOBAL_FILES=...
- *   SCREAM_LOG_SESSION_MAX_BYTES=... SCREAM_LOG_SESSION_FILES=...
+ *   LMCODE_LOG_LEVEL=debug
+ *   LMCODE_LOG_GLOBAL_MAX_BYTES=... LMCODE_LOG_GLOBAL_FILES=...
+ *   LMCODE_LOG_SESSION_MAX_BYTES=... LMCODE_LOG_SESSION_FILES=...
  */
 export function resolveLoggingConfig(input: ResolveLoggingInput): LoggingConfig {
   const env = input.env ?? process.env;
   return {
-    level: parseLevel(env['SCREAM_LOG_LEVEL']) ?? DEFAULT_LOG_LEVEL,
+    level: parseLevel(env['LMCODE_LOG_LEVEL']) ?? DEFAULT_LOG_LEVEL,
     globalLogPath: resolveGlobalLogPath(input.homeDir),
-    globalMaxBytes: parsePositiveInt(env['SCREAM_LOG_GLOBAL_MAX_BYTES']) ?? DEFAULT_GLOBAL_MAX_BYTES,
-    globalFiles: parsePositiveInt(env['SCREAM_LOG_GLOBAL_FILES']) ?? DEFAULT_GLOBAL_FILES,
+    globalMaxBytes: parsePositiveInt(env['LMCODE_LOG_GLOBAL_MAX_BYTES']) ?? DEFAULT_GLOBAL_MAX_BYTES,
+    globalFiles: parsePositiveInt(env['LMCODE_LOG_GLOBAL_FILES']) ?? DEFAULT_GLOBAL_FILES,
     sessionMaxBytes:
-      parsePositiveInt(env['SCREAM_LOG_SESSION_MAX_BYTES']) ?? DEFAULT_SESSION_MAX_BYTES,
-    sessionFiles: parsePositiveInt(env['SCREAM_LOG_SESSION_FILES']) ?? DEFAULT_SESSION_FILES,
+      parsePositiveInt(env['LMCODE_LOG_SESSION_MAX_BYTES']) ?? DEFAULT_SESSION_MAX_BYTES,
+    sessionFiles: parsePositiveInt(env['LMCODE_LOG_SESSION_FILES']) ?? DEFAULT_SESSION_FILES,
   };
 }
 

@@ -2,11 +2,11 @@ import { getCoreVersion } from '#/version';
 
 import type { MCPToolDefinition, MCPToolResult } from './types';
 
-export const SCREAM_MCP_CLIENT_NAME = 'lmcode';
+export const LMCODE_MCP_CLIENT_NAME = 'lmcode';
 // Resolved from agent-core's package.json so MCP servers see the real version
 // in `initialize` (used for compatibility checks and debugging).
 // `getCoreVersion()` falls back to '0.0.0' if the package.json read fails.
-export const SCREAM_MCP_CLIENT_VERSION = getCoreVersion();
+export const LMCODE_MCP_CLIENT_VERSION = getCoreVersion();
 
 /**
  * Why-context attached when a runtime client notices its underlying transport

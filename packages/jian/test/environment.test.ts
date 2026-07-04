@@ -133,11 +133,11 @@ describe('detectEnvironment', () => {
 
   // ── Windows Git Bash probing ───────────────────────────────────────
 
-  it('uses SCREAM_SHELL_PATH override when set and the file exists', async () => {
+  it('uses LMCODE_SHELL_PATH override when set and the file exists', async () => {
     const env = await detectEnvironment(
       stubDeps({
         platform: 'win32',
-        env: { SCREAM_SHELL_PATH: 'D:\\custom\\bash.exe' },
+        env: { LMCODE_SHELL_PATH: 'D:\\custom\\bash.exe' },
         existingPaths: ['D:\\custom\\bash.exe', 'C:\\Program Files\\Git\\bin\\bash.exe'],
       }),
     );
@@ -198,7 +198,7 @@ describe('detectEnvironment', () => {
     const error = await detectEnvironment(
       stubDeps({
         platform: 'win32',
-        env: { SCREAM_SHELL_PATH: 'D:\\custom\\bash.exe' },
+        env: { LMCODE_SHELL_PATH: 'D:\\custom\\bash.exe' },
         existingPaths: [],
       }),
     ).then(

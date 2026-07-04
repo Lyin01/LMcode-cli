@@ -131,14 +131,14 @@ export const HookDefSchema = z
 
 export type HookDefConfig = z.infer<typeof HookDefSchema>;
 
-export const ScreamCliServiceConfigSchema = z.object({
+export const LmcodeCliServiceConfigSchema = z.object({
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
   oauth: OAuthRefSchema.optional(),
   customHeaders: StringRecordSchema.optional(),
 });
 
-export type ScreamCliServiceConfig = z.infer<typeof ScreamCliServiceConfigSchema>;
+export type LmcodeCliServiceConfig = z.infer<typeof LmcodeCliServiceConfigSchema>;
 
 export const DuckDuckGoConfigSchema = z.object({
   enabled: z.boolean().default(true),
@@ -147,8 +147,8 @@ export const DuckDuckGoConfigSchema = z.object({
 export type DuckDuckGoConfig = z.infer<typeof DuckDuckGoConfigSchema>;
 
 export const ServicesConfigSchema = z.object({
-  screamCliSearch: ScreamCliServiceConfigSchema.optional(),
-  screamCliFetch: ScreamCliServiceConfigSchema.optional(),
+  lmcodeCliSearch: LmcodeCliServiceConfigSchema.optional(),
+  lmcodeCliFetch: LmcodeCliServiceConfigSchema.optional(),
   duckduckgo: DuckDuckGoConfigSchema.optional(),
 });
 
@@ -204,7 +204,7 @@ export const McpServerConfigSchema = z.preprocess((raw) => {
 
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 
-export const ScreamConfigSchema = z.object({
+export const LmcodeConfigSchema = z.object({
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   defaultProvider: z.string().optional(),
   defaultModel: z.string().optional(),
@@ -230,7 +230,7 @@ export const ScreamConfigSchema = z.object({
   raw: z.record(z.string(), z.unknown()).optional(),
 });
 
-export type ScreamConfig = z.infer<typeof ScreamConfigSchema>;
+export type LmcodeConfig = z.infer<typeof LmcodeConfigSchema>;
 
 const ProviderConfigPatchSchema = ProviderConfigSchema.partial();
 const ModelAliasPatchSchema = ModelAliasSchema.partial();
@@ -238,15 +238,15 @@ const ThinkingConfigPatchSchema = ThinkingConfigSchema.partial();
 const PermissionConfigPatchSchema = PermissionConfigSchema.partial();
 const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
-const ScreamCliServiceConfigPatchSchema = ScreamCliServiceConfigSchema.partial();
+const LmcodeCliServiceConfigPatchSchema = LmcodeCliServiceConfigSchema.partial();
 const DuckDuckGoConfigPatchSchema = DuckDuckGoConfigSchema.partial();
 const ServicesConfigPatchSchema = z.object({
-  screamCliSearch: ScreamCliServiceConfigPatchSchema.optional(),
-  screamCliFetch: ScreamCliServiceConfigPatchSchema.optional(),
+  lmcodeCliSearch: LmcodeCliServiceConfigPatchSchema.optional(),
+  lmcodeCliFetch: LmcodeCliServiceConfigPatchSchema.optional(),
   duckduckgo: DuckDuckGoConfigPatchSchema.optional(),
 });
 
-export const ScreamConfigPatchSchema = z
+export const LmcodeConfigPatchSchema = z
   .object({
     providers: z.record(z.string(), ProviderConfigPatchSchema).optional(),
     defaultProvider: z.string().optional(),
@@ -271,17 +271,17 @@ export const ScreamConfigPatchSchema = z
   })
   .strict();
 
-export type ScreamConfigPatch = z.infer<typeof ScreamConfigPatchSchema>;
+export type LmcodeConfigPatch = z.infer<typeof LmcodeConfigPatchSchema>;
 
-export function getDefaultConfig(): ScreamConfig {
+export function getDefaultConfig(): LmcodeConfig {
   return {
     providers: {},
   };
 }
 
-export function validateConfig(config: unknown): ScreamConfig {
+export function validateConfig(config: unknown): LmcodeConfig {
   try {
-    return ScreamConfigSchema.parse(config);
+    return LmcodeConfigSchema.parse(config);
   } catch (error) {
     throw new LmcodeError(ErrorCodes.CONFIG_INVALID, `Invalid configuration: ${formatConfigValidationError(error)}`, {
       cause: error,

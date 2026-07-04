@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createRPC,
-  ScreamCore,
+  LmcodeCore,
   type CoreAPI,
   type SDKAPI,
 } from '../../src';
@@ -30,7 +30,7 @@ describe('HarnessAPI session model aliases', () => {
   let homeDir: string;
   let workDir: string;
   let configPath: string;
-  const cores: ScreamCore[] = [];
+  const cores: LmcodeCore[] = [];
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), 'lmcode-model-alias-'));
@@ -132,7 +132,7 @@ describe('HarnessAPI session model aliases', () => {
       model: 'lmcode/lmcode-for-coding',
     });
 
-    const updatedConfig = await rpc.setScreamConfig({
+    const updatedConfig = await rpc.setGlobalConfig({
       defaultModel: 'gpt-alias',
       providers: {
         openai: {
@@ -335,7 +335,7 @@ max_context_size = 1000000
 
   async function createTestRpc() {
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new ScreamCore(coreRpc, {
+    const core = new LmcodeCore(coreRpc, {
       homeDir,
       configPath,
     });

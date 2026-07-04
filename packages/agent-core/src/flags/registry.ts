@@ -4,22 +4,22 @@ import type { FlagDefinitionInput } from './types';
  * Experimental feature flags. Empty by default — there are no experimental features yet.
  *
  * To add one, append an entry and gate the feature with `flags.enabled('my-feature')`:
- *   { id: 'my-feature', env: 'SCREAM_CODE_EXPERIMENTAL_MY_FEATURE', default: false, surface: 'both' }
+ *   { id: 'my-feature', env: 'LMCODE_EXPERIMENTAL_MY_FEATURE', default: false, surface: 'both' }
  *
  * Keep the `as const satisfies` — it derives the literal `FlagId` union that gives `enabled()`
- * autocomplete and typo-checking. `env` must start with 'SCREAM_CODE_EXPERIMENTAL_', be unique, and
- * not equal the master switch 'SCREAM_CODE_EXPERIMENTAL_FLAG'; `id` must not be 'flag'.
+ * autocomplete and typo-checking. `env` must start with 'LMCODE_EXPERIMENTAL_', be unique, and
+ * not equal the master switch 'LMCODE_EXPERIMENTAL_FLAG'; `id` must not be 'flag'.
  */
 export const FLAG_DEFINITIONS = [
   {
     id: 'micro-compaction',
-    env: 'SCREAM_CODE_EXPERIMENTAL_MICRO_COMPACTION',
+    env: 'LMCODE_EXPERIMENTAL_MICRO_COMPACTION',
     default: false,
     surface: 'both',
   },
   {
     id: 'wolfpack',
-    env: 'SCREAM_CODE_EXPERIMENTAL_WOLFPACK',
+    env: 'LMCODE_EXPERIMENTAL_WOLFPACK',
     default: false,
     surface: 'both',
   },

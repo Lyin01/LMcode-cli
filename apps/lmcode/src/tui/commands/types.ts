@@ -3,7 +3,7 @@ import type { FlagId } from '@lmcode-cli/lmcode-sdk';
 
 export type SlashCommandAvailability = 'always' | 'idle-only';
 
-export interface ScreamSlashCommand<Name extends string = string> extends SlashCommand {
+export interface LmcodeSlashCommand<Name extends string = string> extends SlashCommand {
   readonly name: Name;
   readonly aliases: readonly string[];
   readonly description: string;

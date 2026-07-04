@@ -8,7 +8,7 @@ export interface LmcodeAuthFacadeOptions {
   readonly configPath: string;
 }
 
-export interface ScreamAuthLoginResult {
+export interface LmcodeAuthLoginResult {
   readonly providerName: string;
   readonly ok: true;
   readonly defaultModel: string;
@@ -16,12 +16,12 @@ export interface ScreamAuthLoginResult {
   readonly configPath?: string | undefined;
 }
 
-export interface ScreamAuthLogoutResult {
+export interface LmcodeAuthLogoutResult {
   readonly providerName: string;
   readonly ok: true;
 }
 
-export interface ScreamAuthSubmitFeedbackInput {
+export interface LmcodeAuthSubmitFeedbackInput {
   readonly content: string;
   readonly sessionId: string;
   readonly version: string;

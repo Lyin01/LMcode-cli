@@ -30,7 +30,7 @@ export {
   type LmcodeErrorInfo,
   type LmcodeErrorOptions,
   type LmcodeErrorPayload,
-  SCREAM_ERROR_INFO,
+  LMCODE_ERROR_INFO,
   fromLmcodeErrorPayload,
   isLmcodeError,
   toLmcodeErrorPayload,

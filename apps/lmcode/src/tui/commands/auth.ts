@@ -58,8 +58,8 @@ export async function handleConnectCommand(host: SlashCommandHost, args: string)
       spinner.stop({ ok: false, label: 'Aborted.' });
     } else {
       // Remote failed — try cache, then built-in
-      const screamHome = resolveLmcodeHome();
-      const cached = loadCatalogCache(screamHome);
+      const lmcodeHome = resolveLmcodeHome();
+      const cached = loadCatalogCache(lmcodeHome);
       if (cached !== undefined) {
         spinner.stop({ ok: true, label: 'Using cached catalog (offline mode).' });
         catalog = cached;

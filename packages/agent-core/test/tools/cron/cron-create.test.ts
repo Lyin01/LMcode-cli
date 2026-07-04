@@ -96,7 +96,7 @@ describe('CronCreateTool', () => {
     // Disable jitter so the nextFireAt string we render is the bare
     // ideal time — keeps the format assertions readable without
     // dragging in a jittered offset.
-    vi.stubEnv('SCREAM_CRON_NO_JITTER', '1');
+    vi.stubEnv('LMCODE_CRON_NO_JITTER', '1');
   });
 
   afterEach(() => {
@@ -179,8 +179,8 @@ describe('CronCreateTool', () => {
     expect(manager.store.list()).toHaveLength(0);
   });
 
-  it('returns an error when SCREAM_DISABLE_CRON=1', async () => {
-    vi.stubEnv('SCREAM_DISABLE_CRON', '1');
+  it('returns an error when LMCODE_DISABLE_CRON=1', async () => {
+    vi.stubEnv('LMCODE_DISABLE_CRON', '1');
     const { manager, tool } = makeHarness();
     const msg = assertError(
       await runTool(tool, {
@@ -190,7 +190,7 @@ describe('CronCreateTool', () => {
       }),
     );
     expect(msg).toMatchInlineSnapshot(
-      `"Cron scheduling is disabled (SCREAM_DISABLE_CRON=1)."`,
+      `"Cron scheduling is disabled (LMCODE_DISABLE_CRON=1)."`,
     );
 
     expect(manager.store.list()).toHaveLength(0);

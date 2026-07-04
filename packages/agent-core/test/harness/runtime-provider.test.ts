@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ScreamConfig } from '../../src/config';
+import type { LmcodeConfig } from '../../src/config';
 import { ErrorCodes, LmcodeError } from '../../src/errors';
 import { ProviderManager } from '../../src/session/provider-manager';
 import { resolveThinkingLevel } from '../../src/agent/config/thinking';
@@ -9,7 +9,7 @@ import { resolveThinkingLevel } from '../../src/agent/config/thinking';
 // the current ProviderManager API. Kept local so the existing test bodies do
 // not need to change.
 function resolveRuntimeProvider(input: {
-  readonly config: ScreamConfig;
+  readonly config: LmcodeConfig;
   readonly model?: string;
   readonly lmcodeRequestHeaders?: Record<string, string>;
   readonly promptCacheKey?: string;
@@ -29,7 +29,7 @@ function resolveRuntimeProvider(input: {
   return manager.resolveProviderConfig(model);
 }
 
-const BASE_CONFIG: ScreamConfig = {
+const BASE_CONFIG: LmcodeConfig = {
   defaultModel: 'lmcode/lmcode-for-coding',
   providers: {
     'managed:lmcode': {
@@ -48,7 +48,7 @@ const BASE_CONFIG: ScreamConfig = {
   },
 };
 
-const TEST_SCREAM_HEADERS = {
+const TEST_LMCODE_HEADERS = {
   'User-Agent': 'lmcode-cli/0.0.0-test',
   'X-Msh-Platform': 'lmcode_cli',
   'X-Msh-Version': '0.0.0-test',
@@ -215,7 +215,7 @@ describe('resolveRuntimeProvider model metadata', () => {
           capabilities: ['thinking'],
         },
       },
-    } as unknown as ScreamConfig;
+    } as unknown as LmcodeConfig;
 
     expect(() =>
       resolveRuntimeProvider({
@@ -334,7 +334,7 @@ describe('resolveRuntimeProvider maxOutputSize forwarding', () => {
   });
 });
 
-describe('resolveRuntimeProvider Scream request headers', () => {
+describe('resolveRuntimeProvider LMcode request headers', () => {
   it('does not set defaultHeaders when no lmcodeRequestHeaders or customHeaders exist', () => {
     const resolved = resolveRuntimeProvider({ config: BASE_CONFIG });
 
@@ -370,19 +370,19 @@ describe('resolveRuntimeProvider Scream request headers', () => {
     });
   });
 
-  it('passes lmcodeRequestHeaders through to Scream provider defaultHeaders', () => {
+  it('passes lmcodeRequestHeaders through to LMcode provider defaultHeaders', () => {
     const resolved = resolveRuntimeProvider({
       config: BASE_CONFIG,
-      lmcodeRequestHeaders: TEST_SCREAM_HEADERS,
+      lmcodeRequestHeaders: TEST_LMCODE_HEADERS,
     });
 
     expect(resolved.provider).toMatchObject({
       type: 'lmcode',
-      defaultHeaders: TEST_SCREAM_HEADERS,
+      defaultHeaders: TEST_LMCODE_HEADERS,
     });
   });
 
-  it('passes the prompt cache key to Scream generation kwargs', () => {
+  it('passes the prompt cache key to LMcode generation kwargs', () => {
     const resolved = resolveRuntimeProvider({
       config: BASE_CONFIG,
       promptCacheKey: 'session-test',
@@ -412,7 +412,7 @@ describe('resolveRuntimeProvider Scream request headers', () => {
           },
         },
       },
-      lmcodeRequestHeaders: TEST_SCREAM_HEADERS,
+      lmcodeRequestHeaders: TEST_LMCODE_HEADERS,
     });
 
     expect(resolved.provider).toMatchObject({
@@ -425,7 +425,7 @@ describe('resolveRuntimeProvider Scream request headers', () => {
     });
   });
 
-  it('does not apply lmcodeRequestHeaders to non-Scream providers', () => {
+  it('does not apply lmcodeRequestHeaders to non-LMcode providers', () => {
     const resolved = resolveRuntimeProvider({
       config: {
         defaultModel: 'gpt-alias',
@@ -443,7 +443,7 @@ describe('resolveRuntimeProvider Scream request headers', () => {
           },
         },
       },
-      lmcodeRequestHeaders: TEST_SCREAM_HEADERS,
+      lmcodeRequestHeaders: TEST_LMCODE_HEADERS,
       promptCacheKey: 'session-test',
     });
 
@@ -532,7 +532,7 @@ describe('resolveRuntimeProvider customHeaders propagation', () => {
   });
 
   it('keeps customHeaders isolated between resolved provider instances', () => {
-    const config: ScreamConfig = {
+    const config: LmcodeConfig = {
       defaultModel: 'gpt-alias',
       providers: {
         openai: {
@@ -562,7 +562,7 @@ describe('resolveRuntimeProvider customHeaders propagation', () => {
 });
 
 describe('ProviderManager prompt cache key', () => {
-  it('applies a prompt cache key to Scream providers', () => {
+  it('applies a prompt cache key to LMcode providers', () => {
     const manager = new ProviderManager({
       config: BASE_CONFIG,
       promptCacheKey: 'session-test',
@@ -577,7 +577,7 @@ describe('ProviderManager prompt cache key', () => {
     });
   });
 
-  it('does not add generation kwargs to non-Scream providers', () => {
+  it('does not add generation kwargs to non-LMcode providers', () => {
     const manager = new ProviderManager({
       promptCacheKey: 'session-test',
       config: {
@@ -607,7 +607,7 @@ describe('ProviderManager prompt cache key', () => {
   });
 
   it('reads the current config when constructed with a function', () => {
-    let sharedConfig: ScreamConfig = { providers: {} };
+    let sharedConfig: LmcodeConfig = { providers: {} };
     const manager = new ProviderManager({
       config: () => sharedConfig,
       promptCacheKey: 'session-test',

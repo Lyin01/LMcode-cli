@@ -18,7 +18,7 @@ import {
   isExperimentalFlagEnabled,
   setExperimentalFlags,
   sortSlashCommands,
-  type ScreamSlashCommand,
+  type LmcodeSlashCommand,
   type SkillListSession,
 } from './commands';
 
@@ -131,7 +131,7 @@ export class LmcodeTUI implements TranscriptControllerHost, LifecycleControllerH
   state: TUIState;
   readonly approvalController = new ApprovalController();
   readonly questionController = new QuestionController();
-  private skillCommands: readonly ScreamSlashCommand[] = [];
+  private skillCommands: readonly LmcodeSlashCommand[] = [];
   readonly skillCommandMap = new Map<string, string>();
   readonly imageStore = new ImageAttachmentStore();
   sessionEventUnsubscribe: (() => void) | undefined;
@@ -210,7 +210,7 @@ export class LmcodeTUI implements TranscriptControllerHost, LifecycleControllerH
   // Autocomplete & Skill Commands
   // =========================================================================
 
-  getSlashCommands(): readonly ScreamSlashCommand[] {
+  getSlashCommands(): readonly LmcodeSlashCommand[] {
     const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter((command) =>
       isExperimentalFlagEnabled(command.experimentalFlag),
     );

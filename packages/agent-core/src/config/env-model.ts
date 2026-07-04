@@ -2,7 +2,7 @@ import { ErrorCodes, LmcodeError } from '#/errors';
 import { parseBooleanEnv } from './resolve';
 import {
   validateConfig,
-  type ScreamConfig,
+  type LmcodeConfig,
   type ModelAlias,
   type ProviderConfig,
   type ProviderType,
@@ -18,13 +18,13 @@ const ALLOWED_TYPES: readonly ProviderType[] = ['lmcode', 'anthropic', 'openai']
 const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
   openai: 'https://api.openai.com/v1',
   // anthropic: omitted -> let the Anthropic SDK pick its default
-  // scream: omitted -> requires LMCODE_MODEL_BASE_URL or explicit config
+  // lmcode: omitted -> requires LMCODE_MODEL_BASE_URL or explicit config
 };
 
 /** Default context window (256K) used when LMCODE_MODEL_MAX_CONTEXT_SIZE is unset. */
 const DEFAULT_MAX_CONTEXT_SIZE = 262144;
 
-/** Default capabilities when LMCODE_MODEL_CAPABILITIES is unset (scream models support both). */
+/** Default capabilities when LMCODE_MODEL_CAPABILITIES is unset (lmcode models support both). */
 const DEFAULT_CAPABILITIES = ['image_in', 'thinking'];
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -90,7 +90,7 @@ function parseBooleanVar(raw: string | undefined, varName: string): boolean | un
  * and `writeConfigFile` strips the reserved entries via `stripEnvModelConfig` as
  * a final guard against patch round-trips (getConfig -> setConfig).
  */
-export function applyEnvModelConfig(config: ScreamConfig, env: Env = process.env): ScreamConfig {
+export function applyEnvModelConfig(config: LmcodeConfig, env: Env = process.env): LmcodeConfig {
   const model = trimmed(env['LMCODE_MODEL_NAME']);
   if (model === undefined) return config;
 
@@ -156,7 +156,7 @@ export function applyEnvModelConfig(config: ScreamConfig, env: Env = process.env
     'LMCODE_MODEL_DEFAULT_THINKING',
   );
 
-  const merged: ScreamConfig = {
+  const merged: LmcodeConfig = {
     ...config,
     providers: { ...config.providers, [ENV_MODEL_PROVIDER_KEY]: provider },
     models: { ...config.models, [ENV_MODEL_ALIAS_KEY]: alias },
@@ -182,7 +182,7 @@ export function applyEnvModelConfig(config: ScreamConfig, env: Env = process.env
  * value from `config.raw` rather than erased, so real values already in
  * config.toml survive the round-trip.
  */
-export function stripEnvModelConfig(config: ScreamConfig): ScreamConfig {
+export function stripEnvModelConfig(config: LmcodeConfig): LmcodeConfig {
   const hasProvider = ENV_MODEL_PROVIDER_KEY in config.providers;
   const hasModel = config.models !== undefined && ENV_MODEL_ALIAS_KEY in config.models;
   const defaultIsEnv = config.defaultModel === ENV_MODEL_ALIAS_KEY;
@@ -212,17 +212,17 @@ export function stripEnvModelConfig(config: ScreamConfig): ScreamConfig {
   };
 }
 
-function rawDefaultModel(config: ScreamConfig): string | undefined {
+function rawDefaultModel(config: LmcodeConfig): string | undefined {
   const raw = config.raw?.['default_model'];
   return typeof raw === 'string' ? raw : undefined;
 }
 
-function rawDefaultThinking(config: ScreamConfig): boolean | undefined {
+function rawDefaultThinking(config: LmcodeConfig): boolean | undefined {
   const raw = config.raw?.['default_thinking'];
   return typeof raw === 'boolean' ? raw : undefined;
 }
 
-function rawThinking(config: ScreamConfig): ThinkingConfig | undefined {
+function rawThinking(config: LmcodeConfig): ThinkingConfig | undefined {
   const raw = config.raw?.['thinking'];
   return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
     ? (raw as ThinkingConfig)

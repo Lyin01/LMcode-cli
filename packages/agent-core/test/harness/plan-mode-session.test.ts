@@ -4,7 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createRPC, ScreamCore, type CoreAPI, type SDKAPI } from '../../src';
+import { createRPC, LmcodeCore, type CoreAPI, type SDKAPI } from '../../src';
 
 const BASE_CONFIG = `
 default_model = "lmcode/lmcode-for-coding"
@@ -88,7 +88,7 @@ describe('plan-mode bootstrap from config.defaultPlanMode', () => {
 
   async function createTestRpc() {
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    void new ScreamCore(coreRpc, { homeDir, configPath });
+    void new LmcodeCore(coreRpc, { homeDir, configPath });
     return sdkRpc({
       emitEvent: vi.fn(),
       requestApproval: vi.fn(async () => ({ decision: 'rejected' as const })),

@@ -377,7 +377,7 @@ export class SessionEventHandler {
   }
 
   private maybeShowDebugTiming(event: TurnStepCompletedEvent): void {
-    if (process.env['SCREAM_CODE_DEBUG'] !== '1') return;
+    if (process.env['LMCODE_DEBUG'] !== '1') return;
     const text = formatStepDebugTiming(event);
     if (text !== undefined) this.host.showStatus(text);
   }

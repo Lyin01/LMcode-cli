@@ -18,7 +18,7 @@ import {
 import type { Command } from 'commander';
 
 import { detectInstallSource } from '#/cli/update/source';
-import { createScreamCodeHostIdentity } from '#/cli/version';
+import { createLmcodeHostIdentity } from '#/cli/version';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
 
 interface WritableLike {
@@ -121,7 +121,7 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
 
 function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDeps {
   let harness: LmcodeHarness | undefined;
-  const identity = createScreamCodeHostIdentity();
+  const identity = createLmcodeHostIdentity();
   const getHarness = (): LmcodeHarness => {
     harness ??= new LmcodeHarness({
       homeDir: resolveLmcodeHome(),

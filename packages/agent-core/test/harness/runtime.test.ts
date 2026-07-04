@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createRPC,
-  ScreamCore,
+  LmcodeCore,
   type ApprovalResponse,
   type CoreAPI,
   type SDKAPI,
@@ -17,9 +17,9 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-describe('ScreamCore runtime config', () => {
+describe('LmcodeCore runtime config', () => {
   let tmp: string;
-  const cores: ScreamCore[] = [];
+  const cores: LmcodeCore[] = [];
 
   afterEach(async () => {
     // Close all sessions created during the test so file handles and log sinks
@@ -56,7 +56,7 @@ describe('ScreamCore runtime config', () => {
     await writeFile(
       join(homeDir, 'config.toml'),
       `
-[services.scream_cli_search]
+[services.lmcode_cli_search]
 base_url = "https://search.example/v1"
 oauth = { storage = "file", key = "oauth/custom-lmcode" }
 custom_headers = { "X-Test" = "1" }
@@ -75,7 +75,7 @@ custom_headers = { "X-Test" = "1" }
     vi.stubGlobal('fetch', fetchImpl);
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new ScreamCore(coreRpc, {
+    const core = new LmcodeCore(coreRpc, {
       homeDir,
       lmcodeRequestHeaders: {
         'User-Agent': 'lmcode-cli/0.0.0-test',
@@ -134,7 +134,7 @@ max_context_size = 100000
     );
 
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
-    const core = new ScreamCore(coreRpc, { homeDir });
+    const core = new LmcodeCore(coreRpc, { homeDir });
     cores.push(core);
     const rpc = await sdkRpc({
       emitEvent: vi.fn(),

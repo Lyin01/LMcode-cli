@@ -4,7 +4,7 @@ import {
   parseSlashInput,
   resolveSlashCommandAvailability,
   sortSlashCommands,
-  type ScreamSlashCommand,
+  type LmcodeSlashCommand,
 } from '#/tui/commands/index';
 import { describe, expect, it } from 'vitest';
 
@@ -47,7 +47,7 @@ describe('built-in slash command registry', () => {
   });
 
   it('defaults commands without explicit availability to idle-only', () => {
-    const command: ScreamSlashCommand = {
+    const command: LmcodeSlashCommand = {
       name: 'example',
       aliases: [],
       description: 'Example command',
@@ -57,7 +57,7 @@ describe('built-in slash command registry', () => {
   });
 
   it('sorts commands by priority descending and name ascending', () => {
-    const commands: ScreamSlashCommand[] = [
+    const commands: LmcodeSlashCommand[] = [
       { name: 'zebra', aliases: [], description: 'Z', priority: 100 },
       { name: 'alpha', aliases: [], description: 'A', priority: 100 },
       { name: 'middle', aliases: [], description: 'M', priority: 50 },

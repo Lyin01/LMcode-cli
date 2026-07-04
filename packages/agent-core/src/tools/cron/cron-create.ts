@@ -124,10 +124,10 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
     // 1. Global killswitch — checked first so a flipped env stops all
     //    further work, including the cron parse which can throw on
     //    legitimately-malformed input.
-    if (process.env['SCREAM_DISABLE_CRON'] === '1') {
+    if (process.env['LMCODE_DISABLE_CRON'] === '1') {
       return {
         isError: true,
-        output: 'Cron scheduling is disabled (SCREAM_DISABLE_CRON=1).',
+        output: 'Cron scheduling is disabled (LMCODE_DISABLE_CRON=1).',
       };
     }
 

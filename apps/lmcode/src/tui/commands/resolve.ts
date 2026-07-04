@@ -7,7 +7,7 @@ import {
 import { isExperimentalFlagEnabled } from './experimental-flags';
 import { parseSlashInput } from './parse';
 import type {
-  ScreamSlashCommand,
+  LmcodeSlashCommand,
   SlashCommandBusyReason,
   SlashCommandInvalidReason,
 } from './types';
@@ -53,7 +53,7 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
   // `command` is a literal union where only some members carry `experimentalFlag`; widen to read it.
   if (
     command !== undefined &&
-    isExperimentalFlagEnabled((command as ScreamSlashCommand).experimentalFlag)
+    isExperimentalFlagEnabled((command as LmcodeSlashCommand).experimentalFlag)
   ) {
     const busyReason = slashCommandBusyReason(options);
     if (

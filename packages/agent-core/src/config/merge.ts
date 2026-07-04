@@ -1,22 +1,22 @@
 import { ErrorCodes, LmcodeError } from '#/errors';
 import {
-  ScreamConfigPatchSchema,
+  LmcodeConfigPatchSchema,
   formatConfigValidationError,
-  type ScreamConfig,
-  type ScreamConfigPatch,
+  type LmcodeConfig,
+  type LmcodeConfigPatch,
   validateConfig,
 } from '#/config/schema';
 
-export function mergeConfigPatch(config: ScreamConfig, patch: ScreamConfigPatch): ScreamConfig {
+export function mergeConfigPatch(config: LmcodeConfig, patch: LmcodeConfigPatch): LmcodeConfig {
   const base = validateConfig(config);
   const parsedPatch = parsePatch(patch);
   const merged = deepMerge(base, parsedPatch);
   return validateConfig(merged);
 }
 
-function parsePatch(patch: ScreamConfigPatch): ScreamConfigPatch {
+function parsePatch(patch: LmcodeConfigPatch): LmcodeConfigPatch {
   try {
-    return stripUndefinedDeep(ScreamConfigPatchSchema.parse(patch)) as ScreamConfigPatch;
+    return stripUndefinedDeep(LmcodeConfigPatchSchema.parse(patch)) as LmcodeConfigPatch;
   } catch (error) {
     throw new LmcodeError(ErrorCodes.CONFIG_INVALID, `Invalid configuration patch: ${formatConfigValidationError(error)}`, {
       cause: error,

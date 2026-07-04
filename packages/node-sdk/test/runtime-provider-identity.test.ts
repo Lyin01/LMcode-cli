@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { ScreamConfig } from '@lmcode-cli/agent-core';
+import type { LmcodeConfig } from '@lmcode-cli/agent-core';
 import { createLmcodeDefaultHeaders, LMCODE_PLATFORM } from '@lmcode-cli/config';
 
 import { ProviderManager } from '../../agent-core/src/session/provider-manager';
@@ -13,7 +13,7 @@ import { TEST_IDENTITY } from './test-identity';
 const tempDirs: string[] = [];
 
 function resolveRuntimeProvider(options: {
-  readonly config: ScreamConfig;
+  readonly config: LmcodeConfig;
   readonly model?: string;
   readonly lmcodeRequestHeaders?: Record<string, string>;
 }) {
@@ -81,7 +81,7 @@ describe('runtime provider identity headers', () => {
   it('lets Scream provider customHeaders override default identity headers', async () => {
     const homeDir = await makeTempDir();
     const lmcodeRequestHeaders = createLmcodeDefaultHeaders({ homeDir, ...TEST_IDENTITY });
-    const config: ScreamConfig = {
+    const config: LmcodeConfig = {
       providers: {
         scream: {
           type: 'lmcode',
@@ -121,7 +121,7 @@ describe('runtime provider identity headers', () => {
   it('does not add LMcode identity headers to non-Scream providers', async () => {
     const homeDir = await makeTempDir();
     const lmcodeRequestHeaders = createLmcodeDefaultHeaders({ homeDir, ...TEST_IDENTITY });
-    const config: ScreamConfig = {
+    const config: LmcodeConfig = {
       providers: {
         openai: {
           type: 'openai',

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createRPC,
-  ScreamCore,
+  LmcodeCore,
   type ApprovalResponse,
   type CoreAPI,
   type CoreRPC,
@@ -19,7 +19,7 @@ describe('HarnessAPI session skills', () => {
   let tmp: string;
   let homeDir: string;
   let workDir: string;
-  const cores: ScreamCore[] = [];
+  const cores: LmcodeCore[] = [];
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), 'lmcode-core-skills-'));
@@ -476,14 +476,14 @@ describe('HarnessAPI session skills', () => {
   async function createTestRpc(options?: {
     readonly homeDir?: string;
   }): Promise<{
-    core: ScreamCore;
+    core: LmcodeCore;
     events: Event[];
     rpc: CoreRPC;
   }> {
     const [coreRpc, sdkRpc] = createRPC<CoreAPI, SDKAPI>();
     const events: Event[] = [];
     const configuredHomeDir = options === undefined ? homeDir : options.homeDir;
-    const core = new ScreamCore(
+    const core = new LmcodeCore(
       coreRpc,
       { homeDir: configuredHomeDir },
     );

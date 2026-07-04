@@ -11,7 +11,7 @@ import {
 } from '@lmcode-cli/lmcode-sdk';
 
 import type { CLIOptions, PromptOutputFormat } from './options';
-import { createScreamCodeHostIdentity } from './version';
+import { createLmcodeHostIdentity } from './version';
 
 interface PromptOutput {
   readonly columns?: number | undefined;
@@ -47,7 +47,7 @@ export async function runPrompt(
   const homeDir = resolveLmcodeHome();
   const harness = new LmcodeHarness({
     homeDir,
-    identity: createScreamCodeHostIdentity(version),
+    identity: createLmcodeHostIdentity(version),
     uiMode: PROMPT_UI_MODE,
     skillDirs: opts.skillsDirs,
   });

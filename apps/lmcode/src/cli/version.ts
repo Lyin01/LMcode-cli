@@ -12,7 +12,7 @@ import { createLmcodeDefaultHeaders, type LmcodeHostIdentity } from '@lmcode-cli
 import { CLI_USER_AGENT_PRODUCT } from '#/constant/app';
 
 import { getDataDir } from '../utils/paths';
-import { SCREAM_BUILD_INFO } from './build-info';
+import { LMCODE_BUILD_INFO } from './build-info';
 
 const MODULE_DIR = import.meta.dirname;
 
@@ -41,8 +41,8 @@ export function getHostPackageRoot(): string {
 }
 
 export function getVersion(): string {
-  if (SCREAM_BUILD_INFO.version !== undefined) {
-    return SCREAM_BUILD_INFO.version;
+  if (LMCODE_BUILD_INFO.version !== undefined) {
+    return LMCODE_BUILD_INFO.version;
   }
   const pkg = JSON.parse(readFileSync(getHostPackageJsonPath(), 'utf-8')) as {
     version: string;
@@ -50,16 +50,16 @@ export function getVersion(): string {
   return pkg.version;
 }
 
-export function createScreamCodeHostIdentity(version = getVersion()): LmcodeHostIdentity {
+export function createLmcodeHostIdentity(version = getVersion()): LmcodeHostIdentity {
   return {
     userAgentProduct: CLI_USER_AGENT_PRODUCT,
     version,
   };
 }
 
-export function buildScreamDefaultHeaders(version: string): Record<string, string> {
+export function buildLmcodeDefaultHeaders(version: string): Record<string, string> {
   return createLmcodeDefaultHeaders({
     homeDir: getDataDir(),
-    ...createScreamCodeHostIdentity(version),
+    ...createLmcodeHostIdentity(version),
   });
 }

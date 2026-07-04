@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
-export const BUILT_IN_CATALOG_ENV = 'SCREAM_CODE_BUILT_IN_CATALOG_FILE';
-export const BUILT_IN_CATALOG_DEFINE = '__SCREAM_CODE_BUILT_IN_CATALOG__';
+export const BUILT_IN_CATALOG_ENV = 'LMCODE_BUILT_IN_CATALOG_FILE';
+export const BUILT_IN_CATALOG_DEFINE = '__LMCODE_BUILT_IN_CATALOG__';
 
 export function builtInCatalogDefine(env = process.env) {
   const file = env[BUILT_IN_CATALOG_ENV];

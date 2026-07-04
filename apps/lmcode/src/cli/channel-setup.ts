@@ -130,24 +130,28 @@ function checkCcConnect(): { installed: boolean; version?: string } {
   }
 }
 
-/** Auto-detect the path to the scream binary, including the stream-json subcommand. */
-function detectScreamPath(): string {
+/** Auto-detect the path to the lmcode binary, including the stream-json subcommand. */
+function detectLmcodePath(): string {
   // 1. Check if running as a bundled binary (process.execPath)
   const execBase = process.execPath.toLowerCase();
-  if (execBase.endsWith("/scream") || execBase.endsWith("\\scream")) {
+  if (
+    execBase.endsWith("/scream") || execBase.endsWith("\\scream") ||
+    execBase.endsWith("/lm") || execBase.endsWith("\\lm") ||
+    execBase.endsWith("/lmcode") || execBase.endsWith("\\lmcode")
+  ) {
     return `${process.execPath} stream-json`;
   }
 
   // 2. Check if we're running from the monorepo dist
   if (execBase.includes("node") && process.argv[1]) {
     const arg1 = process.argv[1];
-    // If the first arg looks like a scream entry point
+    // If the first arg looks like a lmcode entry point
     if (arg1.includes("lmcode") || arg1.includes("lm")) {
       return `node ${arg1} stream-json`;
     }
   }
 
-  // 3. Check for scream in PATH
+  // 3. Check for lmcode in PATH
   try {
     const which = execSync("which lm 2>/dev/null", {
       encoding: "utf-8",
@@ -246,8 +250,8 @@ export async function runChannelSetup(): Promise<void> {
   console.log(`  ✔ 已选择: ${platform.name}`);
   console.log("");
 
-  // ── Step 3: Detect scream path ───────────────────────────────────────
-  const cliPath = detectScreamPath();
+  // ── Step 3: Detect lmcode path ───────────────────────────────────────
+  const cliPath = detectLmcodePath();
   console.log(`  LMcode 路径: ${cliPath}`);
   console.log("");
 

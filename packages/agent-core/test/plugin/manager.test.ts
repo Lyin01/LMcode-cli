@@ -376,7 +376,7 @@ describe('PluginManager', () => {
         'plugin-demo:finance': expect.objectContaining({
           command: 'finance-mcp',
           cwd: managedRoot,
-          env: expect.objectContaining({ LMCODE_HOME: home, SCREAM_PLUGIN_ROOT: managedRoot }),
+          env: expect.objectContaining({ LMCODE_HOME: home, LMCODE_PLUGIN_ROOT: managedRoot }),
         }),
         'plugin-demo:docs': expect.objectContaining({
           url: 'https://example.com/mcp',

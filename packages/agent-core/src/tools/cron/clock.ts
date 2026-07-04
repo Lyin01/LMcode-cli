@@ -24,7 +24,7 @@
  * It is not overridable — accepting an external monotonic clock would
  * defeat the safety net the lock heartbeat depends on.
  *
- * `wallNow` resolution is driven by the `SCREAM_CRON_CLOCK` env var; see
+ * `wallNow` resolution is driven by the `LMCODE_CRON_CLOCK` env var; see
  * `resolveClockSources` below. Defaults to `Date.now()`.
  */
 import { closeSync, openSync, readSync } from 'node:fs';
@@ -32,7 +32,7 @@ import { closeSync, openSync, readSync } from 'node:fs';
 export interface ClockSources {
   /**
    * Wall-clock epoch milliseconds. May be overridden in tests / bench
-   * via `SCREAM_CRON_CLOCK`. Used for cron matching, `createdAt`, stale
+   * via `LMCODE_CRON_CLOCK`. Used for cron matching, `createdAt`, stale
    * judgment.
    */
   wallNow(): number;
@@ -48,7 +48,7 @@ const systemMonoNowMs = (): number => Number(process.hrtime.bigint() / 1_000_000
 
 /**
  * Production default — `Date.now()` + `process.hrtime.bigint()`. Used
- * whenever `SCREAM_CRON_CLOCK` is unset, set to `"system"`, or set to a
+ * whenever `LMCODE_CRON_CLOCK` is unset, set to `"system"`, or set to a
  * spec that fails to parse.
  */
 export const SYSTEM_CLOCKS: ClockSources = {
@@ -58,7 +58,7 @@ export const SYSTEM_CLOCKS: ClockSources = {
 
 /**
  * Resolve a `ClockSources` implementation from a spec string (typically
- * `process.env.SCREAM_CRON_CLOCK`).
+ * `process.env.LMCODE_CRON_CLOCK`).
  *
  *   unset / `"system"`   → {@link SYSTEM_CLOCKS}
  *   `"file:<path>"`      → `wallNow` reads the first line of `<path>`
@@ -139,10 +139,10 @@ function debugInvalidSpec(spec: string, reason: string): void {
   // We do not pull in a logger here — `clock.ts` is the lowest layer of
   // the cron module and must stay dependency-free so it can be imported
   // from anywhere (including lint rules, type files). A stderr write
-  // gated on SCREAM_CRON_DEBUG is enough — production is silent.
-  if (process.env['SCREAM_CRON_DEBUG'] === '1') {
+  // gated on LMCODE_CRON_DEBUG is enough — production is silent.
+  if (process.env['LMCODE_CRON_DEBUG'] === '1') {
     process.stderr.write(
-      `[cron/clock] invalid SCREAM_CRON_CLOCK spec ${JSON.stringify(spec)}: ${reason} — falling back to system clock\n`,
+      `[cron/clock] invalid LMCODE_CRON_CLOCK spec ${JSON.stringify(spec)}: ${reason} — falling back to system clock\n`,
     );
   }
 }

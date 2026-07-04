@@ -2,7 +2,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import {
   HookDefSchema,
-  ScreamConfigSchema,
+  LmcodeConfigSchema,
   ModelAliasSchema,
   ProviderConfigSchema,
   transformTomlData,
@@ -30,11 +30,11 @@ function camelToSnake(s: string): string {
 }
 
 // The config.toml top-level keys lmcode understands, derived from the live
-// ScreamConfigSchema so the set tracks lmcode automatically. `raw` is internal
+// LmcodeConfigSchema so the set tracks lmcode automatically. `raw` is internal
 // — never migrate it. `providers` / `models` / `hooks` are filtered per-entry,
 // not via this set.
 const SUPPORTED_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(
-  Object.keys(ScreamConfigSchema.shape)
+  Object.keys(LmcodeConfigSchema.shape)
     .filter((k) => k !== 'raw' && k !== 'providers' && k !== 'models' && k !== 'hooks')
     .map(camelToSnake),
 );
@@ -341,7 +341,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
   //     Providers/models are already validated per-entry above, so schema
   //     failures here can only come from plain top-level keys.
   for (;;) {
-    const result = ScreamConfigSchema.safeParse(transformTomlData(migratedTop));
+    const result = LmcodeConfigSchema.safeParse(transformTomlData(migratedTop));
     if (result.success) break;
     const badKeys = new Set<string>();
     for (const issue of result.error.issues) {

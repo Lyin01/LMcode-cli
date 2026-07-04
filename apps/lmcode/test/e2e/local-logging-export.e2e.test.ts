@@ -7,7 +7,7 @@ import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { registerExportCommand } from '#/cli/sub/export';
-import { createScreamCodeHostIdentity } from '#/cli/version';
+import { createLmcodeHostIdentity } from '#/cli/version';
 import { LmcodeHarness, log } from '@lmcode-cli/lmcode-sdk';
 import { __resetRootLoggerForTest } from '../../../../packages/agent-core/src/logging/logger';
 
@@ -43,7 +43,7 @@ describe.skipIf(!ENABLED)('local logging export e2e', () => {
   it('exports session log and global log by default, and allows skipping global log', async () => {
     const harness = new LmcodeHarness({
       homeDir,
-      identity: createScreamCodeHostIdentity('0.1.1'),
+      identity: createLmcodeHostIdentity('0.1.1'),
     });
     try {
       const session = await harness.createSession({

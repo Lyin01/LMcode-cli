@@ -23,10 +23,10 @@ import {
   normalizePluginId,
 } from './types';
 
-// Hidden Scream CLI subcommand that re-enters as a Node interpreter.
+// Hidden LMcode CLI subcommand that re-enters as a Node interpreter.
 // Used as fallback when an MCP server declares `"command": "node"` but the
-// user is running a single-binary Scream build that doesn't have `node` on PATH.
-const SCREAM_NODE_FALLBACK_SUBCOMMAND = '__plugin_run_node';
+// user is running a single-binary LMcode build that doesn't have `node` on PATH.
+const LMCODE_NODE_FALLBACK_SUBCOMMAND = '__plugin_run_node';
 
 export interface PluginManagerOptions {
   readonly lmcodeHomeDir: string;
@@ -463,14 +463,14 @@ function withPluginMcpRuntime(
   const env = {
     ...config.env,
     LMCODE_HOME: lmcodeHomeDir,
-    SCREAM_PLUGIN_ROOT: pluginRoot,
+    LMCODE_PLUGIN_ROOT: pluginRoot,
   };
 
-  if (config.command === 'node' && isScreamNativeBinary()) {
+  if (config.command === 'node' && isLmcodeNativeBinary()) {
     return {
       ...config,
       command: process.execPath,
-      args: [SCREAM_NODE_FALLBACK_SUBCOMMAND, ...(config.args ?? [])],
+      args: [LMCODE_NODE_FALLBACK_SUBCOMMAND, ...(config.args ?? [])],
       cwd: config.cwd ?? pluginRoot,
       env,
     };
@@ -479,6 +479,6 @@ function withPluginMcpRuntime(
   return { ...config, cwd: config.cwd ?? pluginRoot, env };
 }
 
-function isScreamNativeBinary(): boolean {
+function isLmcodeNativeBinary(): boolean {
   return !path.basename(process.execPath).toLowerCase().startsWith('node');
 }

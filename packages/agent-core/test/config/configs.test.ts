@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, LmcodeError } from '../../src/errors';
 import {
-  ScreamConfigSchema,
+  LmcodeConfigSchema,
   ensureConfigFile,
   mergeConfigPatch,
   parseConfigString,
@@ -57,7 +57,7 @@ theme = "dark"
 
 [providers."managed:lmcode"]
 type = "lmcode"
-base_url = "https://api.scream.com/coding/v1"
+base_url = "https://api.lmcode.com/coding/v1"
 api_key = "sk-file"
 custom_headers = { "X-Test" = "1" }
 
@@ -69,7 +69,7 @@ provider = "managed:lmcode"
 model = "lmcode-for-coding"
 max_context_size = 262144
 capabilities = ["image_in", "thinking", "video_in"]
-display_name = "Scream for Coding"
+display_name = "LMcode for Coding"
 
 [thinking]
 mode = "auto"
@@ -112,13 +112,13 @@ timeout = 5
 event = "Stop"
 command = "echo stop"
 
-[services.scream_cli_search]
-base_url = "https://api.scream.com/coding/v1/search"
+[services.lmcode_cli_search]
+base_url = "https://api.lmcode.com/coding/v1/search"
 api_key = "sk-search"
 custom_headers = { "X-Search" = "1" }
 
-[services.scream_cli_fetch]
-base_url = "https://api.scream.com/coding/v1/fetch"
+[services.lmcode_cli_fetch]
+base_url = "https://api.lmcode.com/coding/v1/fetch"
 api_key = "sk-fetch"
 
 [notifications]
@@ -138,7 +138,7 @@ describe('harness config TOML loader', () => {
     expect(config.extraSkillDirs).toEqual(['~/team-skills', '.agents/team-skills']);
     expect(config.providers['managed:lmcode']).toMatchObject({
       type: 'lmcode',
-      baseUrl: 'https://api.scream.com/coding/v1',
+      baseUrl: 'https://api.lmcode.com/coding/v1',
       apiKey: 'sk-file',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
       customHeaders: { 'X-Test': '1' },
@@ -148,7 +148,7 @@ describe('harness config TOML loader', () => {
       model: 'lmcode-for-coding',
       maxContextSize: 262144,
       capabilities: ['image_in', 'thinking', 'video_in'],
-      displayName: 'Scream for Coding',
+      displayName: 'LMcode for Coding',
     });
     expect(config.thinking).toEqual({ mode: 'auto', effort: 'medium' });
     expect(config.permission).toEqual({
@@ -186,8 +186,8 @@ describe('harness config TOML loader', () => {
         command: 'echo stop',
       },
     ]);
-    expect(config.services?.screamCliSearch?.customHeaders).toEqual({ 'X-Search': '1' });
-    expect(config.services?.screamCliFetch?.apiKey).toBe('sk-fetch');
+    expect(config.services?.lmcodeCliSearch?.customHeaders).toEqual({ 'X-Search': '1' });
+    expect(config.services?.lmcodeCliFetch?.apiKey).toBe('sk-fetch');
 
     expect('theme' in config).toBe(false);
     expect(config.raw?.['theme']).toBe('dark');
@@ -345,7 +345,7 @@ hooks = [{ type = "pre-tool-call", command = "echo hi" }]
 
 describe('harness config schema and patch merge', () => {
   it('accepts the empty public config and requires model context size in full configs', () => {
-    expect(ScreamConfigSchema.parse({})).toEqual({ providers: {} });
+    expect(LmcodeConfigSchema.parse({})).toEqual({ providers: {} });
     expect(() =>
       validateConfig({
         providers: {
@@ -379,7 +379,7 @@ describe('harness config schema and patch merge', () => {
 
     expect(merged.providers['managed:lmcode']).toMatchObject({
       type: 'lmcode',
-      baseUrl: 'https://api.scream.com/coding/v1',
+      baseUrl: 'https://api.lmcode.com/coding/v1',
       apiKey: 'sk-patched',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });
@@ -413,7 +413,7 @@ describe('harness config schema and patch merge', () => {
   });
 
   it('accepts maxOutputSize on a model alias and round-trips it', () => {
-    const parsed = ScreamConfigSchema.parse({
+    const parsed = LmcodeConfigSchema.parse({
       providers: { local: { type: 'anthropic', apiKey: 'sk-test' } },
       models: {
         opus: {
@@ -431,7 +431,7 @@ describe('harness config schema and patch merge', () => {
   });
 
   it('leaves maxOutputSize undefined when omitted', () => {
-    const parsed = ScreamConfigSchema.parse({
+    const parsed = LmcodeConfigSchema.parse({
       providers: { local: { type: 'anthropic', apiKey: 'sk-test' } },
       models: {
         opus: {
@@ -446,7 +446,7 @@ describe('harness config schema and patch merge', () => {
 
   it('rejects maxOutputSize <= 0', () => {
     expect(() =>
-      ScreamConfigSchema.parse({
+      LmcodeConfigSchema.parse({
         providers: { local: { type: 'anthropic', apiKey: 'sk-test' } },
         models: {
           opus: {
@@ -495,8 +495,8 @@ describe('config value env override helpers', () => {
   it('resolves env before config before default', () => {
     expect(
       resolveConfigValue({
-        env: { SCREAM_TEST_FLAG: '0' },
-        envKey: 'SCREAM_TEST_FLAG',
+        env: { LMCODE_TEST_FLAG: '0' },
+        envKey: 'LMCODE_TEST_FLAG',
         configValue: true,
         defaultValue: true,
         parseEnv: parseBooleanEnv,
@@ -506,7 +506,7 @@ describe('config value env override helpers', () => {
     expect(
       resolveConfigValue({
         env: {},
-        envKey: 'SCREAM_TEST_FLAG',
+        envKey: 'LMCODE_TEST_FLAG',
         configValue: false,
         defaultValue: true,
         parseEnv: parseBooleanEnv,
@@ -516,7 +516,7 @@ describe('config value env override helpers', () => {
     expect(
       resolveConfigValue({
         env: {},
-        envKey: 'SCREAM_TEST_FLAG',
+        envKey: 'LMCODE_TEST_FLAG',
         defaultValue: true,
         parseEnv: parseBooleanEnv,
       }),
@@ -526,8 +526,8 @@ describe('config value env override helpers', () => {
   it('ignores invalid env values', () => {
     expect(
       resolveConfigValue({
-        env: { SCREAM_TEST_FLAG: 'invalid' },
-        envKey: 'SCREAM_TEST_FLAG',
+        env: { LMCODE_TEST_FLAG: 'invalid' },
+        envKey: 'LMCODE_TEST_FLAG',
         configValue: false,
         defaultValue: true,
         parseEnv: parseBooleanEnv,

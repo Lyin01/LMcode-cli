@@ -93,7 +93,7 @@ export interface LmcodeErrorInfo {
   readonly action?: string;
 }
 
-export const SCREAM_ERROR_INFO = {
+export const LMCODE_ERROR_INFO = {
   'config.invalid': {
     title: 'Invalid configuration',
     retryable: false,
@@ -433,7 +433,7 @@ export const SCREAM_ERROR_INFO = {
     title: 'Git Bash not found',
     retryable: false,
     public: true,
-    action: 'Install Git for Windows from https://gitforwindows.org/ or set SCREAM_SHELL_PATH to a bash.exe.',
+    action: 'Install Git for Windows from https://gitforwindows.org/ or set LMCODE_SHELL_PATH to a bash.exe.',
   },
 
   not_implemented: {

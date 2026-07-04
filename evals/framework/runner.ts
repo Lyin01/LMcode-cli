@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { LmcodeHarness } from '@lmcode-cli/lmcode-sdk';
-import type { Event, ScreamConfigPatch, SessionUsage } from '@lmcode-cli/lmcode-sdk';
+import type { Event, LmcodeConfigPatch, SessionUsage } from '@lmcode-cli/lmcode-sdk';
 
 import type { RunResult, RunTokens, Task } from './types';
 
@@ -33,7 +33,7 @@ const TEST_IDENTITY = {
 /** Provider/model wiring for a run. */
 export interface ProviderSetup {
   /** Config patch applied via `harness.setConfig` (providers + models). */
-  readonly config: ScreamConfigPatch;
+  readonly config: LmcodeConfigPatch;
   /** Model alias to select for the session. */
   readonly model: string;
 }

@@ -13,6 +13,6 @@ export function resolveConfigPath(input: {
   return input.configPath ?? join(resolveLmcodeHome(input.homeDir), 'config.toml');
 }
 
-export function ensureScreamHome(homeDir: string): void {
+export function ensureLmcodeHome(homeDir: string): void {
   mkdirSync(homeDir, { recursive: true, mode: 0o700 });
 }

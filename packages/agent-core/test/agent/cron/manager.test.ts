@@ -24,7 +24,7 @@ describe('CronManager', () => {
     // test that actually exercises fires resets the env via stubEnv,
     // but setting it here as well shields the construction-path tests
     // from any leaked state.
-    vi.stubEnv('SCREAM_CRON_NO_JITTER', '1');
+    vi.stubEnv('LMCODE_CRON_NO_JITTER', '1');
   });
 
   afterEach(() => {
@@ -209,8 +209,8 @@ describe('CronManager', () => {
       expect(manager.isStale(task)).toBe(false);
     });
 
-    it('SCREAM_CRON_NO_STALE=1 disables stale judgment for recurring', () => {
-      vi.stubEnv('SCREAM_CRON_NO_STALE', '1');
+    it('LMCODE_CRON_NO_STALE=1 disables stale judgment for recurring', () => {
+      vi.stubEnv('LMCODE_CRON_NO_STALE', '1');
       const { agent } = createAgentStub();
       const harness = createClocks();
       const manager = new CronManager(agent, {

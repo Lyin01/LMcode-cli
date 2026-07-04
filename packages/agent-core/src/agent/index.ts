@@ -5,7 +5,7 @@ import { basename, dirname, join } from 'pathe';
 import { ErrorCodes, LmcodeError, makeErrorPayload } from '#/errors';
 import { log } from '#/logging/logger';
 import type { Logger } from '#/logging/types';
-import type { AgentAPI, AgentEvent, ScreamConfig, SDKAgentRPC, UsageStatus } from '#/rpc';
+import type { AgentAPI, AgentEvent, LmcodeConfig, SDKAgentRPC, UsageStatus } from '#/rpc';
 import {
   generate,
   type ChatProvider,
@@ -71,7 +71,7 @@ const SIDE_QUESTION_SYSTEM =
 
 export interface AgentOptions {
   readonly jian: Jian;
-  readonly config?: ScreamConfig;
+  readonly config?: LmcodeConfig;
   readonly homedir?: string;
   readonly lmcodeHomeDir?: string;
   readonly rpc?: Partial<SDKAgentRPC>;
@@ -93,7 +93,7 @@ export interface AgentOptions {
 export class Agent {
   readonly type: AgentType;
   readonly jian: Jian;
-  readonly lmcodeConfig?: ScreamConfig;
+  readonly lmcodeConfig?: LmcodeConfig;
   readonly homedir?: string;
   readonly rpc?: Partial<SDKAgentRPC>;
   readonly toolServices?: ToolServices;

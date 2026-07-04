@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ErrorCodes, LmcodeError, type ScreamConfig, type Logger } from '#/index';
+import { ErrorCodes, LmcodeError, type LmcodeConfig, type Logger } from '#/index';
 
 import { ProviderManager } from '../../agent-core/src/session/provider-manager';
 
-function managedConfig(): ScreamConfig {
+function managedConfig(): LmcodeConfig {
   return {
     providers: {
       'managed:lmcode': {
         type: 'lmcode',
-        baseUrl: 'https://api.scream.com/coding/v1',
+        baseUrl: 'https://api.lmcode.com/coding/v1',
         apiKey: '',
         oauth: { storage: 'file', key: 'oauth/lmcode' },
       },
@@ -26,7 +26,7 @@ function managedConfig(): ScreamConfig {
 }
 
 async function resolveRuntimeProviderWithOAuth(options: {
-  readonly config: ScreamConfig;
+  readonly config: LmcodeConfig;
   readonly resolveOAuthTokenProvider?: import('../../agent-core/src/session/provider-manager').OAuthTokenProviderResolver;
   readonly log?: Logger;
 }) {
@@ -127,7 +127,7 @@ describe('resolveRuntimeProviderWithOAuth', () => {
     expect(resolved.provider).toMatchObject({
       type: 'lmcode',
       model: 'lmcode-for-coding',
-      baseUrl: 'https://api.scream.com/coding/v1',
+      baseUrl: 'https://api.lmcode.com/coding/v1',
     });
     expect(resolved.provider.apiKey).toBeUndefined();
     await expect(resolved.resolveAuth?.()).resolves.toEqual({ apiKey: 'rotated-oauth-token' });
@@ -146,12 +146,12 @@ describe('resolveRuntimeProviderWithOAuth', () => {
   });
 
   it('rejects providers that set both apiKey and oauth on the same config', async () => {
-    const conflicting: ScreamConfig = {
+    const conflicting: LmcodeConfig = {
       ...managedConfig(),
       providers: {
         'managed:lmcode': {
           type: 'lmcode',
-          baseUrl: 'https://api.scream.com/coding/v1',
+          baseUrl: 'https://api.lmcode.com/coding/v1',
           apiKey: 'static-key',
           oauth: { storage: 'file', key: 'oauth/lmcode' },
         },

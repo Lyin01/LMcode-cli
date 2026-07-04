@@ -52,7 +52,7 @@ describe('built-in connect catalog injection', () => {
       const text = JSON.stringify(catalog);
       await writeFile(file, text, 'utf-8');
 
-      const defineValue = builtInCatalogDefine({ SCREAM_CODE_BUILT_IN_CATALOG_FILE: file });
+      const defineValue = builtInCatalogDefine({ LMCODE_BUILT_IN_CATALOG_FILE: file });
       expect(JSON.parse(defineValue)).toBe(text);
       expect(loadBuiltInCatalog(JSON.parse(defineValue))).toEqual(catalog);
     } finally {

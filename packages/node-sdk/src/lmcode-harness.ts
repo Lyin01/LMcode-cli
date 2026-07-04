@@ -19,8 +19,8 @@ import type {
   ExportSessionResult,
   ForkSessionInput,
   GetConfigOptions,
-  ScreamConfig,
-  ScreamConfigPatch,
+  LmcodeConfig,
+  LmcodeConfigPatch,
   LmcodeHarnessOptions,
   LmcodeHostIdentity,
   ListSessionsOptions,
@@ -169,7 +169,7 @@ export class LmcodeHarness {
     return this.rpc.listSessions(options);
   }
 
-  async getConfig(options: GetConfigOptions = {}): Promise<ScreamConfig> {
+  async getConfig(options: GetConfigOptions = {}): Promise<LmcodeConfig> {
     return this.rpc.getConfig(options);
   }
 
@@ -187,11 +187,11 @@ export class LmcodeHarness {
     await ensureConfigFile(this.configPath);
   }
 
-  async setConfig(patch: ScreamConfigPatch): Promise<ScreamConfig> {
+  async setConfig(patch: LmcodeConfigPatch): Promise<LmcodeConfig> {
     return this.rpc.setConfig(patch);
   }
 
-  async removeProvider(providerId: string): Promise<ScreamConfig> {
+  async removeProvider(providerId: string): Promise<LmcodeConfig> {
     return this.rpc.removeProvider(providerId);
   }
 

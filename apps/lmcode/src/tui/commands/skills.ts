@@ -1,11 +1,11 @@
 import type { Session, SkillSummary } from '@lmcode-cli/lmcode-sdk';
 
-import type { ScreamSlashCommand } from './types';
+import type { LmcodeSlashCommand } from './types';
 
 export type SkillListSession = Pick<Session, 'listSkills'>;
 
 export interface SkillSlashCommands {
-  readonly commands: readonly ScreamSlashCommand[];
+  readonly commands: readonly LmcodeSlashCommand[];
   readonly commandMap: ReadonlyMap<string, string>;
 }
 
@@ -20,7 +20,7 @@ export function isUserActivatableSkill(skill: SkillSummary): boolean {
 
 export function buildSkillSlashCommands(skills: readonly SkillSummary[]): SkillSlashCommands {
   const commandMap = new Map<string, string>();
-  const commands: ScreamSlashCommand[] = [];
+  const commands: LmcodeSlashCommand[] = [];
   for (const skill of skills) {
     if (!isUserActivatableSkill(skill)) continue;
 

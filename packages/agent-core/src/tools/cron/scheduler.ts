@@ -203,7 +203,7 @@ export function createCronScheduler(opts: CronSchedulerOptions): CronScheduler {
   }
 
   function debugLog(message: string): void {
-    if (process.env['SCREAM_CRON_DEBUG'] === '1') {
+    if (process.env['LMCODE_CRON_DEBUG'] === '1') {
       process.stderr.write(`[cron/scheduler] ${message}\n`);
     }
   }

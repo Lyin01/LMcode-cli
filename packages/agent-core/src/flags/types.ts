@@ -6,7 +6,7 @@ export type FlagSurface = 'core' | 'tui' | 'both';
 /** Shape of a registry entry (id is a loose string so `as const satisfies` can validate it). */
 export interface FlagDefinitionInput {
   readonly id: string;
-  /** Full environment variable name, e.g. `SCREAM_CODE_EXPERIMENTAL_MY_FEATURE`. Read directly by the resolver. */
+  /** Full environment variable name, e.g. `LMCODE_EXPERIMENTAL_MY_FEATURE`. Read directly by the resolver. */
   readonly env: string;
   readonly default: boolean;
   readonly surface: FlagSurface;

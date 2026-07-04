@@ -111,7 +111,7 @@ export class TranscriptController {
     }
 
     this.committedComponent.setCount(this.committedComponent.getCount() + toCommit.length);
-    if (process.env['SCREAM_CODE_DEBUG'] === '1') {
+    if (process.env['LMCODE_DEBUG'] === '1') {
       this.host.showStatus(
         `[debug] committed=${this.committedComponent.getCount()} live=${this.getLiveCount()}`
       );

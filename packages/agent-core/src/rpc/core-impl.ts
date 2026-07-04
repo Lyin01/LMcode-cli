@@ -14,15 +14,15 @@ import type { PromisableMethods } from '#/utils/types';
 import { getCoreVersion } from '#/version';
 import { resolveThinkingLevel } from '../agent/config/thinking';
 import {
-  ensureScreamHome,
+  ensureLmcodeHome,
   loadRuntimeConfig,
   mergeConfigPatch,
   readConfigFile,
   resolveConfigPath,
   resolveLmcodeHome,
   writeConfigFile,
-  type ScreamConfig,
-  type ScreamCliServiceConfig,
+  type LmcodeConfig,
+  type LmcodeCliServiceConfig,
 } from '../config';
 import {
   FLAG_DEFINITIONS,
@@ -59,7 +59,7 @@ import type {
   GetBackgroundOutputPathPayload,
   GetBackgroundOutputPayload,
   GetBackgroundPayload,
-  GetScreamConfigPayload,
+  GetGlobalConfigPayload,
   GetPluginInfoPayload,
   InstallPluginPayload,
   ListSessionsPayload,
@@ -74,13 +74,13 @@ import type {
   RemoveMcpServerPayload,
   RegisterToolPayload,
   ReloadPluginsResult,
-  RemoveScreamProviderPayload,
+  RemoveProviderPayload,
   RemovePluginPayload,
   RenameSessionPayload,
   ResumeSessionPayload,
   SessionSummary,
   SetActiveToolsPayload,
-  SetScreamConfigPayload,
+  SetGlobalConfigPayload,
   SetModelPayload,
   SetModelResult,
   SetPermissionPayload,
@@ -105,7 +105,7 @@ import { JianShellNotFoundError, LocalJian, type Jian } from '@lmcode-cli/jian';
 import type { WebSearchProvider } from '../tools/builtin';
 import type { ToolServices } from '../tools/support/services';
 
-const SCREAM_CODE_PROVIDER_NAME = 'managed:lmcode';
+const LMCODE_PROVIDER_NAME = 'managed:lmcode';
 
 type AgentScopedPayload<T> = T & { readonly agentId: string };
 type SessionScopedPayload<T> = T & { readonly sessionId: string };
@@ -114,7 +114,7 @@ type RenameSessionRequest = SessionScopedPayload<RenameSessionPayload>;
 type UpdateSessionMetadataRequest = SessionScopedPayload<UpdateSessionMetadataPayload>;
 
 
-export interface ScreamCoreOptions {
+export interface LmcodeCoreOptions {
   readonly homeDir?: string | undefined;
   readonly configPath?: string | undefined;
   readonly runtime?: ToolServices | undefined;
@@ -123,7 +123,7 @@ export interface ScreamCoreOptions {
   readonly skillDirs?: readonly string[];
 }
 
-export class ScreamCore implements PromisableMethods<CoreAPI> {
+export class LmcodeCore implements PromisableMethods<CoreAPI> {
   readonly sdk: Promise<SDKRPC>;
   readonly homeDir: string;
   readonly configPath: string;
@@ -131,7 +131,7 @@ export class ScreamCore implements PromisableMethods<CoreAPI> {
 
   private jian: Promise<Jian>;
   private runtime: ToolServices | undefined;
-  private config: ScreamConfig;
+  private config: LmcodeConfig;
   private readonly userHomeDir: string;
   private readonly lmcodeRequestHeaders: Record<string, string> | undefined;
   private readonly resolveOAuthTokenProvider: OAuthTokenProviderResolver | undefined;
@@ -143,7 +143,7 @@ export class ScreamCore implements PromisableMethods<CoreAPI> {
 
   constructor(
     protected readonly rpcClient: CoreRPCClient,
-    options: ScreamCoreOptions = {},
+    options: LmcodeCoreOptions = {},
   ) {
     this.homeDir = resolveLmcodeHome(options.homeDir);
     this.userHomeDir = homedir();
@@ -161,7 +161,7 @@ export class ScreamCore implements PromisableMethods<CoreAPI> {
     this.lmcodeRequestHeaders = options.lmcodeRequestHeaders;
     this.resolveOAuthTokenProvider = options.resolveOAuthTokenProvider;
     this.skillDirs = options.skillDirs ?? [];
-    ensureScreamHome(this.homeDir);
+    ensureLmcodeHome(this.homeDir);
     this.config = loadRuntimeConfig(this.configPath);
     this.sessionStore = new SessionStore(this.homeDir);
     this.plugins = new PluginManager({ lmcodeHomeDir: this.homeDir });
@@ -393,20 +393,20 @@ export class ScreamCore implements PromisableMethods<CoreAPI> {
     return result;
   }
 
-  async getScreamConfig(input?: GetScreamConfigPayload): Promise<ScreamConfig> {
+  async getGlobalConfig(input?: GetGlobalConfigPayload): Promise<LmcodeConfig> {
     if (input?.reload) {
       this.config = loadRuntimeConfig(this.configPath);
     }
     return this.config;
   }
 
-  async setScreamConfig(input: SetScreamConfigPayload): Promise<ScreamConfig> {
+  async setGlobalConfig(input: SetGlobalConfigPayload): Promise<LmcodeConfig> {
     const config = mergeConfigPatch(readConfigFile(this.configPath), input);
     await writeConfigFile(this.configPath, config);
     return this.config = loadRuntimeConfig(this.configPath);
   }
 
-  async removeScreamProvider(input: RemoveScreamProviderPayload): Promise<ScreamConfig> {
+  async removeProvider(input: RemoveProviderPayload): Promise<LmcodeConfig> {
     const config = readConfigFile(this.configPath);
     delete config.providers[input.providerId];
 
@@ -734,7 +734,7 @@ export class ScreamCore implements PromisableMethods<CoreAPI> {
     );
   }
 
-  private async resolveRuntime(config: ScreamConfig): Promise<ToolServices> {
+  private async resolveRuntime(config: LmcodeConfig): Promise<ToolServices> {
     if (this.runtime !== undefined) {
       return this.runtime;
     }
@@ -747,7 +747,7 @@ export class ScreamCore implements PromisableMethods<CoreAPI> {
     return runtime;
   }
 
-  private resolveSessionSkillConfig(config: ScreamConfig): SessionSkillConfig {
+  private resolveSessionSkillConfig(config: LmcodeConfig): SessionSkillConfig {
     const explicitDirs = this.skillDirs.length > 0 ? this.skillDirs : undefined;
     return {
       userHomeDir: this.userHomeDir,
@@ -788,13 +788,13 @@ export class ScreamCore implements PromisableMethods<CoreAPI> {
     return new SessionAPIImpl(session);
   }
 
-  private reloadProviderManager(): ScreamConfig {
+  private reloadProviderManager(): LmcodeConfig {
     return this.config = loadRuntimeConfig(this.configPath);
   }
 
   private async refreshSessionRuntimeConfig(
     session: Session,
-    config: ScreamConfig,
+    config: LmcodeConfig,
   ): Promise<void> {
     const api = new SessionAPIImpl(session);
     // A session migrated from an external tool carries no model, and any
@@ -831,13 +831,13 @@ export class ScreamCore implements PromisableMethods<CoreAPI> {
 
 
 async function createRuntimeConfig(input: {
-  readonly config: ScreamConfig;
+  readonly config: LmcodeConfig;
   readonly lmcodeRequestHeaders?: Record<string, string> | undefined;
   readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver | undefined;
 }): Promise<ToolServices> {
   const fetchCache = new FetchCache();
   const localFetcher = new LocalFetchURLProvider({ cache: fetchCache });
-  const fetchService = input.config.services?.screamCliFetch;
+  const fetchService = input.config.services?.lmcodeCliFetch;
 
   return {
     urlFetcher:
@@ -855,14 +855,14 @@ async function createRuntimeConfig(input: {
 }
 
 function buildWebSearcher(input: {
-  readonly config: ScreamConfig;
+  readonly config: LmcodeConfig;
   readonly lmcodeRequestHeaders?: Record<string, string> | undefined;
   readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver | undefined;
 }): WebSearchProvider | undefined {
-  const searchService = input.config.services?.screamCliSearch;
+  const searchService = input.config.services?.lmcodeCliSearch;
   const ddgEnabled = input.config.services?.duckduckgo?.enabled !== false;
 
-  const screamProvider: WebSearchProvider | undefined =
+  const lmcodeProvider: WebSearchProvider | undefined =
     searchService?.baseUrl !== undefined
       ? new LmcodeCliWebSearchProvider({
           baseUrl: searchService.baseUrl,
@@ -875,14 +875,14 @@ function buildWebSearcher(input: {
     ? new DuckDuckGoSearchProvider()
     : undefined;
 
-  if (screamProvider && ddgProvider) {
-    return new FallbackSearchProvider([screamProvider, ddgProvider]);
+  if (lmcodeProvider && ddgProvider) {
+    return new FallbackSearchProvider([lmcodeProvider, ddgProvider]);
   }
-  return screamProvider ?? ddgProvider;
+  return lmcodeProvider ?? ddgProvider;
 }
 
 function serviceCredentials(
-  service: ScreamCliServiceConfig,
+  service: LmcodeCliServiceConfig,
   resolveOAuthTokenProvider: OAuthTokenProviderResolver | undefined,
 ): {
   readonly apiKey?: string | undefined;
@@ -894,7 +894,7 @@ function serviceCredentials(
     apiKey,
     tokenProvider:
       service.oauth !== undefined
-        ? resolveOAuthTokenProvider?.(SCREAM_CODE_PROVIDER_NAME, service.oauth)
+        ? resolveOAuthTokenProvider?.(LMCODE_PROVIDER_NAME, service.oauth)
         : undefined,
     customHeaders: service.customHeaders,
   };

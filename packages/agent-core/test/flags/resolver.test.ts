@@ -13,13 +13,13 @@ import {
 const DEFS = [
   {
     id: 'a-on-default',
-    env: 'SCREAM_CODE_EXPERIMENTAL_A',
+    env: 'LMCODE_EXPERIMENTAL_A',
     default: true,
     surface: 'core',
   },
   {
     id: 'b-off-default',
-    env: 'SCREAM_CODE_EXPERIMENTAL_B',
+    env: 'LMCODE_EXPERIMENTAL_B',
     default: false,
     surface: 'tui',
   },
@@ -42,19 +42,19 @@ describe('FlagResolver', () => {
 
   it('L2 per-feature on (lenient truthy values)', () => {
     for (const v of ['1', 'true', 'yes', 'on', 'TRUE', ' On ']) {
-      expect(make({ SCREAM_CODE_EXPERIMENTAL_B: v })('b-off-default')).toBe(true);
+      expect(make({ LMCODE_EXPERIMENTAL_B: v })('b-off-default')).toBe(true);
     }
   });
 
   it('L2 per-feature off (lenient falsy values) overrides default=true', () => {
     for (const v of ['0', 'false', 'no', 'off']) {
-      expect(make({ SCREAM_CODE_EXPERIMENTAL_A: v })('a-on-default')).toBe(false);
+      expect(make({ LMCODE_EXPERIMENTAL_A: v })('a-on-default')).toBe(false);
     }
   });
 
   it('L2 unparseable value falls back to default', () => {
-    expect(make({ SCREAM_CODE_EXPERIMENTAL_B: 'maybe' })('b-off-default')).toBe(false);
-    expect(make({ SCREAM_CODE_EXPERIMENTAL_A: 'maybe' })('a-on-default')).toBe(true);
+    expect(make({ LMCODE_EXPERIMENTAL_B: 'maybe' })('b-off-default')).toBe(false);
+    expect(make({ LMCODE_EXPERIMENTAL_A: 'maybe' })('a-on-default')).toBe(true);
   });
 
   it('L1 master switch: every flag is on when enabled (including default=false)', () => {
@@ -64,7 +64,7 @@ describe('FlagResolver', () => {
   });
 
   it('L1 master switch beats an L2 per-feature off (D2)', () => {
-    const enabled = make({ [MASTER_ENV]: '1', SCREAM_CODE_EXPERIMENTAL_A: '0' });
+    const enabled = make({ [MASTER_ENV]: '1', LMCODE_EXPERIMENTAL_A: '0' });
     expect(enabled('a-on-default')).toBe(true);
   });
 
@@ -74,9 +74,9 @@ describe('FlagResolver', () => {
   });
 
   it('reads the env name declared in the registry (the declared name works, others do not)', () => {
-    expect(make({ SCREAM_CODE_EXPERIMENTAL_B: '1' })('b-off-default')).toBe(true);
+    expect(make({ LMCODE_EXPERIMENTAL_B: '1' })('b-off-default')).toBe(true);
     // The name mechanically derived from the id must not take effect (env is explicitly ..._B).
-    expect(make({ SCREAM_CODE_EXPERIMENTAL_B_OFF_DEFAULT: '1' })('b-off-default')).toBe(false);
+    expect(make({ LMCODE_EXPERIMENTAL_B_OFF_DEFAULT: '1' })('b-off-default')).toBe(false);
   });
 
   it('unknown id resolves to false (defensive)', () => {
@@ -90,7 +90,7 @@ describe('FLAG_DEFINITIONS invariants', () => {
     const seenId = new Set<string>();
     const defs: readonly FlagDefinitionInput[] = FLAG_DEFINITIONS;
     for (const def of defs) {
-      expect(def.env.startsWith('SCREAM_CODE_EXPERIMENTAL_')).toBe(true);
+      expect(def.env.startsWith('LMCODE_EXPERIMENTAL_')).toBe(true);
       expect(def.env).not.toBe(MASTER_ENV);
       expect(def.id).not.toBe('flag'); // reserved: would collide with the master switch
       expect(seenEnv.has(def.env)).toBe(false);

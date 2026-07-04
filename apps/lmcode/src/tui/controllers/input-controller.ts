@@ -7,7 +7,7 @@ import type { Session } from '@lmcode-cli/lmcode-sdk';
 import {
   dispatchInput,
   handlePlanCommand,
-  type ScreamSlashCommand,
+  type LmcodeSlashCommand,
   type SlashCommandHost,
 } from '../commands';
 import { FileMentionProvider } from '../components/editor/file-mention-provider';
@@ -73,7 +73,7 @@ export interface InputControllerHost extends SlashCommandHost {
 
   stopMemoryIdleTimer(): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
-  getSlashCommands(): readonly ScreamSlashCommand[];
+  getSlashCommands(): readonly LmcodeSlashCommand[];
   stopWelcomeBreathing(): void;
   updateQueueDisplay(): void;
 }

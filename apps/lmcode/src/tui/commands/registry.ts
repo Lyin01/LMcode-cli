@@ -1,4 +1,4 @@
-import type { ScreamSlashCommand, SlashCommandAvailability } from './types';
+import type { LmcodeSlashCommand, SlashCommandAvailability } from './types';
 
 export const BUILTIN_SLASH_COMMANDS = [
   // ── 1. auto / 2. yes / 3. wolfpack / 4. sessions / 5. goal ──
@@ -261,27 +261,27 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: '退出应用',
     priority: 10,
   },
-] as const satisfies readonly ScreamSlashCommand[];
+] as const satisfies readonly LmcodeSlashCommand[];
 
 export type BuiltinSlashCommand = (typeof BUILTIN_SLASH_COMMANDS)[number];
 export type BuiltinSlashCommandName = BuiltinSlashCommand['name'];
 
 export function findBuiltInSlashCommand(commandName: string): BuiltinSlashCommand | undefined {
-  const commands = BUILTIN_SLASH_COMMANDS as readonly ScreamSlashCommand<BuiltinSlashCommandName>[];
+  const commands = BUILTIN_SLASH_COMMANDS as readonly LmcodeSlashCommand<BuiltinSlashCommandName>[];
   return commands.find(
     (command) => command.name === commandName || command.aliases.includes(commandName),
   ) as BuiltinSlashCommand | undefined;
 }
 
 export function resolveSlashCommandAvailability(
-  command: ScreamSlashCommand,
+  command: LmcodeSlashCommand,
   args: string,
 ): SlashCommandAvailability {
   const availability = command.availability ?? 'idle-only';
   return typeof availability === 'function' ? availability(args) : availability;
 }
 
-export function sortSlashCommands(commands: readonly ScreamSlashCommand[]): ScreamSlashCommand[] {
+export function sortSlashCommands(commands: readonly LmcodeSlashCommand[]): LmcodeSlashCommand[] {
   return [...commands].toSorted(
     (a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.name.localeCompare(b.name),
   );

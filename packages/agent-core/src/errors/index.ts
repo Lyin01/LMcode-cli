@@ -1,6 +1,6 @@
 export {
   ErrorCodes,
-  SCREAM_ERROR_INFO,
+  LMCODE_ERROR_INFO,
   type LmcodeErrorCode,
   type LmcodeErrorInfo,
 } from './codes';

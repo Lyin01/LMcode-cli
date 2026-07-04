@@ -15,8 +15,8 @@ import {
   levelEnabled,
 } from './types';
 
-const ROOT_SYMBOL = Symbol.for('scream.logger.root');
-const SESSION_LOG_ID = Symbol('scream.logger.sessionLogId');
+const ROOT_SYMBOL = Symbol.for('lmcode.logger.root');
+const SESSION_LOG_ID = Symbol('lmcode.logger.sessionLogId');
 const LLM_REQUEST_SESSION_LOG_OMITTED_CONTEXT_KEYS = ['sessionId'];
 const MAIN_LLM_REQUEST_SESSION_LOG_OMITTED_CONTEXT_KEYS = ['sessionId', 'agentId'];
 let nextSessionLogId = 0;

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import type { ScreamSlashCommand } from '#/tui/commands/index';
+import type { LmcodeSlashCommand } from '#/tui/commands/index';
 import { HelpPanelComponent } from '#/tui/components/dialogs/help-panel';
 import { darkColors } from '#/tui/theme/colors';
 
-function cmd(name: string, description: string, aliases: string[] = []): ScreamSlashCommand {
+function cmd(name: string, description: string, aliases: string[] = []): LmcodeSlashCommand {
   return {
     name,
     aliases,

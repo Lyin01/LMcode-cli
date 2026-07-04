@@ -3,9 +3,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export async function runPluginNodeEntry(entry: string, args: readonly string[]): Promise<void> {
-  const pluginRoot = process.env['SCREAM_PLUGIN_ROOT'];
+  const pluginRoot = process.env['LMCODE_PLUGIN_ROOT'];
   if (pluginRoot === undefined || pluginRoot.trim().length === 0) {
-    throw new Error('SCREAM_PLUGIN_ROOT is required to run a plugin node entry.');
+    throw new Error('LMCODE_PLUGIN_ROOT is required to run a plugin node entry.');
   }
 
   const [rootReal, entryReal] = await Promise.all([
@@ -13,7 +13,7 @@ export async function runPluginNodeEntry(entry: string, args: readonly string[])
     realpath(entry),
   ]);
   if (!isWithin(entryReal, rootReal)) {
-    throw new Error(`Plugin node entry must be inside SCREAM_PLUGIN_ROOT: ${entry}`);
+    throw new Error(`Plugin node entry must be inside LMCODE_PLUGIN_ROOT: ${entry}`);
   }
 
   process.argv = [process.argv[0] ?? process.execPath, entryReal, ...args];

@@ -17,7 +17,7 @@ import process from 'node:process';
 import { LmcodeHarness, type Event } from '@lmcode-cli/lmcode-sdk';
 import { describe, expect, test } from 'vitest';
 
-import { createScreamCodeHostIdentity, getVersion } from '#/cli/version';
+import { createLmcodeHostIdentity, getVersion } from '#/cli/version';
 
 const DEFAULT_PROMPT = 'Reply with a single word: hi';
 const DEFAULT_WORKDIR = '/tmp/lmcode-e2e';
@@ -42,7 +42,7 @@ describe.skipIf(!ENABLED)('SDK e2e — real LLM smoke', () => {
       );
 
       const harness = new LmcodeHarness({
-        identity: createScreamCodeHostIdentity(version),
+        identity: createLmcodeHostIdentity(version),
       });
 
       try {

@@ -10,8 +10,8 @@ import {
   type PluginManifestKind,
 } from './types';
 
-const SCREAM_PLUGIN_ROOT_PATH = 'lmcode.plugin.json';
-const SCREAM_PLUGIN_DIR_PATH = '.lmcode-plugin/plugin.json';
+const LMCODE_PLUGIN_ROOT_PATH = 'lmcode.plugin.json';
+const LMCODE_PLUGIN_DIR_PATH = '.lmcode-plugin/plugin.json';
 const CLAUDE_PLUGIN_DIR_PATH = '.claude-plugin/plugin.json';
 const BARE_SKILL_PATH = 'SKILL.md';
 
@@ -38,8 +38,8 @@ export interface ParsedManifestResult {
 }
 
 export async function parseManifest(pluginRoot: string): Promise<ParsedManifestResult> {
-  const rootJsonPath = path.join(pluginRoot, SCREAM_PLUGIN_ROOT_PATH);
-  const dirJsonPath = path.join(pluginRoot, SCREAM_PLUGIN_DIR_PATH);
+  const rootJsonPath = path.join(pluginRoot, LMCODE_PLUGIN_ROOT_PATH);
+  const dirJsonPath = path.join(pluginRoot, LMCODE_PLUGIN_DIR_PATH);
   const claudeDirJsonPath = path.join(pluginRoot, CLAUDE_PLUGIN_DIR_PATH);
   const rootJsonExists = await isFile(rootJsonPath);
   const dirJsonExists = await isFile(dirJsonPath);
@@ -81,7 +81,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
       diagnostics: [
         {
           severity: 'error',
-          message: `No manifest at ${SCREAM_PLUGIN_ROOT_PATH}, ${SCREAM_PLUGIN_DIR_PATH}, or ${CLAUDE_PLUGIN_DIR_PATH}`,
+          message: `No manifest at ${LMCODE_PLUGIN_ROOT_PATH}, ${LMCODE_PLUGIN_DIR_PATH}, or ${CLAUDE_PLUGIN_DIR_PATH}`,
         },
       ],
     };

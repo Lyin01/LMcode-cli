@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import type { ScreamConfig, ModelAlias } from '@lmcode-cli/agent-core';
+import type { LmcodeConfig, ModelAlias } from '@lmcode-cli/agent-core';
 import {
   catalogBaseUrl,
   catalogProviderModels,
@@ -18,9 +18,9 @@ export type { Catalog, CatalogModel, CatalogProviderEntry };
 
 // ─── Catalog cache ────────────────────────────────────────────────────────
 
-/** Path to the local catalog cache inside the scream home directory. */
-export function catalogCachePath(screamHome: string): string {
-  return join(screamHome, 'catalog-cache.json');
+/** Path to the local catalog cache inside the lmcode home directory. */
+export function catalogCachePath(lmcodeHome: string): string {
+  return join(lmcodeHome, 'catalog-cache.json');
 }
 
 /**
@@ -28,9 +28,9 @@ export function catalogCachePath(screamHome: string): string {
  * the next time the network is unreachable.  Best-effort — write failures
  * are silently ignored so they never block the happy path.
  */
-export function saveCatalogCache(catalog: Catalog, screamHome: string): void {
+export function saveCatalogCache(catalog: Catalog, lmcodeHome: string): void {
   try {
-    const path = catalogCachePath(screamHome);
+    const path = catalogCachePath(lmcodeHome);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify(catalog), 'utf-8');
   } catch {
@@ -42,9 +42,9 @@ export function saveCatalogCache(catalog: Catalog, screamHome: string): void {
  * Load the most recently cached catalog snapshot.  Returns `undefined` when
  * no cache file exists or the file is corrupt.
  */
-export function loadCatalogCache(screamHome: string): Catalog | undefined {
+export function loadCatalogCache(lmcodeHome: string): Catalog | undefined {
   try {
-    const raw = readFileSync(catalogCachePath(screamHome), 'utf-8');
+    const raw = readFileSync(catalogCachePath(lmcodeHome), 'utf-8');
     return JSON.parse(raw) as Catalog;
   } catch {
     return undefined;
@@ -113,7 +113,7 @@ export interface ApplyCatalogProviderOptions {
 
 /**
  * Parses an optional pruned models.dev catalog string — typically the
- * `__SCREAM_CODE_BUILT_IN_CATALOG__` constant injected by tsdown at build
+ * `__LMCODE_BUILT_IN_CATALOG__` constant injected by tsdown at build
  * time. Returns `undefined` when the argument is missing or invalid.
  */
 export function loadBuiltInCatalog(text?: string): Catalog | undefined {
@@ -138,7 +138,7 @@ export function loadBuiltInCatalog(text?: string): Catalog | undefined {
  * after the merge.
  */
 export function applyCatalogProvider(
-  config: ScreamConfig,
+  config: LmcodeConfig,
   options: ApplyCatalogProviderOptions,
 ): { defaultModel: string } {
   config.providers[options.providerId] = {

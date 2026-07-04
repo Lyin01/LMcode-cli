@@ -83,7 +83,7 @@ jobs:
         run: |
           CATALOG_FILE="$RUNNER_TEMP/lmcode-built-in-catalog.json"
           node apps/lmcode/scripts/update-catalog.mjs --out "$CATALOG_FILE"
-          echo "SCREAM_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
+          echo "LMCODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
 
       - name: Build native executable (release profile, macOS signed)
         if: runner.os == 'macOS' && inputs.sign-macos

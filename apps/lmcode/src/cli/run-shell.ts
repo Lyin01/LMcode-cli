@@ -11,7 +11,7 @@ import { runLoadingAnimation } from '#/tui/components/chrome/loading';
 import { detectTerminalTheme } from '#/tui/theme/detect';
 
 import type { CLIOptions } from './options';
-import { createScreamCodeHostIdentity } from './version';
+import { createLmcodeHostIdentity } from './version';
 
 export async function runShell(
   opts: CLIOptions,
@@ -35,7 +35,7 @@ export async function runShell(
   const homeDir = resolveLmcodeHome();
   const harness = new LmcodeHarness({
     homeDir,
-    identity: createScreamCodeHostIdentity(version),
+    identity: createLmcodeHostIdentity(version),
   });
   log.info('lmcode starting', {
     version,

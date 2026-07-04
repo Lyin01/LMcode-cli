@@ -1,4 +1,4 @@
-import { SCREAM_ERROR_INFO, isLmcodeError } from '@lmcode-cli/lmcode-sdk';
+import { LMCODE_ERROR_INFO, isLmcodeError } from '@lmcode-cli/lmcode-sdk';
 import { chalkStderr } from 'chalk';
 
 import { STARTUP_ERROR_COLOR } from '#/constant/startup-error';
@@ -23,7 +23,7 @@ export function formatStartupError(
     return `${errorStyle(`错误：${operation}失败：${formatUnknownErrorMessage(error)}`)}\n`;
   }
 
-  const info = SCREAM_ERROR_INFO[error.code];
+  const info = LMCODE_ERROR_INFO[error.code];
   const lines = [
     errorStyle(`错误：${info.title}`),
     '',

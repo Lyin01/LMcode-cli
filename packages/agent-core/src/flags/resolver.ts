@@ -4,7 +4,7 @@ import { FLAG_DEFINITIONS, type FlagId } from './registry';
 import type { FlagDefinitionInput } from './types';
 
 /** Master switch: when truthy, forces every flag on (highest priority). */
-export const MASTER_ENV = 'SCREAM_CODE_EXPERIMENTAL_FLAG';
+export const MASTER_ENV = 'LMCODE_EXPERIMENTAL_FLAG';
 
 /**
  * Pure, synchronous flag resolver. State comes entirely from (env, registry) and nothing is
@@ -12,7 +12,7 @@ export const MASTER_ENV = 'SCREAM_CODE_EXPERIMENTAL_FLAG';
  * process env. Defaults to process.env + FLAG_DEFINITIONS; tests can inject a custom env / defs.
  *
  * Precedence (highest wins):
- *   L1 master switch SCREAM_CODE_EXPERIMENTAL_FLAG → every flag is on
+ *   L1 master switch LMCODE_EXPERIMENTAL_FLAG → every flag is on
  *   L2 per-feature def.env (parseBooleanEnv, may force on or off)
  *   L3 registry default
  */

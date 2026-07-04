@@ -2,9 +2,9 @@
  * Claude Code stream-json I/O adapter.
  *
  * Reads stdin in Claude Code stream-json dialect, processes messages through
- * the ScreamCode agent, and writes stdout in Claude Code dialect.  This lets
+ * the LMcode agent, and writes stdout in Claude Code dialect.  This lets
  * cc-connect (and any tool that speaks the Claude Code stdio protocol) use
- * ScreamCode as a drop-in agent backend.
+ * LMcode as a drop-in agent backend.
  *
  * Protocol reference:
  *   https://docs.anthropic.com/en/docs/claude-code/stdio-stream-json
@@ -21,7 +21,7 @@ import {
   type Session,
 } from "@lmcode-cli/lmcode-sdk";
 
-import { createScreamCodeHostIdentity } from "./version";
+import { createLmcodeHostIdentity } from "./version";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -436,7 +436,7 @@ export async function runStreamJson(opts: StreamJsonOptions): Promise<void> {
 
   const harness = new LmcodeHarness({
     homeDir,
-    identity: createScreamCodeHostIdentity("dev"),
+    identity: createLmcodeHostIdentity("dev"),
     uiMode: "print",
     skillDirs: opts.skillsDirs,
   });
@@ -696,7 +696,7 @@ export async function runStreamJson(opts: StreamJsonOptions): Promise<void> {
           return;
         }
 
-        // Translate ScreamCode events to Claude stream-json dialect.
+        // Translate LMcode events to Claude stream-json dialect.
         // We deliberately suppress thinking, tool_call, and tool_result
         // events so chat platforms only see the final text result.
         // cc-connect's TypingIndicator (supported by weixin/feishu/etc.)

@@ -27,7 +27,7 @@ let sessionDir: string;
 
 beforeEach(async () => {
   // Disable jitter so the scheduler delivers on exact ideal fires.
-  vi.stubEnv('SCREAM_CRON_NO_JITTER', '1');
+  vi.stubEnv('LMCODE_CRON_NO_JITTER', '1');
   sessionDir = await mkdtemp(join(tmpdir(), 'lmcode-cron-resume-'));
 });
 

@@ -5,15 +5,15 @@ import { dirname } from 'pathe';
 import { ErrorCodes, LmcodeError } from '#/errors';
 import { applyEnvModelConfig, stripEnvModelConfig } from './env-model';
 import {
-  ScreamConfigSchema,
+  LmcodeConfigSchema,
   formatConfigValidationError,
   getDefaultConfig,
   type BackgroundConfig,
   type HookDefConfig,
-  type ScreamConfig,
+  type LmcodeConfig,
   type LoopControl,
   type ModelAlias,
-  type ScreamCliServiceConfig,
+  type LmcodeCliServiceConfig,
   type OAuthRef,
   type PermissionConfig,
   type ProviderConfig,
@@ -61,7 +61,7 @@ export async function ensureConfigFile(filePath: string): Promise<void> {
   }
 }
 
-export function readConfigFile(filePath: string): ScreamConfig {
+export function readConfigFile(filePath: string): LmcodeConfig {
   if (!existsSync(filePath)) {
     return getDefaultConfig();
   }
@@ -78,11 +78,11 @@ export function readConfigFile(filePath: string): ScreamConfig {
 export function loadRuntimeConfig(
   filePath: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
-): ScreamConfig {
+): LmcodeConfig {
   return applyEnvModelConfig(readConfigFile(filePath), env);
 }
 
-export function parseConfigString(tomlText: string, filePath = 'config.toml'): ScreamConfig {
+export function parseConfigString(tomlText: string, filePath = 'config.toml'): LmcodeConfig {
   if (tomlText.trim().length === 0) {
     return getDefaultConfig();
   }
@@ -99,13 +99,13 @@ export function parseConfigString(tomlText: string, filePath = 'config.toml'): S
   return parseConfigData(data, filePath);
 }
 
-function parseConfigData(data: Record<string, unknown>, filePath: string): ScreamConfig {
+function parseConfigData(data: Record<string, unknown>, filePath: string): LmcodeConfig {
   const raw = cloneRecord(data);
   const transformed = transformTomlData(data);
   transformed['raw'] = raw;
 
   try {
-    return ScreamConfigSchema.parse(transformed);
+    return LmcodeConfigSchema.parse(transformed);
   } catch (error) {
     throw new LmcodeError(ErrorCodes.CONFIG_INVALID, `Invalid configuration in ${filePath}: ${formatConfigValidationError(error)}`, {
       cause: error,
@@ -262,7 +262,7 @@ function transformLoopControlData(data: Record<string, unknown>): Record<string,
 /*  Write / stringify                                                  */
 /* ------------------------------------------------------------------ */
 
-export async function writeConfigFile(filePath: string, config: ScreamConfig): Promise<void> {
+export async function writeConfigFile(filePath: string, config: LmcodeConfig): Promise<void> {
   // Final guard: never persist the env-synthesized model/provider to disk,
   // even if a caller passes back the runtime config as a patch (see
   // stripEnvModelConfig / the getConfig -> setConfig round-trip).
@@ -271,7 +271,7 @@ export async function writeConfigFile(filePath: string, config: ScreamConfig): P
   await atomicWrite(filePath, `${stringifyToml(configToTomlData(validated))}\n`);
 }
 
-export function configToTomlData(config: ScreamConfig): Record<string, unknown> {
+export function configToTomlData(config: LmcodeConfig): Record<string, unknown> {
   const out = cloneRecord(config.raw);
 
   // Strip deprecated fields
@@ -280,7 +280,7 @@ export function configToTomlData(config: ScreamConfig): Record<string, unknown> 
   delete out['defaultPermissionMode'];
 
   // Top-level scalar fields
-  const scalarFields: (keyof ScreamConfig)[] = [
+  const scalarFields: (keyof LmcodeConfig)[] = [
     'defaultProvider',
     'defaultModel',
     'utilityModel',
@@ -414,20 +414,20 @@ function permissionRuleToToml(
 
 function servicesToToml(services: ServicesConfig, rawServices: unknown): Record<string, unknown> {
   const out = cloneRecord(rawServices);
-  if (services.screamCliSearch !== undefined) {
-    out['scream_cli_search'] = serviceToToml(services.screamCliSearch);
+  if (services.lmcodeCliSearch !== undefined) {
+    out['lmcode_cli_search'] = serviceToToml(services.lmcodeCliSearch);
   } else {
-    delete out['scream_cli_search'];
+    delete out['lmcode_cli_search'];
   }
-  if (services.screamCliFetch !== undefined) {
-    out['scream_cli_fetch'] = serviceToToml(services.screamCliFetch);
+  if (services.lmcodeCliFetch !== undefined) {
+    out['lmcode_cli_fetch'] = serviceToToml(services.lmcodeCliFetch);
   } else {
-    delete out['scream_cli_fetch'];
+    delete out['lmcode_cli_fetch'];
   }
   return out;
 }
 
-function serviceToToml(service: ScreamCliServiceConfig): Record<string, unknown> {
+function serviceToToml(service: LmcodeCliServiceConfig): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(service)) {
     if (key === 'oauth' && value !== undefined) {

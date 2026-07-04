@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildScreamDefaultHeaders,
+  buildLmcodeDefaultHeaders,
   getHostPackageJsonPath,
   getHostPackageRoot,
   getVersion,
@@ -21,7 +21,7 @@ describe('cli version helpers', () => {
   });
 
   it('builds default headers with the lmcode-cli user-agent', () => {
-    const headers = buildScreamDefaultHeaders('1.2.3');
+    const headers = buildLmcodeDefaultHeaders('1.2.3');
 
     expect(headers['User-Agent']).toBe('lmcode-cli/1.2.3');
   });

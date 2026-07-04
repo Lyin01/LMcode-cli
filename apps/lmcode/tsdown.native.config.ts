@@ -25,7 +25,7 @@ function shouldAlwaysBundle(id: string): boolean {
 }
 
 function buildTarget(): string {
-  return process.env['SCREAM_CODE_BUILD_TARGET'] ?? `${process.platform}-${process.arch}`;
+  return process.env['LMCODE_BUILD_TARGET'] ?? `${process.platform}-${process.arch}`;
 }
 
 export default defineConfig({
@@ -45,11 +45,11 @@ export default defineConfig({
   },
   define: {
     [BUILT_IN_CATALOG_DEFINE]: builtInCatalogDefine(),
-    __SCREAM_CODE_VERSION__: JSON.stringify(packageJson.version),
-    __SCREAM_CODE_CHANNEL__: JSON.stringify(process.env['SCREAM_CODE_CHANNEL'] ?? ''),
-    __SCREAM_CODE_COMMIT__: JSON.stringify(process.env['SCREAM_CODE_COMMIT'] ?? ''),
-    __SCREAM_CODE_BUILD_TARGET__: JSON.stringify(buildTarget()),
-    __SCREAM_CODE_NATIVE_BUNDLE__: 'true',
+    __LMCODE_VERSION__: JSON.stringify(packageJson.version),
+    __LMCODE_CHANNEL__: JSON.stringify(process.env['LMCODE_CHANNEL'] ?? ''),
+    __LMCODE_COMMIT__: JSON.stringify(process.env['LMCODE_COMMIT'] ?? ''),
+    __LMCODE_BUILD_TARGET__: JSON.stringify(buildTarget()),
+    __LMCODE_NATIVE_BUNDLE__: 'true',
   },
   deps: {
     alwaysBundle: shouldAlwaysBundle,

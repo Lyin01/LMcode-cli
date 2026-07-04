@@ -1,7 +1,7 @@
 import type { Logger } from '#/logging/types';
 import type { ProviderConfig as LtodProviderConfig, ModelCapability, ProviderRequestAuth } from '@lmcode-cli/ltod';
 import { APIStatusError, createProvider, UNKNOWN_CAPABILITY } from '@lmcode-cli/ltod';
-import type { ScreamConfig, ModelAlias, OAuthRef, ProviderConfig } from '../config';
+import type { LmcodeConfig, ModelAlias, OAuthRef, ProviderConfig } from '../config';
 import { ErrorCodes, isLmcodeError, LmcodeError } from '../errors';
 
 export interface BearerTokenProvider {
@@ -20,7 +20,7 @@ export interface ResolvedRuntimeProvider {
 }
 
 interface ProviderManagerOptions {
-  readonly config: ScreamConfig | (() => ScreamConfig);
+  readonly config: LmcodeConfig | (() => LmcodeConfig);
   readonly lmcodeRequestHeaders?: Record<string, string>;
   readonly resolveOAuthTokenProvider?: OAuthTokenProviderResolver;
   readonly promptCacheKey?: string;
@@ -64,7 +64,7 @@ export class SingleModelProvider implements ModelProvider {
 export class ProviderManager implements ModelProvider {
   constructor(private readonly options: ProviderManagerOptions) {}
 
-  private get config(): ScreamConfig {
+  private get config(): LmcodeConfig {
     const { config } = this.options;
     return typeof config === 'function' ? config() : config;
   }

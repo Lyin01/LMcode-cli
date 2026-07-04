@@ -3,7 +3,7 @@ import type { AgentContextData } from '#/agent/context';
 import type { PermissionData, PermissionMode } from '#/agent/permission';
 import type { PlanData } from '#/agent/plan';
 import type { ToolInfo } from '#/agent/tool';
-import type { ScreamConfig, ScreamConfigPatch } from '#/config';
+import type { LmcodeConfig, LmcodeConfigPatch } from '#/config';
 import type { McpServerConfig } from '#/config/schema';
 import type { ExperimentalFlagMap } from '#/flags';
 import type { ResumeSessionResult } from '#/rpc/resumed';
@@ -21,7 +21,7 @@ export type JsonObject = { readonly [key: string]: JsonValue };
 
 export type Unsubscribe = () => void;
 
-export type { ScreamConfig, ScreamConfigPatch };
+export type { LmcodeConfig, LmcodeConfigPatch };
 
 export type TextPromptPart = Extract<ContentPart, { type: 'text' }>;
 export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
@@ -269,13 +269,13 @@ export interface UpdateSessionMetadataPayload {
   readonly metadata: SessionMetadataPatch;
 }
 
-export interface GetScreamConfigPayload {
+export interface GetGlobalConfigPayload {
   readonly reload?: boolean;
 }
 
-export type SetScreamConfigPayload = ScreamConfigPatch;
+export type SetGlobalConfigPayload = LmcodeConfigPatch;
 
-export interface RemoveScreamProviderPayload {
+export interface RemoveProviderPayload {
   readonly providerId: string;
 }
 export interface UndoHistoryPayload {
@@ -392,9 +392,9 @@ type SessionAPIWithId = WithSessionId<SessionAPI>;
 export interface CoreAPI extends SessionAPIWithId {
   getCoreInfo: (payload: EmptyPayload) => CoreInfo;
   getExperimentalFlags: (payload: EmptyPayload) => ExperimentalFlagMap;
-  getScreamConfig: (payload: GetScreamConfigPayload) => ScreamConfig;
-  setScreamConfig: (payload: SetScreamConfigPayload) => ScreamConfig;
-  removeScreamProvider: (payload: RemoveScreamProviderPayload) => ScreamConfig;
+  getGlobalConfig: (payload: GetGlobalConfigPayload) => LmcodeConfig;
+  setGlobalConfig: (payload: SetGlobalConfigPayload) => LmcodeConfig;
+  removeProvider: (payload: RemoveProviderPayload) => LmcodeConfig;
   createSession: (payload: CreateSessionPayload) => SessionSummary;
   closeSession: (payload: CloseSessionPayload) => void;
   deleteSession: (payload: DeleteSessionPayload) => void;

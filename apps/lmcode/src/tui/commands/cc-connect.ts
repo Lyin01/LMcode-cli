@@ -2,7 +2,7 @@
  * /cc-connect slash command — interactive cc-connect platform config.
  *
  * Typing /cc-connect opens a scrollable platform picker list. Select one,
- * config is auto-generated (correct scream path + work_dir), and the
+ * config is auto-generated (correct lmcode path + work_dir), and the
  * next terminal commands are shown.
  */
 
@@ -49,7 +49,7 @@ function checkCcConnect(): { installed: boolean; version?: string } {
   }
 }
 
-function detectScreamPath(): string {
+function detectLmcodePath(): string {
   try {
     const cmd = process.platform === "win32" ? "where lm" : "which lm 2>/dev/null";
     const which = execSync(cmd, { encoding: "utf-8", timeout: 3000 }).trim();
@@ -120,7 +120,7 @@ function generateConfig(platform: PlatformDef): void {
     'type = "claudecode"',
     '',
     '[projects.agent.options]',
-    `cli_path = '${escapeSingleQuotes(detectScreamPath())}'`,
+    `cli_path = '${escapeSingleQuotes(detectLmcodePath())}'`,
     `work_dir = '${escapeSingleQuotes(process.cwd())}'`,
     'mode = "default"',
     '',
@@ -199,7 +199,7 @@ function buildNoticeText(
     const isAutoDone = step.command.includes("cc-connect-startup.bat");
     parts.push(`  第 ${stepNum} 步：${step.label}${onceTag}`);
     if (isAutoDone) {
-      // Bat file already written by ScreamCode — not a command to run.
+      // Bat file already written by LMcode — not a command to run.
       parts.push(`    ✅ 已自动完成，无需手动操作 （${step.command}）`);
     } else {
       parts.push(`    ${step.command}`);

@@ -76,7 +76,7 @@ function fractionFromId(id: string): number {
 }
 
 function jitterDisabledByEnv(): boolean {
-  return process.env['SCREAM_CRON_NO_JITTER'] === '1';
+  return process.env['LMCODE_CRON_NO_JITTER'] === '1';
 }
 
 /**
