@@ -23,6 +23,9 @@ describe('default agent profiles', () => {
     expect(prompt).toContain('/workspace');
     expect(prompt).toContain('需求保真');
     expect(prompt).toContain('用户的当前提示词是本轮任务的事实来源');
+    expect(prompt).toContain('所有任务，而不仅是软件工程任务');
+    expect(prompt).toContain('括号、插入语');
+    expect(prompt).toContain('视为一等约束');
     expect(prompt).toContain('TodoList');
     expect(prompt).toContain('不要静默遗漏');
   });

@@ -81,9 +81,12 @@ describe('TodoListTool', () => {
     const { description } = tool;
 
     expect(description).toContain('prompts with many explicit requirements');
+    expect(description).toContain('direct answers');
     expect(description).toContain('acceptance criteria');
     expect(description).toContain('constraints');
     expect(description).toContain('exclusions');
+    expect(description).toContain('parenthetical clauses');
+    expect(description).toContain('capability/visibility constraints');
     expect(description).toContain('Before the final answer');
   });
 
