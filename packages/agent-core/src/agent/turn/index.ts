@@ -74,6 +74,45 @@ const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
 const SPEC_CRITIC_MAX_REQUEST_CHARS = 6_000;
 const SPEC_CRITIC_MAX_RESPONSE_CHARS = 4_000;
 const SPEC_CRITIC_MAX_FILES = 30;
+const DIRECT_ANSWER_REVIEW_MIN_LENGTH = 20;
+const DIRECT_ANSWER_FIDELITY_MAX_CONTINUATIONS = 3;
+const DIRECT_ANSWER_REVIEW_PATTERNS: readonly RegExp[] = [
+  /可分辨|手感|能看到|看得见|可观察|可检测|可选择|能选择|可控制|提前决定/u,
+  /最少|最多|保证|必然|一定|无论|至少|至多/u,
+  /必须|不要|不能|不得|输出格式|严格|完整/u,
+];
+
+const DIRECT_ANSWER_OBSERVABLE_OR_CONTROL_PATTERN =
+  /(?:\u53ef\u5206\u8fa8|\u624b\u611f|\u80fd\u6478\u51fa|\u53ef\u6478\u51fa|\u80fd\u770b\u5230|\u770b\u5f97\u89c1|\u53ef\u89c2\u5bdf|\u53ef\u68c0\u6d4b|\u53ef\u9009\u62e9|\u80fd\u9009\u62e9|\u53ef\u63a7\u5236|\u63d0\u524d\u51b3\u5b9a)/u;
+const DIRECT_ANSWER_GUARANTEE_PATTERN =
+  /(?:\u6700\u5c11|\u6700\u591a|\u4fdd\u8bc1|\u5fc5\u7136|\u4e00\u5b9a|\u65e0\u8bba|\u81f3\u5c11|\u81f3\u591a)/u;
+const DIRECT_ANSWER_STRICT_REQUIREMENT_PATTERN =
+  /(?:\u5fc5\u987b|\u4e0d\u8981|\u4e0d\u80fd|\u4e0d\u5f97|\u8f93\u51fa\u683c\u5f0f|\u4e25\u683c|\u5b8c\u6574|output format|strict|must not|do not)/iu;
+const DIRECT_ANSWER_DRAWING_OR_SAMPLING_PATTERN =
+  /(?:\u6478\u51fa|\u53d6\u51fa|\u62bd\u53d6|\u62ff\u51fa|\u7cd6\u679c|\u888b\u5b50|draw|pick|sample)/iu;
+const DIRECT_ANSWER_ATTRIBUTE_DECISION_PATTERN =
+  /(?:\br\b[\s\S]*\bs\b|\bs\b[\s\S]*\br\b|\u5706\u5f62[\s\S]*\u4e94\u89d2\u661f|\u4e94\u89d2\u661f[\s\S]*\u5706\u5f62|\u6309\u5f62\u72b6|\u5206\u522b\u53d6)/iu;
+const ACTION_MODEL_NAME = '\u884c\u52a8\u6a21\u578b';
+const ACTION_MODEL_LABEL = `${ACTION_MODEL_NAME}\uff1a`;
+const DRAW_BY_ATTRIBUTE_EXAMPLE =
+  '\u53d6 r \u4e2a\u5706\u5f62\u3001s \u4e2a\u4e94\u89d2\u661f\u5f62';
+const DIRECT_ANSWER_REQUIREMENT_REMINDER = [
+  'Requirement-fidelity reminder for this answer:',
+  '- The user request contains observable/controllable conditions and a guarantee/minimum style question.',
+  `- Before solving, write "${ACTION_MODEL_LABEL}..." and identify what can be controlled versus what remains random.`,
+  `- For drawing/sampling problems, if an attribute can be distinguished by touch/observation, solve over separate decision counts such as "${DRAW_BY_ATTRIBUTE_EXAMPLE}"; do not collapse the whole population into one fully blind pool.`,
+  '- Use variables for those decision counts, derive the guarantee conditions per observable class, then minimize the total.',
+  '- If the blind-pool answer differs from the controllable-strategy answer, use the controllable strategy and briefly explain why.',
+  'Do not mention this reminder itself.',
+].join('\n');
+const DIRECT_ANSWER_REQUIREMENT_GAP_PROMPT = [
+  'Requirement-fidelity check: the answer above does not visibly account for an observable/controllable condition in the original request.',
+  `Re-solve from scratch. Start with "${ACTION_MODEL_LABEL}" and separate what the user can control from what remains random.`,
+  `For drawing/sampling problems, if an attribute is distinguishable by touch/observation, use separate decision counts such as "${DRAW_BY_ATTRIBUTE_EXAMPLE}" instead of one blind-pool count.`,
+  'Set variables for those counts, derive the guarantee conditions per observable class, and minimize their sum.',
+  'A max-unsafe-set / 28+1 style blind-pool answer is not valid when the observable attribute can be selected or controlled.',
+  'Do not defend the previous blind-pool answer if the controllable-strategy model changes the result.',
+].join('\n');
 
 export class TurnFlow {
   private steerBuffer: BufferedSteer[] = [];
@@ -354,6 +393,14 @@ export class TurnFlow {
     this.agent.usage.beginTurn();
     this.agent.emitEvent({ type: 'turn.started', turnId, origin });
     this.agent.context.appendUserMessage(input, origin);
+    const requirementReminder =
+      origin.kind === 'user' ? directAnswerRequirementReminder(input) : undefined;
+    if (requirementReminder !== undefined) {
+      this.agent.context.appendSystemReminder(requirementReminder, {
+        kind: 'injection',
+        variant: 'direct_answer_requirement_fidelity',
+      });
+    }
 
     let ended: TurnEndedEvent;
     let completedStopReason: LoopTurnStopReason | undefined;
@@ -519,7 +566,7 @@ export class TurnFlow {
                   requestText,
                   '',
                   '## Files the agent changed',
-                  files,
+                  files.length > 0 ? files : '(none)',
                   '',
                   '## Agent final response',
                   finalText.length > 0 ? finalText : '(no final text)',
@@ -562,6 +609,7 @@ export class TurnFlow {
     // turn, and a once-per-turn latch so a critic that keeps finding gaps
     // cannot loop the turn forever.
     let specCriticUsed = false;
+    let directAnswerFidelityContinuationCount = 0;
     const specMutatedPaths = new Set<string>();
     const deduper = new ToolCallDeduplicator();
     await this.agent.mcp?.waitForInitialLoad(signal);
@@ -641,17 +689,39 @@ export class TurnFlow {
 
               // ── Spec-consistency critic ──
               // One cheap utility-model pass when a user-driven turn that
-              // changed files stops naturally: catch explicit requirements
-              // the final response left unaddressed before declaring the
-              // turn done. Latched to once per turn, main agent only —
-              // subagents are reviewed by their parent.
+              // changed files, or a high-constraint direct-answer request,
+              // stops naturally: catch explicit requirements the final
+              // response left unaddressed before declaring the turn done.
+              // Latched to once per turn, main agent only — subagents are
+              // reviewed by their parent.
+              const directAnswerRequirementGap =
+                directAnswerFidelityContinuationCount <
+                  DIRECT_ANSWER_FIDELITY_MAX_CONTINUATIONS &&
+                stopReason === 'end_turn' &&
+                origin.kind === 'user' &&
+                this.agent.type === 'main'
+                  ? directAnswerRequirementFidelityGap(
+                      input,
+                      lastAssistantText(this.agent.context.history),
+                    )
+                  : undefined;
+              if (directAnswerRequirementGap !== undefined) {
+                directAnswerFidelityContinuationCount += 1;
+                this.agent.context.appendUserMessage(
+                  [{ type: 'text', text: directAnswerRequirementGap }],
+                  { kind: 'system_trigger', name: 'direct_answer_requirement_fidelity' },
+                );
+                return { continue: true };
+              }
+
               if (
                 stopReason === 'end_turn' &&
                 !specCriticUsed &&
                 origin.kind === 'user' &&
                 this.agent.type === 'main' &&
                 this.agent.lmcodeConfig?.enableSpecCritic !== false &&
-                specMutatedPaths.size > 0
+                (specMutatedPaths.size > 0 ||
+                  shouldReviewDirectAnswerForRequirementFidelity(input))
               ) {
                 specCriticUsed = true;
                 const missing = await this.runSpecCritic(signal, input, specMutatedPaths);
@@ -1120,6 +1190,53 @@ function contentPartsText(content: readonly ContentPart[]): string {
   return content
     .map((part) => (part.type === 'text' ? part.text : ''))
     .join('');
+}
+
+function shouldReviewDirectAnswerForRequirementFidelity(input: readonly ContentPart[]): boolean {
+  const text = contentPartsText(input).trim();
+  if (text.length < DIRECT_ANSWER_REVIEW_MIN_LENGTH) return false;
+  return (
+    hasDirectAnswerRequirementFidelityTrigger(text) ||
+    DIRECT_ANSWER_STRICT_REQUIREMENT_PATTERN.test(text) ||
+    DIRECT_ANSWER_REVIEW_PATTERNS.some((pattern) => pattern.test(text))
+  );
+}
+
+function directAnswerRequirementReminder(
+  input: readonly ContentPart[],
+): string | undefined {
+  const text = contentPartsText(input).trim();
+  return hasDirectAnswerRequirementFidelityTrigger(text)
+    ? DIRECT_ANSWER_REQUIREMENT_REMINDER
+    : undefined;
+}
+
+function directAnswerRequirementFidelityGap(
+  input: readonly ContentPart[],
+  finalText: string,
+): string | undefined {
+  const requestText = contentPartsText(input).trim();
+  if (!hasDirectAnswerRequirementFidelityTrigger(requestText)) return undefined;
+  const answerText = finalText.trim();
+  if (answerText.length === 0) return DIRECT_ANSWER_REQUIREMENT_GAP_PROMPT;
+  const hasActionModel =
+    answerText.includes(ACTION_MODEL_NAME) || /action model/i.test(answerText);
+  if (!hasActionModel) return DIRECT_ANSWER_REQUIREMENT_GAP_PROMPT;
+  if (
+    DIRECT_ANSWER_DRAWING_OR_SAMPLING_PATTERN.test(requestText) &&
+    !DIRECT_ANSWER_ATTRIBUTE_DECISION_PATTERN.test(answerText)
+  ) {
+    return DIRECT_ANSWER_REQUIREMENT_GAP_PROMPT;
+  }
+  return undefined;
+}
+
+function hasDirectAnswerRequirementFidelityTrigger(text: string): boolean {
+  if (text.length < DIRECT_ANSWER_REVIEW_MIN_LENGTH) return false;
+  return (
+    DIRECT_ANSWER_OBSERVABLE_OR_CONTROL_PATTERN.test(text) &&
+    DIRECT_ANSWER_GUARANTEE_PATTERN.test(text)
+  );
 }
 
 function errorMessage(error: unknown): string {

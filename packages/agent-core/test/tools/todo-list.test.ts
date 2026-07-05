@@ -86,7 +86,8 @@ describe('TodoListTool', () => {
     expect(description).toContain('constraints');
     expect(description).toContain('exclusions');
     expect(description).toContain('parenthetical clauses');
-    expect(description).toContain('capability/visibility constraints');
+    expect(description).toContain('capability/visibility/control constraints');
+    expect(description).toContain('observable/control details');
     expect(description).toContain('Before the final answer');
   });
 
