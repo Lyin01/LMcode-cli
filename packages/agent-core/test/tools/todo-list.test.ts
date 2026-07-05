@@ -76,6 +76,17 @@ describe('TodoListTool', () => {
     expect(description).toMatch(/tell the user/i);
   });
 
+  it('description tells the model to preserve detailed user requirements', () => {
+    const { tool } = makeTool();
+    const { description } = tool;
+
+    expect(description).toContain('prompts with many explicit requirements');
+    expect(description).toContain('acceptance criteria');
+    expect(description).toContain('constraints');
+    expect(description).toContain('exclusions');
+    expect(description).toContain('Before the final answer');
+  });
+
   it('query mode renders the current list without mutating it', async () => {
     const { tool, getTodos } = makeTool([{ title: 'existing', status: 'in_progress' }]);
 

@@ -21,6 +21,10 @@ describe('default agent profiles', () => {
     expect(prompt).toContain('你是 LMcode');
     expect(prompt).toContain('当前可用的技能列表');
     expect(prompt).toContain('/workspace');
+    expect(prompt).toContain('需求保真');
+    expect(prompt).toContain('用户的当前提示词是本轮任务的事实来源');
+    expect(prompt).toContain('TodoList');
+    expect(prompt).toContain('不要静默遗漏');
   });
 
   it('fails loudly when an embedded system prompt source is missing', () => {

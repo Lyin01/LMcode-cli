@@ -237,6 +237,36 @@ function validateCommand(command: string, isWindows: boolean): ExecutableToolRes
   return null;
 }
 
+function buildWindowsPythonShimPreamble(): string {
+  return (
+    `_lmcode_windowsapps_python_alias(){ case "$1" in */WindowsApps/python*|*/WindowsApps/python*.exe) return 0;; *) return 1;; esac;};` +
+    `python3(){ ` +
+    `_p="$(type -P python3 2>/dev/null || true)"; ` +
+    `if [ -n "$_p" ] && ! _lmcode_windowsapps_python_alias "$_p"; then command python3 "$@"; return $?; fi; ` +
+    `_p="$(type -P python 2>/dev/null || true)"; ` +
+    `if [ -n "$_p" ] && ! _lmcode_windowsapps_python_alias "$_p"; then command python "$@"; return $?; fi; ` +
+    `if command -v py >/dev/null 2>&1; then command py -3 "$@"; return $?; fi; ` +
+    `echo "LMcode Windows hint: python3 resolved to a Microsoft Store alias or was not found. Try python, py -3, or install Python." >&2; return 127;` +
+    `};`
+  );
+}
+
+function buildWindowsHostShellGuidelines(): string {
+  return [
+    '',
+    '',
+    '**Windows Host Shell Guidelines:**',
+    '- You are running in Git Bash on a Windows host.',
+    '- Use POSIX shell syntax for this tool, but remember many executables on PATH are native Windows programs.',
+    '- `which` or `command -v` can report Microsoft Store aliases under `/c/Users/.../WindowsApps`; do not treat those as usable Python. Verify Python with `python -c "import sys; print(sys.executable)"` before depending on it.',
+    '- Prefer `python` over `python3` on Windows. A `python3` compatibility shim is installed for each tool call and falls back to `python` or `py -3` when Git Bash resolves `python3` to a WindowsApps alias.',
+    '- Do not assume `sqlite3` is installed. For SQLite inspection, prefer the Python stdlib `sqlite3` module through a verified Python interpreter, or use project-local Node/Bun database APIs.',
+    '- Linux utilities like `pgrep` or `ps -ef` are NOT native to Git Bash. To query/find Windows processes, call native Windows utilities instead, such as `tasklist` (e.g., `tasklist | grep -i <name>`).',
+    '- To call PowerShell from Git Bash, wrap your command: `powershell.exe -NoProfile -Command "Get-Process -Name <name>"`. `MSYS_NO_PATHCONV=1` is preset in your env, allowing you to pass slash arguments (like `/PID`, `/F`, `/IM`) safely.',
+    '- Keep shell script comment lines clean. Avoid empty comment lines (`#`) if they cause syntax issues.',
+  ].join('\n');
+}
+
 function buildSelfProtectionPreamble(isWindows: boolean): string {
   if (isWindows) {
     // Windows Git Bash: shadow taskkill, tskill, kill, pkill
@@ -247,7 +277,8 @@ function buildSelfProtectionPreamble(isWindows: boolean): string {
       `kill(){ _SCREAM_CHECK "$@"||return 1;command kill "$@";};` +
       `pkill(){ echo "LMcode self-protection: pkill blocked. Use kill <pid>.">&2;return 1;};` +
       `taskkill(){ _SCREAM_CHECK "$@"||return 1;command taskkill "$@";};` +
-      `tskill(){ _SCREAM_CHECK "$@"||return 1;command tskill "$@";};`
+      `tskill(){ _SCREAM_CHECK "$@"||return 1;command tskill "$@";};` +
+      buildWindowsPythonShimPreamble()
     );
   }
   // POSIX: shadow kill, pkill, killall; also guard process-group kill (-pid)
@@ -282,11 +313,7 @@ export class BashTool implements BuiltinTool<BashInput> {
     this.allowBackground = options?.allowBackground ?? this.backgroundManager !== undefined;
     let rendered = renderBashDescription(this.jian.osEnv.shellName);
     if (this.isWindowsBash) {
-      rendered += '\n\n**Windows Host Shell Guidelines:**\n' +
-        '- You are running in Git Bash on a Windows host.\n' +
-        '- Linux utilities like `pgrep` or `ps -ef` are NOT native to Git Bash. To query/find Windows processes, call native Windows utilities instead, such as `tasklist` (e.g., `tasklist | grep -i <name>`).\n' +
-        '- To call PowerShell from Git Bash, wrap your command: `powershell -Command "Get-Process -Name <name>"`. `MSYS_NO_PATHCONV=1` is preset in your env, allowing you to pass slash arguments (like `/PID`, `/F`, `/IM`) safely.\n' +
-        '- Keep shell script comment lines clean. Avoid empty comment lines (`#`) if they cause syntax issues.';
+      rendered += buildWindowsHostShellGuidelines();
     }
     this.description = this.allowBackground ? rendered : withoutBackgroundDescription(rendered);
   }

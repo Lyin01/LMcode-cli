@@ -1,9 +1,12 @@
-Use this tool to maintain a structured TODO list as you work through a multi-step task. This is especially useful in plan mode and for long-running investigations.
+Use this tool to maintain a structured TODO list as you work through a multi-step task. This is especially useful in plan mode, long-running investigations, and prompts with many explicit requirements.
+
+Use the list to preserve the user's details, not only your implementation steps. For detailed prompts, include explicit acceptance criteria, constraints, exclusions, requested files, output shape, and validation requirements as separate items so they are not lost while working.
 
 **When to use:**
 - Multi-step tasks that span several tool calls
 - Tracking investigation progress across a large codebase search
 - Planning a sequence of edits before making them
+- User prompts that contain several concrete details, "must", "do not", "also", named files, output format, or validation instructions
 
 **When NOT to use:**
 - Single-shot answers that complete in one or two tool calls
@@ -19,4 +22,6 @@ Use this tool to maintain a structured TODO list as you work through a multi-ste
 - Call with no arguments to retrieve the current list without changing it.
 - Call with `todos: []` to clear the list.
 - Keep titles short and actionable (e.g. "Read session-control.ts", "Add planMode flag to TurnManager").
+- For requirement tracking, preserve individual details as separate items (e.g. "Keep existing API", "Do not touch generated files", "Verify typecheck").
 - Update statuses as you make progress — mark one item in_progress at a time.
+- Before the final answer on detailed tasks, query or review the list and make sure every explicit requirement is done, explained as not applicable, or called out as unfinished.

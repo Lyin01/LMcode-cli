@@ -353,6 +353,38 @@ describe('BashTool', () => {
     });
   });
 
+  it('documents Windows Python and SQLite command availability traps', () => {
+    const tool = new BashTool(
+      createFakeJian({ osEnv: windowsBashEnv }),
+      'C:\\Users\\me\\project',
+    );
+
+    expect(tool.description).toContain('Windows Host Shell Guidelines');
+    expect(tool.description).toContain('WindowsApps');
+    expect(tool.description).toContain('compatibility shim');
+    expect(tool.description).toContain('python -c "import sys; print(sys.executable)"');
+    expect(tool.description).toContain('sqlite3');
+    expect(tool.description).toContain('Python stdlib `sqlite3`');
+  });
+
+  it('installs a Windows python3 shim before running user commands', async () => {
+    const execWithEnv = vi.fn().mockResolvedValue(processWithOutput({ stdout: 'ok\n' }));
+    const tool = new BashTool(
+      createFakeJian({ execWithEnv, osEnv: windowsBashEnv }),
+      'C:\\Users\\me\\project',
+    );
+
+    await executeTool(tool, context({ command: 'python3 -c "print(1)"', timeout: 60 }));
+
+    const argv = execWithEnv.mock.calls[0]?.[0] as readonly string[];
+    expect(argv[2]).toContain('_lmcode_windowsapps_python_alias');
+    expect(argv[2]).toContain('*/WindowsApps/python*');
+    expect(argv[2]).toContain('python3(){');
+    expect(argv[2]).toContain('type -P python3');
+    expect(argv[2]).toContain('command py -3 "$@"');
+    expect(argv[2]).toMatch(/\npython3 -c "print\(1\)"$/);
+  });
+
   it('returns stderr and marks non-zero exit codes as tool errors', async () => {
     const tool = new BashTool(
       createFakeJian({

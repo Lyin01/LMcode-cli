@@ -32,7 +32,7 @@ If `run_in_background=true`, the command will be started as a background task an
 - Prefer `run_in_background=true` for long-running builds, tests, watchers, or servers when you need the conversation to continue before the command finishes.
 
 **Commands available:**
-The following common command categories are usually available. Availability still depends on the host, so when in doubt run `which <command>` first to confirm a command exists before relying on it.
+The following common command categories are usually available. Availability still depends on the host, so when in doubt use `command -v <command>` plus a small smoke test such as `<command> --version` or `<command> -c ...` before relying on it.
 - Navigation and inspection: `ls`, `pwd`, `cd`, `stat`, `file`, `du`, `df`, `tree`
 - File and directory management: `cp`, `mv`, `rm`, `mkdir`, `touch`, `ln`, `chmod`, `chown`
 - Text and data processing: `wc`, `sort`, `uniq`, `cut`, `tr`, `diff`, `xargs`
