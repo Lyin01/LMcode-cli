@@ -21,7 +21,7 @@ export interface LmcodeCliWebSearchProviderOptions {
   fetchImpl?: typeof fetch;
 }
 
-interface ScreamCliSearchResult {
+interface LmcodeCliSearchResult {
   site_name?: string;
   title?: string;
   url?: string;
@@ -32,8 +32,8 @@ interface ScreamCliSearchResult {
   mime?: string;
 }
 
-interface ScreamCliSearchResponse {
-  search_results?: ScreamCliSearchResult[];
+interface LmcodeCliSearchResponse {
+  search_results?: LmcodeCliSearchResult[];
 }
 
 export class LmcodeCliWebSearchProvider implements WebSearchProvider {
@@ -71,18 +71,18 @@ export class LmcodeCliWebSearchProvider implements WebSearchProvider {
     if (response.status === 401) {
       const detail = await safeReadText(response);
       throw new Error(
-        `ScreamCli search request failed: HTTP 401 (auth/unauthorized). ${detail}`.trim(),
+        `LmcodeCli search request failed: HTTP 401 (auth/unauthorized). ${detail}`.trim(),
       );
     }
 
     if (response.status !== 200) {
       const detail = await safeReadText(response);
       throw new Error(
-        `ScreamCli search request failed: HTTP ${String(response.status)}. ${detail}`.trim(),
+        `LmcodeCli search request failed: HTTP ${String(response.status)}. ${detail}`.trim(),
       );
     }
 
-    const json = (await response.json()) as ScreamCliSearchResponse;
+    const json = (await response.json()) as LmcodeCliSearchResponse;
     const raw = Array.isArray(json.search_results) ? json.search_results : [];
 
     return raw.map((r): WebSearchResult => {
@@ -129,7 +129,7 @@ export class LmcodeCliWebSearchProvider implements WebSearchProvider {
       return this.apiKey;
     }
     throw new Error(
-      'ScreamCli search service is not configured: missing API key or token provider.',
+      'LmcodeCli search service is not configured: missing API key or token provider.',
     );
   }
 }

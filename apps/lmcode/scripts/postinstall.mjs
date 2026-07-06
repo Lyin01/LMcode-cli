@@ -8,7 +8,7 @@
  * removes any pre-existing `lm` shim left behind by the previous
  * Python CLI (installed via `uv tool install`, `pipx install`,
  * `pip install`, etc.) that would otherwise shadow ours via PATH
- * ordering. The renamed shim is kept as `scream-legacy` so users can
+ * ordering. The renamed shim is kept as `lmcode-legacy` so users can
  * still invoke the old CLI if they want to fall back.
  *
  * ## Hard rules
@@ -20,11 +20,11 @@
  *     but the script always exits 0.
  *   - Does not touch a `lm` we don't recognize as the previous
  *     Python CLI (matched by realpath-resolved shim head containing
- *     `scream_cli`).
+ *     `lmcode_cli`).
  *   - Cross-platform: POSIX and Windows. Windows-specific bits live
  *     in the helpers (PATHEXT-aware PATH walking, whole-file marker
  *     sniff for uv's Rust launcher .exe, extension-preserving
- *     rename target like `scream.exe` → `scream-legacy.exe`).
+ *     rename target like `lmcode.exe` → `lmcode-legacy.exe`).
  *
  * ## Code layout
  *
@@ -35,7 +35,7 @@
  *     global-install gate, own-package-root resolution, user-shell
  *     PATH lookup, reachability check.
  *   - `./postinstall/migrate.mjs` — legacy detection,
- *     `lm`-vs-`scream-legacy` classification, the rename / unlink
+ *     `lm`-vs-`lmcode-legacy` classification, the rename / unlink
  *     primitives.
  *   - `./postinstall/ui.mjs` — `notify()` (with `/dev/tty` fallback),
  *     ANSI styling, the fixed-width box, and the five outcome
@@ -47,7 +47,7 @@
  * (or the yarn / pnpm equivalent):
  *
  *   1. The manager extracts the package and runs lifecycle scripts.
- *      The `bin.scream` mapping in `package.json` tells the manager to
+ *      The `bin.lmcode` mapping in `package.json` tells the manager to
  *      install a `lm` shim under its global bin directory.
  *   2. The manager invokes this script via the `scripts.postinstall`
  *      entry — orchestrated by `main` below.
@@ -60,35 +60,35 @@
  *      shell can't be probed). Sharing one probe keeps detection
  *      and reachability symmetric and avoids running `$SHELL -l`
  *      twice.
- *   5. Detect EVERY previous Python `scream-cli` shim on the detection
+ *   5. Detect EVERY previous Python `lmcode-cli` shim on the detection
  *      PATH (`detectLegacyShims`). Returns `[]` for fresh-install /
  *      no-op. Multiple results happen when the user has installed
- *      `scream-cli` through more than one Python tool (uv + pipx, or
+ *      `lmcode-cli` through more than one Python tool (uv + pipx, or
  *      sudo-pip + pip-user). PATH order is preserved.
  *   6. Pre-flight classify each shim (`classifyShim`) — pure
  *      filesystem inspection, no writes. Each shim ends up
  *      `renameable`, `consolidate`, `delete-only`, or `blocked`.
  *   7. Decide abort vs proceed against the WHOLE set:
- *      `findFirstResolvableScream` walks PATH treating the actionable
+ *      `findFirstResolvableLMcode` walks PATH treating the actionable
  *      shims as gone and reports what wins:
  *        - `own` → proceed to execute.
  *        - `blocked-legacy` → a legacy we can't remove still wins.
  *          Surface `logMigrationBlocked` with sudo / admin
  *          instructions; touch nothing.
  *        - `foreign` → some `lm` we don't recognize (a user's own
- *          file) wins. Surface `logForeignScreamInTheWay` asking the
+ *          file) wins. Surface `logForeignLMcodeInTheWay` asking the
  *          user to delete or rename their own file; touch nothing.
  *        - `none` → no `lm` on PATH at all (our shim's bin dir
  *          isn't in the shell's PATH). Surface
  *          `logNewCliNotOnPath`; touch nothing.
  *   8. Execute. The FIRST classification in PATH order that we can
- *      touch becomes `scream-legacy` (preserves what `lm` referred
+ *      touch becomes `lmcode-legacy` (preserves what `lm` referred
  *      to before this install). Each subsequent shim is `unlink`ed —
  *      keeping it as a dormant duplicate adds no value. If the
- *      first shim's `scream-legacy` target is already user-managed,
+ *      first shim's `lmcode-legacy` target is already user-managed,
  *      we delete `lm` anyway (still achieves takeover) and tell
  *      the user we couldn't preserve a fallback. Extension is
- *      preserved on Windows (`scream.exe` → `scream-legacy.exe`).
+ *      preserved on Windows (`lmcode.exe` → `lmcode-legacy.exe`).
  *   9. One end-of-orchestration notice (`logMigrationDone`)
  *      summarizes every action — renames, consolidates,
  *      delete-only, deletes, and harmless blocked leftovers. The
@@ -102,7 +102,7 @@
 
 import {
   detectPackageManager,
-  findFirstResolvableScream,
+  findFirstResolvableLMcode,
   isGlobalInstall,
   ownPackageRoot,
   postinstallPaths,
@@ -116,7 +116,7 @@ import {
 import { createDesktopShortcut } from './postinstall/shortcut.mjs';
 import { fixWindowsShimEncoding } from './postinstall/win-encoding.mjs';
 import {
-  logForeignScreamInTheWay,
+  logForeignLMcodeInTheWay,
   logMigrationBlocked,
   logMigrationDone,
   logNewCliNotOnPath,
@@ -145,11 +145,11 @@ async function main() {
   // reachability share a single consistent view. Detection uses the
   // union of shell PATH + process PATH (so we catch a legacy shim
   // visible to either); reachability uses the shell PATH alone (so
-  // we don't claim "scream works now" when the shim only sits in the
+  // we don't claim "lmcode works now" when the shim only sits in the
   // installer's env).
   const paths = await postinstallPaths();
 
-  // Step 4: detect EVERY previous Python `scream-cli` shim on the
+  // Step 4: detect EVERY previous Python `lmcode-cli` shim on the
   // detection PATH. A user with both `uv tool install` and `pipx
   // install` would have two; we must address all of them or the
   // survivor still shadows the new CLI.
@@ -181,7 +181,7 @@ async function main() {
   const actionableShimPaths = actionable.map((c) => c.shimPath);
   const allDetectedShimPaths = classifications.map((c) => c.shimPath);
 
-  const blocker = await findFirstResolvableScream(
+  const blocker = await findFirstResolvableLMcode(
     ownRoot,
     paths.reachability,
     actionableShimPaths,
@@ -191,7 +191,7 @@ async function main() {
     if (blocker.kind === 'blocked-legacy') {
       logMigrationBlocked(blocked, actionable, pm);
     } else if (blocker.kind === 'foreign') {
-      logForeignScreamInTheWay(blocker.path, pm);
+      logForeignLMcodeInTheWay(blocker.path, pm);
     } else {
       // 'none' — our shim isn't on PATH at all.
       logNewCliNotOnPath(detections[0], pm);
@@ -200,7 +200,7 @@ async function main() {
   }
 
   // Step 7: execute. The FIRST classification in PATH order that
-  // we can touch becomes `scream-legacy` (preserves what the user's
+  // we can touch becomes `lmcode-legacy` (preserves what the user's
   // `lm` used to refer to). Every subsequent shim is just
   // deleted — keeping it as a dormant duplicate adds no value.
   const renames = [];

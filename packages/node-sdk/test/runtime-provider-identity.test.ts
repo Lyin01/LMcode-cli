@@ -41,22 +41,22 @@ afterEach(async () => {
 });
 
 describe('runtime provider identity headers', () => {
-  it('adds lmcode-cli User-Agent and complete X-Msh headers to the default Scream provider', async () => {
+  it('adds lmcode-cli User-Agent and complete X-Msh headers to the default LMcode provider', async () => {
     const homeDir = await makeTempDir();
     const lmcodeRequestHeaders = createLmcodeDefaultHeaders({ homeDir, ...TEST_IDENTITY });
     const resolved = resolveRuntimeProvider({
       config: {
-        defaultModel: 'scream-model',
+        defaultModel: 'lmcode-model',
         providers: {
-          scream: {
+          lmcode: {
             type: 'lmcode',
             apiKey: 'test-key',
           },
         },
         models: {
-          'scream-model': {
-            provider: 'scream',
-            model: 'scream-model',
+          'lmcode-model': {
+            provider: 'lmcode',
+            model: 'lmcode-model',
             maxContextSize: 1000,
           },
         },
@@ -78,12 +78,12 @@ describe('runtime provider identity headers', () => {
     });
   });
 
-  it('lets Scream provider customHeaders override default identity headers', async () => {
+  it('lets LMcode provider customHeaders override default identity headers', async () => {
     const homeDir = await makeTempDir();
     const lmcodeRequestHeaders = createLmcodeDefaultHeaders({ homeDir, ...TEST_IDENTITY });
     const config: LmcodeConfig = {
       providers: {
-        scream: {
+        lmcode: {
           type: 'lmcode',
           apiKey: 'test-key',
           customHeaders: {
@@ -92,12 +92,12 @@ describe('runtime provider identity headers', () => {
           },
         },
       },
-      defaultProvider: 'scream',
-      defaultModel: 'scream-model',
+      defaultProvider: 'lmcode',
+      defaultModel: 'lmcode-model',
       models: {
-        'scream-model': {
-          provider: 'scream',
-          model: 'scream-model',
+        'lmcode-model': {
+          provider: 'lmcode',
+          model: 'lmcode-model',
           maxContextSize: 1000,
         },
       },
@@ -118,7 +118,7 @@ describe('runtime provider identity headers', () => {
     });
   });
 
-  it('does not add LMcode identity headers to non-Scream providers', async () => {
+  it('does not add LMcode identity headers to non-LMcode providers', async () => {
     const homeDir = await makeTempDir();
     const lmcodeRequestHeaders = createLmcodeDefaultHeaders({ homeDir, ...TEST_IDENTITY });
     const config: LmcodeConfig = {

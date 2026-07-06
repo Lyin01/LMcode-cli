@@ -47,19 +47,19 @@ $ps5   = Get-Command powershell.exe   -ErrorAction SilentlyContinue
 
 if ($wt) {
     $Shortcut.TargetPath = $wt.Source
-    $Shortcut.Arguments  = '--title "LMcode" cmd /k "chcp 65001 > nul && scream"'
+    $Shortcut.Arguments  = '--title "LMcode" cmd /k "chcp 65001 > nul && lm"'
 }
 elseif ($pwsh7) {
     $Shortcut.TargetPath = $pwsh7.Source
-    $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; scream"'
+    $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; lm"'
 }
 elseif ($ps5) {
     $Shortcut.TargetPath = $ps5.Source
-    $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; $Host.UI.RawUI.WindowTitle = ''LMcode''; scream"'
+    $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; $Host.UI.RawUI.WindowTitle = ''LMcode''; lm"'
 }
 else {
     $Shortcut.TargetPath = 'powershell.exe'
-    $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; $Host.UI.RawUI.WindowTitle = ''LMcode''; scream"'
+    $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; $Host.UI.RawUI.WindowTitle = ''LMcode''; lm"'
 }
 
 $Shortcut.WorkingDirectory = $env:USERPROFILE

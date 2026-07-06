@@ -18,12 +18,12 @@ describe('isConfigStubOrMissing', () => {
   });
 
   it('returns true when content matches DEFAULT_CONFIG_FILE_TEXT exactly', async () => {
-    // From packages/scream-core/src/harness/configs/toml.ts:42
+    // From packages/lmcode-core/src/harness/configs/toml.ts:42
     const stub =
       '# ~/.lmcode/config.toml\n' +
       '# Runtime settings for LMcode.\n' +
       '# This file starts empty so built-in defaults can apply.\n' +
-      '# Login will populate managed Scream provider and model entries.\n';
+      '# Login will populate managed LMcode provider and model entries.\n';
     await writeFile(join(dir, 'config.toml'), stub, 'utf-8');
     expect(await isConfigStubOrMissing(join(dir, 'config.toml'))).toBe(true);
   });
@@ -33,7 +33,7 @@ describe('isConfigStubOrMissing', () => {
       '# ~/.lmcode/config.toml\n' +
       '# Runtime settings for LMcode.\n' +
       '# This file starts empty so built-in defaults can apply.\n' +
-      '# Login will populate managed Scream provider and model entries.\n' +
+      '# Login will populate managed LMcode provider and model entries.\n' +
       'default_thinking = true\n';
     await writeFile(join(dir, 'config.toml'), modified, 'utf-8');
     expect(await isConfigStubOrMissing(join(dir, 'config.toml'))).toBe(false);
@@ -44,7 +44,7 @@ describe('isConfigStubOrMissing', () => {
       '# ~/.lmcode/config.toml\n' +
       '# Runtime settings for LMcode.\n' +
       '# This file starts empty so built-in defaults can apply.\n' +
-      '# Login will populate managed Scream provider and model entries.\n' +
+      '# Login will populate managed LMcode provider and model entries.\n' +
       ' ';
     await writeFile(join(dir, 'config.toml'), stubPlusSpace, 'utf-8');
     expect(await isConfigStubOrMissing(join(dir, 'config.toml'))).toBe(false);

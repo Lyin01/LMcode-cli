@@ -11,7 +11,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-const delayMs = Number.parseInt(process.env['SCREAM_TEST_MCP_START_DELAY_MS'] ?? '0', 10);
+const delayMs = Number.parseInt(process.env['LMCODE_TEST_MCP_START_DELAY_MS'] ?? '0', 10);
 if (delayMs > 0) {
   await sleep(delayMs);
 }

@@ -142,7 +142,7 @@ describe('main entry command handling', () => {
   });
 
 
-  it('formats Scream startup errors with structured fields', () => {
+  it('formats LMcode startup errors with structured fields', () => {
     const error = new LmcodeError(
       ErrorCodes.SHELL_GIT_BASH_NOT_FOUND,
       'Git Bash was not found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.',

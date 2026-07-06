@@ -9,7 +9,7 @@ import { LmcodeError } from './classes';
 import { ErrorCodes, LMCODE_ERROR_INFO, type LmcodeErrorCode } from './codes';
 
 /**
- * Wire-safe payload of a Scream error.
+ * Wire-safe payload of a LMcode error.
  *
  * The structure passed across process / language boundaries (RPC, events,
  * SDK wrappers). Class identity does not survive the boundary; downstream

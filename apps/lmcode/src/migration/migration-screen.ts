@@ -55,7 +55,7 @@ export interface MigrationScreenOptions {
   readonly runMigration?: (input: RunMigrationInput) => Promise<MigrationReport>;
   /**
    * When true, the screen starts at the scope question and skips the
-   * now/later/never gate — used by the explicit `scream migrate` command, where
+   * now/later/never gate — used by the explicit `lmcode migrate` command, where
    * invoking the command is itself the decision to migrate.
    */
   readonly skipDecisionStep?: boolean;
@@ -98,7 +98,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
     super();
     this.opts = opts;
     if (opts.skipDecisionStep === true) {
-      // Explicit `scream migrate`: the now/later/never gate is meaningless, so
+      // Explicit `lmcode migrate`: the now/later/never gate is meaningless, so
       // start at the scope question with the decision already fixed to 'now'.
       this.phase = 'ask2';
       this.choices.push('now');
@@ -281,7 +281,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
     if (this.migrationFailed) {
       lines.push(chalk.hex(colors.error).bold(' 迁移失败'));
       lines.push('');
-      lines.push(chalk.hex(colors.text)(' 可稍后运行 "scream migrate" 重试。'));
+      lines.push(chalk.hex(colors.text)(' 可稍后运行 "lmcode migrate" 重试。'));
       lines.push('');
       lines.push(chalk.hex(colors.textMuted)(' ⏎ 继续进入 lmcode'));
       lines.push(chalk.hex(colors.primary)('─'.repeat(width)));
@@ -314,7 +314,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (r.notices.detectedPlugins.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            `  ⚠ ${r.notices.detectedPlugins.length} 个 scream-cli 插件 — 暂不支持迁移`,
+            `  ⚠ ${r.notices.detectedPlugins.length} 个 lmcode-cli 插件 — 暂不支持迁移`,
           ),
         );
       }
@@ -331,7 +331,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
       }
       // Conflicts and partial failures: the report records them, so surface
       // them here too — otherwise "✓ config / MCP" hides that the data only
-      // landed in a *.migrated-from-scream-cli.* sibling or that sessions failed.
+      // landed in a *.migrated-from-lmcode-cli.* sibling or that sessions failed.
       if (sum.config.configConflicts.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
@@ -341,14 +341,14 @@ export class MigrationScreenComponent extends Container implements Focusable {
       }
       if (sum.config.wroteSiblingDueToConflict) {
         // Sibling mode: the live config.toml could not be parsed, so the
-        // migrated content went to `config.migrated-from-scream-cli.toml` and
+        // migrated content went to `config.migrated-from-lmcode-cli.toml` and
         // the user must merge it by hand. Show the enumeration of contents
         // on a SEPARATE line below — a single-line message with the contents
         // appended would overflow 80 columns and be truncated, silently
         // hiding the very info we want users to see.
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ config.toml 无法解析 — 请查看 config.migrated-from-scream-cli.toml',
+            '  ⚠ config.toml 无法解析 — 请查看 config.migrated-from-lmcode-cli.toml',
           ),
         );
         const sc = sum.config.siblingContents;
@@ -369,14 +369,14 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.config.wroteTuiSibling) {
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ tui.toml 冲突 — 请检查 tui.migrated-from-scream-cli.toml',
+            '  ⚠ tui.toml 冲突 — 请检查 tui.migrated-from-lmcode-cli.toml',
           ),
         );
       }
       if (sum.mcp.wroteSiblingDueToConflict) {
         lines.push(
           chalk.hex(colors.warning)(
-            '  ⚠ mcp.json 无法读取 — 请检查 mcp.migrated-from-scream-cli.json',
+            '  ⚠ mcp.json 无法读取 — 请检查 mcp.migrated-from-lmcode-cli.json',
           ),
         );
       }
@@ -412,7 +412,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
       }
       lines.push('');
       lines.push(
-        chalk.hex(colors.textMuted)(' 旧数据保留在 ~/.lmcode/ — scream-cli 仍可正常使用。'),
+        chalk.hex(colors.textMuted)(' 旧数据保留在 ~/.lmcode/ — lmcode-cli 仍可正常使用。'),
       );
     }
     lines.push('');
@@ -426,7 +426,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
     const spinner = SPINNER_FRAMES[this.spinnerFrame] ?? SPINNER_FRAMES[0];
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
-      chalk.hex(colors.primary).bold(' 正在从 scream-cli 迁移'),
+      chalk.hex(colors.primary).bold(' 正在从 lmcode-cli 迁移'),
       '',
     ];
     if (this.progressTotal > 0) {
@@ -456,11 +456,11 @@ export class MigrationScreenComponent extends Container implements Focusable {
     const step = this.currentStep();
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
-      chalk.hex(colors.primary).bold(' 从 scream-cli 迁移'),
+      chalk.hex(colors.primary).bold(' 从 lmcode-cli 迁移'),
       '',
     ];
     if (this.phase === 'ask1') {
-      lines.push(chalk.hex(colors.text)(' 发现已有的 scream-cli 安装:'));
+      lines.push(chalk.hex(colors.text)(' 发现已有的 lmcode-cli 安装:'));
       lines.push(chalk.hex(colors.textMuted)(`   ${summarizePlan(this.opts.plan)}`));
       lines.push('');
     }

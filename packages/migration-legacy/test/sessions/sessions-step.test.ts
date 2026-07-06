@@ -8,7 +8,7 @@ import { oldMd5BucketName } from '../../src/sessions/workdir-bucket.js';
 import { targetSessionIndex } from '../../src/paths.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures', import.meta.url));
-const FIXTURE_SCREAM = join(FIXTURES, 'multi-workdir', '.scream');
+const FIXTURE_LMCODE = join(FIXTURES, 'multi-workdir', '.lmcode');
 
 // md5("/proj-b") — bucket for placeholder + empty cases.
 const PROJ_B_BUCKET = 'dbf62706c1b976e79a5e7cfcc3491a1f';
@@ -17,11 +17,11 @@ let targetHome: string;
 beforeEach(async () => {
   targetHome = await mkdtemp(join(tmpdir(), 'sessions-step-'));
   // Empty dirs cannot live in git, so materialize `uuid-b2` before each run.
-  await mkdir(join(FIXTURE_SCREAM, 'sessions', PROJ_B_BUCKET, 'uuid-b2'), { recursive: true });
+  await mkdir(join(FIXTURE_LMCODE, 'sessions', PROJ_B_BUCKET, 'uuid-b2'), { recursive: true });
 });
 afterEach(async () => {
   await rm(targetHome, { recursive: true, force: true });
-  await rm(join(FIXTURE_SCREAM, 'sessions', PROJ_B_BUCKET, 'uuid-b2'), {
+  await rm(join(FIXTURE_LMCODE, 'sessions', PROJ_B_BUCKET, 'uuid-b2'), {
     recursive: true,
     force: true,
   });
@@ -30,7 +30,7 @@ afterEach(async () => {
 describe('migrateSessionsStep (multi-workdir fixture)', () => {
   it('migrates real local sessions, skips placeholders/empty, skips non-local jian', async () => {
     const report = await migrateSessionsStep({
-      sourceHome: FIXTURE_SCREAM,
+      sourceHome: FIXTURE_LMCODE,
       targetHome,
     });
     expect(report.bucketsScanned).toBe(3);
@@ -45,7 +45,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
     // Make `session_index.jsonl` a directory so `appendSessionIndexEntry` fails.
     await mkdir(targetSessionIndex(targetHome), { recursive: true });
     const report = await migrateSessionsStep({
-      sourceHome: FIXTURE_SCREAM,
+      sourceHome: FIXTURE_LMCODE,
       targetHome,
     });
     // Both sessions land on disk, but a session with no index entry is
@@ -56,14 +56,14 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
 
   it('counts an already-migrated session as failed when its index entry cannot be ensured', async () => {
     // First run migrates cleanly and writes the index.
-    await migrateSessionsStep({ sourceHome: FIXTURE_SCREAM, targetHome });
+    await migrateSessionsStep({ sourceHome: FIXTURE_LMCODE, targetHome });
     // Simulate a crash that left the index missing, then make it unwritable.
     const indexPath = targetSessionIndex(targetHome);
     await rm(indexPath, { force: true });
     await mkdir(indexPath, { recursive: true });
     // The second run sees the session dirs and takes the already-migrated path.
     const report = await migrateSessionsStep({
-      sourceHome: FIXTURE_SCREAM,
+      sourceHome: FIXTURE_LMCODE,
       targetHome,
     });
     expect(report.sessionsAlreadyMigrated).toBe(0);
@@ -72,7 +72,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
 
   it('does not duplicate an index entry when a deleted session is re-migrated', async () => {
     // First run: both sessions migrated, index has two entries.
-    await migrateSessionsStep({ sourceHome: FIXTURE_SCREAM, targetHome });
+    await migrateSessionsStep({ sourceHome: FIXTURE_LMCODE, targetHome });
     // The user deletes one migrated session's target dir, but its index line
     // survives. A re-run re-migrates that session from scratch.
     const indexPath = targetSessionIndex(targetHome);
@@ -83,7 +83,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       recursive: true,
       force: true,
     });
-    await migrateSessionsStep({ sourceHome: FIXTURE_SCREAM, targetHome });
+    await migrateSessionsStep({ sourceHome: FIXTURE_LMCODE, targetHome });
     // The re-migrated session must not pick up a second index line.
     const ids = (await readFile(indexPath, 'utf-8'))
       .split('\n')
@@ -97,7 +97,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
   it('emits per-session progress (done, total) for each migrated session', async () => {
     const events: Array<{ done: number; total: number }> = [];
     await migrateSessionsStep({
-      sourceHome: FIXTURE_SCREAM,
+      sourceHome: FIXTURE_LMCODE,
       targetHome,
       onSessionProgress: (done, total) => events.push({ done, total }),
     });
@@ -117,7 +117,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
     try {
       const workdir = '/Users/me/corrupt-proj';
       await writeFile(
-        join(src, 'scream.json'),
+        join(src, 'lmcode.json'),
         JSON.stringify({ work_dirs: [{ path: workdir, jian: 'local' }] }),
       );
       const bucket = join(src, 'sessions', oldMd5BucketName(workdir));
@@ -142,13 +142,13 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
 
   it('counts a content-empty session as skipped-empty (not failed) and still migrates the real one', async () => {
     // A session whose context.jsonl holds only markers (the user cleared it
-    // in scream-cli) must be reported as skipped-empty — not failed — without
+    // in lmcode-cli) must be reported as skipped-empty — not failed — without
     // interfering with the real session beside it.
     const src = await mkdtemp(join(tmpdir(), 'empty-sess-src-'));
     try {
       const workdir = '/Users/me/empty-proj';
       await writeFile(
-        join(src, 'scream.json'),
+        join(src, 'lmcode.json'),
         JSON.stringify({ work_dirs: [{ path: workdir, jian: 'local' }] }),
       );
       const bucket = join(src, 'sessions', oldMd5BucketName(workdir));

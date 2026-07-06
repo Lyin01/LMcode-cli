@@ -156,7 +156,7 @@ pnpm run build
 
 ## 致谢
 
-LMcode 基于 [Scream Code](https://github.com/LIUTod/scream-code) 二次开发，感谢原作者 [LIUTod](https://github.com/LIUTod) 的开源工作。
+LMcode 基于 [LMcode](https://github.com/LIUTod/lmcode) 二次开发，感谢原作者 [LIUTod](https://github.com/LIUTod) 的开源工作。
 
 ## License
 

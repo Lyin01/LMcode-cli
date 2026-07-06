@@ -1,13 +1,13 @@
 /**
  * Pure helpers for composing session labels in the session picker.
  *
- * Detection rule for the `[imported]` badge: `metadata.imported_from_scream_cli`
+ * Detection rule for the `[imported]` badge: `metadata.imported_from_lmcode_cli`
  * is strictly the boolean `true`. This mirrors the value written by
  * `migration-legacy` into the session's `state.json` `custom` block.
  */
 
 const IMPORTED_BADGE = '[已导入]';
-const IMPORTED_FLAG_KEY = 'imported_from_scream_cli';
+const IMPORTED_FLAG_KEY = 'imported_from_lmcode_cli';
 
 export interface SessionLabelInput {
   readonly title: string;

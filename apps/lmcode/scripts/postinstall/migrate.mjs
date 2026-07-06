@@ -1,5 +1,5 @@
 /**
- * Detection of the previous Python `scream-cli` shim and the actual
+ * Detection of the previous Python `lmcode-cli` shim and the actual
  * filesystem operations that perform (or refuse) the rename.
  *
  * Detection:
@@ -7,17 +7,17 @@
  *     `pathString` and returns every legacy `lm` shim along the
  *     way (in PATH order). A shim qualifies when it realpath-resolves
  *     outside our own installed package root and its head 4 KiB
- *     contains the `scream_cli` module marker — the setuptools
+ *     contains the `lmcode_cli` module marker — the setuptools
  *     entry-point format produced by `uv tool install`,
  *     `pipx install`, `pip install`, etc. Returning all hits (not
  *     just the first) matters because a user with both uv- and
- *     pipx-installed `scream-cli` has two legacy shims in different
+ *     pipx-installed `lmcode-cli` has two legacy shims in different
  *     dirs, and renaming only the earlier one leaves the later one
  *     shadowing our new CLI. Callers should pass the `detection`
  *     field from `postinstallPaths()` so detection sees the union of
  *     the shell PATH and the installer's PATH.
  *   - {@link isLegacyShim}: same criterion in standalone form, used to
- *     decide whether an existing `scream-legacy` is itself a legacy CLI
+ *     decide whether an existing `lmcode-legacy` is itself a legacy CLI
  *     (safe to consolidate over) or a user-managed file (preserve).
  *
  * Classify + execute (two-phase):
@@ -32,7 +32,7 @@
  * Splitting classification from execution lets the orchestrator make
  * the abort-or-proceed decision once, against the whole detected set,
  * rather than discovering mid-loop that something failed and ending up
- * with a misleading "scream now launches the new CLI" notice in front of
+ * with a misleading "lmcode now launches the new CLI" notice in front of
  * a "permission denied" notice. Uses `fs.lstat` (not `fs.access`) to
  * detect dangling symlinks at the target so we don't clobber them.
  */
@@ -40,16 +40,16 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import { delimiter, dirname, extname, join, sep } from 'node:path';
 
-const LEGACY_BIN = 'scream';
-const LEGACY_RENAME = 'scream-legacy';
-const PYTHON_MARKER = 'scream_cli';
+const LEGACY_BIN = 'lmcode';
+const LEGACY_RENAME = 'lmcode-legacy';
+const PYTHON_MARKER = 'lmcode_cli';
 const IS_WINDOWS = process.platform === 'win32';
 
 // Read window for the marker sniff.
 //   POSIX: setuptools entry-point scripts are a few hundred bytes —
 //          4 KiB is generous.
 //   Windows: `uv tool install` produces a Rust-built launcher .exe
-//            (~45 KiB) and the `scream_cli` module name sits embedded
+//            (~45 KiB) and the `lmcode_cli` module name sits embedded
 //            near the END of the file (verified offset ≈ 44103 on
 //            uv 0.11). Cap reads at 256 KiB so a hostile or
 //            unexpectedly large file can't make us hold a lot of
@@ -72,7 +72,7 @@ function pathEntries(pathString) {
 /**
  * Expand `lm` into the set of filenames that resolve as executables
  * on this platform. POSIX → just `[,]`. Windows → adds every
- * `PATHEXT` extension (so we find `scream.exe`, `scream.cmd`, etc).
+ * `PATHEXT` extension (so we find `lmcode.exe`, `lmcode.cmd`, etc).
  */
 function executableCandidates(basename) {
   if (!IS_WINDOWS) return [basename];
@@ -150,7 +150,7 @@ export async function detectLegacyShims(ownRoot, pathString) {
       }
 
       // Defence-in-depth: never touch a `lm` that resolves into our
-      // own installed package. The `scream_cli` marker check below
+      // own installed package. The `lmcode_cli` marker check below
       // already excludes the manager's generated wrapper today, but
       // this layer keeps us safe if anything in our bundle ever
       // happens to contain the marker substring.
@@ -172,12 +172,12 @@ export async function detectLegacyShims(ownRoot, pathString) {
 }
 
 /**
- * Does the file at `p` look like the legacy Python `scream-cli`?
+ * Does the file at `p` look like the legacy Python `lmcode-cli`?
  *
  * Same criterion as {@link detectLegacyShim} uses to recognize the
  * original shim: realpath-resolvable and the first 4 KiB of the
- * resolved file contains the `scream_cli` module name. Used to decide
- * whether an existing `scream-legacy` is itself a legacy shim (safe to
+ * resolved file contains the `lmcode_cli` module name. Used to decide
+ * whether an existing `lmcode-legacy` is itself a legacy shim (safe to
  * drop the duplicate `lm`) or a user-managed file we must not
  * clobber.
  */
@@ -207,8 +207,8 @@ async function pathExists(p) {
 
 /**
  * Compute where `shimPath` should be renamed to. Preserves the file
- * extension so a Windows `C:\…\scream.exe` ends up at `scream-legacy.exe`
- * rather than an extension-less `scream-legacy` that `scream.exe -- legacy`
+ * extension so a Windows `C:\…\lmcode.exe` ends up at `lmcode-legacy.exe`
+ * rather than an extension-less `lmcode-legacy` that `lmcode.exe -- legacy`
  * shells won't run.
  */
 function renameTargetFor(shimPath) {
@@ -221,7 +221,7 @@ function renameTargetFor(shimPath) {
  * the current user can't write to?
  *
  * POSIX: dir owned by uid 0 (root) — captures
- *   `sudo pip install scream-cli` → `/usr/local/bin/`.
+ *   `sudo pip install lmcode-cli` → `/usr/local/bin/`.
  *
  * Windows: dir under one of the well-known system roots
  *   (`C:\Program Files`, `C:\ProgramData`, `C:\Windows`). uv tool
@@ -271,7 +271,7 @@ async function canWriteDir(dir) {
  * Pre-flight inspection of a single legacy shim. Returns what action
  * we could take WITHOUT executing it. The orchestrator uses these
  * classifications to decide the whole-set strategy (abort vs proceed,
- * which shim becomes scream-legacy) before any filesystem writes
+ * which shim becomes lmcode-legacy) before any filesystem writes
  * happen.
  *
  * Result shapes (all carry `shimPath` and `target` so the renderer
@@ -280,13 +280,13 @@ async function canWriteDir(dir) {
  *                        target slot is free.
  *   - `consolidate`    : target already exists and is itself a legacy
  *                        shim; we'd `fs.unlink(shim)` and leave the
- *                        existing `scream-legacy` as the canonical
+ *                        existing `lmcode-legacy` as the canonical
  *                        fallback (functionally equivalent — same
  *                        upstream package).
  *   - `delete-only`    : target exists but is a user-managed file we
  *                        won't clobber. We can still `fs.unlink(shim)`
  *                        to stop the shadowing; the
- *                        "preserve original scream" invariant fails for
+ *                        "preserve original lmcode" invariant fails for
  *                        THIS dir (we tell the user).
  *   - `blocked`        : we can't write to the parent dir. Carries
  *                        `isSystemPath` so the renderer can suggest
@@ -333,7 +333,7 @@ export async function renameInPlace(shimPath, target) {
 
 /**
  * Execute an `fs.unlink`. Used when:
- *   - we're consolidating onto an existing legacy `scream-legacy`, or
+ *   - we're consolidating onto an existing legacy `lmcode-legacy`, or
  *   - we couldn't rename (foreign target) but can still remove the
  *     shadow, or
  *   - this is a non-first shim and we just want to clear it out so

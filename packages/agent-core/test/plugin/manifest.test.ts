@@ -54,7 +54,7 @@ describe('parseManifest', () => {
           skills: './skills/',
           interface: { displayName: 'Demo' },
           sessionStart: { skill: 'using-demo' },
-          skillInstructions: 'Use Scream tools.',
+          skillInstructions: 'Use LMcode tools.',
         }),
       },
       { dirs: ['skills'] },
@@ -68,7 +68,7 @@ describe('parseManifest', () => {
     expect(result.manifest?.skills).toEqual([path.join(root, 'skills')]);
     expect(result.manifest?.interface?.displayName).toBe('Demo');
     expect(result.manifest?.sessionStart).toEqual({ skill: 'using-demo' });
-    expect(result.manifest?.skillInstructions).toBe('Use Scream tools.');
+    expect(result.manifest?.skillInstructions).toBe('Use LMcode tools.');
   });
 
   it('does NOT fall back to .lmcode-plugin/plugin.json when lmcode.plugin.json is invalid JSON', async () => {

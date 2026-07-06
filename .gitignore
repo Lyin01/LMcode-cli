@@ -10,7 +10,7 @@ coverage/
 .claude
 .conductor
 .lmcode
-.scream-stash-dir
+.lmcode-stash-dir
 plugins/cdn/
 superpowers
 dream-lock.json

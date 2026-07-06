@@ -130,7 +130,7 @@ describe('Session lifecycle hooks', () => {
   });
 
   it('lets the environment override config when deciding background task cleanup', async () => {
-    vi.stubEnv('SCREAM_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT', '0');
+    vi.stubEnv('LMCODE_BACKGROUND_KEEP_ALIVE_ON_EXIT', '0');
     const { sessionDir, workDir } = await hookFixture();
     const session = new Session({
       jian: testJian.withCwd(workDir),

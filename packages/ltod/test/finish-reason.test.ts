@@ -40,8 +40,8 @@ const EMPTY_TOOLSET: Toolset = {
 // A. Normalization table coverage (direct helper tests where possible).
 // =====================================================================
 
-describe('normalizeOpenAIFinishReason (Scream + OpenAILegacy shared helper)', () => {
-  // Covers A for Scream + OpenAILegacy.
+describe('normalizeOpenAIFinishReason (LMcode + OpenAILegacy shared helper)', () => {
+  // Covers A for LMcode + OpenAILegacy.
   it.each<[string | null | undefined, FinishReason | null, string | null]>([
     ['stop', 'completed', 'stop'],
     ['tool_calls', 'tool_calls', 'tool_calls'],
@@ -60,8 +60,8 @@ describe('normalizeOpenAIFinishReason (Scream + OpenAILegacy shared helper)', ()
     },
   );
 });
-function makeScreamStream(rawFinish: string | null | undefined): AsyncIterable<unknown> {
-  // Scream / Chat Completions stream: emit one content chunk + a terminal
+function makeLMcodeStream(rawFinish: string | null | undefined): AsyncIterable<unknown> {
+  // LMcode / Chat Completions stream: emit one content chunk + a terminal
   // chunk carrying finish_reason.
   const chunks: Array<Record<string, unknown>> = [
     {
@@ -86,7 +86,7 @@ function makeOpenAIChatClient(response: unknown) {
   };
 }
 
-function createScreamProvider(response: unknown, stream: boolean): LmcodeChatProvider {
+function createLMcodeProvider(response: unknown, stream: boolean): LmcodeChatProvider {
   return new LmcodeChatProvider({
     model: 'lmcode-k2-turbo-preview',
     stream,
@@ -103,7 +103,7 @@ function createOpenAILegacyProvider(response: unknown, stream: boolean): OpenAIL
 }
 
 describe('LmcodeChatProvider finish reason (stream, table coverage)', () => {
-  // A + B coverage for Scream.
+  // A + B coverage for LMcode.
   it.each<[string, FinishReason, string]>([
     ['stop', 'completed', 'stop'],
     ['tool_calls', 'tool_calls', 'tool_calls'],
@@ -114,7 +114,7 @@ describe('LmcodeChatProvider finish reason (stream, table coverage)', () => {
   ])(
     'raw stream finish_reason %j maps to %j (raw=%j)',
     async (raw, expectedFinish, expectedRaw) => {
-      const provider = createScreamProvider(makeScreamStream(raw), true);
+      const provider = createLMcodeProvider(makeLMcodeStream(raw), true);
 
       const stream = await provider.generate('', [], [USER_MSG]);
       for await (const _ of stream) {
@@ -125,7 +125,7 @@ describe('LmcodeChatProvider finish reason (stream, table coverage)', () => {
     },
   );
 
-  // D coverage for Scream.
+  // D coverage for LMcode.
   it('returns null finishReason when stream never emits finish_reason', async () => {
     const chunks = [
       {
@@ -133,7 +133,7 @@ describe('LmcodeChatProvider finish reason (stream, table coverage)', () => {
         choices: [{ index: 0, delta: { content: 'partial' } }],
       },
     ];
-    const provider = createScreamProvider(makeAsyncIterable(chunks), true);
+    const provider = createLMcodeProvider(makeAsyncIterable(chunks), true);
 
     const stream = await provider.generate('', [], [USER_MSG]);
     for await (const _ of stream) {
@@ -143,9 +143,9 @@ describe('LmcodeChatProvider finish reason (stream, table coverage)', () => {
     expect(stream.rawFinishReason).toBeNull();
   });
 
-  // C coverage for Scream.
+  // C coverage for LMcode.
   it('captures finish_reason from a non-stream response', async () => {
-    const provider = createScreamProvider(
+    const provider = createLMcodeProvider(
       {
         id: 'chatcmpl-ns',
         choices: [
@@ -168,9 +168,9 @@ describe('LmcodeChatProvider finish reason (stream, table coverage)', () => {
     expect(stream.rawFinishReason).toBe('length');
   });
 
-  // D (non-stream) coverage for Scream.
+  // D (non-stream) coverage for LMcode.
   it('returns null finishReason when non-stream response omits finish_reason', async () => {
-    const provider = createScreamProvider(
+    const provider = createLMcodeProvider(
       {
         id: 'chatcmpl-ns-null',
         choices: [
@@ -204,7 +204,7 @@ describe('OpenAILegacyChatProvider finish reason (stream + non-stream)', () => {
   ])(
     'raw stream finish_reason %j maps to %j (raw=%j)',
     async (raw, expectedFinish, expectedRaw) => {
-      const provider = createOpenAILegacyProvider(makeScreamStream(raw), true);
+      const provider = createOpenAILegacyProvider(makeLMcodeStream(raw), true);
 
       const stream = await provider.generate('', [], [USER_MSG]);
       for await (const _ of stream) {

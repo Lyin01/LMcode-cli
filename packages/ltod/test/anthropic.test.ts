@@ -716,7 +716,7 @@ describe('AnthropicChatProvider', () => {
       const messages = body['messages'] as unknown[];
 
       // Unsigned thinking must be PRESERVED, emitted without a `signature`
-      // field — not stripped. Anthropic-compatible backends (e.g. Scream) reject
+      // field — not stripped. Anthropic-compatible backends (e.g. LMcode) reject
       // a tool-call turn whose thinking is missing ("reasoning_content is
       // missing"); api.anthropic.com never emits unsigned thinking, so the
       // signed branch always handles its history and this path is backend-neutral.
@@ -790,7 +790,7 @@ describe('AnthropicChatProvider', () => {
     it('unsigned thinking is preserved before a tool_use block', async () => {
       // Reproduces the real failure: a streamed assistant turn whose thinking
       // arrived without a signature_delta, followed by a tool_use. Dropping the
-      // thinking made Scream reject the *next* request with
+      // thinking made LMcode reject the *next* request with
       // "thinking is enabled but reasoning_content is missing".
       const provider = createProvider();
       const history: Message[] = [

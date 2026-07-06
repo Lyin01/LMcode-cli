@@ -117,7 +117,7 @@ describe('HarnessAPI session skills', () => {
     expect(JSON.stringify(skills)).not.toContain('Your tool list contains one synthetic tool');
   });
 
-  it('resolves user skills from the OS home directory, not from the scream home', async () => {
+  it('resolves user skills from the OS home directory, not from the lmcode home', async () => {
     const processHome = join(tmp, 'process-home');
     vi.stubEnv('HOME', processHome);
     vi.stubEnv('USERPROFILE', processHome);
@@ -252,8 +252,8 @@ describe('HarnessAPI session skills', () => {
       'Target: $target',
       'Mode: $mode',
       'Raw: $ARGUMENTS',
-      'Dir: ${SCREAM_SKILL_DIR}',
-      'Session: ${SCREAM_SESSION_ID}',
+      'Dir: ${LMCODE_SKILL_DIR}',
+      'Session: ${LMCODE_SESSION_ID}',
     ]);
     const { core, rpc } = await createTestRpc({ homeDir });
     const created = await rpc.createSession({ id: 'ses_skill_template', workDir });

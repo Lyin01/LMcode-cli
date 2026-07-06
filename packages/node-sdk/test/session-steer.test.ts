@@ -55,8 +55,8 @@ afterEach(async () => {
 
 describe('Session.steer', () => {
   it('sends turn.steer to the core session runtime', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-steer-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-steer-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-steer-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-steer-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -78,8 +78,8 @@ describe('Session.steer', () => {
   });
 
   it('rejects empty steer input', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-steer-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-steer-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-steer-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-steer-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -95,8 +95,8 @@ describe('Session.steer', () => {
   });
 
   it('rejects after the session is closed', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-steer-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-steer-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-steer-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-steer-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {

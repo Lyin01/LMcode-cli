@@ -13,8 +13,8 @@ afterEach(async () => {
 
 describe('Session.listBackgroundTasks / getBackgroundTaskOutput / getBackgroundTaskOutputPath', () => {
   it('lists an empty task set for a fresh session', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -30,8 +30,8 @@ describe('Session.listBackgroundTasks / getBackgroundTaskOutput / getBackgroundT
   });
 
   it('returns empty output and undefined path for an unknown task id', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -45,8 +45,8 @@ describe('Session.listBackgroundTasks / getBackgroundTaskOutput / getBackgroundT
   });
 
   it('rejects empty task ids with a stable error code', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -69,8 +69,8 @@ describe('Session.listBackgroundTasks / getBackgroundTaskOutput / getBackgroundT
   });
 
   it('rejects after the session is closed', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -99,8 +99,8 @@ describe('Session.listBackgroundTasks / getBackgroundTaskOutput / getBackgroundT
   });
 
   it('stopBackgroundTask is a no-op for an unknown task id', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-bgtask-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-bgtask-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {

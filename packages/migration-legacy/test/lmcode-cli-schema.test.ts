@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { OldScreamJsonSchema, OldSessionStateSchema } from '../src/lmcode-cli-schema.js';
+import { OldLMcodeJsonSchema, OldSessionStateSchema } from '../src/lmcode-cli-schema.js';
 
-describe('OldScreamJsonSchema', () => {
-  it('parses a real-shape scream.json', () => {
+describe('OldLMcodeJsonSchema', () => {
+  it('parses a real-shape lmcode.json', () => {
     const input = {
       work_dirs: [
         { path: '/Users/x/proj', jian: 'local', last_session_id: 'abc' },
         { path: '/Users/x/other', jian: 'local', last_session_id: null },
       ],
     };
-    const parsed = OldScreamJsonSchema.parse(input);
+    const parsed = OldLMcodeJsonSchema.parse(input);
     expect(parsed.work_dirs).toHaveLength(2);
     expect(parsed.work_dirs[0]!.jian).toBe('local');
   });
 
   it('accepts missing last_session_id', () => {
     const input = { work_dirs: [{ path: '/x', jian: 'local' }] };
-    expect(() => OldScreamJsonSchema.parse(input)).not.toThrow();
+    expect(() => OldLMcodeJsonSchema.parse(input)).not.toThrow();
   });
 });
 

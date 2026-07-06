@@ -484,12 +484,12 @@ function compareSessionSummary(a: SessionSummary, b: SessionSummary): number {
 const CC_CONNECT_SESSIONS_DIR = join(homedir(), '.cc-connect', 'sessions');
 
 /**
- * Scan `~/.cc-connect/sessions/*.json` and return ScreamCode-compatible
+ * Scan `~/.cc-connect/sessions/*.json` and return LMcode-compatible
  * SessionSummary entries for every cc-connect session that has a
  * non-empty agent_session_id (i.e. can actually be resumed).
  *
  * Sessions whose `agent_session_id` already appears in `seenAgentIds` are
- * skipped — the native ScreamCode session takes precedence.
+ * skipped — the native LMcode session takes precedence.
  */
 async function listCcConnectSessions(
   seenAgentIds: Set<string>,
@@ -512,7 +512,7 @@ async function listCcConnectSessions(
     for (const [, ccSession] of Object.entries(parsed.sessions ?? {})) {
       const agentId = ccSession.agent_session_id?.trim();
       if (!agentId || agentId.length === 0) continue;
-      // Deduplicate: if a native ScreamCode session already tracks this
+      // Deduplicate: if a native LMcode session already tracks this
       // agent session ID, skip the CC wrapper.
       if (seenAgentIds.has(agentId)) continue;
 

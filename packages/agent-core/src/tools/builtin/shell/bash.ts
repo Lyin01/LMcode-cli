@@ -168,8 +168,8 @@ function validateCommand(command: string, isWindows: boolean): ExecutableToolRes
     );
   }
 
-  // killall / pkill targeting node or scream (POSIX + Git Bash)
-  if (/\b(killall|pkill)\b.*\b(node|scream)/i.test(cmd)) {
+  // killall / pkill targeting node or lmcode (POSIX + Git Bash)
+  if (/\b(killall|pkill)\b.*\b(node|lmcode)/i.test(cmd)) {
     return rejectDangerousCommand(
       'killall/pkill node',
       "Use 'kill <pid>' with a specific PID, or use the server's own stop command.",
@@ -177,10 +177,10 @@ function validateCommand(command: string, isWindows: boolean): ExecutableToolRes
   }
 
   if (isWindows) {
-    // tasklist + grep node/scream + taskkill pipeline
+    // tasklist + grep node/lmcode + taskkill pipeline
     if (
       /\btasklist\b/.test(cmd) &&
-      /\bgrep\b.*\b(node|scream)/i.test(cmd) &&
+      /\bgrep\b.*\b(node|lmcode)/i.test(cmd) &&
       /\b(taskkill|tskill)\b/.test(cmd)
     ) {
       return rejectDangerousCommand(
@@ -213,10 +213,10 @@ function validateCommand(command: string, isWindows: boolean): ExecutableToolRes
       );
     }
   } else {
-    // ps + grep node/scream + xargs kill pipeline (POSIX)
+    // ps + grep node/lmcode + xargs kill pipeline (POSIX)
     if (
       /\bps\b/.test(cmd) &&
-      /\bgrep\b.*\b(node|scream)/i.test(cmd) &&
+      /\bgrep\b.*\b(node|lmcode)/i.test(cmd) &&
       /\bxargs\s+kill\b/.test(cmd)
     ) {
       return rejectDangerousCommand(
@@ -225,8 +225,8 @@ function validateCommand(command: string, isWindows: boolean): ExecutableToolRes
       );
     }
 
-    // pgrep node/scream + xargs kill
-    if (/\bpgrep\b.*\b(node|scream)/i.test(cmd) && /\bxargs\s+kill\b/.test(cmd)) {
+    // pgrep node/lmcode + xargs kill
+    if (/\bpgrep\b.*\b(node|lmcode)/i.test(cmd) && /\bxargs\s+kill\b/.test(cmd)) {
       return rejectDangerousCommand(
         'pgrep node | xargs kill',
         "Use 'kill <pid>' with a specific PID instead.",
@@ -271,22 +271,22 @@ function buildSelfProtectionPreamble(isWindows: boolean): string {
   if (isWindows) {
     // Windows Git Bash: shadow taskkill, tskill, kill, pkill
     return (
-      `_SCREAM_CHECK(){ for _a in "$@";do [ "$_a" = "$SCREAM_PID" ]&&{ ` +
-      `echo "LMcode self-protection: refusing to kill itself (pid $SCREAM_PID). Use a specific non-LMcode PID.">&2;return 1;` +
+      `_LMCODE_CHECK(){ for _a in "$@";do [ "$_a" = "$LMCODE_PID" ]&&{ ` +
+      `echo "LMcode self-protection: refusing to kill itself (pid $LMCODE_PID). Use a specific non-LMcode PID.">&2;return 1;` +
       `};done;return 0;};` +
-      `kill(){ _SCREAM_CHECK "$@"||return 1;command kill "$@";};` +
+      `kill(){ _LMCODE_CHECK "$@"||return 1;command kill "$@";};` +
       `pkill(){ echo "LMcode self-protection: pkill blocked. Use kill <pid>.">&2;return 1;};` +
-      `taskkill(){ _SCREAM_CHECK "$@"||return 1;command taskkill "$@";};` +
-      `tskill(){ _SCREAM_CHECK "$@"||return 1;command tskill "$@";};` +
+      `taskkill(){ _LMCODE_CHECK "$@"||return 1;command taskkill "$@";};` +
+      `tskill(){ _LMCODE_CHECK "$@"||return 1;command tskill "$@";};` +
       buildWindowsPythonShimPreamble()
     );
   }
   // POSIX: shadow kill, pkill, killall; also guard process-group kill (-pid)
   return (
-    `_SCREAM_CHECK(){ for _a in "$@";do [ "$_a" = "$SCREAM_PID" ]||[ "$_a" = "-$SCREAM_PID" ]&&{ ` +
-    `echo "LMcode self-protection: refusing to kill itself (pid $SCREAM_PID). Use a specific non-LMcode PID.">&2;return 1;` +
+    `_LMCODE_CHECK(){ for _a in "$@";do [ "$_a" = "$LMCODE_PID" ]||[ "$_a" = "-$LMCODE_PID" ]&&{ ` +
+    `echo "LMcode self-protection: refusing to kill itself (pid $LMCODE_PID). Use a specific non-LMcode PID.">&2;return 1;` +
     `};done;return 0;};` +
-    `kill(){ _SCREAM_CHECK "$@"||return 1;command kill "$@";};` +
+    `kill(){ _LMCODE_CHECK "$@"||return 1;command kill "$@";};` +
     `pkill(){ echo "LMcode self-protection: pkill blocked. Use kill <pid>.">&2;return 1;};` +
     `killall(){ echo "LMcode self-protection: killall blocked. Use kill <pid>.">&2;return 1;};`
   );
@@ -354,7 +354,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       // set one.
       GIT_TERMINAL_PROMPT: process.env['GIT_TERMINAL_PROMPT'] ?? '0',
       SHELL: this.jian.osEnv.shellPath,
-      SCREAM_PID: String(process.pid),
+      LMCODE_PID: String(process.pid),
       ...(this.isWindowsBash ? { MSYS_NO_PATHCONV: '1' } : {}),
     };
 

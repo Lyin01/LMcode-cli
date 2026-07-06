@@ -24,7 +24,7 @@ import type {
 
 let tmp: string;
 
-type CreateScreamDeviceId = typeof createLmcodeDeviceIdFn;
+type CreateLMcodeDeviceId = typeof createLmcodeDeviceIdFn;
 
 const mocks = vi.hoisted(() => ({
   lmcodeHarnessConstructor: vi.fn(),
@@ -35,7 +35,7 @@ const mocks = vi.hoisted(() => ({
   })),
   harnessGetCachedAccessToken: vi.fn(),
   harnessExportSession: vi.fn(),
-  createLmcodeDeviceId: vi.fn<CreateScreamDeviceId>(() => 'device-1'),
+  createLmcodeDeviceId: vi.fn<CreateLMcodeDeviceId>(() => 'device-1'),
   resolveLmcodeHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/lmcode-export-home'),
   harnessCreatesDeviceIdOnConstruction: false,
 }));
@@ -73,7 +73,7 @@ vi.mock('@lmcode-cli/config', async () => {
   return {
     ...actual,
     createLmcodeDeviceId: mocks.createLmcodeDeviceId,
-    SCREAM_CODE_PROVIDER_NAME: 'lmcode',
+    LMCODE_PROVIDER_NAME: 'lmcode',
   };
 });
 

@@ -51,9 +51,9 @@ export async function handleMainCommand(opts: CLIOptions, version: string): Prom
   await runShell(validated.options, version);
 }
 
-/** `scream migrate` — permanently disabled. */
+/** `lmcode migrate` — permanently disabled. */
 async function handleMigrateCommand(): Promise<void> {
-  process.stdout.write('迁移功能已取消，不再支持从 scream-cli 导入数据。\n');
+  process.stdout.write('迁移功能已取消，不再支持从 lmcode-cli 导入数据。\n');
   process.exit(0);
 }
 

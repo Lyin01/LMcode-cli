@@ -54,7 +54,7 @@ describe.skipIf(!ENABLED)('local logging export e2e', () => {
       log.warn('cli global marker');
 
       const defaultZip = join(workDir, 'default.zip');
-      await runScreamExport([session.id, '-o', defaultZip]);
+      await runLMcodeExport([session.id, '-o', defaultZip]);
       const defaultEntries = readZipEntries(await readFile(defaultZip));
       expect(defaultEntries.has(MAIN_WIRE)).toBe(true);
       expect(defaultEntries.has(SESSION_LOG)).toBe(true);
@@ -70,7 +70,7 @@ describe.skipIf(!ENABLED)('local logging export e2e', () => {
       expect(defaultManifest['globalLogPath']).toBe(GLOBAL_LOG);
 
       const noGlobalZip = join(workDir, 'no-global.zip');
-      await runScreamExport([session.id, '-o', noGlobalZip, '--no-include-global-log']);
+      await runLMcodeExport([session.id, '-o', noGlobalZip, '--no-include-global-log']);
       const noGlobalEntries = readZipEntries(await readFile(noGlobalZip));
       expect(noGlobalEntries.has(GLOBAL_LOG)).toBe(false);
       const noGlobalManifest = JSON.parse(
@@ -83,7 +83,7 @@ describe.skipIf(!ENABLED)('local logging export e2e', () => {
   }, 15_000);
 });
 
-async function runScreamExport(args: string[]): Promise<void> {
+async function runLMcodeExport(args: string[]): Promise<void> {
   const program = new Command('lm');
   const stdout: string[] = [];
   const stderr: string[] = [];

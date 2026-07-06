@@ -41,7 +41,7 @@ extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 
 [providers.lmcode-for-coding]
 type = "lmcode"
-base_url = "https://api.scream.com/coding/v1"
+base_url = "https://api.lmcode.com/coding/v1"
 api_key = "sk-xxx"
 custom_headers = { "X-Custom-Header" = "value" }
 
@@ -53,7 +53,7 @@ provider = "lmcode-for-coding"
 model = "lmcode-for-coding"
 max_context_size = 262144
 capabilities = ["image_in", "thinking", "video_in"]
-display_name = "Scream for Coding"
+display_name = "LMcode for Coding"
 
 [loop_control]
 max_retries_per_step = 3
@@ -69,12 +69,12 @@ agent_task_timeout_s = 900
 print_wait_ceiling_s = 3600
 
 [services.lmcode_cli_search]
-base_url = "https://api.scream.com/coding/v1/search"
+base_url = "https://api.lmcode.com/coding/v1/search"
 api_key = "sk-search"
 custom_headers = { "X-Search" = "1" }
 
 [services.lmcode_cli_fetch]
-base_url = "https://api.scream.com/coding/v1/fetch"
+base_url = "https://api.lmcode.com/coding/v1/fetch"
 api_key = "sk-fetch"
 
 [notifications]
@@ -95,7 +95,7 @@ describe('SDK config TOML', () => {
     const provider = config.providers['lmcode-for-coding'];
     expect(provider).toMatchObject({
       type: 'lmcode',
-      baseUrl: 'https://api.scream.com/coding/v1',
+      baseUrl: 'https://api.lmcode.com/coding/v1',
       apiKey: 'sk-xxx',
       customHeaders: { 'X-Custom-Header': 'value' },
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
@@ -106,7 +106,7 @@ describe('SDK config TOML', () => {
       model: 'lmcode-for-coding',
       maxContextSize: 262144,
       capabilities: ['image_in', 'thinking', 'video_in'],
-      displayName: 'Scream for Coding',
+      displayName: 'LMcode for Coding',
     });
 
     expect(config.loopControl).toEqual({
@@ -152,7 +152,7 @@ describe('SDK config TOML', () => {
     expect(text).toContain('extra_skill_dirs = [ "~/team-skills", ".agents/team-skills" ]');
     expect(text).not.toContain('default_yolo');
     expect(text).toContain('max_steps_per_turn = 42');
-    expect(text).toContain('display_name = "Scream for Coding"');
+    expect(text).toContain('display_name = "LMcode for Coding"');
     expect(text).toContain('GOOGLE_CLOUD_PROJECT = "project-1"');
     expect(text).toContain('claim_stale_after_ms = 15000');
     expect(text).toContain('theme = "dark"');
@@ -241,7 +241,7 @@ describe('LmcodeHarness config API', () => {
     const config = await harness.getConfig({ reload: true });
     expect(config.providers['lmcode-for-coding']).toMatchObject({
       type: 'lmcode',
-      baseUrl: 'https://api.scream.com/coding/v1',
+      baseUrl: 'https://api.lmcode.com/coding/v1',
       apiKey: 'sk-updated',
       env: { GOOGLE_CLOUD_PROJECT: 'project-1' },
     });

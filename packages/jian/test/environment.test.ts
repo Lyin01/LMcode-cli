@@ -6,7 +6,7 @@
  *   - macOS / Linux / Windows / unknown → `osKind`
  *   - POSIX path probing prefers /bin/bash, falls back to /usr/bin/bash,
  *     /usr/local/bin/bash, then /bin/sh (with shellName 'sh').
- *   - Windows resolves Git Bash via `SCREAM_SHELL_PATH`, `git.exe` on PATH,
+ *   - Windows resolves Git Bash via `LMCODE_SHELL_PATH`, `git.exe` on PATH,
  *     or well-known install locations; throws `JianShellNotFoundError`
  *     if none are present.
  *   - `osArch` / `osVersion` are populated from the Node OS APIs.

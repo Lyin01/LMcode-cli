@@ -49,7 +49,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
       workdirPath: '/Users/me/proj',
       targetHome,
     });
-    // The dir we wrote carries `imported_from_scream_cli`, so a re-run is an
+    // The dir we wrote carries `imported_from_lmcode_cli`, so a re-run is an
     // idempotent skip, not a real collision.
     expect(second.outcome).toBe('already-migrated');
   });
@@ -97,7 +97,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     });
     expect(result.outcome).toBe('migrated');
     const state = JSON.parse(await readFile(join(targetDir, 'state.json'), 'utf-8'));
-    expect(state.custom.imported_from_scream_cli).toBe(true);
+    expect(state.custom.imported_from_lmcode_cli).toBe(true);
   });
 
   it('re-migrates a target dir whose state.json is corrupt', async () => {
@@ -123,7 +123,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     });
     expect(result.outcome).toBe('migrated');
     const state = JSON.parse(await readFile(join(targetDir, 'state.json'), 'utf-8'));
-    expect(state.custom.imported_from_scream_cli).toBe(true);
+    expect(state.custom.imported_from_lmcode_cli).toBe(true);
   });
 
   it('stamps written artifacts with the original wire_mtime', async () => {
@@ -182,7 +182,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
 
   it('reports outcome "empty" — not "failed" — when the context has no messages', async () => {
     // A context.jsonl with only markers (e.g. a session the user cleared in
-    // scream-cli) carries no migratable conversation. That is an empty session,
+    // lmcode-cli) carries no migratable conversation. That is an empty session,
     // not a migration failure.
     const srcDir = join(targetHome, 'src-empty-context');
     await mkdir(srcDir, { recursive: true });

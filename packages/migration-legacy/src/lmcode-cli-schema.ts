@@ -1,19 +1,19 @@
 import { z } from 'zod';
 
-// Mirrors scream-cli's `Metadata` pydantic model (metadata.py:43–49).
+// Mirrors lmcode-cli's `Metadata` pydantic model (metadata.py:43–49).
 export const OldWorkDirMetaSchema = z.object({
   path: z.string(),
   jian: z.string().default('local'),
   last_session_id: z.string().nullable().optional(),
 });
 
-export const OldScreamJsonSchema = z.object({
+export const OldLMcodeJsonSchema = z.object({
   work_dirs: z.array(OldWorkDirMetaSchema).default([]),
 });
 
-// Mirrors scream-cli's `SessionState` (session_state.py:28–45).
+// Mirrors lmcode-cli's `SessionState` (session_state.py:28–45).
 // We use `.passthrough()` because old persisted state may carry extra
-// fields from newer scream-cli versions; we only consume a known subset.
+// fields from newer lmcode-cli versions; we only consume a known subset.
 export const OldSessionStateSchema = z
   .object({
     version: z.number().optional(),
@@ -40,6 +40,6 @@ export const OldSessionStateSchema = z
   })
   .passthrough();
 
-export type OldScreamJson = z.infer<typeof OldScreamJsonSchema>;
+export type OldLMcodeJson = z.infer<typeof OldLMcodeJsonSchema>;
 export type OldWorkDirMeta = z.infer<typeof OldWorkDirMetaSchema>;
 export type OldSessionState = z.infer<typeof OldSessionStateSchema>;

@@ -861,7 +861,7 @@ describe('Default tool approve policy', () => {
     ['TodoList', {}],
     ['TaskList', {}],
     ['TaskOutput', { task_id: 'task_1' }],
-    ['WebSearch', { query: 'scream code' }],
+    ['WebSearch', { query: 'lmcode code' }],
     ['FetchURL', { url: 'https://example.com' }],
     ['Agent', { prompt: 'review this' }],
     ['AskUserQuestion', { questions: [] }],

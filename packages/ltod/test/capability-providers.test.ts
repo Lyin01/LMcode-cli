@@ -24,7 +24,7 @@ describe('LmcodeChatProvider.getCapability', () => {
     return new LmcodeChatProvider({ model, apiKey: 'test-key' });
   }
 
-  it('does not infer capabilities from Scream model names', () => {
+  it('does not infer capabilities from LMcode model names', () => {
     for (const model of [
       'lmcode-for-coding',
       'lmcode',
@@ -41,7 +41,7 @@ describe('LmcodeChatProvider.getCapability', () => {
     expect(provider.getCapability('lmcode-for-coding')).toEqual(UNKNOWN_CAPABILITY);
   });
 
-  it('unknown Scream model → UNKNOWN_CAPABILITY (no throw)', () => {
+  it('unknown LMcode model → UNKNOWN_CAPABILITY (no throw)', () => {
     const cap = make('some-fake-model').getCapability();
     expect(cap).toEqual(UNKNOWN_CAPABILITY);
   });

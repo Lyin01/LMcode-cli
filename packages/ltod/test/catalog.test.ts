@@ -31,11 +31,11 @@ describe('inferWireType', () => {
 
 describe('catalogBaseUrl', () => {
   it('strips a trailing /v1 for anthropic so the official SDK does not double it', () => {
-    expect(catalogBaseUrl({ id: 'k', api: 'https://api.scream.com/coding/v1' }, 'anthropic')).toBe(
-      'https://api.scream.com/coding',
+    expect(catalogBaseUrl({ id: 'k', api: 'https://api.lmcode.com/coding/v1' }, 'anthropic')).toBe(
+      'https://api.lmcode.com/coding',
     );
-    expect(catalogBaseUrl({ id: 'k', api: 'https://api.scream.com/coding/v1/' }, 'anthropic')).toBe(
-      'https://api.scream.com/coding',
+    expect(catalogBaseUrl({ id: 'k', api: 'https://api.lmcode.com/coding/v1/' }, 'anthropic')).toBe(
+      'https://api.lmcode.com/coding',
     );
   });
 

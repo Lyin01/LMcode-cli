@@ -1,7 +1,7 @@
 /**
  * Migration detection — permanently disabled.
  *
- * The scream-cli → lmcode migration feature has been removed.
+ * The lmcode-cli → lmcode migration feature has been removed.
  * This module is kept as a no-op stub so callers do not need to change.
  */
 import type { MigrationPlan } from '@lmcode-cli/migration-legacy';

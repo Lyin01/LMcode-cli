@@ -1,4 +1,4 @@
-// Public API surface for the scream-cli → lmcode migration tool.
+// Public API surface for the lmcode-cli → lmcode migration tool.
 
 export * from './types.js';
 export { detectMigration } from './detect.js';

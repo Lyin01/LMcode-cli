@@ -4,7 +4,7 @@ import * as paths from '../src/paths.js';
 
 describe('paths', () => {
   it('sourceCredentialsDir joins ~/.lmcode/credentials', () => {
-    expect(paths.sourceCredentialsDir('/x/.scream')).toBe(join('/x/.scream', 'credentials'));
+    expect(paths.sourceCredentialsDir('/x/.lmcode')).toBe(join('/x/.lmcode', 'credentials'));
   });
 
   it('targetConfigFile and targetTuiFile', () => {
@@ -17,20 +17,20 @@ describe('paths', () => {
   });
 
   it('migratedMarker is under source', () => {
-    expect(paths.migratedMarker('/x/.scream')).toBe(join('/x/.scream', '.migrated-to-lmcode'));
+    expect(paths.migratedMarker('/x/.lmcode')).toBe(join('/x/.lmcode', '.migrated-to-lmcode'));
   });
 
   it('skipMarker is under target', () => {
-    expect(paths.skipMarker('/y/.lmcode')).toBe(join('/y/.lmcode', '.skip-migration-from-scream-cli'));
+    expect(paths.skipMarker('/y/.lmcode')).toBe(join('/y/.lmcode', '.skip-migration-from-lmcode-cli'));
   });
 
   it('migrationReportFile is under target', () => {
     expect(paths.migrationReportFile('/y')).toBe(join('/y', 'migration-report.json'));
   });
 
-  it('sourceSessionsDir / sourceUserHistoryDir / sourceScreamJson', () => {
+  it('sourceSessionsDir / sourceUserHistoryDir / sourceLMcodeJson', () => {
     expect(paths.sourceSessionsDir('/x')).toBe(join('/x', 'sessions'));
     expect(paths.sourceUserHistoryDir('/x')).toBe(join('/x', 'user-history'));
-    expect(paths.sourceScreamJson('/x')).toBe(join('/x', 'scream.json'));
+    expect(paths.sourceLMcodeJson('/x')).toBe(join('/x', 'lmcode.json'));
   });
 });

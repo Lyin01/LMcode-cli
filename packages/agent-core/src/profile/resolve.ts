@@ -119,7 +119,7 @@ function toResolvedProfile(merged: MergedAgentProfile): ResolvedAgentProfile {
 /**
  * Build a renderer that captures the merged template and prompt vars.
  * The runtime SystemPromptContext is mapped to the template variables
- * (SCREAM_OS, SCREAM_AGENTS_MD, ...) at render time.
+ * (LMCODE_OS, LMCODE_AGENTS_MD, ...) at render time.
  */
 function createSystemPromptRenderer(merged: MergedAgentProfile): SystemPromptRenderer {
   return (context: SystemPromptContext): string => {
@@ -159,15 +159,15 @@ function buildTemplateVars(
 
   return {
     ...promptVars,
-    SCREAM_OS: context.osEnv.osKind,
-    SCREAM_SHELL: `${context.osEnv.shellName} (\`${context.osEnv.shellPath}\`)`,
-    SCREAM_NOW: now,
-    SCREAM_WORK_DIR: context.cwd,
-    SCREAM_WORK_DIR_LS: context.cwdListing ?? '',
-    SCREAM_AGENTS_MD: context.agentsMd ?? '',
-    SCREAM_AGENTS_MD_PATHS: JSON.stringify(context.agentsMdPaths ?? []),
-    SCREAM_SKILLS: skills,
-    SCREAM_ADDITIONAL_DIRS_INFO: context.additionalDirsInfo ?? '',
+    LMCODE_OS: context.osEnv.osKind,
+    LMCODE_SHELL: `${context.osEnv.shellName} (\`${context.osEnv.shellPath}\`)`,
+    LMCODE_NOW: now,
+    LMCODE_WORK_DIR: context.cwd,
+    LMCODE_WORK_DIR_LS: context.cwdListing ?? '',
+    LMCODE_AGENTS_MD: context.agentsMd ?? '',
+    LMCODE_AGENTS_MD_PATHS: JSON.stringify(context.agentsMdPaths ?? []),
+    LMCODE_SKILLS: skills,
+    LMCODE_ADDITIONAL_DIRS_INFO: context.additionalDirsInfo ?? '',
     ROLE_ADDITIONAL:
       context.roleAdditional ?? promptVars['ROLE_ADDITIONAL'] ?? promptVars['roleAdditional'] ?? '',
   };

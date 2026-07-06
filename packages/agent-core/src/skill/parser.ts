@@ -203,8 +203,8 @@ export function expandSkillParameters(
 
   const hasArgumentPlaceholder = content !== body;
   content = content
-    .replaceAll('${SCREAM_SKILL_DIR}', context.skillDir)
-    .replaceAll('${SCREAM_SESSION_ID}', context.sessionId ?? '');
+    .replaceAll('${LMCODE_SKILL_DIR}', context.skillDir)
+    .replaceAll('${LMCODE_SESSION_ID}', context.sessionId ?? '');
 
   if (!hasArgumentPlaceholder && rawArgs.length > 0) {
     return `${content}\n\nARGUMENTS: ${rawArgs}`;

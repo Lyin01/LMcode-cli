@@ -366,7 +366,7 @@ describe('path access policy', () => {
   describe('normalizeUserPath full posix-to-windows coverage', () => {
     const cases: ReadonlyArray<readonly [string, string]> = [
       ['/c/Users/foo', 'C:/Users/foo'],
-      ['/d/Projects/scream', 'D:/Projects/scream'],
+      ['/d/Projects/lmcode', 'D:/Projects/lmcode'],
       ['/C/Users/foo', 'C:/Users/foo'],
       ['/c/', 'C:/'],
       ['/c', 'C:/'],

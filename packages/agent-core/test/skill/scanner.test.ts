@@ -1216,8 +1216,8 @@ describe('project root discovery (.git walk-up)', () => {
     const repo = await mkdtemp(join(tmpdir(), 'lmcode-skill-walkup-'));
     tempDirs.push(repo);
     await mkdir(join(repo, '.git'), { recursive: true });
-    const repoScream = join(repo, '.lmcode', 'skills');
-    await writeSkill(repoScream, join('foo', 'SKILL.md'), [
+    const repoLMcode = join(repo, '.lmcode', 'skills');
+    await writeSkill(repoLMcode, join('foo', 'SKILL.md'), [
       '---',
       'name: foo',
       'description: repo-root foo',
@@ -1231,7 +1231,7 @@ describe('project root discovery (.git walk-up)', () => {
     });
     const projectPaths = roots.filter((r) => r.source === 'project').map((r) => r.path);
 
-    expect(projectPaths).toContain(normalize(await realpath(repoScream)));
+    expect(projectPaths).toContain(normalize(await realpath(repoLMcode)));
   });
 
   it('falls back to the work dir when no .git marker is found anywhere up the chain', async () => {

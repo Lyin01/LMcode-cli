@@ -83,7 +83,7 @@ export interface SessionMeta {
   custom: Record<string, any>;
 }
 
-const BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV = 'SCREAM_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT';
+const BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV = 'LMCODE_BACKGROUND_KEEP_ALIVE_ON_EXIT';
 
 export class Session {
   readonly rpc: SDKSessionRPC;

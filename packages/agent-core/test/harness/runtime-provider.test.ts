@@ -108,7 +108,7 @@ describe('resolveRuntimeProvider model metadata', () => {
     });
   });
 
-  it('uses config Scream capabilities without requiring an api key during OAuth setup', () => {
+  it('uses config LMcode capabilities without requiring an api key during OAuth setup', () => {
     const resolved = resolveRuntimeProvider({
       config: {
         ...BASE_CONFIG,
@@ -132,7 +132,7 @@ describe('resolveRuntimeProvider model metadata', () => {
     });
   });
 
-  it('does not infer Scream capabilities from the provider model name', () => {
+  it('does not infer LMcode capabilities from the provider model name', () => {
     const resolved = resolveRuntimeProvider({
       config: {
         ...BASE_CONFIG,

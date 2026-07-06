@@ -119,8 +119,8 @@ function readZipEntries(buf: Buffer): Map<string, Buffer> {
 
 describe('Local logging — harness integration', () => {
   it('writes session-tagged entries to session log only and untagged entries to global', async () => {
-    const homeDir = await makeTempDir('scream-log-home-');
-    const workDir = await makeTempDir('scream-log-work-');
+    const homeDir = await makeTempDir('lmcode-log-home-');
+    const workDir = await makeTempDir('lmcode-log-work-');
 
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
     try {
@@ -141,7 +141,7 @@ describe('Local logging — harness integration', () => {
       const globalPath = join(homeDir, 'logs', 'lmcode.log');
       const sessionLogPath = join(summary.sessionDir, 'logs', 'lmcode.log');
 
-      // Trigger an export — this flushes both global and session via ScreamCore
+      // Trigger an export — this flushes both global and session via LMcodeCore
       const exportOut = join(workDir, 'out.zip');
       await harness.exportSession({
         id: session.id,
@@ -162,8 +162,8 @@ describe('Local logging — harness integration', () => {
   });
 
   it('default export bundles session log only; no globalLogPath in manifest', async () => {
-    const homeDir = await makeTempDir('scream-log-home-');
-    const workDir = await makeTempDir('scream-log-work-');
+    const homeDir = await makeTempDir('lmcode-log-home-');
+    const workDir = await makeTempDir('lmcode-log-work-');
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
     try {
       const session = await harness.createSession({ id: 'ses_default_export', workDir });
@@ -196,8 +196,8 @@ describe('Local logging — harness integration', () => {
   });
 
   it('default export works when no session log file exists', async () => {
-    const homeDir = await makeTempDir('scream-log-home-');
-    const workDir = await makeTempDir('scream-log-work-');
+    const homeDir = await makeTempDir('lmcode-log-home-');
+    const workDir = await makeTempDir('lmcode-log-work-');
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
     try {
       const session = await harness.createSession({ id: 'ses_no_session_log', workDir });
@@ -229,8 +229,8 @@ describe('Local logging — harness integration', () => {
     process.env['LMCODE_LOG_SESSION_MAX_BYTES'] = '1024';
     process.env['LMCODE_LOG_SESSION_FILES'] = '2';
     try {
-      const homeDir = await makeTempDir('scream-log-home-');
-      const workDir = await makeTempDir('scream-log-work-');
+      const homeDir = await makeTempDir('lmcode-log-home-');
+      const workDir = await makeTempDir('lmcode-log-work-');
       const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
       try {
         const session = await harness.createSession({ id: 'ses_rotated_export', workDir });
@@ -268,8 +268,8 @@ describe('Local logging — harness integration', () => {
   });
 
   it('--include-global-log bundles global active and sets manifest field', async () => {
-    const homeDir = await makeTempDir('scream-log-home-');
-    const workDir = await makeTempDir('scream-log-work-');
+    const homeDir = await makeTempDir('lmcode-log-home-');
+    const workDir = await makeTempDir('lmcode-log-work-');
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
     try {
       const session = await harness.createSession({ id: 'ses_global_export', workDir });
@@ -295,9 +295,9 @@ describe('Local logging — harness integration', () => {
   });
 
   it('--include-global-log bundles the active root global log path', async () => {
-    const firstHome = await makeTempDir('scream-log-home-a-');
-    const secondHome = await makeTempDir('scream-log-home-b-');
-    const workDir = await makeTempDir('scream-log-work-');
+    const firstHome = await makeTempDir('lmcode-log-home-a-');
+    const secondHome = await makeTempDir('lmcode-log-home-b-');
+    const workDir = await makeTempDir('lmcode-log-work-');
     const first = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir: firstHome });
     const firstSession = await first.createSession({ id: 'ses_first_global_export', workDir });
     const second = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir: secondHome });
@@ -323,8 +323,8 @@ describe('Local logging — harness integration', () => {
   });
 
   it('logs export flush failures without failing the export', async () => {
-    const homeDir = await makeTempDir('scream-log-home-');
-    const workDir = await makeTempDir('scream-log-work-');
+    const homeDir = await makeTempDir('lmcode-log-home-');
+    const workDir = await makeTempDir('lmcode-log-work-');
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
     const session = await harness.createSession({ id: 'ses_flush_warning', workDir });
     log.warn('flush warning setup', { sessionId: session.id });
@@ -360,15 +360,15 @@ describe('Local logging — harness integration', () => {
   });
 
   it('multiple LmcodeHarness constructions in the same process do not throw', async () => {
-    const homeDir = await makeTempDir('scream-log-home-');
+    const homeDir = await makeTempDir('lmcode-log-home-');
     expect(() => new LmcodeHarness({ identity: TEST_IDENTITY, homeDir })).not.toThrow();
     expect(() => new LmcodeHarness({ identity: TEST_IDENTITY, homeDir })).not.toThrow();
     expect(() => new LmcodeHarness({ identity: TEST_IDENTITY, homeDir })).not.toThrow();
   });
 
   it('uses the latest harness homeDir for global diagnostic logging', async () => {
-    const firstHome = await makeTempDir('scream-log-home-a-');
-    const secondHome = await makeTempDir('scream-log-home-b-');
+    const firstHome = await makeTempDir('lmcode-log-home-a-');
+    const secondHome = await makeTempDir('lmcode-log-home-b-');
     const first = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir: firstHome });
     const second = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir: secondHome });
 
@@ -404,8 +404,8 @@ describe('Local logging — harness integration', () => {
     const env = snapshotLogEnv();
     process.env['LMCODE_LOG_LEVEL'] = 'off';
     try {
-      const homeDir = await makeTempDir('scream-log-home-');
-      const workDir = await makeTempDir('scream-log-work-');
+      const homeDir = await makeTempDir('lmcode-log-home-');
+      const workDir = await makeTempDir('lmcode-log-work-');
       const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
       try {
         await harness.createSession({ id: 'ses_off', workDir });
@@ -426,7 +426,7 @@ describe('Local logging — harness integration', () => {
   });
 
   it('LmcodeHarness.close() flushes the global log', async () => {
-    const homeDir = await makeTempDir('scream-log-home-');
+    const homeDir = await makeTempDir('lmcode-log-home-');
     const harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
     log.warn('untagged before close');
     // No `await flush()` here on purpose — close() must do it.

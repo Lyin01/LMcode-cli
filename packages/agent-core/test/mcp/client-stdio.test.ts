@@ -77,11 +77,11 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [fixture],
-      env: { SCREAM_TEST_ENV: 'forwarded-value' },
+      env: { LMCODE_TEST_ENV: 'forwarded-value' },
     });
     try {
       await client.connect();
-      const result = await client.callTool('read_env', { name: 'SCREAM_TEST_ENV' });
+      const result = await client.callTool('read_env', { name: 'LMCODE_TEST_ENV' });
       expect(result.content).toEqual([{ type: 'text', text: 'forwarded-value' }]);
     } finally {
       await client.close();
@@ -90,8 +90,8 @@ describe('StdioMcpClient', () => {
 
   it('forwards allowlisted env vars; config.env overrides on conflict', async () => {
     // Use TERM prefix which is in the allowlist.
-    const parentOnly = `TERM_SCREAM_TEST_PARENT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const shared = `TERM_SCREAM_TEST_SHARED_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const parentOnly = `TERM_LMCODE_TEST_PARENT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const shared = `TERM_LMCODE_TEST_SHARED_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     process.env[parentOnly] = 'from-parent';
     process.env[shared] = 'from-parent';
     const client = new StdioMcpClient({
@@ -114,7 +114,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('does not forward non-allowlisted env vars', async () => {
-    const secret = `SCREAM_TEST_SECRET_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const secret = `LMCODE_TEST_SECRET_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     process.env[secret] = 'should-not-leak';
     const client = new StdioMcpClient({
       transport: 'stdio',
@@ -137,7 +137,7 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [stderrThenExitFixture],
-      env: { SCREAM_TEST_MCP_STDERR: banner },
+      env: { LMCODE_TEST_MCP_STDERR: banner },
     });
     try {
       await expect(client.connect()).rejects.toThrow();
@@ -173,7 +173,7 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [crashAfterConnectFixture],
-      env: { SCREAM_TEST_MCP_EXIT_AFTER_MS: '50', SCREAM_TEST_MCP_STDERR: banner },
+      env: { LMCODE_TEST_MCP_EXIT_AFTER_MS: '50', LMCODE_TEST_MCP_STDERR: banner },
     });
     const closes: Array<{ stderr?: string; error?: string }> = [];
     client.onUnexpectedClose((reason) => {
@@ -199,7 +199,7 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [crashAfterConnectFixture],
-      env: { SCREAM_TEST_MCP_STDERR: banner, SCREAM_TEST_MCP_EXIT_CODE: '0' },
+      env: { LMCODE_TEST_MCP_STDERR: banner, LMCODE_TEST_MCP_EXIT_CODE: '0' },
     });
     try {
       await client.connect();

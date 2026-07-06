@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { detectMigration, runMigration } from '../src/index.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
-const SOURCE_HOME = join(FIXTURES, 'multi-workdir', '.scream');
+const SOURCE_HOME = join(FIXTURES, 'multi-workdir', '.lmcode');
 const MARKER_PATH = join(SOURCE_HOME, '.migrated-to-lmcode');
 const FIXTURE_CONFIG = join(SOURCE_HOME, 'config.toml');
 

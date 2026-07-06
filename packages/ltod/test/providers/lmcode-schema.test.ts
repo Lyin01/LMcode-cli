@@ -396,7 +396,7 @@ describe('normalizeLmcodeToolSchema', () => {
     });
   });
 
-  it('fails fast for mixed enum types instead of emitting an unsupported Scream type array', () => {
+  it('fails fast for mixed enum types instead of emitting an unsupported LMcode type array', () => {
     const schema = {
       type: 'object',
       properties: {

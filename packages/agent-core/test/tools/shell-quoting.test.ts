@@ -55,9 +55,9 @@ function captureCommandRewrite(
       // The shell wrapper is "cd '<cwd>' && <rewritten>"; isolate the rewrite.
       const wrapped = argv[2]!;
       const match = /^cd '[^']+' && ([\s\S]*)$/.exec(wrapped)!;
-      // Strip self-protection preamble if present: _SCREAM_CHECK(){...};\n <command>
+      // Strip self-protection preamble if present: _LMCODE_CHECK(){...};\n <command>
       let rewritten = match[1]!;
-      if (rewritten.startsWith('_SCREAM_CHECK(){')) {
+      if (rewritten.startsWith('_LMCODE_CHECK(){')) {
         const nl = rewritten.lastIndexOf('\n');
         if (nl !== -1) rewritten = rewritten.slice(nl + 1);
       }

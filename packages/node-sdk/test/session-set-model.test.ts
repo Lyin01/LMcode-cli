@@ -12,8 +12,8 @@ afterEach(async () => {
 
 describe('Session.setModel', () => {
   it('updates the runtime model and sends config.update with the resolved model', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-model-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-model-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-model-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-model-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -44,8 +44,8 @@ describe('Session.setModel', () => {
   });
 
   it('rejects empty model names', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-model-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-model-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-model-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-model-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -62,8 +62,8 @@ describe('Session.setModel', () => {
   });
 
   it('rejects after the session is closed', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-model-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-model-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-model-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-model-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {

@@ -43,8 +43,8 @@ afterEach(async () => {
 
 describe('Session.cancel', () => {
   it('cancels an active streaming turn and emits turn_ended(cancelled)', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-cancel-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-cancel-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-cancel-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-cancel-work-');
     await writeFakeModelConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -81,8 +81,8 @@ describe('Session.cancel', () => {
   });
 
   it('rejects manual compaction on an empty session with compaction.unable', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-cancel-compact-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-cancel-compact-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-cancel-compact-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-cancel-compact-work-');
     await writeFakeModelConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -99,8 +99,8 @@ describe('Session.cancel', () => {
   });
 
   it('rejects after the session is closed', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-cancel-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-cancel-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-cancel-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-cancel-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {

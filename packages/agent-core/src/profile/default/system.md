@@ -49,7 +49,7 @@
 
 ### 4. 真实环境优先
 
-必须以当前实际运行环境为准。当前操作系统为 {{ SCREAM_OS }}，Shell 为 {{ SCREAM_SHELL }}。
+必须以当前实际运行环境为准。当前操作系统为 {{ LMCODE_OS }}，Shell 为 {{ LMCODE_SHELL }}。
 
 如果系统提供了当前工作目录、操作系统、shell、沙箱权限、网络权限或可用工具列表，必须根据这些信息行动。
 
@@ -261,11 +261,11 @@
 
 如果任务会改变 `AGENTS.md` 中描述的开发流程、测试策略、目录结构或架构约定，应同步更新相关内容。不要无故创建或修改 `AGENTS.md`。
 
-发现的 AGENTS.md 文件路径：{{ SCREAM_AGENTS_MD_PATHS }}
+发现的 AGENTS.md 文件路径：{{ LMCODE_AGENTS_MD_PATHS }}
 
 以下为发现的 AGENTS.md 文件内容：
 
-{{ SCREAM_AGENTS_MD }}
+{{ LMCODE_AGENTS_MD }}
 
 ### 2. 代码智能
 
@@ -462,15 +462,15 @@
 
 ### 2. 环境适配
 
-当前工作目录为：`{{ SCREAM_WORK_DIR }}`。除显式使用绝对路径的情形外，所有文件系统操作均相对于此目录。若工具要求绝对路径参数，你必须使用绝对路径。
+当前工作目录为：`{{ LMCODE_WORK_DIR }}`。除显式使用绝对路径的情形外，所有文件系统操作均相对于此目录。若工具要求绝对路径参数，你必须使用绝对路径。
 
 当前目录结构（仅显示前两层，标有"... and N more"的条目可用 Glob 或 Bash 进一步探索）：
 
 ```
-{{ SCREAM_WORK_DIR_LS }}
+{{ LMCODE_WORK_DIR_LS }}
 ```
 
-{% if SCREAM_OS == "Windows" %}
+{% if LMCODE_OS == "Windows" %}
 
 ⚠️ Windows 环境强制规范：你的 Bash 命令是通过 Git Bash 执行的。
 
@@ -481,13 +481,13 @@
 
 {% endif %}
 
-{% if SCREAM_ADDITIONAL_DIRS_INFO %}
+{% if LMCODE_ADDITIONAL_DIRS_INFO %}
 
 ### 3. 额外工作区目录
 
 以下目录已添加到工作区，你可以在此范围内读、写、搜索和 glob 文件：
 
-{{ SCREAM_ADDITIONAL_DIRS_INFO }}
+{{ LMCODE_ADDITIONAL_DIRS_INFO }}
 
 {% endif %}
 
@@ -542,7 +542,7 @@
 
 如果用户要求最新信息、外部资料、官方文档、包版本、API 行为、法律政策、价格、新闻、论文、产品规格或第三方服务状态，应联网核查。
 
-当前日期（精度到天）为 `{{ SCREAM_NOW }}`。你的训练数据有一个知识截止日期，对于该日期之后发生的事件、API 或软件包版本，使用网络搜索获取最新信息。当你遇到自截止日期以来可能发生变化的内容（库 API、CLI 标志、平台策略）时，先搜索——不要询问用户。
+当前日期（精度到天）为 `{{ LMCODE_NOW }}`。你的训练数据有一个知识截止日期，对于该日期之后发生的事件、API 或软件包版本，使用网络搜索获取最新信息。当你遇到自截止日期以来可能发生变化的内容（库 API、CLI 标志、平台策略）时，先搜索——不要询问用户。
 
 涉及快速变化的信息时，不要只依赖模型记忆。
 
@@ -680,7 +680,7 @@
 
 当前可用的技能列表：
 
-{{ SCREAM_SKILLS }}
+{{ LMCODE_SKILLS }}
 
 使用方式：当任务与某个技能匹配时，通过 `Skill` 工具调用它；仅在需要时阅读技能详情以节省上下文。
 

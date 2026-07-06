@@ -14,7 +14,7 @@ function fakeFetcher(
 describe('LmcodeCliFetchURLProvider auth fallback', () => {
   it('falls back to the configured API key when the token provider has no token', async () => {
     // Mirrors py test_resolve_api_key_falls_back_to_api_key_when_no_token:
-    // the host should call scream-cli with the static api key when oauth
+    // the host should call lmcode-cli with the static api key when oauth
     // returns nothing — without needing a separate prime step.
     const getAccessToken = vi.fn<() => Promise<string>>().mockResolvedValue('');
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('ok', { status: 200 }));

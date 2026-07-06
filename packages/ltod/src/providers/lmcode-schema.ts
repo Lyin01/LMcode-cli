@@ -44,9 +44,9 @@ const TYPE_COMPLETION_SKIP_KEYS = new Set([
   'then',
 ]);
 
-// Child-schema positions that this Scream normalizer knows how to walk. This is
+// Child-schema positions that this LMcode normalizer knows how to walk. This is
 // also the source of truth for child-schema keywords that imply the parent
-// schema's type. It is not a list of keywords that ScreamCli accepts on the wire.
+// schema's type. It is not a list of keywords that LmcodeCli accepts on the wire.
 const CHILD_SCHEMA_SLOTS = [
   { key: '$defs', kind: 'map' },
   { key: 'definitions', kind: 'map' },
@@ -109,9 +109,9 @@ const NUMERIC_STRUCTURE_KEYS = new Set([
 
 /**
  * Return a deep-cloned JSON Schema with missing `type` fields filled in for
- * Scream tool compatibility.
+ * LMcode tool compatibility.
  *
- * ScreamCli's tool validator rejects some valid JSON Schema shapes when nested
+ * LmcodeCli's tool validator rejects some valid JSON Schema shapes when nested
  * property schemas omit `type` (for example enum-only MCP properties). This is
  * a provider-compatibility normalizer, not a complete JSON Schema compiler:
  * it resolves local refs, preserves combinator nodes, infers obvious
@@ -120,10 +120,10 @@ const NUMERIC_STRUCTURE_KEYS = new Set([
  * and is not itself normalized.
  */
 export function normalizeLmcodeToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  return ensureScreamPropertyTypes(derefJsonSchema(schema));
+  return ensureLMcodePropertyTypes(derefJsonSchema(schema));
 }
 
-function ensureScreamPropertyTypes(schema: Record<string, unknown>): Record<string, unknown> {
+function ensureLMcodePropertyTypes(schema: Record<string, unknown>): Record<string, unknown> {
   const normalized = cloneJsonValue(schema);
   if (!isRecord(normalized)) {
     throw new Error('JSON Schema root must normalize to an object.');
@@ -347,7 +347,7 @@ function inferTypeFromValues(values: unknown[]): JsonSchemaType {
     }
     return onlyType;
   }
-  throw new Error('Mixed JSON Schema enum or const types are not supported by Scream tool schemas.');
+  throw new Error('Mixed JSON Schema enum or const types are not supported by LMcode tool schemas.');
 }
 
 function inferValueType(value: unknown): JsonSchemaType | undefined {

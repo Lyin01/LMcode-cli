@@ -14,7 +14,7 @@ describe('UsagePanelComponent', () => {
       colors: darkColors,
       sessionUsage: {
         byModel: {
-          scream: {
+          lmcode: {
             inputOther: 1000,
             inputCacheRead: 500,
             inputCacheCreation: 500,
@@ -37,7 +37,7 @@ describe('UsagePanelComponent', () => {
     }).map(strip);
 
     expect(lines).toContain('会话用量');
-    expect(lines).toContain('  scream  输入 2.0k  输出 250  总计 2.3k');
+    expect(lines).toContain('  lmcode  输入 2.0k  输出 250  总计 2.3k');
     expect(lines).toContain('上下文窗口');
     expect(lines.join('\n')).toContain('25.0%');
     expect(lines).toContain('计划用量');

@@ -35,7 +35,7 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
     lastPrompt: input.lastUserPrompt.slice(0, 200),
     agents: {
       main: {
-        // scream-core's `Session.resume()` treats `agents.main.homedir` as the
+        // lmcode-core's `Session.resume()` treats `agents.main.homedir` as the
         // agent's *record directory* — where it reads `wire.jsonl`. The
         // migrator writes the translated history to
         // `<sessionDir>/agents/main/wire.jsonl`, so this must point there,
@@ -46,10 +46,10 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
       },
     },
     custom: {
-      imported_from_scream_cli: true,
-      scream_cli_source_path: input.sourcePath,
-      scream_cli_session_id: input.oldSessionUuid,
-      scream_cli_wire_protocol: input.wireProtocolFromOld,
+      imported_from_lmcode_cli: true,
+      lmcode_cli_source_path: input.sourcePath,
+      lmcode_cli_session_id: input.oldSessionUuid,
+      lmcode_cli_wire_protocol: input.wireProtocolFromOld,
       imported_at: new Date().toISOString(),
       archived: input.oldState.archived ?? false,
     },

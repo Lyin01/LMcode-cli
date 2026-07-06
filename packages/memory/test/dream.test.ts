@@ -16,7 +16,7 @@ describe('DreamTracker', () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('persists the lock file directly under the scream home directory', async () => {
+  it('persists the lock file directly under the lmcode home directory', async () => {
     const tracker = new DreamTracker(tmpDir);
     await tracker.init();
     await tracker.recordDream();

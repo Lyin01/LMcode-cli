@@ -38,7 +38,7 @@ describe('Agent config', () => {
       type: 'lmcode',
       apiKey: 'sk-next',
       baseUrl: 'https://next.example/v1',
-      model: 'scream-next',
+      model: 'lmcode-next',
     };
     const nextCapability: ModelCapability = {
       image_in: true,

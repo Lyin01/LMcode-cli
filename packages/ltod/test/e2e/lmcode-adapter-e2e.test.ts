@@ -56,7 +56,7 @@ function makeChunk(
   opts?: { id?: string; finishReason?: string; usage?: Record<string, unknown> },
 ): Record<string, unknown> {
   const chunk: Record<string, unknown> = {
-    id: opts?.id ?? 'chatcmpl-scream-1',
+    id: opts?.id ?? 'chatcmpl-lmcode-1',
     object: 'chat.completion.chunk',
     created: 1234567890,
     model: 'lmcode-k2-turbo-preview',
@@ -81,8 +81,8 @@ function makeChunk(
   return chunk;
 }
 
-describe('e2e: scream adapter', () => {
-  it('sends ScreamCli chat-completion requests, streams reasoning + tool-call deltas, and preserves usage', async () => {
+describe('e2e: lmcode adapter', () => {
+  it('sends LmcodeCli chat-completion requests, streams reasoning + tool-call deltas, and preserves usage', async () => {
     await withHarness(async (harness) => {
       let capturedRequest: Record<string, unknown> | null = null;
 
@@ -173,7 +173,7 @@ describe('e2e: scream adapter', () => {
       expect(harness.requests).toHaveLength(1);
       expect(harness.requests[0]!.pathname).toBe('/v1/chat/completions');
       expect(harness.requests[0]!.headers['authorization']).toBe('Bearer test-key');
-      expect(result.id).toBe('chatcmpl-scream-1');
+      expect(result.id).toBe('chatcmpl-lmcode-1');
       expect(result.usage).toEqual({
         inputOther: 10,
         output: 6,

@@ -17,7 +17,7 @@
  *   - The combined PATH dispatcher ({@link postinstallPaths}) —
  *     called once by the orchestrator so detection and reachability
  *     stay symmetric and the shell probe doesn't run twice.
- *   - The reachability check ({@link findFirstResolvableScream}) —
+ *   - The reachability check ({@link findFirstResolvableLMcode}) —
  *     walks PATH treating the to-be-renamed legacy shims as gone
  *     and reports what wins resolution. Distinguishes our own shim
  *     from a blocked legacy that's still in the way vs. an
@@ -30,7 +30,7 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { delimiter, dirname, join, sep } from 'node:path';
 
-const LEGACY_BIN = 'scream';
+const LEGACY_BIN = 'lmcode';
 const IS_WINDOWS = process.platform === 'win32';
 
 /**
@@ -39,9 +39,9 @@ const IS_WINDOWS = process.platform === 'win32';
  *
  * On POSIX: just `[,]`.
  *
- * On Windows: `[,, 'scream.exe', 'scream.cmd', …]` — every
+ * On Windows: `[,, 'lmcode.exe', 'lmcode.cmd', …]` — every
  * extension in `PATHEXT`. Without this, our PATH walk would miss
- * the typical `scream.exe` shim produced by `uv tool install` on
+ * the typical `lmcode.exe` shim produced by `uv tool install` on
  * Windows.
  */
 export function executableCandidates(basename) {
@@ -196,7 +196,7 @@ const YARN_GLOBAL_SUBCOMMANDS = new Set([
  * Callers pass the starting directory (typically `import.meta.dirname`
  * of the entry script, which lives at `<package-root>/scripts/`). We
  * walk up looking for the nearest `package.json`, then `realpath` the
- * directory so symlinked install layouts (e.g. `<prefix>/bin/scream`
+ * directory so symlinked install layouts (e.g. `<prefix>/bin/lmcode`
  * symlinked into `lib/node_modules/.../dist/main.mjs`) compare equal
  * in the caller's prefix check.
  *
@@ -246,7 +246,7 @@ async function isExecutableFile(filePath) {
 //   - pnpm POSIX shims (literal `/bin/sh` scripts, not symlinks; pnpm
 //     does not symlink into the package root the way npm/yarn classic
 //     do on POSIX)
-const PACKAGE_NAME_MARKERS = ['@lmcode-cli/lmcode', '@scream-cli\\lmcode'];
+const PACKAGE_NAME_MARKERS = ['@lmcode-cli/lmcode', '@lmcode-cli\\lmcode'];
 
 async function shimReferencesOwnPackage(shimPath) {
   try {
@@ -299,7 +299,7 @@ async function classifyShim(shim, ownRoot, ownPrefix) {
  * legacy that survived our hypothetical removal pass from a totally
  * unknown `lm`.
  */
-export async function findFirstResolvableScream(
+export async function findFirstResolvableLMcode(
   ownRoot,
   pathString,
   actionableShimPaths,
@@ -377,7 +377,7 @@ export async function userShellPath() {
     // Wrap PATH in delimiters we can parse out, defensively, in case
     // the shell prints anything else (motd, prompt redraw, …).
     const probe =
-      'printf "<<<SCREAM_PATH_BEGIN>>>%s<<<SCREAM_PATH_END>>>\\n" "$PATH"';
+      'printf "<<<LMCODE_PATH_BEGIN>>>%s<<<LMCODE_PATH_END>>>\\n" "$PATH"';
     const child = spawn(shell, ['-l', '-c', probe], {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -395,7 +395,7 @@ export async function userShellPath() {
     child.on('close', (code) => {
       clearTimeout(timer);
       const match = stdout.match(
-        /<<<SCREAM_PATH_BEGIN>>>([\s\S]*?)<<<SCREAM_PATH_END>>>/,
+        /<<<LMCODE_PATH_BEGIN>>>([\s\S]*?)<<<LMCODE_PATH_END>>>/,
       );
       if (match && match[1].length > 0) {
         settle({ kind: 'ok', path: match[1] });

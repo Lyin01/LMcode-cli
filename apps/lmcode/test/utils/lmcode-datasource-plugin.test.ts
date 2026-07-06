@@ -13,13 +13,13 @@ const SERVER_ENTRY = join(REPO_ROOT, 'plugins/official/lmcode-datasource/bin/lmc
 describe.skip('lmcode-datasource MCP server', () => {
   it('exposes the same two generic tools as the Python plugin', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'lmcode-datasource-plugin-'));
-    const screamHome = join(tempDir, 'lmcode-home');
+    const lmcodeHome = join(tempDir, 'lmcode-home');
     let child: ChildProcessWithoutNullStreams | undefined;
 
     try {
-      await mkdir(join(screamHome, 'credentials'), { recursive: true });
+      await mkdir(join(lmcodeHome, 'credentials'), { recursive: true });
       await writeFile(
-        join(screamHome, 'credentials', 'lmcode.json'),
+        join(lmcodeHome, 'credentials', 'lmcode.json'),
         JSON.stringify({ access_token: 'test-token', expires_at: 4_102_444_800 }),
         'utf8',
       );
@@ -27,7 +27,7 @@ describe.skip('lmcode-datasource MCP server', () => {
         cwd: REPO_ROOT,
         env: {
           ...process.env,
-          LMCODE_HOME: screamHome,
+          LMCODE_HOME: lmcodeHome,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -48,7 +48,7 @@ describe.skip('lmcode-datasource MCP server', () => {
 
   it('prefers assistant text and writes response files', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'lmcode-datasource-plugin-'));
-    const screamHome = join(tempDir, 'lmcode-home');
+    const lmcodeHome = join(tempDir, 'lmcode-home');
     const textFile = join(tempDir, 'world-bank.csv');
     const binaryFile = join(tempDir, 'world-bank_payload.csv');
     const blockedFile = join(tempDir, 'blocked.csv');
@@ -65,9 +65,9 @@ describe.skip('lmcode-datasource MCP server', () => {
     });
 
     try {
-      await mkdir(join(screamHome, 'credentials'), { recursive: true });
+      await mkdir(join(lmcodeHome, 'credentials'), { recursive: true });
       await writeFile(
-        join(screamHome, 'credentials', 'lmcode.json'),
+        join(lmcodeHome, 'credentials', 'lmcode.json'),
         JSON.stringify({ access_token: 'test-token', expires_at: 4_102_444_800 }),
         'utf8',
       );
@@ -82,8 +82,8 @@ describe.skip('lmcode-datasource MCP server', () => {
         cwd: REPO_ROOT,
         env: {
           ...process.env,
-          LMCODE_HOME: screamHome,
-          SCREAM_DATASOURCE_API_URL: `http://127.0.0.1:${address.port}`,
+          LMCODE_HOME: lmcodeHome,
+          LMCODE_DATASOURCE_API_URL: `http://127.0.0.1:${address.port}`,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });

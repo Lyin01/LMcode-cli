@@ -496,7 +496,7 @@ function convertMessage(message: Message): MessageParam {
       // always takes this branch.
       //
       // Unsigned: still PRESERVE the thinking, emitted *without* a `signature`
-      // field. Anthropic-compatible backends (e.g. Scream) stream thinking with
+      // field. Anthropic-compatible backends (e.g. LMcode) stream thinking with
       // no signature_delta, yet reject a tool-call turn whose thinking is gone
       // ("thinking is enabled but reasoning_content is missing"). Dropping it
       // here is what broke multi-step tool use on those backends. An unsigned

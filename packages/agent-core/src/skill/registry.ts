@@ -141,7 +141,7 @@ export class SkillRegistry {
     return [...this.skipped];
   }
 
-  getScreamSkillsDescription(): string {
+  getLMcodeSkillsDescription(): string {
     const rendered = renderGroupedSkills(this.listSkills(), formatFullSkill);
     return rendered.length === 0 ? 'No skills' : rendered;
   }

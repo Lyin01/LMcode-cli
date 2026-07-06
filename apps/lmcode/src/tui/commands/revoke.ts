@@ -86,7 +86,7 @@ function parseRevokeCount(args: string): number | undefined {
 
 function isRevokeAnchorEntry(entry: TranscriptEntry): boolean {
   // User messages and user-triggered skill activations are turn boundaries.
-  // ScreamCode doesn't distinguish trigger types on TranscriptEntry, but all
+  // LMcode doesn't distinguish trigger types on TranscriptEntry, but all
   // skill_activation transcript entries originate from user slash commands.
   return entry.kind === 'user' || entry.kind === 'skill_activation';
 }

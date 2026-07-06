@@ -8,7 +8,7 @@ export interface LmcodeErrorOptions {
 }
 
 /**
- * The single Scream error class.
+ * The single LMcode error class.
  *
  * Discrimination is always by `code`. Cross-process consumers receive
  * `LmcodeErrorPayload` and must branch on `code` rather than class identity.

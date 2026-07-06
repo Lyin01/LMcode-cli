@@ -12,7 +12,7 @@ import type {
 
 function makePlan(over: Partial<MigrationPlan> = {}): MigrationPlan {
   return {
-    sourceHome: '/x/.scream',
+    sourceHome: '/x/.lmcode',
     hasConfig: true,
     hasMcp: true,
     hasUserHistory: true,
@@ -33,33 +33,33 @@ describe('MigrationScreenComponent — ask phase', () => {
   it('ask1 renders the intro block and three options', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
     });
     const out = render(c);
-    expect(out).toContain('从 scream-cli 迁移');
+    expect(out).toContain('从 lmcode-cli 迁移');
     expect(out).toContain('1365 个会话');
     expect(out).toContain('立即迁移');
     expect(out).toContain('稍后询问');
     expect(out).toContain('不再询问');
   });
 
-  it('ask1 summary does not mention scream-cli login (oauth is not a migrated kind)', async () => {
+  it('ask1 summary does not mention lmcode-cli login (oauth is not a migrated kind)', async () => {
     // OAuth credentials are deliberately never migrated, so the pre-migration
-    // summary must not list "scream-cli login" alongside the real migratable
+    // summary must not list "lmcode-cli login" alongside the real migratable
     // data classes — that framing makes users believe their session will
     // carry over, which it does not.
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
     });
     const out = render(c);
-    expect(out).not.toContain('scream-cli login');
+    expect(out).not.toContain('lmcode-cli login');
     expect(out).not.toContain('/login');
   });
 
@@ -67,7 +67,7 @@ describe('MigrationScreenComponent — ask phase', () => {
     let result: { decision: string } | undefined;
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: (r) => {
@@ -83,7 +83,7 @@ describe('MigrationScreenComponent — ask phase', () => {
     let captured: RunMigrationInput | undefined;
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       runMigration: async (input) => {
@@ -102,7 +102,7 @@ describe('MigrationScreenComponent — ask phase', () => {
     let captured: RunMigrationInput | undefined;
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       runMigration: async (input) => {
@@ -121,7 +121,7 @@ describe('MigrationScreenComponent — ask phase', () => {
   it('ask2 shows the detected session count alongside the "config only" option', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan({ totalSessions: 1365 }),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -138,7 +138,7 @@ describe('MigrationScreenComponent — ask phase', () => {
   it('ask2 falls back to "配置 + 所有会话" when no sessions were detected', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan({ totalSessions: 0 }),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -153,7 +153,7 @@ describe('MigrationScreenComponent — ask phase', () => {
   it('skipDecisionStep starts at the scope question with the now/later/never gate hidden', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       skipDecisionStep: true,
@@ -169,7 +169,7 @@ describe('MigrationScreenComponent — ask phase', () => {
     let captured: RunMigrationInput | undefined;
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       skipDecisionStep: true,
@@ -189,7 +189,7 @@ describe('MigrationScreenComponent — progress phase', () => {
   it('renders a step checklist and the session counter when in progress', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -199,7 +199,7 @@ describe('MigrationScreenComponent — progress phase', () => {
     c._testUpdateStep('config done');
     c._testUpdateSessionProgress(32, 50);
     const out = c.render(80).join('\n');
-    expect(out).toContain('正在从 scream-cli 迁移');
+    expect(out).toContain('正在从 lmcode-cli 迁移');
     expect(out).toContain('32 / 50');
     expect(out).toContain('配置');
   });
@@ -209,7 +209,7 @@ describe('MigrationScreenComponent — progress phase', () => {
     try {
       const c = new MigrationScreenComponent({
         plan: makePlan(),
-        sourceHome: '/x/.scream',
+        sourceHome: '/x/.lmcode',
         targetHome: '/y/.lmcode',
         colors: darkColors,
         skipDecisionStep: true,
@@ -234,7 +234,7 @@ describe('MigrationScreenComponent — progress phase', () => {
   it('tracks Config and MCP as independent steps', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -259,7 +259,7 @@ function makeReport(
     startedAt: 's',
     completedAt: 'e',
     migratorVersion: '0.1.1',
-    source: '/x/.scream',
+    source: '/x/.lmcode',
     target: '/y/.lmcode',
     summary: {
       config: {
@@ -310,7 +310,7 @@ describe('MigrationScreenComponent — result phase', () => {
   it('renders the report summary including plugin notices', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -319,13 +319,13 @@ describe('MigrationScreenComponent — result phase', () => {
     const out = c.render(80).join('\n');
     expect(out).toContain('迁移完成');
     expect(out).toContain('50 个会话已迁移');
-    expect(out).toContain('2 个 scream-cli 插件');
+    expect(out).toContain('2 个 lmcode-cli 插件');
   });
 
   it('renders migrated hooks in the ✓ line and dropped hooks as a warning', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -359,7 +359,7 @@ describe('MigrationScreenComponent — result phase', () => {
     let result: MigrationScreenResult | undefined;
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: (r) => {
@@ -375,7 +375,7 @@ describe('MigrationScreenComponent — result phase', () => {
   it('omits a data class from the result when it was not migrated', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -411,7 +411,7 @@ describe('MigrationScreenComponent — result phase', () => {
   it('surfaces conflict and failure warnings on the result screen', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -438,21 +438,21 @@ describe('MigrationScreenComponent — result phase', () => {
       ),
     );
     const out = c.render(80).join('\n');
-    expect(out).toContain('config.migrated-from-scream-cli.toml');
-    expect(out).toContain('mcp.migrated-from-scream-cli.json');
+    expect(out).toContain('config.migrated-from-lmcode-cli.toml');
+    expect(out).toContain('mcp.migrated-from-lmcode-cli.json');
     expect(out).toContain('1 个会话迁移失败');
   });
 
   it('lists sibling-file contents in the config-fallback warning so the user knows what to merge', () => {
     // When the target's `config.toml` could not be parsed and migration writes
-    // to `config.migrated-from-scream-cli.toml` instead, the result screen must
+    // to `config.migrated-from-lmcode-cli.toml` instead, the result screen must
     // (a) name the sibling, (b) say what's in it so the user knows what to
     // merge by hand, and (c) describe the trigger accurately (parse failure,
     // not "unreadable"). Otherwise users have to crack the file open to find
     // out — and they may not realize hooks landed in there at all.
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -482,7 +482,7 @@ describe('MigrationScreenComponent — result phase', () => {
       ),
     );
     const out = c.render(80).join('\n');
-    expect(out).toContain('config.migrated-from-scream-cli.toml');
+    expect(out).toContain('config.migrated-from-lmcode-cli.toml');
     // Accurate trigger description (file parses, not "unreadable").
     expect(out).toContain('config.toml 无法解析');
     // Enumeration of what's inside the sibling.
@@ -494,7 +494,7 @@ describe('MigrationScreenComponent — result phase', () => {
   it('shows skipped empty sessions as a muted line, not a failure', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -506,10 +506,10 @@ describe('MigrationScreenComponent — result phase', () => {
     expect(out).not.toContain('3 个会话迁移失败');
   });
 
-  it('lists kept config settings on the result screen when scream-cli differed', () => {
+  it('lists kept config settings on the result screen when lmcode-cli differed', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -524,7 +524,7 @@ describe('MigrationScreenComponent — result phase', () => {
             droppedProviders: [],
             droppedModels: [],
             droppedKeys: [],
-            configConflicts: ['default_model', 'providers.scream'],
+            configConflicts: ['default_model', 'providers.lmcode'],
             wroteSiblingDueToConflict: false,
             wroteTuiSibling: false,
             migratedHooks: 0,
@@ -536,13 +536,13 @@ describe('MigrationScreenComponent — result phase', () => {
     );
     const out = c.render(80).join('\n');
     expect(out).toContain('2 个配置冲突，保留了你本地的版本');
-    expect(out).toContain('default_model · providers.scream');
+    expect(out).toContain('default_model · providers.lmcode');
   });
 
   it('surfaces MCP servers that need re-authentication', () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},
@@ -559,7 +559,7 @@ describe('MigrationScreenComponent — execution wiring', () => {
     let onCompleteResult: MigrationScreenResult | undefined;
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: (r) => {
@@ -581,7 +581,7 @@ describe('MigrationScreenComponent — execution wiring', () => {
   it('lands on the failure screen when the runner rejects', async () => {
     const c = new MigrationScreenComponent({
       plan: makePlan(),
-      sourceHome: '/x/.scream',
+      sourceHome: '/x/.lmcode',
       targetHome: '/y/.lmcode',
       colors: darkColors,
       onComplete: () => {},

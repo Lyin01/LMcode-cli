@@ -38,7 +38,7 @@ export interface LmcodeIdentityOptions extends LmcodeHostIdentity {
 export interface CreateLmcodeDeviceIdOptions {}
 
 /** @deprecated Use CreateLmcodeDeviceIdOptions. */
-export type CreateScreamDeviceIdOptions = CreateLmcodeDeviceIdOptions;
+export type CreateLMcodeDeviceIdOptions = CreateLmcodeDeviceIdOptions;
 
 export function createLmcodeDeviceId(
   homeDir: string,

@@ -13,8 +13,8 @@ afterEach(async () => {
 
 describe('Session.setThinking', () => {
   it('sends config.update with the new thinking level', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-thinking-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-thinking-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-thinking-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-thinking-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -39,8 +39,8 @@ describe('Session.setThinking', () => {
   });
 
   it('rejects empty thinking levels', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-thinking-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-thinking-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-thinking-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-thinking-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -56,8 +56,8 @@ describe('Session.setThinking', () => {
   });
 
   it('rejects after the session is closed', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-thinking-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-thinking-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-thinking-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-thinking-work-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {

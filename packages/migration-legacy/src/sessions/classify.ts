@@ -23,7 +23,7 @@ export async function classifySessionDir(sessionDir: string): Promise<SessionCla
   //  - real:    has user/assistant/tool rows → migratable.
   //  - empty:   parses but only carries markers (`_system_prompt` etc.) or is
   //             blank → an unused session, or one the user cleared/reverted
-  //             in scream-cli. Reported as skipped, never enters the pipeline.
+  //             in lmcode-cli. Reported as skipped, never enters the pipeline.
   //  - corrupt: every non-blank line failed to parse → a real data problem
   //             (truncated write, disk error). Route through `'real'` so the
   //             migration step can run, fail with a diagnostic reason, and

@@ -1,5 +1,5 @@
 /**
- * `scream migrate` — permanently disabled. The command is kept for backwards
+ * `lmcode migrate` — permanently disabled. The command is kept for backwards
  * compatibility but prints a notice and exits.
  */
 
@@ -24,7 +24,7 @@ describe('registerMigrateCommand', () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     registerMigrateCommand(program, () => {});
     program.parse(['migrate'], { from: 'user' });
-    expect(stdoutSpy).toHaveBeenCalledWith('迁移功能已取消，不再支持从 scream-cli 导入数据。\n');
+    expect(stdoutSpy).toHaveBeenCalledWith('迁移功能已取消，不再支持从 lmcode-cli 导入数据。\n');
     expect(exitSpy).toHaveBeenCalledWith(0);
     stdoutSpy.mockRestore();
     exitSpy.mockRestore();

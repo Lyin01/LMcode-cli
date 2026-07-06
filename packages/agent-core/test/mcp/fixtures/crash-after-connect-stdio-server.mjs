@@ -9,8 +9,8 @@ import { z } from 'zod';
 
 const server = new McpServer({ name: 'crash-after-connect', version: '0.0.1' });
 
-const exitCode = Number.parseInt(process.env['SCREAM_TEST_MCP_EXIT_CODE'] ?? '1', 10);
-const stderrBanner = process.env['SCREAM_TEST_MCP_STDERR'];
+const exitCode = Number.parseInt(process.env['LMCODE_TEST_MCP_EXIT_CODE'] ?? '1', 10);
+const stderrBanner = process.env['LMCODE_TEST_MCP_STDERR'];
 
 function exitWithBanner() {
   if (stderrBanner !== undefined) {
@@ -47,7 +47,7 @@ server.registerTool(
 
 await server.connect(new StdioServerTransport());
 
-const exitAfterMsRaw = process.env['SCREAM_TEST_MCP_EXIT_AFTER_MS'];
+const exitAfterMsRaw = process.env['LMCODE_TEST_MCP_EXIT_AFTER_MS'];
 if (exitAfterMsRaw !== undefined) {
   setTimeout(exitWithBanner, Number.parseInt(exitAfterMsRaw, 10));
 }

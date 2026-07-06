@@ -26,10 +26,10 @@ describe('writeSessionState', () => {
     expect(meta.title).toBe('My chat');
     expect(meta.isCustomTitle).toBe(true);
     // `agents.main.homedir` must be the agent's record directory under the
-    // session dir — scream-core reads `wire.jsonl` from here on resume.
+    // session dir — lmcode-core reads `wire.jsonl` from here on resume.
     expect(meta.agents.main.homedir).toBe(join(dir, 'agents', 'main'));
-    expect(meta.custom.imported_from_scream_cli).toBe(true);
-    expect(meta.custom.scream_cli_session_id).toBe('old-uuid');
+    expect(meta.custom.imported_from_lmcode_cli).toBe(true);
+    expect(meta.custom.lmcode_cli_session_id).toBe('old-uuid');
   });
 
   it('falls back to lastUserPrompt prefix when no custom_title', async () => {

@@ -1,7 +1,7 @@
 /**
- * Error codes for Scream Core's public error protocol.
+ * Error codes for LMcode Core's public error protocol.
  *
- * `ErrorCodes` is the source of truth for every code Scream Core may emit.
+ * `ErrorCodes` is the source of truth for every code LMcode Core may emit.
  * Downstream consumers (SDK, RPC clients, agent-facing docs) should depend on
  * these string values rather than on class identity.
  *

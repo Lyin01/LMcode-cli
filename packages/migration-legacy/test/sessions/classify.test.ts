@@ -70,7 +70,7 @@ describe('classifySessionDir', () => {
   });
 
   it('empty: context.jsonl holds only a _system_prompt marker', async () => {
-    // A session the user cleared/reverted in scream-cli: the live context is
+    // A session the user cleared/reverted in lmcode-cli: the live context is
     // emptied, so it carries no migratable conversation.
     const p = await makeSession('uuid8', {
       'context.jsonl': '{"role":"_system_prompt","content":"You are ..."}\n',

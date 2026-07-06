@@ -43,15 +43,15 @@ describe('agent profile loader', () => {
     const systemPath = await write(
       'system.md',
       [
-        'os={{ SCREAM_OS }}',
-        'cwd={{ SCREAM_WORK_DIR }}',
-        'listing={{ SCREAM_WORK_DIR_LS }}',
-        'agents={{ SCREAM_AGENTS_MD }}',
-        'skills={{ SCREAM_SKILLS }}',
+        'os={{ LMCODE_OS }}',
+        'cwd={{ LMCODE_WORK_DIR }}',
+        'listing={{ LMCODE_WORK_DIR_LS }}',
+        'agents={{ LMCODE_AGENTS_MD }}',
+        'skills={{ LMCODE_SKILLS }}',
         'parent={{ parentOnly }}',
         'child={{ childOnly }}',
         'role={{ ROLE_ADDITIONAL }}',
-        '{% if SCREAM_OS == "macOS" %}nunjucks-ok{% endif %}',
+        '{% if LMCODE_OS == "macOS" %}nunjucks-ok{% endif %}',
       ].join('\n'),
     );
     await write(

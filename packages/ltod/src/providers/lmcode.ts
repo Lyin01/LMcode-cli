@@ -47,7 +47,7 @@ export interface LmcodeOptions {
 
 export interface GenerationKwargs {
   /**
-   * Legacy completion-budget alias. The ScreamCli Scream API still accepts
+   * Legacy completion-budget alias. The LmcodeCli LMcode API still accepts
    * `max_tokens`, but for reasoning models it shares the budget with
    * `reasoning_content` and a small value can cause a 200 response with no
    * `content`. Prefer `max_completion_tokens`. When both are set
@@ -161,7 +161,7 @@ function convertMessage(message: Message): OpenAIMessage {
 }
 function convertTool(tool: Tool): OpenAIToolParam {
   if (tool.name.startsWith('$')) {
-    // Scream builtin functions start with `$`
+    // LMcode builtin functions start with `$`
     return {
       type: 'builtin_function',
       function: { name: tool.name },
@@ -177,7 +177,7 @@ function convertTool(tool: Tool): OpenAIToolParam {
   };
 }
 /**
- * Extract usage from a streaming chunk. ScreamCli may place usage in
+ * Extract usage from a streaming chunk. LmcodeCli may place usage in
  * `choices[0].usage` in addition to the top-level `usage` field.
  */
 export function extractUsageFromChunk(
@@ -191,7 +191,7 @@ export function extractUsageFromChunk(
   ) {
     return chunk['usage'] as Record<string, unknown>;
   }
-  // choices[0].usage (ScreamCli proprietary)
+  // choices[0].usage (LmcodeCli proprietary)
   const choices = chunk['choices'];
   if (!Array.isArray(choices) || choices.length === 0) {
     return null;
@@ -265,7 +265,7 @@ class LmcodeStreamedMessage implements StreamedMessage {
     const message = response.choices[0]?.message;
     if (!message) return;
 
-    // reasoning_content (ScreamCli proprietary)
+    // reasoning_content (LmcodeCli proprietary)
     const rc = (message as unknown as Record<string, unknown>)['reasoning_content'];
     if (typeof rc === 'string' && rc) {
       yield { type: 'think', think: rc } satisfies StreamedMessagePart;
@@ -323,7 +323,7 @@ class LmcodeStreamedMessage implements StreamedMessage {
 
         const delta = choice.delta;
 
-        // reasoning_content (ScreamCli proprietary)
+        // reasoning_content (LmcodeCli proprietary)
         const rc = (delta as unknown as Record<string, unknown>)['reasoning_content'];
         if (typeof rc === 'string' && rc) {
           yield { type: 'think', think: rc } satisfies StreamedMessagePart;
@@ -384,7 +384,7 @@ export class LmcodeChatProvider implements ChatProvider {
   }
 
   /**
-   * File upload client for Scream/ScreamCli.
+   * File upload client for LMcode/LmcodeCli.
    *
    * Use this to upload videos (and other media in the future) to the file
    * service and receive a content part that can be embedded in chat
@@ -442,9 +442,9 @@ export class LmcodeChatProvider implements ChatProvider {
       }
     }
 
-    // Normalize the legacy `max_tokens` alias to Scream's preferred
+    // Normalize the legacy `max_tokens` alias to LMcode's preferred
     // `max_completion_tokens`. When both are set, `max_completion_tokens`
-    // wins (confirmed against the live ScreamCli API). When neither is
+    // wins (confirmed against the live LmcodeCli API). When neither is
     // set, send no cap — the upstream loop is responsible for clamping
     // against the current input size and model context window.
     if (
@@ -476,7 +476,7 @@ export class LmcodeChatProvider implements ChatProvider {
 
     try {
       const client = this._createClient(options?.auth);
-      // Use type assertion via unknown because we pass ScreamCli-proprietary fields
+      // Use type assertion via unknown because we pass LmcodeCli-proprietary fields
       // (reasoning_effort, thinking) that don't exist in the OpenAI type definitions.
       const response = (await client.chat.completions.create(
         createParams as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,

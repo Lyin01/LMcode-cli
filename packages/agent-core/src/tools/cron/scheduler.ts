@@ -39,7 +39,7 @@
  *
  *   - **Bad tasks do not poison the loop.** Each task's processing is
  *     wrapped in try/catch; failures are swallowed (with an optional
- *     stderr trace gated on `SCREAM_CRON_DEBUG=1`) so one busted cron
+ *     stderr trace gated on `LMCODE_CRON_DEBUG=1`) so one busted cron
  *     expression cannot starve the other tasks.
  */
 
@@ -105,7 +105,7 @@ export interface CronSchedulerOptions {
    *   - 0 or null → no automatic polling. Caller drives tick()
    *     manually.
    *
-   * Used by P1.8 to wire `SCREAM_CRON_MANUAL_TICK=1` to disable the
+   * Used by P1.8 to wire `LMCODE_CRON_MANUAL_TICK=1` to disable the
    * timer.
    */
   readonly pollIntervalMs?: number | null;

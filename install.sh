@@ -27,36 +27,36 @@ warn()  { echo "[WARN]  $*" >&2; }
 error() { echo "[ERROR] $*" >&2; }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 0. 彻底清理所有旧版本 scream（Python / pip / uv），确保全新安装不冲突
+# 0. 彻底清理所有旧版本 lmcode（Python / pip / uv），确保全新安装不冲突
 # ══════════════════════════════════════════════════════════════════════════════
-info "清理旧 scream 版本..."
+info "清理旧 lmcode 版本..."
 
-# ── 删除所有已知位置的旧 scream 命令 ──
+# ── 删除所有已知位置的旧 lmcode 命令 ──
 for dir in \
     "$HOME/.lmcode/bin" \
     "$HOME/.local/bin" \
     "/usr/local/bin" \
     "/opt/homebrew/bin"; do
-    if [ -f "$dir/scream" ]; then
-        rm -f "$dir/scream"
-        info "已删除旧命令: $dir/scream"
+    if [ -f "$dir/lmcode" ]; then
+        rm -f "$dir/lmcode"
+        info "已删除旧命令: $dir/lmcode"
     fi
 done
 
-# ── 卸载 pip / pipx / uv 全局安装的旧 scream 包 ──
+# ── 卸载 pip / pipx / uv 全局安装的旧 lmcode 包 ──
 for pip_cmd in pip3 pip; do
     if command -v "$pip_cmd" >/dev/null 2>&1; then
-        "$pip_cmd" uninstall -y scream 2>/dev/null || true
+        "$pip_cmd" uninstall -y lmcode 2>/dev/null || true
     fi
 done
 if command -v pipx >/dev/null 2>&1; then
-    pipx uninstall scream 2>/dev/null || true
+    pipx uninstall lmcode 2>/dev/null || true
 fi
 if command -v uv >/dev/null 2>&1; then
-    uv tool uninstall scream 2>/dev/null || true
+    uv tool uninstall lmcode 2>/dev/null || true
 fi
 # 清理 uv 可能残留的 trampoline 脚本
-rm -f "$HOME/.local/bin/scream" 2>/dev/null || true
+rm -f "$HOME/.local/bin/lmcode" 2>/dev/null || true
 
 # ── 彻底删除旧 lmcode 目录（Python .venv / node_modules 等） ──
 if [ -d "$INSTALL_DIR" ]; then
@@ -159,15 +159,15 @@ pnpm -r build || {
     exit 1
 }
 
-# ── 6. 创建 scream 命令 ────────────────────────────────────────────────────
+# ── 6. 创建 lm 命令 ───────────────────────────────────────────────────────
 mkdir -p "$BIN_DIR"
-cat > "$BIN_DIR/scream" <<'EOF'
+cat > "$BIN_DIR/lm" <<'EOF'
 #!/usr/bin/env bash
 LMCODE_HOME="${LMCODE_HOME:-$HOME/.lmcode}"
 cd "$LMCODE_HOME"
 exec node "$LMCODE_HOME/apps/lmcode/dist/main.mjs" "$@"
 EOF
-chmod +x "$BIN_DIR/scream"
+chmod +x "$BIN_DIR/lm"
 
 # ── 7. 添加到 PATH ─────────────────────────────────────────────────────────
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then

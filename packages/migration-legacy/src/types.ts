@@ -16,7 +16,7 @@ export interface MigrationPlan {
 
 /**
  * One workdir bucket (`~/.lmcode/sessions/<md5>/`) with reverse-looked-up
- * path from `~/.lmcode/scream.json`. Buckets with jian != 'local' or no
+ * path from `~/.lmcode/lmcode.json`. Buckets with jian != 'local' or no
  * workdir found are excluded from this list (they appear in counters).
  */
 export interface WorkDirEntry {
@@ -66,21 +66,21 @@ export interface MigrationSummary {
     /** Top-level keys dropped because lmcode's config schema lacks them. */
     readonly droppedKeys: readonly string[];
     /**
-     * Keys/sections where the existing target config and the scream-cli config
+     * Keys/sections where the existing target config and the lmcode-cli config
      * both set a different value — the target's value was kept.
      */
     readonly configConflicts: readonly string[];
-    /** A `config.toml` conflict forced a `config.migrated-from-scream-cli.toml` sibling. */
+    /** A `config.toml` conflict forced a `config.migrated-from-lmcode-cli.toml` sibling. */
     readonly wroteSiblingDueToConflict: boolean;
-    /** A `tui.toml` conflict forced a `tui.migrated-from-scream-cli.toml` sibling. */
+    /** A `tui.toml` conflict forced a `tui.migrated-from-lmcode-cli.toml` sibling. */
     readonly wroteTuiSibling: boolean;
-    /** Count of scream-cli hook entries written into the LIVE target config. */
+    /** Count of lmcode-cli hook entries written into the LIVE target config. */
     readonly migratedHooks: number;
-    /** Count of scream-cli hook entries dropped because lmcode's schema rejects them. */
+    /** Count of lmcode-cli hook entries dropped because lmcode's schema rejects them. */
     readonly droppedHooks: number;
     /**
      * When `wroteSiblingDueToConflict` is true, what landed in
-     * `config.migrated-from-scream-cli.toml` instead of the live `config.toml`.
+     * `config.migrated-from-lmcode-cli.toml` instead of the live `config.toml`.
      * The result screen surfaces these so the user knows what needs manual
      * merging. Empty in `overwrite` / `merge` modes.
      */
@@ -122,7 +122,7 @@ export interface SessionsSummary {
 export interface MigrationNotices {
   readonly mcpOauthServersRequiringReauth: readonly string[];
   /**
-   * Basenames of scream-cli OAuth logins (`~/.lmcode/credentials/<name>.json`)
+   * Basenames of lmcode-cli OAuth logins (`~/.lmcode/credentials/<name>.json`)
    * found at detection time. OAuth credentials are deliberately NOT migrated:
    * refresh tokens rotate server-side, so a copied credential breaks login for
    * whichever install refreshes second. The user must run `/login` in

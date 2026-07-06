@@ -30,7 +30,7 @@ function createProvider(stream: boolean = false): LmcodeChatProvider {
   });
 }
 
-type ScreamGenerationState = {
+type LMcodeGenerationState = {
   max_tokens?: number | undefined;
   temperature?: number | undefined;
   reasoning_effort?: string | undefined;
@@ -38,8 +38,8 @@ type ScreamGenerationState = {
   extra_body?: Record<string, unknown> | undefined;
 };
 
-function getGenerationState(provider: LmcodeChatProvider): ScreamGenerationState {
-  return Reflect.get(provider, '_generationKwargs') as ScreamGenerationState;
+function getGenerationState(provider: LmcodeChatProvider): LMcodeGenerationState {
+  return Reflect.get(provider, '_generationKwargs') as LMcodeGenerationState;
 }
 
 /** Capture the request body sent to OpenAI by mocking the client. */
@@ -247,7 +247,7 @@ describe('LmcodeChatProvider', () => {
       ]);
     });
 
-    it('adds Scream-only types to JetBrains-like enum-only tool parameters without mutation', async () => {
+    it('adds LMcode-only types to JetBrains-like enum-only tool parameters without mutation', async () => {
       const provider = createProvider();
       const originalParameters = structuredClone(JETBRAINS_ENUM_ONLY_TOOL.parameters);
       const history: Message[] = [
@@ -282,7 +282,7 @@ describe('LmcodeChatProvider', () => {
       expect(JETBRAINS_ENUM_ONLY_TOOL.parameters).toEqual(originalParameters);
     });
 
-    it('dereferences draft-7 definitions and normalizes referenced enum-only schemas for Scream', async () => {
+    it('dereferences draft-7 definitions and normalizes referenced enum-only schemas for LMcode', async () => {
       const provider = createProvider();
       const originalParameters = structuredClone(REF_ENUM_ONLY_TOOL.parameters);
       const history: Message[] = [
@@ -518,8 +518,8 @@ describe('LmcodeChatProvider', () => {
       const body = await captureRequestBody(provider, '', [], history);
 
       // Snapshot of the expected wire format.
-      // Scream injects ThinkPart as `reasoning_content` field on the
-      // assistant message (ScreamCli API extension).
+      // LMcode injects ThinkPart as `reasoning_content` field on the
+      // assistant message (LmcodeCli API extension).
       expect(body['messages']).toEqual([
         { role: 'user', content: 'What is 2+2?' },
         {
@@ -887,7 +887,7 @@ describe('LmcodeChatProvider', () => {
       opts?: { finishReason?: string; usage?: boolean },
     ): Record<string, unknown> {
       const chunk: Record<string, unknown> = {
-        id: 'chatcmpl-scream-stream',
+        id: 'chatcmpl-lmcode-stream',
         object: 'chat.completion.chunk',
         created: 1234567890,
         model: 'lmcode-k2-turbo-preview',
@@ -1369,7 +1369,7 @@ describe('extractUsageFromChunk', () => {
     expect(usage).toEqual({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 });
   });
 
-  it('extracts choices[0].usage (ScreamCli proprietary)', () => {
+  it('extracts choices[0].usage (LmcodeCli proprietary)', () => {
     const chunk = {
       id: 'chatcmpl-6970b5d02fa474c1767e8767',
       object: 'chat.completion.chunk',
@@ -1438,7 +1438,7 @@ describe('extractUsage', () => {
     });
   });
 
-  it('extracts usage with ScreamCli cached_tokens', () => {
+  it('extracts usage with LmcodeCli cached_tokens', () => {
     const usage = extractUsage({
       prompt_tokens: 100,
       completion_tokens: 20,

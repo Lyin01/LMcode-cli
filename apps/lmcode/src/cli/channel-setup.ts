@@ -130,14 +130,15 @@ function checkCcConnect(): { installed: boolean; version?: string } {
   }
 }
 
-/** Auto-detect the path to the lmcode binary, including the stream-json subcommand. */
+/** Auto-detect the path to the lm binary, including the stream-json subcommand. */
 function detectLmcodePath(): string {
   // 1. Check if running as a bundled binary (process.execPath)
   const execBase = process.execPath.toLowerCase();
   if (
-    execBase.endsWith("/scream") || execBase.endsWith("\\scream") ||
-    execBase.endsWith("/lm") || execBase.endsWith("\\lm") ||
-    execBase.endsWith("/lmcode") || execBase.endsWith("\\lmcode")
+    execBase.endsWith("/lm") ||
+    execBase.endsWith("\\lm") ||
+    execBase.endsWith("/lm.exe") ||
+    execBase.endsWith("\\lm.exe")
   ) {
     return `${process.execPath} stream-json`;
   }
@@ -145,13 +146,13 @@ function detectLmcodePath(): string {
   // 2. Check if we're running from the monorepo dist
   if (execBase.includes("node") && process.argv[1]) {
     const arg1 = process.argv[1];
-    // If the first arg looks like a lmcode entry point
+    // If the first arg looks like an lmcode entry point.
     if (arg1.includes("lmcode") || arg1.includes("lm")) {
       return `node ${arg1} stream-json`;
     }
   }
 
-  // 3. Check for lmcode in PATH
+  // 3. Check for lm in PATH
   try {
     const which = execSync("which lm 2>/dev/null", {
       encoding: "utf-8",

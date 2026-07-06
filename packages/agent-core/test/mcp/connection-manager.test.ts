@@ -488,7 +488,7 @@ describe('McpConnectionManager', () => {
           transport: 'stdio',
           command: process.execPath,
           args: [crashAfterConnectFixture],
-          env: { SCREAM_TEST_MCP_EXIT_AFTER_MS: '500', SCREAM_TEST_MCP_STDERR: 'fatal: out of memory' },
+          env: { LMCODE_TEST_MCP_EXIT_AFTER_MS: '500', LMCODE_TEST_MCP_STDERR: 'fatal: out of memory' },
           startupTimeoutMs: 4_000,
         },
       });
@@ -522,13 +522,13 @@ describe('McpConnectionManager', () => {
           transport: 'stdio',
           command: process.execPath,
           args: [stderrThenExitFixture],
-          env: { SCREAM_TEST_MCP_STDERR: 'fatal: missing API token SCREAM_X' },
+          env: { LMCODE_TEST_MCP_STDERR: 'fatal: missing API token LMCODE_X' },
           startupTimeoutMs: 4_000,
         },
       });
       const entry = cm.get('nope');
       expect(entry?.status).toBe('failed');
-      expect(entry?.error).toContain('fatal: missing API token SCREAM_X');
+      expect(entry?.error).toContain('fatal: missing API token LMCODE_X');
     } finally {
       await cm.shutdown();
     }
@@ -654,10 +654,10 @@ describe('McpConnectionManager', () => {
 });
 
 describe('Session MCP startup', () => {
-  it('stores default MCP OAuth credentials under the configured Scream home', async () => {
+  it('stores default MCP OAuth credentials under the configured LMcode home', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'lmcode-session-mcp-oauth-home-'));
     const processHome = join(tmp, 'process-home');
-    const screamHome = join(tmp, 'lmcode-home');
+    const lmcodeHome = join(tmp, 'lmcode-home');
     const oldHome = process.env['HOME'];
     process.env['HOME'] = processHome;
 
@@ -665,7 +665,7 @@ describe('Session MCP startup', () => {
       id: 'test-mcp-oauth',
       jian: testJian.withCwd(tmp),
       homedir: join(tmp, 'session'),
-      lmcodeHomeDir: screamHome,
+      lmcodeHomeDir: lmcodeHome,
       rpc: sessionRpc(),
     });
 
@@ -682,7 +682,7 @@ describe('Session MCP startup', () => {
 
       await expect(
         readFile(
-          join(screamHome, 'credentials', 'mcp', `${provider.storeKey}-tokens.json`),
+          join(lmcodeHome, 'credentials', 'mcp', `${provider.storeKey}-tokens.json`),
           'utf-8',
         ),
       ).resolves.toContain('session-token');
@@ -759,7 +759,7 @@ describe('Session MCP startup', () => {
             transport: 'stdio',
             command: process.execPath,
             args: [stdioFixture],
-            env: { SCREAM_TEST_MCP_START_DELAY_MS: '250' },
+            env: { LMCODE_TEST_MCP_START_DELAY_MS: '250' },
             startupTimeoutMs: 2_000,
           },
         },

@@ -2,11 +2,11 @@
  * LmcodeCliFetchURLProvider — host-side UrlFetcher.
  *
  * Flow:
- *   1. Try ScreamCli coding-fetch service (POST {url}, Bearer token from a
+ *   1. Try LmcodeCli coding-fetch service (POST {url}, Bearer token from a
  *      narrow token provider, Accept: text/markdown, host-provided headers).
- *   2. ScreamCli 200 → return the body as `extracted` content (the
+ *   2. LmcodeCli 200 → return the body as `extracted` content (the
  *      service has already extracted the main page text on its side).
- *   3. Any ScreamCli failure — non-200, network error, or token
+ *   3. Any LmcodeCli failure — non-200, network error, or token
  *      refresh failure — → delegate to `localFallback`, forwarding its
  *      content kind, so the LLM still gets *something* when the service
  *      is down.
@@ -73,7 +73,7 @@ export class LmcodeCliFetchURLProvider implements UrlFetcher {
     toolCallId: string | undefined,
   ): Promise<UrlFetchResult> {
     try {
-      const content = await this.fetchViaScreamCli(url, toolCallId);
+      const content = await this.fetchViaLmcodeCli(url, toolCallId);
       // The service returns text it has already extracted from the page.
       return { content, kind: 'extracted' };
     } catch {
@@ -81,7 +81,7 @@ export class LmcodeCliFetchURLProvider implements UrlFetcher {
     }
   }
 
-  private async fetchViaScreamCli(
+  private async fetchViaLmcodeCli(
     url: string,
     toolCallId: string | undefined,
   ): Promise<string> {
@@ -99,7 +99,7 @@ export class LmcodeCliFetchURLProvider implements UrlFetcher {
       }
       throw new HttpFetchError(
         response.status,
-        `ScreamCli fetch request failed: HTTP ${String(response.status)}. ${detail}`.trim(),
+        `LmcodeCli fetch request failed: HTTP ${String(response.status)}. ${detail}`.trim(),
       );
     }
 
@@ -144,6 +144,6 @@ export class LmcodeCliFetchURLProvider implements UrlFetcher {
     if (this.apiKey !== undefined && this.apiKey.length > 0) {
       return this.apiKey;
     }
-    throw new Error('ScreamCli fetch service is not configured: missing API key or token provider.');
+    throw new Error('LmcodeCli fetch service is not configured: missing API key or token provider.');
   }
 }

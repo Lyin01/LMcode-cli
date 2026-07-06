@@ -228,7 +228,7 @@ describe('background notification → main agent (real Agent instance)', () => {
   });
 
   it('RESUME: terminal bg tasks discovered on reconcile are SILENTLY injected (no auto-turn)', async () => {
-    // Scenario the user described: scream exits while bg tasks are
+    // Scenario the user described: lmcode exits while bg tasks are
     // running; on next start, resume() loads them from disk and
     // reconcile() classifies them as terminal (lost for in-process
     // agent tasks; possibly completed for bash tasks if the process

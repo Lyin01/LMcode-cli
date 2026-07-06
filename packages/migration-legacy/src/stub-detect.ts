@@ -1,12 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { parse as parseToml } from 'smol-toml';
 
-// Verbatim from packages/scream-core/src/harness/configs/toml.ts:42
+// Verbatim from packages/lmcode-core/src/harness/configs/toml.ts:42
 export const DEFAULT_CONFIG_FILE_TEXT =
   '# ~/.lmcode/config.toml\n' +
   '# Runtime settings for LMcode.\n' +
   '# This file starts empty so built-in defaults can apply.\n' +
-  '# Login will populate managed Scream provider and model entries.\n';
+  '# Login will populate managed LMcode provider and model entries.\n';
 
 // Verbatim from apps/lmcode/src/tui/config.ts:renderTuiConfig(DEFAULT_TUI_CONFIG)
 export const DEFAULT_TUI_RENDER =

@@ -59,7 +59,7 @@ describe('applyEnvModelConfig', () => {
     },
   );
 
-  it('synthesizes a scream provider and model from the minimal set', () => {
+  it('synthesizes a lmcode provider and model from the minimal set', () => {
     const config = apply({ ...MIN });
     expect(config.providers[ENV_MODEL_PROVIDER_KEY]).toEqual({
       type: 'lmcode',

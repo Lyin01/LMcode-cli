@@ -141,7 +141,7 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
     return { outcome: 'failed', reason };
   }
 
-  // scream-core's `SessionStore.list()` ranks sessions by the *filesystem*
+  // lmcode-core's `SessionStore.list()` ranks sessions by the *filesystem*
   // mtimes of `state.json` / `wire.jsonl` / the session dir — not by the
   // `updatedAt` field. Writing newest-first would otherwise make the newest
   // original session the oldest by mtime, inverting `--continue` ordering.
@@ -196,7 +196,7 @@ async function classifyExistingTarget(targetDir: string): Promise<ExistingTarget
   if (
     typeof custom === 'object' &&
     custom !== null &&
-    (custom as { imported_from_scream_cli?: unknown }).imported_from_scream_cli === true
+    (custom as { imported_from_lmcode_cli?: unknown }).imported_from_lmcode_cli === true
   ) {
     return 'imported';
   }

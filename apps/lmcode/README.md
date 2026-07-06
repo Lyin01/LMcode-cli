@@ -157,7 +157,7 @@ lm [options] [command] [prompt...]
 **修复**
 - **135 个 Windows 测试失败全部修复** — 覆盖路径归一化、SQLite EBUSY 清理、Hook 子进程、yolo 权限迁移等 10 类问题
 - **Hook 子进程弹窗** — `spawn()` 添加 `windowsHide: true`，根治每次跑 hook 弹 conhost 窗口
-- **品牌重命名遗留引用** — 218 处 scream → lmcode 全面覆盖
+- **品牌重命名遗留引用** — 218 处 lmcode → lmcode 全面覆盖
 
 **性能优化**
 - **linkedom / nunjucks 懒加载** — 避免静态打包 2MB+ 依赖，降低启动时间
@@ -166,7 +166,7 @@ lm [options] [command] [prompt...]
 - **FTS 空结果回退优化** — 先前缀通配符再全表扫描
 
 **清理**
-- 安装脚本 `scream` → `lm` 命令修正
+- 安装脚本 `lmcode` → `lm` 命令修正
 - 移除 migration 残留代码
 - 添加 `.nvmrc`，配置简单 git hooks
 
@@ -184,7 +184,7 @@ LMcode 是基于个人使用习惯和对 Agent 系统的理解，从零搭建的
 
 项目的演进方向是成为一个稳定、高效、轻量的 Agent 底座——不追求功能堆叠，而是让每个机制都能在实际使用中站住脚。
 
-> LMcode 基于 [Scream Code](https://github.com/LIUTod/scream-code) 二次开发，感谢原作者 [LIUTod](https://github.com/LIUTod) 的开源工作。
+> LMcode 基于 [LMcode](https://github.com/LIUTod/lmcode) 二次开发，感谢原作者 [LIUTod](https://github.com/LIUTod) 的开源工作。
 
 ---
 

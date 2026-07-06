@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { formatSessionLabel } from '#/migration/badge';
 
 describe('formatSessionLabel', () => {
-  it('prepends [imported] when metadata.imported_from_scream_cli === true', () => {
+  it('prepends [imported] when metadata.imported_from_lmcode_cli === true', () => {
     const label = formatSessionLabel({
       title: 'Refactor sessions list',
-      metadata: { imported_from_scream_cli: true },
+      metadata: { imported_from_lmcode_cli: true },
     });
     expect(label).toBe('[已导入] Refactor sessions list');
   });
@@ -24,7 +24,7 @@ describe('formatSessionLabel', () => {
   it('only triggers on the literal boolean true (not truthy values)', () => {
     const label = formatSessionLabel({
       title: 'truthy but not true',
-      metadata: { imported_from_scream_cli: 'yes' as unknown },
+      metadata: { imported_from_lmcode_cli: 'yes' as unknown },
     });
     expect(label).toBe('truthy but not true');
   });
@@ -32,7 +32,7 @@ describe('formatSessionLabel', () => {
   it('does not prepend [imported] when flag is false', () => {
     const label = formatSessionLabel({
       title: 'native session',
-      metadata: { imported_from_scream_cli: false },
+      metadata: { imported_from_lmcode_cli: false },
     });
     expect(label).toBe('native session');
   });
@@ -40,7 +40,7 @@ describe('formatSessionLabel', () => {
   it('preserves the title even when it is empty', () => {
     const label = formatSessionLabel({
       title: '',
-      metadata: { imported_from_scream_cli: true },
+      metadata: { imported_from_lmcode_cli: true },
     });
     expect(label).toBe('[已导入] ');
   });

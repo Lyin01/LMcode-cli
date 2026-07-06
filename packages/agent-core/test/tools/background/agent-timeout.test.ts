@@ -86,7 +86,7 @@ describe('BackgroundProcessManager.registerAgentTask — timeoutMs', () => {
 
   // Decision (confirmed with team, 2026-05-19): background tasks in
   // lmcode do NOT carry an implicit default timeout. The Python
-  // scream-cli enforced a 30-min default because its agents were
+  // lmcode-cli enforced a 30-min default because its agents were
   // expected to be short-lived; lmcode's agents may legitimately
   // run a dev server, a long compile, or a watch loop, and an
   // auto-kill would be a footgun. The shutdown wait-cap that reads

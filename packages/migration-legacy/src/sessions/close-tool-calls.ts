@@ -1,14 +1,14 @@
 import type { NormalizedMessage } from './translator.js';
 
-const PLACEHOLDER_TEXT = '[tool result unavailable — session imported from scream-cli]';
+const PLACEHOLDER_TEXT = '[tool result unavailable — session imported from lmcode-cli]';
 
 /**
  * Close dangling tool calls so no messages are dropped on resume.
  *
- * scream-core's context module defers messages while a tool exchange is open
+ * lmcode-core's context module defers messages while a tool exchange is open
  * (i.e. an assistant message has `toolCalls` whose ids are not all satisfied
  * by later `tool` messages) and only flushes once every pending tool-result
- * id is satisfied. A scream-cli session interrupted mid-tool-call therefore
+ * id is satisfied. A lmcode-cli session interrupted mid-tool-call therefore
  * never closes that exchange, and every subsequent message is silently
  * dropped from history.
  *

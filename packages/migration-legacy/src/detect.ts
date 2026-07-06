@@ -2,7 +2,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { OldScreamJsonSchema, OldSessionStateSchema } from './lmcode-cli-schema.js';
+import { OldLMcodeJsonSchema, OldSessionStateSchema } from './lmcode-cli-schema.js';
 import {
   sourceConfigToml,
   sourceMcpJson,
@@ -11,7 +11,7 @@ import {
   sourcePluginsDir,
   sourceMcpOauthDir,
   sourceSessionsDir,
-  sourceScreamJson,
+  sourceLMcodeJson,
 } from './paths.js';
 import type { MigrationPlan, SessionEntry, WorkDirEntry } from './types.js';
 import { classifySessionDir } from './sessions/classify.js';
@@ -37,16 +37,16 @@ export async function detectMigration(opts: { sourcePath: string }): Promise<Mig
   const detectedPlugins = await listDirSafe(sourcePluginsDir(src), () => true);
   const detectedMcpOauthServers = await listDirSafe(sourceMcpOauthDir(src), () => true);
 
-  // Reverse-lookup workdir from scream.json
+  // Reverse-lookup workdir from lmcode.json
   const workdirMap = new Map<string, WorkdirMeta>();
   try {
-    const text = await readFile(sourceScreamJson(src), 'utf-8');
-    const parsed = OldScreamJsonSchema.parse(JSON.parse(text));
+    const text = await readFile(sourceLMcodeJson(src), 'utf-8');
+    const parsed = OldLMcodeJsonSchema.parse(JSON.parse(text));
     for (const wd of parsed.work_dirs) {
       workdirMap.set(oldMd5BucketName(wd.path), { path: wd.path, jian: wd.jian });
     }
   } catch {
-    // no scream.json or unparseable — sessions list will be empty
+    // no lmcode.json or unparseable — sessions list will be empty
   }
 
   const workdirs: WorkDirEntry[] = [];

@@ -27,7 +27,7 @@ describe('status panel report lines', () => {
           provider: 'managed:lmcode',
           model: 'lmcode-k2',
           maxContextSize: 10000,
-          displayName: 'Scream K2',
+          displayName: 'LMcode K2',
         },
       },
       status: {
@@ -54,7 +54,7 @@ describe('status panel report lines', () => {
 
     const output = lines.join('\n');
     expect(output).toContain('>_ LMcode (v1.2.3)');
-    expect(output).toMatch(/模型\s+Scream K2 \(thinking high\)/);
+    expect(output).toMatch(/模型\s+LMcode K2 \(thinking high\)/);
     expect(output).toMatch(/目录\s+\/tmp\/project/);
     expect(output).toMatch(/权限\s+auto/);
     expect(output).toMatch(/计划模式\s+on/);

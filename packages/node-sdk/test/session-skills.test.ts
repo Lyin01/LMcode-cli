@@ -79,8 +79,8 @@ async function makeWorkDir(prefix: string): Promise<string> {
 
 describe('Session skills', () => {
   it('lists session skills without exposing content', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-skills-home-');
-    const workDir = await makeWorkDir('scream-sdk-skills-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-skills-home-');
+    const workDir = await makeWorkDir('lmcode-sdk-skills-work-');
     await writeSkill(workDir, 'review', [
       '---',
       'name: review',
@@ -112,8 +112,8 @@ describe('Session skills', () => {
   });
 
   it('activates a skill through core and emits the public skill event', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-skills-home-');
-    const workDir = await makeWorkDir('scream-sdk-skills-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-skills-home-');
+    const workDir = await makeWorkDir('lmcode-sdk-skills-work-');
     await writeSkill(workDir, 'review', [
       '---',
       'name: review',
@@ -204,9 +204,9 @@ describe('Session skills', () => {
   });
 
   it('resolves user skills from the OS home directory, independently of LMCODE_HOME', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-skills-home-');
-    const processHome = await makeTempDir(tempDirs, 'scream-sdk-skills-process-home-');
-    const workDir = await makeWorkDir('scream-sdk-skills-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-skills-home-');
+    const processHome = await makeTempDir(tempDirs, 'lmcode-sdk-skills-process-home-');
+    const workDir = await makeWorkDir('lmcode-sdk-skills-work-');
     // `os.homedir()` reads HOME on POSIX but USERPROFILE on Windows; stub both so
     // the OS home override applies regardless of platform.
     vi.stubEnv('HOME', processHome);

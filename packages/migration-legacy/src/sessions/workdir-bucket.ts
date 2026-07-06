@@ -1,4 +1,4 @@
-// IMPORTANT: import path helpers from `pathe`, NOT `node:path`. scream-core's
+// IMPORTANT: import path helpers from `pathe`, NOT `node:path`. lmcode-core's
 // `encodeWorkDirKey` (packages/agent-core/src/session/store/workdir-key.ts)
 // resolves and slugifies the workdir with `pathe`, which is POSIX-normalized on
 // every platform. `node:path.resolve` on Windows prepends the current drive and
@@ -14,8 +14,8 @@ const HASH_LENGTH = 12;
 /**
  * Compute the v2 bucket directory name `wd_<slug>_<hash12>` for a workdir
  * path. Hash function and slug rules mirror
- * `packages/scream-core/src/utils/workdir-slug.ts` and
- * `packages/scream-core/src/harness/session-manager/workdir-key.ts:13–18`.
+ * `packages/lmcode-core/src/utils/workdir-slug.ts` and
+ * `packages/lmcode-core/src/harness/session-manager/workdir-key.ts:13–18`.
  *
  * IMPORTANT: agent-core's `encodeWorkDirKey` runs `resolve()` on the workdir
  * before hashing/slugifying, and the session picker locates sessions purely
@@ -44,8 +44,8 @@ export function oldMd5BucketName(workdirPath: string): string {
 const MAX_WORKDIR_SLUG_LENGTH = 40;
 
 /**
- * Local copy of scream-core's `slugifyWorkDirName`. Keep byte-identical to the
- * canonical implementation in `packages/scream-core/src/utils/workdir-slug.ts`.
+ * Local copy of lmcode-core's `slugifyWorkDirName`. Keep byte-identical to the
+ * canonical implementation in `packages/lmcode-core/src/utils/workdir-slug.ts`.
  */
 function slugifyWorkDirName(name: string): string {
   const slug = name

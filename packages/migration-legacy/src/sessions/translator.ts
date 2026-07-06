@@ -24,7 +24,7 @@ const USABLE_ROLES: ReadonlySet<string> = new Set(['user', 'assistant', 'tool'])
  *                  migratable conversation.
  *  - `'empty'`   — parses, but only carries markers (`_system_prompt`,
  *                  `_checkpoint`, `_usage`) or is genuinely blank → an unused
- *                  session, or one the user cleared in scream-cli.
+ *                  session, or one the user cleared in lmcode-cli.
  *  - `'corrupt'` — every non-blank line failed to parse → disk damage,
  *                  truncated write, etc. Must NOT be conflated with `empty`
  *                  or its data problem disappears into the skip count.
@@ -99,7 +99,7 @@ export function translateContextLines(lines: readonly string[]): NormalizedMessa
 
 function normalizeContent(raw: unknown): NormalizedContentPart[] {
   // A legacy row may legitimately omit `content` (e.g. an assistant message
-  // that only carries tool calls). scream's message shape allows `content: []`;
+  // that only carries tool calls). lmcode's message shape allows `content: []`;
   // stringifying nullish here would emit a phantom text part holding `""`.
   if (raw === null || raw === undefined) {
     return [];

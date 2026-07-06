@@ -7,7 +7,7 @@ import yazl from 'yazl';
 
 import { PluginManager } from '../../src/plugin/manager';
 
-async function makeScreamHome(): Promise<string> {
+async function makeLMcodeHome(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), 'lmcode-home-'));
 }
 
@@ -59,7 +59,7 @@ async function makePlugin(
 
 describe('PluginManager', () => {
   it('install() adds a plugin and load() rehydrates it from disk', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const pluginRoot = await makePlugin('demo', { skills: true });
 
     let manager = new PluginManager({ lmcodeHomeDir: home });
@@ -79,7 +79,7 @@ describe('PluginManager', () => {
   });
 
   it('install() accepts a .lmcode-plugin manifest', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await mkdtemp(path.join(tmpdir(), 'lmcode-plugin-'));
     await mkdir(path.join(root, '.lmcode-plugin'), { recursive: true });
     await mkdir(path.join(root, 'skills'), { recursive: true });
@@ -88,7 +88,7 @@ describe('PluginManager', () => {
       JSON.stringify({
         name: 'superpowers',
         skills: './skills/',
-        skillInstructions: 'Use Scream tools.',
+        skillInstructions: 'Use LMcode tools.',
       }),
       'utf8',
     );
@@ -106,12 +106,12 @@ describe('PluginManager', () => {
     expect(manager.pluginSkillRoots()).toContainEqual({
       path: path.join(managedRoot, 'skills'),
       source: 'extra',
-      plugin: { id: 'superpowers', instructions: 'Use Scream tools.' },
+      plugin: { id: 'superpowers', instructions: 'Use LMcode tools.' },
     });
   });
 
   it('install() rejects a relative plugin root', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
 
@@ -122,7 +122,7 @@ describe('PluginManager', () => {
   // real symlinked source path is exactly what this test installs from, so it
   // can't be replicated without one.
   it.skipIf(process.platform === 'win32')('install() copies a symlinked plugin root into the managed plugins dir', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const pluginRoot = await makePlugin('demo');
     const link = path.join(await mkdtemp(path.join(tmpdir(), 'plugin-link-')), 'demo-link');
     await symlink(pluginRoot, link);
@@ -140,7 +140,7 @@ describe('PluginManager', () => {
   });
 
   it('setEnabled() persists the new state', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo', { skills: true });
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -155,7 +155,7 @@ describe('PluginManager', () => {
   });
 
   it('remove() clears the entry but does not delete the source directory', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo', { skills: true });
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -169,7 +169,7 @@ describe('PluginManager', () => {
   });
 
   it('pluginSkillRoots() returns only enabled plugins skills paths', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const a = await makePlugin('a', { skills: true });
     const b = await makePlugin('b', { skills: true });
     const manager = new PluginManager({ lmcodeHomeDir: home });
@@ -192,7 +192,7 @@ describe('PluginManager', () => {
   });
 
   it('summaries include discovered skill names and descriptions', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('superpowers', {
       skillNames: ['brainstorming', 'systematic-debugging', 'writing-plans'],
     });
@@ -215,7 +215,7 @@ describe('PluginManager', () => {
   });
 
   it('reload() picks up edits to the managed plugin copy', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -233,7 +233,7 @@ describe('PluginManager', () => {
   });
 
   it('reload() does not reread the original local source after install', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -251,7 +251,7 @@ describe('PluginManager', () => {
   });
 
   it('install() refuses to add a directory without a manifest', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await mkdtemp(path.join(tmpdir(), 'no-manifest-'));
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -259,7 +259,7 @@ describe('PluginManager', () => {
   });
 
   it('install() overwrites the same local plugin and preserves user state', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo', {
       version: '1.0.0',
       mcpServers: { finance: { command: 'finance-mcp' } },
@@ -287,7 +287,7 @@ describe('PluginManager', () => {
   });
 
   it('keeps a plugin in error state instead of losing it on a broken manifest', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -310,7 +310,7 @@ describe('PluginManager', () => {
   });
 
   it('enabledSessionStarts() returns only enabled plugin sessionStart declarations', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo', {
       skills: true,
       sessionStartSkill: 'demo-skill',
@@ -327,7 +327,7 @@ describe('PluginManager', () => {
   });
 
   it('maps manifest skillInstructions to record skillInstructions', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await mkdtemp(path.join(tmpdir(), 'plugin-instructions-'));
     await writeFile(
       path.join(root, 'lmcode.plugin.json'),
@@ -344,7 +344,7 @@ describe('PluginManager', () => {
   });
 
   it('setMcpServerEnabled() persists explicit MCP server state', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo', {
       mcpServers: {
         finance: { command: 'finance-mcp' },
@@ -402,7 +402,7 @@ describe('PluginManager', () => {
   });
 
   it('merges manifest MCP enabled defaults with explicit user state', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo', {
       mcpServers: {
         finance: { command: 'finance-mcp', enabled: false },
@@ -446,7 +446,7 @@ describe('PluginManager', () => {
   });
 
   it('uses unambiguous runtime names for plugin MCP servers', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const first = await makePlugin('a-b', {
       mcpServers: {
         c: { command: 'first-mcp' },
@@ -480,7 +480,7 @@ describe('PluginManager', () => {
   });
 
   it('enabledMcpServers() excludes disabled plugins', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo', {
       mcpServers: { finance: { command: 'finance-mcp' } },
     });
@@ -494,7 +494,7 @@ describe('PluginManager', () => {
   });
 
   it('setMcpServerEnabled() rejects unknown MCP servers', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -506,7 +506,7 @@ describe('PluginManager', () => {
   });
 
   it('install() sets originalSource and updatedAt', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -525,7 +525,7 @@ describe('PluginManager', () => {
   });
 
   it('persist() and load() round-trip originalSource and updatedAt', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -540,7 +540,7 @@ describe('PluginManager', () => {
   });
 
   it('setEnabled() updates updatedAt', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -561,7 +561,7 @@ describe('PluginManager', () => {
   });
 
   it('info() includes originalSource', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -572,7 +572,7 @@ describe('PluginManager', () => {
   });
 
   it('install() supports zip URL', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const zipBuffer = await createZipBuffer([
       {
         name: 'plugin/lmcode.plugin.json',
@@ -603,7 +603,7 @@ describe('PluginManager', () => {
   });
 
   it('install() from zip-url overwrites existing zip-url plugin', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const zipBuffer1 = await createZipBuffer([
       { name: 'plugin/lmcode.plugin.json', data: JSON.stringify({ name: 'zip-demo', version: '1.0.0' }) },
     ]);
@@ -625,7 +625,7 @@ describe('PluginManager', () => {
   });
 
   it('install() from zip-url overwrites existing local-path plugin', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('zip-demo');
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -648,7 +648,7 @@ describe('PluginManager', () => {
   });
 
   it('install() rejects zip URL without manifest', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const zipBuffer = await createZipBuffer([
       { name: 'readme.txt', data: 'no manifest here' },
     ]);
@@ -661,7 +661,7 @@ describe('PluginManager', () => {
   });
 
   it('install() from github URL resolves latest release and records github metadata', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const zipBuffer = await createZipBuffer([
       {
         name: 'wbxl2000-superpowers-abc/lmcode.plugin.json',
@@ -697,7 +697,7 @@ describe('PluginManager', () => {
     // A repo whose only ref `v5.1.0` is a tag (no branch by that name). The
     // previous resolver wrote `zip/refs/heads/v5.1.0` and 404'd. Verify the
     // mock now sees the short-form request `zip/v5.1.0`.
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const zipBuffer = await createZipBuffer([
       {
         name: 'obra-superpowers-v5.1.0/lmcode.plugin.json',
@@ -735,7 +735,7 @@ describe('PluginManager', () => {
   });
 
   it('install() from /releases/tag/<tag> resolves precisely via refs/tags/', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const zipBuffer = await createZipBuffer([
       {
         name: 'obra-superpowers-v5.1.0/lmcode.plugin.json',
@@ -775,7 +775,7 @@ describe('PluginManager', () => {
   });
 
   it('install() from github /tree/<branch> bypasses the GitHub API', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const zipBuffer = await createZipBuffer([
       {
         name: 'wbxl2000-superpowers-main/lmcode.plugin.json',
@@ -803,7 +803,7 @@ describe('PluginManager', () => {
   });
 
   it('install() ignores forged marketplace context from legacy callers', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
     const root = await makePlugin('rando', { version: '1.0.0' });
     const manager = new PluginManager({ lmcodeHomeDir: home });
     await manager.load();
@@ -816,7 +816,7 @@ describe('PluginManager', () => {
   });
 
   it('install() from github URL overwrites an existing zip-url install (CDN migration)', async () => {
-    const home = await makeScreamHome();
+    const home = await makeLMcodeHome();
 
     // Original CDN install.
     const cdnZip = await createZipBuffer([

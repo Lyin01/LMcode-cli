@@ -61,7 +61,7 @@ class SingleStreamProvider implements ChatProvider {
 }
 
 describe('integration: streaming provider contracts', () => {
-  describe('synthetic Scream-style SSE streaming', () => {
+  describe('synthetic LMcode-style SSE streaming', () => {
     it('multi-chunk text + tool_call + tool_call_part + usage', async () => {
       const usage: TokenUsage = {
         inputOther: 100,
@@ -76,14 +76,14 @@ describe('integration: streaming provider contracts', () => {
         { type: 'text', text: 'world!' },
         {
           type: 'function',
-          id: 'tc-scream-1',
+          id: 'tc-lmcode-1',
           name: 'search', arguments: null,
         } satisfies ToolCall,
         { type: 'tool_call_part', argumentsPart: '{"query":' },
         { type: 'tool_call_part', argumentsPart: '"vitest"}' },
       ];
 
-      const stream = buildStream(parts, { id: 'scream-resp-1', usage });
+      const stream = buildStream(parts, { id: 'lmcode-resp-1', usage });
       const provider = new SingleStreamProvider(stream, 'lmcode');
 
       const receivedParts: StreamedMessagePart[] = [];
@@ -113,7 +113,7 @@ describe('integration: streaming provider contracts', () => {
 
       // Usage extracted from the stream metadata
       expect(result.usage).toEqual(usage);
-      expect(result.id).toBe('scream-resp-1');
+      expect(result.id).toBe('lmcode-resp-1');
     });
 
     it('reasoning_content chunks interleave with text', async () => {
@@ -123,7 +123,7 @@ describe('integration: streaming provider contracts', () => {
         { type: 'text', text: 'The answer is 42.' },
       ];
 
-      const stream = buildStream(parts, { id: 'scream-think-1' });
+      const stream = buildStream(parts, { id: 'lmcode-think-1' });
       const provider = new SingleStreamProvider(stream, 'lmcode');
       const result = await generate(provider, '', [], []);
 

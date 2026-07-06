@@ -62,7 +62,7 @@ describe.each(SCENARIOS)('migration snapshot: %s', (name) => {
       .replace(/"createdAt": ".+?"/, '"createdAt": "<REDACTED>"')
       .replace(/"updatedAt": ".+?"/, '"updatedAt": "<REDACTED>"')
       .replace(/"imported_at": ".+?"/, '"imported_at": "<REDACTED>"')
-      .replace(/"scream_cli_source_path": ".+?"/, '"scream_cli_source_path": "<REDACTED>"')
+      .replace(/"lmcode_cli_source_path": ".+?"/, '"lmcode_cli_source_path": "<REDACTED>"')
       .split(targetPosix)
       .join('<TARGET>');
     // Redact wire created_at timestamp (derived from wire_mtime or Date.now()).

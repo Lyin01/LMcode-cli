@@ -63,7 +63,7 @@ describe('ChoicePickerComponent', () => {
           provider: 'managed:LMcode',
           model: 'lmcode-k2',
           maxContextSize: 200_000,
-          displayName: 'Scream K2',
+          displayName: 'LMcode K2',
           capabilities: ['thinking'],
         },
       },
@@ -74,7 +74,7 @@ describe('ChoicePickerComponent', () => {
       onCancel,
     });
     const modelOutput = model.render(120).map(strip).join('\n');
-    expect(modelOutput).toContain('  ❯ Scream K2 (LMcode) ← current');
+    expect(modelOutput).toContain('  ❯ LMcode K2 (LMcode) ← current');
     expect(modelOutput).toContain(' Thinking');
     expect(modelOutput).toContain('[ high ]');
 
@@ -112,7 +112,7 @@ describe('ChoicePickerComponent', () => {
           provider: 'managed:LMcode',
           model: 'lmcode-k2',
           maxContextSize: 200_000,
-          displayName: 'Scream K2',
+          displayName: 'LMcode K2',
           capabilities: ['thinking'],
         },
       },
@@ -137,14 +137,14 @@ describe('ChoicePickerComponent', () => {
           provider: 'managed:lmcode',
           model: 'lmcode-thinking',
           maxContextSize: 200_000,
-          displayName: 'Scream Thinking',
+          displayName: 'LMcode Thinking',
           capabilities: ['always_thinking'],
         },
         plain: {
           provider: 'managed:lmcode',
           model: 'lmcode-plain',
           maxContextSize: 200_000,
-          displayName: 'Scream Plain',
+          displayName: 'LMcode Plain',
           capabilities: ['tool_use'],
         },
       },
@@ -204,14 +204,14 @@ describe('ChoicePickerComponent', () => {
           provider: 'managed:lmcode',
           model: 'lmcode-plain',
           maxContextSize: 200_000,
-          displayName: 'Scream Plain',
+          displayName: 'LMcode Plain',
           capabilities: ['tool_use'],
         },
         thinking: {
           provider: 'managed:lmcode',
           model: 'lmcode-thinking',
           maxContextSize: 200_000,
-          displayName: 'Scream Thinking',
+          displayName: 'LMcode Thinking',
           capabilities: ['thinking'],
         },
       },

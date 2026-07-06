@@ -33,8 +33,8 @@ function toPosixPath(value: string): string {
 
 describe('Session plan, compact, usage, and resume APIs', () => {
   it('sets plan mode through manualEnterPlan and clears the active plan file', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-plan-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-plan-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-plan-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-plan-work-');
     await writeTestConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -72,8 +72,8 @@ describe('Session plan, compact, usage, and resume APIs', () => {
   });
 
   it('prepares the plans directory without creating plan files on repeated toggles', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-plan-toggle-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-plan-toggle-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-plan-toggle-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-plan-toggle-work-');
     await writeTestConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -100,8 +100,8 @@ describe('Session plan, compact, usage, and resume APIs', () => {
   });
 
   it('rejects manual compaction on an empty session with compaction.unable', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-compact-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-compact-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-compact-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-compact-work-');
     await writeTestConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -118,8 +118,8 @@ describe('Session plan, compact, usage, and resume APIs', () => {
   });
 
   it('returns current session usage totals', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-usage-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-usage-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-usage-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-usage-work-');
     await writeTestConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -133,8 +133,8 @@ describe('Session plan, compact, usage, and resume APIs', () => {
   });
 
   it('resumes a persisted session and restores runtime plan mode from wire history', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-resume-home-');
-    const workDir = await makeWorkDir('scream-sdk-resume-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-resume-home-');
+    const workDir = await makeWorkDir('lmcode-sdk-resume-work-');
     await writeTestConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -170,8 +170,8 @@ describe('Session plan, compact, usage, and resume APIs', () => {
   });
 
   it.todo('marks resumed plan mode active when the restored plan has no plan data', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-resume-legacy-plan-home-');
-    const workDir = await makeTempDir(tempDirs, 'scream-sdk-resume-legacy-plan-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-resume-legacy-plan-home-');
+    const workDir = await makeTempDir(tempDirs, 'lmcode-sdk-resume-legacy-plan-work-');
     await writeTestConfig(homeDir);
     const createdHarness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
     let sessionId = '';
@@ -208,8 +208,8 @@ describe('Session plan, compact, usage, and resume APIs', () => {
   });
 
   it('forks a session and returns an active fork session', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-fork-home-');
-    const workDir = await makeWorkDir('scream-sdk-fork-work-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-fork-home-');
+    const workDir = await makeWorkDir('lmcode-sdk-fork-work-');
     await writeTestConfig(homeDir);
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -280,7 +280,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
   });
 
   it('rejects an empty resume id', async () => {
-    const homeDir = await makeTempDir(tempDirs, 'scream-sdk-resume-empty-home-');
+    const homeDir = await makeTempDir(tempDirs, 'lmcode-sdk-resume-empty-home-');
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {

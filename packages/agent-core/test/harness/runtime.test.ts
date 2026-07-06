@@ -47,7 +47,7 @@ describe('LmcodeCore runtime config', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uses the shared OAuth resolver for ScreamCli service tokens', async () => {
+  it('uses the shared OAuth resolver for LmcodeCli service tokens', async () => {
     tmp = await mkdtemp(join(tmpdir(), 'lmcode-core-runtime-'));
     const homeDir = join(tmp, 'home');
     const workDir = join(tmp, 'work');

@@ -21,18 +21,18 @@ function Warn($msg)  { Write-Host "[WARN]  $msg" -ForegroundColor Yellow }
 function Error($msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 0. 彻底清理所有旧版本 scream（Python / pip），确保全新安装不冲突
+# 0. 彻底清理所有旧版本 lmcode（Python / pip），确保全新安装不冲突
 # ══════════════════════════════════════════════════════════════════════════════
-Info "清理旧 scream 版本..."
+Info "清理旧 lmcode 版本..."
 
-# ── 删除所有已知位置的旧 scream 命令 ──
+# ── 删除所有已知位置的旧 lmcode 命令 ──
 $oldPaths = @(
-    "$env:USERPROFILE\lmcode\bin\scream.cmd",
-    "$env:USERPROFILE\lmcode\bin\scream.bat",
-    "$env:USERPROFILE\lmcode\bin\scream",
-    "$env:USERPROFILE\.local\bin\scream.cmd",
-    "$env:USERPROFILE\.local\bin\scream",
-    "$env:LOCALAPPDATA\Microsoft\WindowsApps\scream.cmd"
+    "$env:USERPROFILE\lmcode\bin\lmcode.cmd",
+    "$env:USERPROFILE\lmcode\bin\lmcode.bat",
+    "$env:USERPROFILE\lmcode\bin\lmcode",
+    "$env:USERPROFILE\.local\bin\lmcode.cmd",
+    "$env:USERPROFILE\.local\bin\lmcode",
+    "$env:LOCALAPPDATA\Microsoft\WindowsApps\lmcode.cmd"
 )
 foreach ($old in $oldPaths) {
     if (Test-Path $old) {
@@ -41,14 +41,14 @@ foreach ($old in $oldPaths) {
     }
 }
 
-# ── 卸载 pip / uv 安装的旧 scream 包 ──
+# ── 卸载 pip / uv 安装的旧 lmcode 包 ──
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
 if ($pythonCmd) {
-    try { $null = & python -m pip uninstall -y scream 2>&1 } catch { }
+    try { $null = & python -m pip uninstall -y lmcode 2>&1 } catch { }
 }
 $uvCmd = Get-Command uv -ErrorAction SilentlyContinue
 if ($uvCmd) {
-    try { $null = & uv tool uninstall scream 2>&1 } catch { }
+    try { $null = & uv tool uninstall lmcode 2>&1 } catch { }
 }
 
 # ── 彻底删除旧安装目录 ──
@@ -186,18 +186,18 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# ── 6. 创建 scream 命令 ────────────────────────────────────────────────────
-Info "创建 scream 命令..."
+# ── 6. 创建 lm 命令 ───────────────────────────────────────────────────────
+Info "创建 lm 命令..."
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 
 $NodeExe = if (Test-Path "$InstallDir\node.exe") { "$InstallDir\node.exe" } else { $node }
-$ScreamCmd = @"
+$LmCmd = @"
 @echo off
 set "LMCODE_HOME=$InstallDir"
 cd /d "$InstallDir"
 "$NodeExe" "$InstallDir\apps\lmcode\dist\main.mjs" %*
 "@
-Set-Content -Path "$BinDir\scream.cmd" -Value $ScreamCmd -Encoding Default
+Set-Content -Path "$BinDir\lm.cmd" -Value $LmCmd -Encoding Default
 
 # ── 7. 创建桌面快捷方式 ───────────────────────────────────────────────────
 Info "创建桌面快捷方式..."
@@ -215,21 +215,21 @@ try {
     if ($wt) {
         # Windows Terminal — 现代、美观
         $Shortcut.TargetPath = $wt.Source
-        $Shortcut.Arguments  = "--title `"LMcode`" cmd /k `"chcp 65001 > nul && scream`""
+        $Shortcut.Arguments  = "--title `"LMcode`" cmd /k `"chcp 65001 > nul && lm`""
     }
     elseif ($pwsh7) {
         # PowerShell 7+
         $Shortcut.TargetPath = $pwsh7.Source
-        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; scream`""
+        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; lm`""
     }
     elseif ($ps5) {
         # Windows PowerShell 5.x（旧版 conhost，加 UTF-8 补丁）
         $Shortcut.TargetPath = $ps5.Source
-        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle = 'LMcode'; scream`""
+        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle = 'LMcode'; lm`""
     }
     else {
         $Shortcut.TargetPath = "powershell.exe"
-        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle = 'LMcode'; scream`""
+        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle = 'LMcode'; lm`""
     }
 
     $Shortcut.WorkingDirectory = $env:USERPROFILE

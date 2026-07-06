@@ -198,7 +198,7 @@ describe('SessionPickerComponent', () => {
     expect(headerLine).not.toMatch(/Short title\s{8,}/);
   });
 
-  it('prepends [imported] badge before the title for sessions migrated from scream-cli', () => {
+  it('prepends [imported] badge before the title for sessions migrated from lmcode-cli', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
     vi.spyOn(Date, 'now').mockReturnValue(now);
 
@@ -209,7 +209,7 @@ describe('SessionPickerComponent', () => {
           title: 'Migrated session',
           work_dir: '/tmp/project',
           updated_at: now - 60 * 1000,
-          metadata: { imported_from_scream_cli: true },
+          metadata: { imported_from_lmcode_cli: true },
         },
         {
           id: 'ses_native',

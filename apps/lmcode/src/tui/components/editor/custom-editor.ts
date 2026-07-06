@@ -198,7 +198,7 @@ export class CustomEditor extends Editor {
 
   private cancelAutocompleteActivity(): void {
     // pi-tui exposes `isShowingAutocomplete()` but keeps cancellation private.
-    // Scream needs Esc to win over app-level cancel while the slash menu request is active.
+    // LMcode needs Esc to win over app-level cancel while the slash menu request is active.
     (this as unknown as AutocompleteInternals).cancelAutocomplete();
   }
 

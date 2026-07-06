@@ -194,7 +194,7 @@ describe('SkillTool execution', () => {
   it('expands session id from the skill registry for model-invoked skills', async () => {
     const methods = skillToolMethods();
     const tool = skillTool(
-      registry([skill('session-aware', {}, 'Session: ${SCREAM_SESSION_ID}')], {
+      registry([skill('session-aware', {}, 'Session: ${LMCODE_SESSION_ID}')], {
         sessionId: 'ses_model_skill',
       }),
       methods,

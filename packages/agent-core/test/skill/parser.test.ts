@@ -140,7 +140,7 @@ describe('skill parser', () => {
 describe('skill parameter expansion', () => {
   it('expands raw, positional, named, and context placeholders', () => {
     const out = expandSkillParameters(
-      'raw=$ARGUMENTS zero=$0 one=$1 second=$ARGUMENTS[1] flag=$flag message=$message dir=${SCREAM_SKILL_DIR} session=${SCREAM_SESSION_ID}',
+      'raw=$ARGUMENTS zero=$0 one=$1 second=$ARGUMENTS[1] flag=$flag message=$message dir=${LMCODE_SKILL_DIR} session=${LMCODE_SESSION_ID}',
       '-m "fix login"',
       {
         skillDir: '/tmp/skills/commit',
@@ -204,7 +204,7 @@ describe('SkillRegistry.renderSkillPrompt', () => {
 
   it('expands context placeholders and still appends args when no argument placeholder is used', () => {
     const rendered = new SkillRegistry({ sessionId: 'ses_1' }).renderSkillPrompt(
-      testSkill({ content: 'Use ${SCREAM_SKILL_DIR}/references/checklist.md.' }),
+      testSkill({ content: 'Use ${LMCODE_SKILL_DIR}/references/checklist.md.' }),
       'src/app.ts',
     );
 

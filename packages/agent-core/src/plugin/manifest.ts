@@ -16,7 +16,7 @@ const CLAUDE_PLUGIN_DIR_PATH = '.claude-plugin/plugin.json';
 const BARE_SKILL_PATH = 'SKILL.md';
 
 // Fields that look like third-party runtime extensions (Claude / Codex / old
-// Scream CLI). We do not run them; emit an info diagnostic so plugin authors and
+// LMcode CLI). We do not run them; emit an info diagnostic so plugin authors and
 // users can see why a field is silently ignored.
 const UNSUPPORTED_RUNTIME_FIELDS = [
   'tools',
@@ -63,7 +63,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
     // Fallback 2: scan subdirectories for SKILL.md files (up to 3 levels deep).
     // Many community skills ship SKILL.md inside subdirectories rather than at
     // the repo root.  Auto-discover them so these repos can be installed without
-    // forcing authors to add ScreamCode-specific packaging.
+    // forcing authors to add LMcode-specific packaging.
     const discoveredSkillDirs = await discoverSkillDirs(pluginRoot, 3);
     if (discoveredSkillDirs.length > 0) {
       return {
@@ -184,7 +184,7 @@ function recordUnsupportedRuntimeFields(
     if (raw[field] === undefined) continue;
     diagnostics.push({
       severity: 'info',
-      message: `"${field}" is present but not supported by Scream plugins`,
+      message: `"${field}" is present but not supported by LMcode plugins`,
     });
   }
 }

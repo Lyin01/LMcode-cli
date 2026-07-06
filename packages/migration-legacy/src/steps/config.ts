@@ -52,21 +52,21 @@ export interface ConfigStepResult {
   /** Top-level keys dropped because lmcode's config schema lacks them. */
   readonly droppedKeys: readonly string[];
   /**
-   * Keys/sections the existing target config and the scream-cli config both set
+   * Keys/sections the existing target config and the lmcode-cli config both set
    * to a different value — the target's value was kept.
    */
   readonly configConflicts: readonly string[];
-  /** A `config.toml` conflict forced a `config.migrated-from-scream-cli.toml` sibling. */
+  /** A `config.toml` conflict forced a `config.migrated-from-lmcode-cli.toml` sibling. */
   readonly wroteSiblingDueToConflict: boolean;
-  /** A `tui.toml` conflict forced a `tui.migrated-from-scream-cli.toml` sibling. */
+  /** A `tui.toml` conflict forced a `tui.migrated-from-lmcode-cli.toml` sibling. */
   readonly wroteTuiSibling: boolean;
-  /** Count of scream-cli hook entries written into the LIVE target config. */
+  /** Count of lmcode-cli hook entries written into the LIVE target config. */
   readonly migratedHooks: number;
-  /** Count of scream-cli hook entries dropped because lmcode's schema rejects them. */
+  /** Count of lmcode-cli hook entries dropped because lmcode's schema rejects them. */
   readonly droppedHooks: number;
   /**
    * When sibling mode kicks in (`wroteSiblingDueToConflict === true`), the
-   * content that landed in `config.migrated-from-scream-cli.toml` instead of
+   * content that landed in `config.migrated-from-lmcode-cli.toml` instead of
    * the live `config.toml`. Surfaced by the result screen so the user knows
    * what they need to merge by hand. Empty in `overwrite` / `merge` modes.
    */
@@ -97,14 +97,14 @@ function emptyResult(): ConfigStepResult {
   };
 }
 
-/** True when the scream-cli provider entry validates against lmcode's schema. */
+/** True when the lmcode-cli provider entry validates against lmcode's schema. */
 function providerIsSupported(prov: Record<string, unknown>): boolean {
   const transformed = transformTomlData({ providers: { x: prov } });
   const entry = isRecord(transformed['providers']) ? transformed['providers']['x'] : undefined;
   return ProviderConfigSchema.safeParse(entry).success;
 }
 
-/** True when the scream-cli model entry validates against lmcode's schema. */
+/** True when the lmcode-cli model entry validates against lmcode's schema. */
 function modelIsSupported(mod: Record<string, unknown>): boolean {
   const transformed = transformTomlData({ models: { x: mod } });
   const entry = isRecord(transformed['models']) ? transformed['models']['x'] : undefined;
@@ -128,7 +128,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Additively merge the scream-cli config into the existing target config: add
+ * Additively merge the lmcode-cli config into the existing target config: add
  * keys/providers/models the target lacks, keep the target's value on a real
  * conflict, and record those conflicts. A target value is never overwritten.
  */
@@ -227,7 +227,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     }
   }
 
-  // Provider names the merge resolves to a DIFFERENT entry than the scream-cli
+  // Provider names the merge resolves to a DIFFERENT entry than the lmcode-cli
   // one: the target already defines a same-named provider with other settings,
   // so `mergeConfig` keeps the target's. A migrated model bound to such a name
   // would silently run against the target's endpoint/credentials, not the
@@ -270,7 +270,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     }
   }
 
-  // 2b) Hooks — keep only entries lmcode's HookDefSchema accepts. scream-cli
+  // 2b) Hooks — keep only entries lmcode's HookDefSchema accepts. lmcode-cli
   //     and lmcode share an identical hook shape, so a valid legacy hook
   //     passes straight through; the per-entry filter only guards against
   //     future schema drift (an event type / field lmcode does not know).
@@ -310,7 +310,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     if (k === 'providers' || k === 'models' || k === 'hooks') continue;
     if (TUI_TOP_LEVEL_KEYS.has(k)) continue;
     if (k === 'default_yolo') {
-      // scream-cli's `default_yolo` maps to lmcode's `default_permission_mode`.
+      // lmcode-cli's `default_yolo` maps to lmcode's `default_permission_mode`.
       if (v === true) migratedTop['default_permission_mode'] = 'yolo';
       continue;
     }
@@ -319,7 +319,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
       continue;
     }
     // Drop default_model unless it points at a model that will exist in the
-    // written config — one kept from scream-cli, or already in the target being
+    // written config — one kept from lmcode-cli, or already in the target being
     // merged into. A dangling alias (dropped, stale, or never present) would
     // fail the next session-create.
     if (
@@ -399,7 +399,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
   // In merge mode where target already declares `hooks` (any value: empty,
   // identical, different, or even non-array invalid), `mergeConfig` keeps
   // the target's value, so the source hooks never land in the live config.
-  // In sibling mode the source hooks land in `config.migrated-from-scream-cli.toml`,
+  // In sibling mode the source hooks land in `config.migrated-from-lmcode-cli.toml`,
   // which the runtime never reads — they're accounted for via `siblingContents`,
   // not `migratedHooks`.
   const hooksLandedInLiveConfig =

@@ -133,7 +133,7 @@ async function rewriteWorkspaceSpecifiers() {
           `import { GoogleGenAI as GenAIClient } from '${providerClientSpecifier}';`,
         );
       const updated = providerClientText.replaceAll(
-        /(["'])(#\/[^"']+|@scream-cli\/(?:agent-core|jian|lmcode-oauth|ltod)(?:\/[^"']+)?)\1/g,
+        /(["'])(#\/[^"']+|@lmcode-cli\/(?:agent-core|jian|lmcode-oauth|ltod)(?:\/[^"']+)?)\1/g,
         (_match, quote, specifier) => {
           const resolved = resolveSpecifier({
             currentFile: file,

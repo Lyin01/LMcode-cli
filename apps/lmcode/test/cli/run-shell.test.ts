@@ -7,7 +7,7 @@ import { runShell } from '#/cli/run-shell';
 
 import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/process';
 
-type CreateScreamDeviceId = typeof createLmcodeDeviceIdFn;
+type CreateLMcodeDeviceId = typeof createLmcodeDeviceIdFn;
 
 const mocks = vi.hoisted(() => {
   type TuiConfigFallback = {
@@ -42,7 +42,7 @@ const mocks = vi.hoisted(() => {
     tuiGetStartupMcpMs: vi.fn(async () => 0),
     tuiGetCurrentSessionId: vi.fn(() => ''),
     tuiHasSessionContent: vi.fn(() => false),
-    createLmcodeDeviceId: vi.fn<CreateScreamDeviceId>(() => 'device-1'),
+    createLmcodeDeviceId: vi.fn<CreateLMcodeDeviceId>(() => 'device-1'),
     resolveLmcodeHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/lmcode-test-home'),
     harnessCreatesDeviceIdOnConstruction: false,
     execSync: vi.fn(),
@@ -84,7 +84,7 @@ vi.mock('@lmcode-cli/config', async () => {
   return {
     ...actual,
     createLmcodeDeviceId: mocks.createLmcodeDeviceId,
-    SCREAM_CODE_PROVIDER_NAME: 'lmcode',
+    LMCODE_PROVIDER_NAME: 'lmcode',
   };
 });
 

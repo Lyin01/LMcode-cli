@@ -8,7 +8,7 @@ import type { TokenUsage } from './usage';
  *
  * Values above `high` are provider/model-specific and may be clamped by the
  * adapter when the native API has no matching level. OpenAI maps `max` to its
- * `xhigh` ceiling; Scream and Gemini cap `xhigh`/`max` at `high`; Anthropic
+ * `xhigh` ceiling; LMcode and Gemini cap `xhigh`/`max` at `high`; Anthropic
  * supports `xhigh`/`max` only on selected models and otherwise clamps to
  * `high`.
  */
@@ -123,7 +123,7 @@ export interface VideoUploadInput {
 /**
  * Unified interface for an LLM chat provider.
  *
- * Each provider implementation (Scream, OpenAI, Anthropic, Google GenAI, etc.)
+ * Each provider implementation (LMcode, OpenAI, Anthropic, Google GenAI, etc.)
  * converts the common {@link Message} / {@link Tool} types into the
  * provider-specific wire format, streams back a {@link StreamedMessage}, and
  * exposes configuration helpers such as {@link withThinking}.

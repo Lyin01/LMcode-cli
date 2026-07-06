@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { computeWorkdirBucket, oldMd5BucketName } from '../../src/sessions/workdir-bucket.js';
 import { createHash } from 'node:crypto';
-// Mirror scream-core: `encodeWorkDirKey` imports its path helpers from `pathe`
+// Mirror lmcode-core: `encodeWorkDirKey` imports its path helpers from `pathe`
 // (packages/agent-core/src/session/store/workdir-key.ts), NOT `node:path`.
-// Using `node:path` here would make this reference diverge from real scream-core
+// Using `node:path` here would make this reference diverge from real lmcode-core
 // on Windows (drive-prefixed, `\`-separated paths → different sha256), so the
 // byte-identical assertions below must use `pathe` too.
 import { basename, resolve } from 'pathe';
 
 /**
- * Reference re-implementation of scream-core `encodeWorkDirKey` +
+ * Reference re-implementation of lmcode-core `encodeWorkDirKey` +
  * `slugifyWorkDirName` (packages/agent-core/src/session/store/workdir-key.ts +
  * utils/workdir-slug.ts). Kept inline because those functions are not part of
  * agent-core's public export surface. The migrator's `computeWorkdirBucket` MUST
@@ -50,7 +50,7 @@ describe('computeWorkdirBucket', () => {
   });
 });
 
-describe('computeWorkdirBucket matches scream-core encodeWorkDirKey', () => {
+describe('computeWorkdirBucket matches lmcode-core encodeWorkDirKey', () => {
   it.each([
     '/Users/example/proj',
     '/Users/example/proj/', // trailing slash

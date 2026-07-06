@@ -31,7 +31,7 @@ import { JsonFileStore, mcpCredentialsDir, mcpOAuthStoreKey } from './store';
 export interface McpOAuthServiceOptions {
   /** Storage backend; overrides `lmcodeHomeDir` when supplied. */
   readonly store?: JsonFileStore;
-  /** Resolved Scream home; credentials default to `<lmcodeHomeDir>/credentials/mcp/`. */
+  /** Resolved LMcode home; credentials default to `<lmcodeHomeDir>/credentials/mcp/`. */
   readonly lmcodeHomeDir?: string;
   /** Override for the label embedded in DCR `client_name`. */
   readonly clientLabel?: string;

@@ -6,14 +6,14 @@
  *     shims were processed). Lists every action taken: renames,
  *     consolidates, delete-only, plain deletes, and harmless blocked
  *     leftovers. Footer branches three ways: preserved-somewhere
- *     (standard "type scream-legacy"), only skippedForeignTarget (we
+ *     (standard "type lmcode-legacy"), only skippedForeignTarget (we
  *     couldn't save the old CLI because a user file took the name),
  *     and only blockedHarmless (just notes the leftovers, no
  *     phantom-file talk).
  *   - `logMigrationBlocked` — a legacy `lm` we can't remove sits
  *     on PATH ahead of our shim. Nothing was touched; user is told
  *     which paths need their manual attention with sudo / admin.
- *   - `logForeignScreamInTheWay` — a `lm` we don't recognize (not
+ *   - `logForeignLMcodeInTheWay` — a `lm` we don't recognize (not
  *     ours, not a legacy CLI) sits ahead of our shim on PATH. User
  *     needs to delete or rename their own file. Different remediation
  *     from `logMigrationBlocked`.
@@ -160,14 +160,14 @@ function warningHeading(text) {
  *
  * Sections (each only shown when non-empty):
  *   - "Renamed" — the first PATH-order shim, preserved as
- *     `scream-legacy`. The "`lm` now launches the new CLI" claim is
+ *     `lmcode-legacy`. The "`lm` now launches the new CLI" claim is
  *     safe to make here because the orchestrator already verified
  *     reachability after this set of removals.
- *   - "Consolidated" — first shim's `scream-legacy` already pointed at
+ *   - "Consolidated" — first shim's `lmcode-legacy` already pointed at
  *     a legacy file (re-migration case); we deleted the duplicate
  *     source and kept the existing target. Same end state, different
  *     mechanism.
- *   - "Couldn't preserve as scream-legacy" — first shim's `scream-legacy`
+ *   - "Couldn't preserve as lmcode-legacy" — first shim's `lmcode-legacy`
  *     slot was a user-managed file; we deleted the source `lm` to
  *     remove the shadow but left their file alone, so no fallback
  *     exists in that dir.
@@ -191,11 +191,11 @@ export function logMigrationDone(outcomes, pm) {
     errors,
   } = outcomes;
 
-  const lines = [successHeading('scream now runs the new version'), ''];
+  const lines = [successHeading('lmcode now runs the new version'), ''];
 
   if (renames.length > 0) {
     lines.push(pad('   Renamed your old lmcode so you can still run it as'));
-    lines.push(pad('   scream-legacy:'));
+    lines.push(pad('   lmcode-legacy:'));
     for (const c of renames) {
       lines.push(pathInBox(c.shimPath + '  ->  ' + c.target));
     }
@@ -203,18 +203,18 @@ export function logMigrationDone(outcomes, pm) {
   }
 
   if (consolidates.length > 0) {
-    lines.push(pad('   Removed an extra copy of your old lmcode (scream-legacy'));
+    lines.push(pad('   Removed an extra copy of your old lmcode (lmcode-legacy'));
     lines.push(pad('   was already set up here from before):'));
     for (const c of consolidates) {
       lines.push(pathInBox(c.shimPath));
-      lines.push(pathInBox('  (scream-legacy is at ' + c.target + ')'));
+      lines.push(pathInBox('  (lmcode-legacy is at ' + c.target + ')'));
     }
     lines.push('');
   }
 
   if (skippedForeignTarget.length > 0) {
     lines.push(pad('   Removed your old lmcode (a file you created was already'));
-    lines.push(pad('   using the name scream-legacy, so we left it alone):'));
+    lines.push(pad('   using the name lmcode-legacy, so we left it alone):'));
     for (const c of skippedForeignTarget) {
       lines.push(pathInBox(c.shimPath));
       lines.push(pathInBox('  (your file at ' + c.target + ' is untouched)'));
@@ -253,10 +253,10 @@ export function logMigrationDone(outcomes, pm) {
   // Footer has three branches based on what actually happened:
   //
   //   1. Preserved somewhere (rename or consolidate): the old CLI is
-  //      available as `scream-legacy`. Standard takeover footer.
+  //      available as `lmcode-legacy`. Standard takeover footer.
   //   2. Only skippedForeignTarget (no rename, no consolidate, no
   //      blockedHarmless): user has a file they made called
-  //      `scream-legacy`, so we couldn't save the old CLI under that
+  //      `lmcode-legacy`, so we couldn't save the old CLI under that
   //      name. Explain the situation honestly.
   //   3. Only blockedHarmless (no rename, no consolidate, no
   //      skippedForeignTarget): we have nothing to celebrate or
@@ -270,7 +270,7 @@ export function logMigrationDone(outcomes, pm) {
   if (preservedSomewhere) {
     lines.push(
       pad('   Now typing `lm` runs the new version. To run the old'),
-      pad('   version, type `scream-legacy` instead. Your settings from'),
+      pad('   version, type `lmcode-legacy` instead. Your settings from'),
       pad('   the old version will be moved over the first time you'),
       pad('   run `lm`.'),
       '',
@@ -289,10 +289,10 @@ export function logMigrationDone(outcomes, pm) {
       pad('   from the old version will be moved over the first time'),
       pad('   you run `lm`.'),
       '',
-      pad('   We couldn\'t save the old lmcode as `scream-legacy` because'),
+      pad('   We couldn\'t save the old lmcode as `lmcode-legacy` because'),
       pad('   that name was already taken by a file you\'d created.'),
       pad('   If you need the old lmcode back, install it again with'),
-      pad('   `uv tool install scream-cli` (or pipx / pip).'),
+      pad('   `uv tool install lmcode-cli` (or pipx / pip).'),
       '',
       pad('   If typing `lm` still runs the old version, open a new'),
       pad('   terminal window — your current one may have remembered'),
@@ -383,7 +383,7 @@ export function logMigrationBlocked(blocked, actionable, pm) {
  * remediation is "delete or rename your own file", which only the
  * user can decide.
  */
-export function logForeignScreamInTheWay(foreignPath, pm) {
+export function logForeignLMcodeInTheWay(foreignPath, pm) {
   const reinstallCmd = pmGlobalInstallCommand(pm, '@lmcode-cli/lmcode');
   emit(
     renderBox([
@@ -437,7 +437,7 @@ export function logNewCliNotOnPath(detection, pm) {
 
   emit(
     renderBox([
-      warningHeading('New scream is installed, but your terminal can\'t find it'),
+      warningHeading('New lmcode is installed, but your terminal can\'t find it'),
       '',
       pad('   The old lmcode is still here:'),
       pathInBox(detection.shimPath),

@@ -22,7 +22,7 @@ describe('loadPluginMarketplace', () => {
           {
             id: 'lmcode-datasource',
             tier: 'official',
-            displayName: 'Scream Datasource',
+            displayName: 'LMcode Datasource',
             version: '1.0.0',
             description: 'Datasource tools',
             source: './lmcode-datasource',
@@ -51,7 +51,7 @@ describe('loadPluginMarketplace', () => {
       plugins: [
         {
           id: 'lmcode-datasource',
-          displayName: 'Scream Datasource',
+          displayName: 'LMcode Datasource',
           tier: 'official',
           version: '1.0.0',
           description: 'Datasource tools',
@@ -82,7 +82,7 @@ describe('loadPluginMarketplace', () => {
           plugins: [
             {
               id: 'lmcode-datasource',
-              displayName: 'Scream Datasource',
+              displayName: 'LMcode Datasource',
               source: './official/lmcode-datasource.zip',
             },
           ],
@@ -99,7 +99,7 @@ describe('loadPluginMarketplace', () => {
     expect(marketplace.plugins[0]).toEqual(
       expect.objectContaining({
         id: 'lmcode-datasource',
-        displayName: 'Scream Datasource',
+        displayName: 'LMcode Datasource',
         source: new URL(
           './official/lmcode-datasource.zip',
           LMCODE_PLUGIN_MARKETPLACE_URL,

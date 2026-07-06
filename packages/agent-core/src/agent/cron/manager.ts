@@ -61,7 +61,7 @@ import type { SessionCronTaskInit } from '../../tools/cron/session-store';
  * Threshold past which a recurring task is flagged `stale: true` on its
  * fire `origin`. One-shot tasks never carry the stale flag — they are
  * one-time, "we always fire at most once" by construction. Disabled by
- * `SCREAM_CRON_NO_STALE=1` (bench / acceptance tests).
+ * `LMCODE_CRON_NO_STALE=1` (bench / acceptance tests).
  *
  * Seven days mirrors the wall-clock "this got forgotten about" window
  * we want the LLM to notice; the figure also matches the auto-expire
@@ -72,15 +72,15 @@ const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 export interface CronManagerOptions {
   /**
    * Override for tests / bench. Defaults to
-   * `resolveClockSources(process.env.SCREAM_CRON_CLOCK)` so production
-   * picks up `SCREAM_CRON_CLOCK=file:...` automatically.
+   * `resolveClockSources(process.env.LMCODE_CRON_CLOCK)` so production
+   * picks up `LMCODE_CRON_CLOCK=file:...` automatically.
    * When unset, falls through to {@link SYSTEM_CLOCKS}.
    */
   readonly clocks?: ClockSources;
 
   /**
    * Override scheduler poll interval. Defaults handled by the scheduler
-   * (1000ms unless `SCREAM_CRON_MANUAL_TICK=1`, which forces `null` here
+   * (1000ms unless `LMCODE_CRON_MANUAL_TICK=1`, which forces `null` here
    * so the auto-tick `setInterval` is never installed). `null` or `0`
    * means "no automatic timer — caller drives `tick()` manually".
    */

@@ -153,7 +153,7 @@ command = "echo ok"
 [[hooks]]
 event = "Notification"
 matcher = "permission_prompt"
-command = "notify-send Scream"
+command = "notify-send LMcode"
 timeout = 5
 `;
     const parsed = config.parseConfigString(toml, 'hooks.toml');

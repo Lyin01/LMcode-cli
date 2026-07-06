@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { runPrompt } from '#/cli/run-prompt';
 
-type CreateScreamDeviceId = typeof createLmcodeDeviceIdFn;
+type CreateLMcodeDeviceId = typeof createLmcodeDeviceIdFn;
 
 const mocks = vi.hoisted(() => {
   const eventHandlers = new Set<(event: any) => void>();
@@ -57,7 +57,7 @@ const mocks = vi.hoisted(() => {
     harnessResumeSession: vi.fn(async () => session),
     harnessListSessions: vi.fn(async () => [{ id: 'ses_previous', workDir: process.cwd() }]),
     harnessGetCachedAccessToken: vi.fn(),
-    createLmcodeDeviceId: vi.fn<CreateScreamDeviceId>(() => 'device-1'),
+    createLmcodeDeviceId: vi.fn<CreateLMcodeDeviceId>(() => 'device-1'),
     resolveLmcodeHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/lmcode-test-home'),
     harnessClose: vi.fn(),
     harnessCreatesDeviceIdOnConstruction: false,
@@ -95,7 +95,7 @@ vi.mock('@lmcode-cli/config', async () => {
   return {
     ...actual,
     createLmcodeDeviceId: mocks.createLmcodeDeviceId,
-    SCREAM_CODE_PROVIDER_NAME: 'lmcode',
+    LMCODE_PROVIDER_NAME: 'lmcode',
   };
 });
 

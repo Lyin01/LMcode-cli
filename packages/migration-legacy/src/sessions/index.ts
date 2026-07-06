@@ -1,9 +1,9 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { OldScreamJsonSchema, OldSessionStateSchema } from '../lmcode-cli-schema.js';
+import { OldLMcodeJsonSchema, OldSessionStateSchema } from '../lmcode-cli-schema.js';
 import { ensureSessionIndexEntry } from '../session-index.js';
-import { sourceScreamJson, sourceSessionsDir } from '../paths.js';
+import { sourceLMcodeJson, sourceSessionsDir } from '../paths.js';
 import type { SessionsSummary } from '../types.js';
 import { classifySessionDir } from './classify.js';
 import { migrateOneSession } from './migrate-one.js';
@@ -224,8 +224,8 @@ function resolveBucket(
 
 async function loadWorkdirs(sourceHome: string): Promise<WorkdirMeta[]> {
   try {
-    const text = await readFile(sourceScreamJson(sourceHome), 'utf-8');
-    const parsed = OldScreamJsonSchema.parse(JSON.parse(text));
+    const text = await readFile(sourceLMcodeJson(sourceHome), 'utf-8');
+    const parsed = OldLMcodeJsonSchema.parse(JSON.parse(text));
     return parsed.work_dirs.map((w) => ({ path: w.path, jian: w.jian }));
   } catch {
     return [];

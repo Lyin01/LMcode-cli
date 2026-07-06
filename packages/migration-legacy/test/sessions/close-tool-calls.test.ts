@@ -35,7 +35,7 @@ describe('closeDanglingToolCalls', () => {
     expect(synthesized?.toolCallId).toBe('tc1');
     expect(synthesized?.content[0]).toEqual({
       type: 'text',
-      text: '[tool result unavailable — session imported from scream-cli]',
+      text: '[tool result unavailable — session imported from lmcode-cli]',
     });
     // trailing user message survives.
     expect(out[3]).toEqual(user('still here?'));
