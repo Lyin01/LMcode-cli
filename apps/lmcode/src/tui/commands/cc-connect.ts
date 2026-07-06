@@ -14,6 +14,7 @@ import { join, dirname } from "node:path";
 import { ChoicePickerComponent, type ChoiceOption } from "../components/dialogs/choice-picker";
 import type { SlashCommandHost } from "./dispatch";
 import { getDaemonInstructions } from "../../cli/cc-connect-daemon";
+import { resolveLmOnPath } from "../../cli/lm-path";
 
 // ─── Platform definitions ──────────────────────────────────────────────────
 
@@ -50,15 +51,8 @@ function checkCcConnect(): { installed: boolean; version?: string } {
 }
 
 function detectLmcodePath(): string {
-  try {
-    const cmd = process.platform === "win32" ? "where lm" : "which lm 2>/dev/null";
-    const which = execSync(cmd, { encoding: "utf-8", timeout: 3000 }).trim();
-    // Windows `where` can return multiple matches (one per line).
-    // TOML strings must be single-line, so take only the first match.
-    const first = which.split(/[\r\n]+/)[0]?.trim() ?? "";
-    if (first) return `${first} stream-json`;
-  } catch { /* not found */ }
-  return "lm stream-json";
+  const onPath = resolveLmOnPath();
+  return onPath ? `${onPath} stream-json` : "lm stream-json";
 }
 
 function readConfiguredType(): string | undefined {
