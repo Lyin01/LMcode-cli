@@ -14,6 +14,7 @@ import chalk from 'chalk';
 
 import { formatSessionLabel } from '#/migration/index';
 import type { ColorPalette } from '#/tui/theme/colors';
+import { aliasHome } from '#/tui/utils/path-display';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SELECT_POINTER } from '../../constant/symbols';
 
@@ -41,12 +42,6 @@ function formatRelativeTime(ts: number): string {
   if (hours < 24) return `${String(hours)}h ago`;
   const days = Math.floor(hours / 24);
   return `${String(days)}d ago`;
-}
-
-function homeAlias(path: string): string {
-  const home = process.env['HOME'] ?? '';
-  if (home && path.startsWith(home)) return '~' + path.slice(home.length);
-  return path;
 }
 
 // Truncates from the LEFT (keeps the tail), prefixing an ellipsis when clipped.
@@ -267,7 +262,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const metaGap = '   ';
     const metaGapWidth = visibleWidth(metaGap);
     const idLineWidth = indentWidth + idWidth;
-    const aliasedDir = homeAlias(session.work_dir);
+    const aliasedDir = aliasHome(session.work_dir);
     const dirWidth = visibleWidth(aliasedDir);
 
     if (idLineWidth + metaGapWidth + dirWidth <= width) {
