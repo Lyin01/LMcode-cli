@@ -137,7 +137,7 @@ function createSystemPromptRenderer(merged: MergedAgentProfile): SystemPromptRen
   };
 }
 
-function buildTemplateVars(
+export function buildTemplateVars(
   context: SystemPromptContext,
   promptVars: Record<string, string>,
 ): Record<string, string> {

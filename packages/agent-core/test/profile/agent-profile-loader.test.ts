@@ -196,12 +196,9 @@ describe('default agent profiles', () => {
       skills,
     });
 
-    expect(prompt).toContain('Current available skills:');
-    expect(prompt).toContain('- review:');
-    expect(prompt).toContain('When to use: When code review is requested.');
-    expect(prompt).not.toContain('private');
-    expect(prompt).not.toContain('flow-only');
-    expect(prompt).not.toContain('body of review');
+    // Skills listing moved to session-context.md for cache stability.
+    // The system prompt only contains a reference.
+    expect(prompt).toContain('当前可用的技能列表见会话开头的「当前会话环境」');
   });
 
   it('renders the bundled default prompt from the current runtime context', () => {
@@ -215,10 +212,11 @@ describe('default agent profiles', () => {
     });
 
     expect(first).toContain('你是 LMcode');
-    expect(first).toContain('当前可用的技能列表');
-    expect(first).toContain('/workspace/one');
-    expect(second).toContain('/workspace/two');
-    expect(second).not.toContain('/workspace/one');
+    // Dynamic content (cwd, skills) moved to session-context.md for cache stability.
+    expect(first).toContain('当前可用的技能列表见会话开头的「当前会话环境」');
+    // Work dir is in session context, not system prompt.
+    expect(first).not.toContain('/workspace/one');
+    expect(second).not.toContain('/workspace/two');
   });
 });
 

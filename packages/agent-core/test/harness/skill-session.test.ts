@@ -189,7 +189,12 @@ describe('HarnessAPI session skills', () => {
 
     const records = await readMainWire(created.sessionDir);
     const prompt = records.find((record) => record['type'] === 'turn.prompt');
-    const userMessage = records.find((record) => record['type'] === 'context.append_message');
+    const userMessage = records.find(
+      (record) =>
+        record['type'] === 'context.append_message' &&
+        (record as { message?: { origin?: { kind?: string } } }).message?.origin?.kind ===
+          'skill_activation',
+    );
     const expectedPrompt = 'Review the requested file.\n\nARGUMENTS: src/app.ts';
     expect(prompt).toMatchObject({
       type: 'turn.prompt',
@@ -225,7 +230,7 @@ describe('HarnessAPI session skills', () => {
     );
 
     const context = await rpc.getContext({ sessionId: created.id, agentId: 'main' });
-    expect(context.history.at(0)).toMatchObject({
+    expect(context.history.at(1)).toMatchObject({
       role: 'user',
       content: [{ type: 'text', text: expectedPrompt }],
       toolCalls: [],
@@ -314,24 +319,22 @@ describe('HarnessAPI session skills', () => {
 
     expect(second.events.some((event) => event.type === 'skill.activated')).toBe(false);
     const context = await second.rpc.getContext({ sessionId: created.id, agentId: 'main' });
-    expect(context.history).toMatchObject([
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: 'Review the requested file.\n\nARGUMENTS: src/app.ts',
-          },
-        ],
-        origin: {
-          kind: 'skill_activation',
-          skillName: 'phase-one-review',
-          skillArgs: 'src/app.ts',
-          trigger: 'user-slash',
-          skillSource: 'project',
+    expect(context.history[1]).toMatchObject({
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'Review the requested file.\n\nARGUMENTS: src/app.ts',
         },
+      ],
+      origin: {
+        kind: 'skill_activation',
+        skillName: 'phase-one-review',
+        skillArgs: 'src/app.ts',
+        trigger: 'user-slash',
+        skillSource: 'project',
       },
-    ]);
+    });
     const replay = resumed.agents['main']?.replay ?? [];
     expect(replay).toContainEqual(
       expect.objectContaining({

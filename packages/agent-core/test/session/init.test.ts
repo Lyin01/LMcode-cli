@@ -93,16 +93,14 @@ describe('Session.init', () => {
         contextTokens: expect.any(Number),
       }),
     );
-    expect(scripted.calls[0]?.history).toMatchObject([
-      {
-        role: 'user',
-        content: [
-          expect.objectContaining({
-            text: expect.stringContaining('Task requirements:'),
-          }),
-        ],
-      },
-    ]);
+    expect(scripted.calls[0]?.history[1]).toMatchObject({
+      role: 'user',
+      content: [
+        expect.objectContaining({
+          text: expect.stringContaining('Task requirements:'),
+        }),
+      ],
+    });
 
     const contextText = mainAgent.context.history
       .flatMap((message) => message.content)

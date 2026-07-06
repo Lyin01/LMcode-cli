@@ -53,6 +53,21 @@ export class UsageRecorder {
     if (scope === 'turn') {
       this.currentTurn =
         this.currentTurn === undefined ? copyUsage(usage) : addUsage(this.currentTurn, usage);
+
+      // Log cache hit ratio for prefix-cache diagnostics.
+      // `inputCacheRead` tokens cost ~2% of regular input tokens on DeepSeek.
+      const cacheHit = usage.inputCacheRead ?? 0;
+      const cacheMiss = (usage.inputOther ?? 0) + (usage.inputCacheCreation ?? 0);
+      const total = cacheHit + cacheMiss;
+      if (total > 0) {
+        const ratio = ((cacheHit / total) * 100).toFixed(1);
+        this.agent?.log.info('llm cache', {
+          turnStep: this.llmSteps,
+          cacheHitTokens: cacheHit,
+          cacheMissTokens: cacheMiss,
+          cacheHitRatio: `${ratio}%`,
+        });
+      }
     }
     this.agent?.emitStatusUpdated();
   }

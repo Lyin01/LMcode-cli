@@ -633,25 +633,32 @@ export class TurnFlow {
               this.flushSteerBuffer();
               await this.agent.fullCompaction.beforeStep(stepSignal);
 
-              // Inject session memory summary so the model retains context
-              // after compaction strips detailed tool-call history.
-              const sessionSummary = this.agent.sessionMemory.getSessionSummary();
-              if (sessionSummary.length > 0) {
-                this.agent.context.appendSystemReminder(sessionSummary, {
-                  kind: 'injection',
-                  variant: 'session_memory',
-                });
+              // Only inject on the first step of each turn to preserve
+              // the prefix-cache across steps within the same turn.
+              // Session-memory, dream-suggestions, and injection-manager
+              // content is turn-scoped and rarely changes mid-turn.
+              if (stepNumber === 1) {
+                // Inject session memory summary so the model retains context
+                // after compaction strips detailed tool-call history.
+                const sessionSummary = this.agent.sessionMemory.getSessionSummary();
+                if (sessionSummary.length > 0) {
+                  this.agent.context.appendSystemReminder(sessionSummary, {
+                    kind: 'injection',
+                    variant: 'session_memory',
+                  });
+                }
+
+                // Suggest /dream on the first step when conditions are met
+                if (this.agent.dreamTracker.shouldSuggest()) {
+                  this.agent.context.appendSystemReminder(
+                    this.agent.dreamTracker.getSuggestionMessage(),
+                    { kind: 'injection', variant: 'dream_suggestion' },
+                  );
+                }
+
+                await this.agent.injection.inject();
               }
 
-              // Suggest /dream on the first step when conditions are met
-              if (stepNumber === 1 && this.agent.dreamTracker.shouldSuggest()) {
-                this.agent.context.appendSystemReminder(
-                  this.agent.dreamTracker.getSuggestionMessage(),
-                  { kind: 'injection', variant: 'dream_suggestion' },
-                );
-              }
-
-              await this.agent.injection.inject();
               deduper.beginStep();
               return;
             },

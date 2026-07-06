@@ -19,8 +19,9 @@ describe('default agent profiles', () => {
     const prompt = DEFAULT_AGENT_PROFILES['agent']?.systemPrompt(promptContext);
 
     expect(prompt).toContain('你是 LMcode');
-    expect(prompt).toContain('当前可用的技能列表');
-    expect(prompt).toContain('/workspace');
+    // Dynamic content (skills, cwd) moved to session-context.md for cache stability
+    expect(prompt).toContain('当前可用的技能列表见会话开头的「当前会话环境」');
+    expect(prompt).not.toContain('/workspace');
     expect(prompt).toContain('需求保真');
     expect(prompt).toContain('用户的当前提示词是本轮任务的事实来源');
     expect(prompt).toContain('所有任务，而不仅是软件工程任务');

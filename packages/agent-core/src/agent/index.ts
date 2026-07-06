@@ -17,6 +17,10 @@ import type { EnabledPluginSessionStart } from '#/plugin';
 
 import type { McpConnectionManager } from '../mcp';
 import type { PreparedSystemPromptContext, ResolvedAgentProfile } from '../profile';
+import { SESSION_CONTEXT_TEMPLATE } from '../profile/default';
+import { buildTemplateVars } from '../profile/resolve';
+import type { SystemPromptContext } from '../profile/types';
+import { renderPrompt } from '../utils/render-prompt';
 import type { ModelProvider } from '../session/provider-manager';
 import type { SessionSubagentHost } from '../session/subagent-host';
 import type { SkillRegistry } from '../skill';
@@ -290,16 +294,31 @@ export class Agent {
   }
 
   useProfile(profile: ResolvedAgentProfile, context?: PreparedSystemPromptContext): void {
-    const systemPrompt = profile.systemPrompt({
+    const promptContext: SystemPromptContext = {
       osEnv: this.jian.osEnv,
       cwd: this.config.cwd,
       skills: this.skills?.registry,
       cwdListing: context?.cwdListing,
       agentsMd: context?.agentsMd,
       agentsMdPaths: context?.agentsMdPaths,
-    });
+    };
+    const systemPrompt = profile.systemPrompt(promptContext);
     this.config.update({ profileName: profile.name, systemPrompt });
     this.tools.setActiveTools(profile.tools);
+
+    // Inject session context as first user message to keep system prompt
+    // byte-stable across sessions (DeepSeek prefix-cache optimization).
+    // Dynamic content (date, cwd listing, AGENTS.md, skills) lives here
+    // instead of the system prompt, so the system prompt prefix stays
+    // cacheable across sessions.
+    if (this.context.history.length === 0) {
+      const vars = buildTemplateVars(promptContext, {});
+      const sessionContext = renderPrompt(SESSION_CONTEXT_TEMPLATE, vars);
+      this.context.appendSystemReminder(sessionContext, {
+        kind: 'injection',
+        variant: 'session_context',
+      });
+    }
   }
 
   async resume(): Promise<{ warning?: string }> {
@@ -695,6 +714,8 @@ interface LlmConfigMetadata {
   modelAlias?: string;
   thinkingEffort?: string;
   systemPromptChars: number;
+  /** SHA-256 prefix (12 hex chars) for cross-session cache stability diagnostics. */
+  systemPromptHash: string;
   toolCount: number;
 }
 
@@ -730,6 +751,7 @@ function buildLlmConfigMetadata(
     modelAlias,
     thinkingEffort: provider.thinkingEffort ?? undefined,
     systemPromptChars: systemPrompt.length,
+    systemPromptHash: createHash('sha256').update(systemPrompt).digest('hex').slice(0, 12),
     toolCount: tools.length,
   };
 }
