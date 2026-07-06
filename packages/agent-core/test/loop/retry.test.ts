@@ -107,6 +107,30 @@ describe('retryDelayMs', () => {
     expect(retryDelayMs(negative, 1000)).toBe(1000);
   });
 
+  it('ignores a NaN retryAfterMs (malformed Retry-After header)', () => {
+    // typeof NaN === 'number' passes, but Number.isFinite(NaN) is false, so the
+    // guard must reject it and fall back to the precomputed backoff.
+    const err = new APIStatusError(503, 'x', null, NaN);
+    expect(retryDelayMs(err, 1000)).toBe(1000);
+  });
+
+  it('ignores an Infinity retryAfterMs', () => {
+    const err = new APIStatusError(503, 'x', null, Infinity);
+    expect(retryDelayMs(err, 1000)).toBe(1000);
+  });
+
+  it('ignores a non-numeric duck-typed retryAfterMs', () => {
+    const err = Object.assign(new Error('x'), { retryAfterMs: 'soon' });
+    expect(retryDelayMs(err, 1000)).toBe(1000);
+  });
+
+  it('honors a zero retryAfterMs (retry immediately)', () => {
+    // The guard is `raw >= 0`, not `> 0`: a server asking to retry with no
+    // delay must be honored as 0, not discarded as garbage.
+    const err = new APIStatusError(503, 'x', null, 0);
+    expect(retryDelayMs(err, 1000)).toBe(0);
+  });
+
   it('clamps rate-limit backoff above 5s when no hint is present', () => {
     // A provider rate-limit with no Retry-After: the normal backoff is scaled
     // up (× factor) and allowed to exceed the 5s default cap.
