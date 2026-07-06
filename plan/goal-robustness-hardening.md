@@ -25,10 +25,11 @@
 | # | 位置 | 类别 | 状态 |
 |---|------|------|------|
 | 0 | 首轮吞错扫描基线 | 审计 | ✅ 已审：`ltod/generate.ts` cancelStream 的空 catch、`loop/tool-scheduler.ts` 的 `void result.catch()`、`rpc`/`session-store`/`mcp/oauth` 的 `.close()/.rm().catch()` **均为有意 best-effort，非 bug**。防御纪律良好 |
-| 1 | 悬空 promise 扫描（无 void/await/catch 的 async 语句） | 悬空 promise | ⬜ 待扫 |
-| 2 | 资源泄漏：`open()` 句柄 / 定时器 / 监听器 / 子进程 在错误路径的清理 | 资源泄漏 | ⬜ 待扫 |
+| 1 | 悬空 promise | 悬空 promise | ✅ **结构性杜绝**：实测 `oxlint --type-aware` 默认启用 `no-floating-promises`（探针文件被拦），且全仓 lint 常绿（CI+pre-commit）→ 悬空 promise 不可能存在 |
+| 2 | 资源泄漏：`open()` 句柄 / 定时器 / 监听器 | 资源泄漏 | ✅ 已审，无泄漏。所有 `open()/openSync()` 均 try/finally close（含 blobref/persistence/clock/oauth-store，clock 的 finally 在 catch 早返前执行）；cron scheduler `setInterval` 有 `clearInterval` on stop + `unref()`；TUI 定时器为私有字段随组件生命周期清理 |
 | 3 | 空 `catch {}` 逐个判定：hooks/engine、hooks/runner、self-healing、rpc/core-impl、logging/sinks | 吞错 | ⬜ 待判：区分有意 vs 掩盖真实失败 |
-| 4 | 关键错误分支的测试覆盖 | 错误路径覆盖 | ⬜ 待评 |
+| 4 | 关键错误分支的测试覆盖 | 错误路径覆盖 | 🔵 进行中——**主交付模式**（见下）。首个目标：compaction 熔断器（`compaction_circuit_open`，连续 3 次失败后本回合禁用自动压缩）未直接测；需非阻塞多步压缩失败的 harness 设置 |
 
 ## 进度日志
 - **2026-07-07 · 建立 GOAL 追踪**（本文件），承接 Windows 加固。首轮吞错扫描基线（#0）：确认本仓防御纪律良好，采样到的吞错模式均为有意 best-effort。下一步：#1（悬空 promise，崩溃风险最高）→ #2（资源泄漏）。
+- **2026-07-07 · 审计 #1 + #2，均结构性/纪律性干净**。#1：实测 lint 默认拦悬空 promise（探针验证），全仓常绿→不可能存在。#2：文件句柄全 try/finally、定时器全 clear+unref，无泄漏。**结论：本仓运行时健壮性工程本身已很优秀，bug-hunting 产出稀少。**因此本目标**主交付模式转为 #4 错误路径测试覆盖**——锁定"正确但少测"的错误处理，防回归。下一步（下一轮，需专注 harness）：给 compaction 熔断器补测——`testAgent` 多步回合 + 非阻塞压缩连续失败 3 次 → 断言 `compaction_circuit_open` 警告 + 后续自动压缩被跳过；成功/新回合应重置。参考现有 `compaction.test.ts:620`（单次阻塞失败）。
