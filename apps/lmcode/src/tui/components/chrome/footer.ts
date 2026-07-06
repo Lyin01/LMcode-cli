@@ -12,6 +12,7 @@ import chalk from 'chalk';
 
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState, LivePaneMode } from '#/tui/types';
+import { aliasHome } from '#/tui/utils/path-display';
 import { shimmerText } from '#/tui/utils/shimmer';
 import {
   createGitStatusCache,
@@ -132,18 +133,9 @@ function modelDisplayName(state: AppState): string {
 }
 
 function shortenCwd(path: string): string {
-  if (!path) return path;
-  const home = process.env['HOME'] ?? '';
-  let work = path;
-  if (home && path === home) {
-    return '~';
-  }
-  if (home && path.startsWith(home + '/')) {
-    work = '~' + path.slice(home.length);
-  }
-
-  const segments = work.split('/').filter((s) => s.length > 0);
-  if (segments.length <= MAX_CWD_SEGMENTS) return work;
+  const aliased = aliasHome(path);
+  const segments = aliased.split('/').filter((s) => s.length > 0);
+  if (segments.length <= MAX_CWD_SEGMENTS) return aliased;
   const tail = segments.slice(-MAX_CWD_SEGMENTS).join('/');
   return `…/${tail}`;
 }
