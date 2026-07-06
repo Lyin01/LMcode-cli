@@ -152,13 +152,18 @@ function detectLmcodePath(): string {
     }
   }
 
-  // 3. Check for lm in PATH
+  // 3. Check for lm in PATH. Windows cmd.exe has no `which` and cannot
+  //    redirect to /dev/null, so the POSIX form always throws there and
+  //    silently drops this resolution step — use `where` instead (matching
+  //    cc-connect's detectLmcodePath).
   try {
-    const which = execSync("which lm 2>/dev/null", {
+    const lookup = process.platform === "win32" ? "where lm" : "which lm 2>/dev/null";
+    const which = execSync(lookup, {
       encoding: "utf-8",
       timeout: 3000,
     }).trim();
-    // Guard against multi-line output (rare but possible).
+    // Windows `where` can return multiple matches (one per line); take the
+    // first since TOML strings must be single-line.
     const first = which.split(/[\r\n]+/)[0]?.trim() ?? "";
     if (first) return `${first} stream-json`;
   } catch {
