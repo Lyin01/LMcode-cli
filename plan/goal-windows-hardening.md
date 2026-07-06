@@ -27,8 +27,8 @@
 | # | 位置 | 类别 | 状态 |
 |---|------|------|------|
 | 1 | `apps/lmcode/src/cli/channel-setup.ts` detectLmcodePath 用 `which lm 2>/dev/null` 无条件执行 → Win 上永远抛错、静默降级到裸 `lm` | Shell | ✅ 已修 `dec5d8c`（cmd.exe 实测复现+验证） |
-| 2 | `channel-setup.ts` 与 `tui/commands/cc-connect.ts` 的 detectLmcodePath 近重复、已发生分叉（正是 #1 根因） | 重复/防复发 | ⬜ 待办：抽共享 PATH 解析 helper，两处共用 |
-| 3 | 全仓多处 `node:path` 直接导入（plugin/*、config/identity、node-sdk/catalog、apps/* 等） | 路径 | ⬜ 待审：逐个分类"当 key/比较" vs "纯 fs 操作"，只修前者 |
+| 2 | `channel-setup.ts` 与 `tui/commands/cc-connect.ts` 的 detectLmcodePath 近重复、已发生分叉（正是 #1 根因） | 重复/防复发 | ✅ 已修 `0e294f5`：抽 `cli/lm-path.ts`（`lmPathLookupCommand` + `resolveLmOnPath`），两处共用，纯函数单测钉住 where/which 选择 |
+| 3 | 全仓多处 `node:path` 直接导入（plugin/*、config/identity、node-sdk/catalog、apps/* 等） | 路径 | ✅ 已审，无额外确定 bug。plugin/* 的包含性检查用 `path.sep`/`path.relative` 一致（含 zip-slip 防护）；identity/catalog 键的是模型串非路径；`tool-call-format.ts` 甚至处理了 Windows 跨盘符 `relative()`。唯一真·混用 bug（原生 workDir vs `/` home）已作 #5 修复。self-healing 有 win32 分支。**结论：pathe/node:path 分工纪律良好** |
 | 4 | `tools/builtin/shell/bash.ts` 跨平台命令构造（`type -P`、`/dev/null`、python 探测、`WINDOWS_NUL_REDIRECT`） | Shell | ⬜ 待审：确认 Windows 下 bash 工具的 shell 选择与降级路径 |
 | 5 | `footer.ts` / `session-picker.ts` 用 `process.env.HOME`（Win 上 undefined）+ `/` 分隔符做 home 别名 → Win 上 `~` 与 footer 截断全失效，显示完整原生长路径 | 临时/home + 路径 | ✅ 已修 `2be80ed`：抽 `tui/utils/path-display.ts` 的 `aliasHome`（os.homedir + 正斜杠视图 + home 可注入），两处共用，10 用例。`/tmp` 扫描仅命中注释，无隐患 |
 | 6 | 文件锁 EPERM/EBUSY：审计所有 rename/unlink 点 | 文件锁 | ✅ 已审，无确定 bug。`logging/sinks.ts` 日志轮转安全（每次 append 开/关文件，轮转时不持有句柄）；`memory/store.ts` rename 已 `.catch`。**潜在项**（非 bug）：`mcp/oauth/store.ts`、`plugin/store.ts` 各自实现"写 tmp→rename"原子写，但未带 `fs.ts atomicWrite` 的 Windows pre-unlink——因 Node `fs.rename` 在 Win 上会替换**已关闭**的目标（MoveFileEx），仅当目标被并发持有才失败。建议后续统一收敛到 `atomicWrite`；oauth 属安全敏感，不做自动 drive-by。 |
@@ -41,4 +41,5 @@
 ## 进度日志
 - **2026-07-06 · 建立 GOAL 追踪**（本文件）。修复 #1（channel-setup Windows PATH 解析）。下一步：#5/#6 快速扫（低风险、易验证），再啃 #2（抽 helper 防复发）与 #4（bash 工具审计）。
 - **2026-07-07 · 修复 #5**（footer/session-picker 的 home 别名在 Windows 全失效）。同时消除了这两处 home-aliasing 的重复（抽 `aliasHome` 共享）——与 #2 同类的分叉隐患又少一处。
-- **2026-07-07 · 审计 #6**（文件锁/rename）：无确定 bug；记下 oauth/store、plugin/store 未收敛到 `atomicWrite` 的潜在项。下一步：#3（`node:path` 逐个分类，最可能藏"路径当 key"的真 bug）、#4（bash 工具跨平台），以及 #2（抽共享 PATH 解析 helper 收掉 detectLmcodePath 分叉）。
+- **2026-07-07 · 审计 #6**（文件锁/rename）：无确定 bug；记下 oauth/store、plugin/store 未收敛到 `atomicWrite` 的潜在项。
+- **2026-07-07 · 审计 #3 + 修复 #2**：#3（`node:path`）审计判定纪律良好、无额外确定 bug（详见表）。#2 收掉 detectLmcodePath 分叉——抽 `cli/lm-path.ts` 两处共用 + 纯函数单测。**剩余仅 #4**（bash 工具跨平台）。下一步专攻 #4：`tools/builtin/shell/bash.ts` 的 shell 选择、`type -P`/`/dev/null`/`WINDOWS_NUL_REDIRECT`、python 探测在 Windows 下的降级路径。
