@@ -656,6 +656,72 @@ describe('Agent compaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('opens the compaction circuit breaker after repeated auto-compaction failures', async () => {
+    // Non-blocking auto compaction that keeps triggering, with a per-turn cap
+    // far above the 3-failure circuit threshold — so the CIRCUIT BREAKER, not
+    // the per-turn compaction limit, is what halts further attempts.
+    const circuitStrategy: CompactionStrategy = {
+      shouldCompact: () => true,
+      shouldBlock: () => false,
+      computeCompactCount: (messages: readonly Message[]) => Math.max(1, messages.length - 1),
+      reduceCompactOnOverflow: (messages: readonly Message[]) => messages.length,
+      estimateTurnGrowth: (maxOutputTokens: number) => maxOutputTokens * 2.5,
+      shouldCompactProactively: () => false,
+      checkAfterStep: true,
+      maxCompactionPerTurn: 20,
+    };
+
+    let compactionAttempts = 0;
+    let mainSteps = 0;
+    const generate: GenerateFn = async (_chat, systemPrompt, _tools, _history, _callbacks, options) => {
+      options?.signal?.throwIfAborted();
+      // Compaction runs against the utility provider with a dedicated system
+      // prompt; fail every one of those with a non-retryable error.
+      if (systemPrompt.startsWith('You are a conversation context compaction assistant')) {
+        compactionAttempts += 1;
+        throw new APIStatusError(400, 'compaction boom');
+      }
+      // Main loop: drive several steps (unique tool-call ids avoid any
+      // repeated-call loop detection), then finish so the turn can end.
+      mainSteps += 1;
+      if (mainSteps < 8) {
+        return {
+          id: `mock-step-${String(mainSteps)}`,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'need a tool' }],
+            toolCalls: [
+              { type: 'function', id: `call_${String(mainSteps)}`, name: 'MissingTool', arguments: '{}' },
+            ],
+          },
+          usage: { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+          finishReason: 'tool_calls',
+          rawFinishReason: 'tool_calls',
+        };
+      }
+      return textResult('done');
+    };
+
+    const ctx = testAgent({ generate, compactionStrategy: circuitStrategy });
+    ctx.configure();
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'old user two', 'old assistant two', 20);
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Trigger repeated compaction' }] });
+    const events = await ctx.untilTurnEnd();
+
+    // The circuit opens on the 3rd consecutive failure and blocks every further
+    // auto compaction for the rest of the turn, even though maxCompactionPerTurn
+    // (20) is nowhere near reached.
+    expect(compactionAttempts).toBe(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'warning',
+        args: expect.objectContaining({ code: 'compaction_circuit_open' }),
+      }),
+    );
+  });
+
   it('cancels a blocked compaction after the configured timeout', async () => {
     vi.useFakeTimers();
     const generateStarted = deferred<void>();
