@@ -30,7 +30,7 @@
 | 2 | `channel-setup.ts` 与 `tui/commands/cc-connect.ts` 的 detectLmcodePath 近重复、已发生分叉（正是 #1 根因） | 重复/防复发 | ⬜ 待办：抽共享 PATH 解析 helper，两处共用 |
 | 3 | 全仓多处 `node:path` 直接导入（plugin/*、config/identity、node-sdk/catalog、apps/* 等） | 路径 | ⬜ 待审：逐个分类"当 key/比较" vs "纯 fs 操作"，只修前者 |
 | 4 | `tools/builtin/shell/bash.ts` 跨平台命令构造（`type -P`、`/dev/null`、python 探测、`WINDOWS_NUL_REDIRECT`） | Shell | ⬜ 待审：确认 Windows 下 bash 工具的 shell 选择与降级路径 |
-| 5 | `process.env.HOME` / `/tmp` / `os.tmpdir` 硬编码扫描 | 临时/home | ⬜ 待扫 |
+| 5 | `footer.ts` / `session-picker.ts` 用 `process.env.HOME`（Win 上 undefined）+ `/` 分隔符做 home 别名 → Win 上 `~` 与 footer 截断全失效，显示完整原生长路径 | 临时/home + 路径 | ✅ 已修 `2be80ed`：抽 `tui/utils/path-display.ts` 的 `aliasHome`（os.homedir + 正斜杠视图 + home 可注入），两处共用，10 用例。`/tmp` 扫描仅命中注释，无隐患 |
 | 6 | 文件锁 EPERM/EBUSY：`utils/fs.ts` 已 pre-unlink 处理；其余 rename/unlink 点待查 | 文件锁 | ⬜ 待扫 |
 
 **已确认安全（无需动）**：
@@ -40,3 +40,4 @@
 
 ## 进度日志
 - **2026-07-06 · 建立 GOAL 追踪**（本文件）。修复 #1（channel-setup Windows PATH 解析）。下一步：#5/#6 快速扫（低风险、易验证），再啃 #2（抽 helper 防复发）与 #4（bash 工具审计）。
+- **2026-07-07 · 修复 #5**（footer/session-picker 的 home 别名在 Windows 全失效）。同时消除了这两处 home-aliasing 的重复（抽 `aliasHome` 共享）——与 #2 同类的分叉隐患又少一处。下一步：#6（文件锁 rename/unlink 扫描），然后 #3（`node:path` 逐个分类）/#4（bash 工具）。
