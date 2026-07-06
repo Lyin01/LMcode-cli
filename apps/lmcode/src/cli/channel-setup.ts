@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 
 import { getDaemonInstructions } from "./cc-connect-daemon";
+import { resolveLmOnPath } from "./lm-path";
 
 // ─── Platform registry ────────────────────────────────────────────────────
 
@@ -152,23 +153,9 @@ function detectLmcodePath(): string {
     }
   }
 
-  // 3. Check for lm in PATH. Windows cmd.exe has no `which` and cannot
-  //    redirect to /dev/null, so the POSIX form always throws there and
-  //    silently drops this resolution step — use `where` instead (matching
-  //    cc-connect's detectLmcodePath).
-  try {
-    const lookup = process.platform === "win32" ? "where lm" : "which lm 2>/dev/null";
-    const which = execSync(lookup, {
-      encoding: "utf-8",
-      timeout: 3000,
-    }).trim();
-    // Windows `where` can return multiple matches (one per line); take the
-    // first since TOML strings must be single-line.
-    const first = which.split(/[\r\n]+/)[0]?.trim() ?? "";
-    if (first) return `${first} stream-json`;
-  } catch {
-    // not found
-  }
+  // 3. Check for lm in PATH (cross-platform lookup — see lm-path.ts).
+  const onPath = resolveLmOnPath();
+  if (onPath) return `${onPath} stream-json`;
 
   // 4. Fallback
   return "lm stream-json";
