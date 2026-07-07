@@ -23,6 +23,34 @@ export interface StdioMcpClientOptions {
 const STDERR_BUFFER_CAPACITY = 4 * 1024;
 
 /**
+ * Adapt a stdio server command for spawning on Windows.
+ *
+ * The MCP SDK's transport spawns with `shell: false`, and Node/libuv cannot
+ * execute the `.cmd`/`.bat` shims that `npx`, `npm`, `pnpm`, and `yarn` resolve
+ * to — the launchers for the overwhelming majority of MCP servers. On Windows
+ * `spawn('npx')` fails with ENOENT because libuv only appends `.exe`, never the
+ * PATHEXT shims, so without this every `npx`-launched server silently fails to
+ * start. Wrap non-`.exe` commands in `cmd.exe /c` so PATHEXT resolution runs.
+ * Direct `.exe` targets and every non-Windows platform pass through unchanged.
+ *
+ * Args are forwarded to `cmd.exe` without metacharacter escaping (`&`, `|`,
+ * `<`, `>`, `^`); this mirrors common MCP-client behavior and is safe for the
+ * usual command / flag / path arguments found in server configs.
+ */
+export function adaptStdioCommandForWindows(
+  command: string,
+  args: readonly string[] | undefined,
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  const argv = args === undefined ? [] : [...args];
+  if (platform !== 'win32' || /\.exe$/i.test(command)) {
+    return { command, args: argv };
+  }
+  const comspec = process.env['ComSpec'] ?? 'cmd.exe';
+  return { command: comspec, args: ['/c', command, ...argv] };
+}
+
+/**
  * Wraps the `@modelcontextprotocol/sdk` stdio client and exposes the small
  * surface required by ltod's {@link MCPClient}. Lifecycle is explicit:
  * the caller must `connect()` before use and `close()` to terminate the
@@ -56,9 +84,10 @@ export class StdioMcpClient implements MCPClient {
     if (config.executor !== undefined && config.executor !== 'local') {
       throw new LmcodeError(ErrorCodes.NOT_IMPLEMENTED, `MCP stdio executor '${config.executor}' is not yet implemented`);
     }
+    const spawnTarget = adaptStdioCommandForWindows(config.command, config.args);
     this.transport = new StdioClientTransport({
-      command: config.command,
-      args: config.args,
+      command: spawnTarget.command,
+      args: spawnTarget.args,
       env: mergeStdioEnv(config.env),
       cwd: config.cwd,
       stderr: 'pipe',

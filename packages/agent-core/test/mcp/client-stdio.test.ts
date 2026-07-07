@@ -1,10 +1,11 @@
-import { dirname, join } from 'pathe';
-import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
+import { join } from 'pathe';
 import { describe, expect, it } from 'vitest';
 
 import { LmcodeError } from '../../src/errors';
-import { StdioMcpClient } from '../../src/mcp/client-stdio';
+import { StdioMcpClient, adaptStdioCommandForWindows } from '../../src/mcp/client-stdio';
 
 const here = import.meta.dirname;
 const fixture = join(here, 'fixtures', 'mock-stdio-server.mjs');
@@ -264,4 +265,56 @@ describe('StdioMcpClient', () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(closes).toEqual([]);
   }, 15000);
+});
+
+describe('adaptStdioCommandForWindows', () => {
+  it('wraps a .cmd/npx-style command in cmd.exe /c on Windows', () => {
+    const out = adaptStdioCommandForWindows('npx', ['-y', '@scope/server'], 'win32');
+    expect(out.command.toLowerCase()).toMatch(/cmd\.exe$/);
+    expect(out.args).toEqual(['/c', 'npx', '-y', '@scope/server']);
+  });
+
+  it('passes a direct .exe target through unchanged on Windows', () => {
+    const out = adaptStdioCommandForWindows('C:/tools/server.EXE', ['--stdio'], 'win32');
+    expect(out).toEqual({ command: 'C:/tools/server.EXE', args: ['--stdio'] });
+  });
+
+  it('does not wrap on non-Windows platforms', () => {
+    expect(adaptStdioCommandForWindows('npx', ['-y', 'server'], 'linux')).toEqual({
+      command: 'npx',
+      args: ['-y', 'server'],
+    });
+  });
+
+  it('tolerates undefined args', () => {
+    expect(adaptStdioCommandForWindows('npx', undefined, 'linux')).toEqual({
+      command: 'npx',
+      args: [],
+    });
+    expect(adaptStdioCommandForWindows('npx', undefined, 'win32').args).toEqual(['/c', 'npx']);
+  });
+});
+
+describe('StdioMcpClient — Windows .cmd shim', () => {
+  // Regression: without the cmd.exe /c adaptation, spawning a .cmd shim (how
+  // npx/npm launch MCP servers) fails on Windows with `spawn ... ENOENT`.
+  it.runIf(process.platform === 'win32')(
+    'connects to a server launched via a .cmd shim',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'lmcode-mcp-cmd-'));
+      const cmdPath = join(dir, 'server.cmd');
+      // A .cmd that launches the mock stdio server through node.
+      writeFileSync(cmdPath, `@echo off\r\n"${process.execPath}" "${fixture}" %*\r\n`);
+      const client = new StdioMcpClient({ transport: 'stdio', command: cmdPath });
+      try {
+        await client.connect();
+        const tools = await client.listTools();
+        expect(tools.length).toBeGreaterThan(0);
+      } finally {
+        await client.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    20000,
+  );
 });
