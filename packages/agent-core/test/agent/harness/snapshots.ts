@@ -246,16 +246,36 @@ function isDeepEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/**
+ * Replace environment-volatile substrings that appear inside message *text*
+ * (notably the `session_context` injection): the day-precision date and the
+ * absolute working directory. Key-based fields like `cwd`/`time` are handled
+ * separately; without this, session_context snapshots rot at midnight (the date
+ * rolls over) and fail on any host whose cwd differs from where they were
+ * generated (e.g. CI).
+ */
+function normalizeVolatileText(text: string): string {
+  let out = text.replace(/`\d{4}-\d{2}-\d{2}`/g, '`<date>`');
+  const cwd = process.cwd();
+  if (cwd.length > 0) {
+    out = out.split(cwd).join('<cwd>');
+    const posixCwd = cwd.replaceAll('\\', '/');
+    if (posixCwd !== cwd) out = out.split(posixCwd).join('<cwd>');
+  }
+  return out;
+}
+
 function normalizeValue(value: unknown, uuidLabels: Map<string, string>): unknown {
   if (typeof value === 'string') {
     if (isAutoModeEnterReminder(value)) return '<auto-mode-enter-reminder>';
     if (isAutoModeExitReminder(value)) return '<auto-mode-exit-reminder>';
     if (isPlanModeReminder(value)) return '<plan-mode-reminder>';
-    if (!isUuid(value)) return value;
-    let label = uuidLabels.get(value);
+    const stable = normalizeVolatileText(value);
+    if (!isUuid(stable)) return stable;
+    let label = uuidLabels.get(stable);
     if (label === undefined) {
       label = `<uuid-${String(uuidLabels.size + 1)}>`;
-      uuidLabels.set(value, label);
+      uuidLabels.set(stable, label);
     }
     return label;
   }

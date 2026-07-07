@@ -677,7 +677,7 @@ describe('SessionSubagentHost', () => {
       system: "explore prompt"
       tools: Read
       messages:
-        user: text "<system-reminder>\\n## 当前会话环境\\n\\n当前日期（精度到天）为 \`2026-07-06\`。你的训练数据有一个知识截止日期，对于该日期之后发生的事件、API 或软件包版本，使用网络搜索获取最新信息。\\n\\n当前操作系统为 Linux，Shell 为 bash (\`/bin/bash\`)。\\n\\n当前工作目录为：\`E:\\\\project for cc\\\\lmcode\`。除显式使用绝对路径的情形外，所有文件系统操作均相对于此目录。使用 \`Glob\` 或 \`Bash ls\` 工具探索目录结构。\\n\\n\\n\\n\\n\\n\\n\\n</system-reminder>"
+        user: text "<system-reminder>\\n## 当前会话环境\\n\\n当前日期（精度到天）为 \`2026-07-07\`。你的训练数据有一个知识截止日期，对于该日期之后发生的事件、API 或软件包版本，使用网络搜索获取最新信息。\\n\\n当前操作系统为 Linux，Shell 为 bash (\`/bin/bash\`)。\\n\\n当前工作目录为：\`E:\\\\project for cc\\\\lmcode\`。除显式使用绝对路径的情形外，所有文件系统操作均相对于此目录。使用 \`Glob\` 或 \`Bash ls\` 工具探索目录结构。\\n\\n\\n\\n\\n\\n\\n\\n</system-reminder>"
         user: text "Earlier context"
         user: text "Continue from context"
     `);
