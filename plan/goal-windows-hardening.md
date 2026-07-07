@@ -38,6 +38,9 @@
 - `memory/extractor.ts` parseMemoryMemos：CRLF 实测通过（见 `extractor.test.ts`）。
 - `utils/fs.ts` atomicWrite：Windows pre-unlink + MoveFileEx 语义已处理。
 
+## 补充发现（首轮后继续挖到的真 bug）
+- **MCP stdio 服务在 Windows 全启不动**（`f867f8b` 已修）：MCP SDK 的 transport 用 `shell:false` spawn，Node 无法执行 `npx/npm/pnpm/yarn` 解析到的 `.cmd`/`.bat` shim（`spawn('npx')` → ENOENT，libuv 只补 `.exe` 不补 PATHEXT）。而绝大多数 MCP 服务都是 `npx -y @scope/server` 启动 → **Windows 主用户群的 MCP 功能静默失效**。修法：`client-stdio.ts` 加 `adaptStdioCommandForWindows`，非 `.exe` 命令包 `cmd.exe /c`；单测 + Windows-only 集成测试（真 `.cmd` shim 连通）。本机实测 `spawn('npx',{shell:false})` 复现 ENOENT。
+
 ## 进度日志
 - **2026-07-06 · 建立 GOAL 追踪**（本文件）。修复 #1（channel-setup Windows PATH 解析）。下一步：#5/#6 快速扫（低风险、易验证），再啃 #2（抽 helper 防复发）与 #4（bash 工具审计）。
 - **2026-07-07 · 修复 #5**（footer/session-picker 的 home 别名在 Windows 全失效）。同时消除了这两处 home-aliasing 的重复（抽 `aliasHome` 共享）——与 #2 同类的分叉隐患又少一处。
