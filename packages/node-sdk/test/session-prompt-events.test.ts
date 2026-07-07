@@ -292,16 +292,22 @@ describe('Session.prompt events', () => {
           type: 'session.meta.updated',
         }),
       );
-      expect(fakeProviderState.calls[0]?.history).toMatchObject([
-        {
-          role: 'user',
-          content: [
-            expect.objectContaining({
-              text: expect.stringContaining('Task requirements:'),
-            }),
-          ],
-        },
-      ]);
+      // The subagent history is prefixed by the session_context injection, so
+      // assert the requirements prompt is present rather than pinning it to a
+      // fixed position (which also keeps this robust to that injection's
+      // environment-dependent contents).
+      expect(fakeProviderState.calls[0]?.history).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'user',
+            content: expect.arrayContaining([
+              expect.objectContaining({
+                text: expect.stringContaining('Task requirements:'),
+              }),
+            ]),
+          }),
+        ]),
+      );
 
       const statePath = join(session.summary!.sessionDir, 'state.json');
       const state = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
