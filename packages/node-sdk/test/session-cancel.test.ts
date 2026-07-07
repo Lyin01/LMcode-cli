@@ -135,7 +135,7 @@ api_key = "sk-test"
 [models.fake-model]
 provider = "local"
 model = "fake-model"
-max_context_size = 1000
+max_context_size = 1000000
 `,
     'utf-8',
   );
