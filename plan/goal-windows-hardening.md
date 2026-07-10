@@ -40,6 +40,7 @@
 
 ## 补充发现（首轮后继续挖到的真 bug）
 - **OAuth 回调竞态：先到达的授权码被永久丢弃**（`090e22f` 已修，非 Windows 特有）：回调 HTTP 请求先于 `waitForCode()` 到达时，`handle()` 把一次性 `settled` 闩死而 resolve/reject 句柄还是 undefined → 授权码丢弃，且 waiter 的超时也走同一闩 → `complete()` **永久挂起**（浏览器已显示"登录成功"）。竞窗真实存在：`complete()` 由调用方自行择时调用，已授权服务器毫秒级自动回跳。修法：缓存早到的 outcome，waitForCode 装配时重放。失败测试先行复现（两用例挂 15s 超时），修后 MCP 全套 140/140。
+- **self-healing 审计（2026-07-10）**：无确定 bug。playwright 缺失时 `import` 双回退（playwright→playwright-core→null）优雅降级；win32/darwin/linux 缓存目录全处理；错误路径返回"不阻塞"是验证器的有意语义（best-effort by design，与既有记忆一致）。**边缘子系统扫荡就此收官：MCP/LSP/update/plugin/rg-locator/oauth/self-healing 七块全覆盖。**
 - **rg-locator 审计（2026-07-10）**：干净。pinned SHA-256、同目录 staging+rename、chmod 仅 POSIX、`.exe` 命名正确；已缓存二进制短路下载（无"覆盖运行中 exe"路径）。
 - **plugin 子系统审计（2026-07-10）**：整体工程质量高——zip-slip 防护正确（`path.sep` 包含性检查）、staging 建在目标同目录（无 EXDEV）、tmpDir 清理在 finally、github-resolver 的 redirect/配额/ref 编码全部严谨。唯一真缺陷已修 `7dabac7`：`downloadZip` 的 `signal ?? timeout` 会在调用方传 signal 时**静默丢掉 10 分钟超时**（当前无生产调用传 signal，属潜在陷阱）；改用 `AbortSignal.any` 合并。**边缘子系统扫荡至此覆盖：MCP、LSP、update、plugin**。
 - **自更新在 Windows 必坏且留撕裂状态 + LMCODE_HOME 目录错位**（`9d70566` 已修）：`installUpdate` 裸 spawn `pnpm`（.cmd shim → ENOENT，本机实证），且死在 `git pull` 成功**之后**——克隆目录留下"新源码+旧依赖/旧 dist"的半升级状态。修法：`cmd.exe /c` argv 包装（不用 `shell:true`，Node 已对 args 数组形式发 DEP0190 弃用警告，实测会打到用户终端）。第二个 bug：installDir 写死 `~/.lmcode` 而检测尊重 `LMCODE_HOME` → 检测说可更新、更新却跑错目录；抽 `resolveSourceInstallDir()` 作为唯一权威。顺带：Windows 手动升级提示从 `./install.sh` 改为 `install.ps1`。**规律确认**：这是同一 bug 类的第 3 例（MCP→LSP→update），全仓 spawn 点已扫尽。
