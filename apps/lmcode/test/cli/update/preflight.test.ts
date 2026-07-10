@@ -1,26 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { manualUpdateCommand, spawnTargetForWindows } from '#/cli/update/preflight';
-
-describe('spawnTargetForWindows', () => {
-  it('wraps pnpm (a .cmd shim on Windows) in cmd.exe /c', () => {
-    const out = spawnTargetForWindows('pnpm', ['install'], 'win32');
-    expect(out.cmd.toLowerCase()).toMatch(/cmd\.exe$/);
-    expect(out.args).toEqual(['/c', 'pnpm', 'install']);
-  });
-
-  it('preserves argv boundaries for multi-arg commands', () => {
-    const out = spawnTargetForWindows('git', ['pull', 'origin', 'main'], 'win32');
-    expect(out.args).toEqual(['/c', 'git', 'pull', 'origin', 'main']);
-  });
-
-  it('passes commands through unchanged on POSIX', () => {
-    expect(spawnTargetForWindows('pnpm', ['install'], 'linux')).toEqual({
-      cmd: 'pnpm',
-      args: ['install'],
-    });
-  });
-});
+import { manualUpdateCommand } from '#/cli/update/preflight';
 
 describe('manualUpdateCommand', () => {
   it('points Windows users at install.ps1 (install.sh cannot run there)', () => {

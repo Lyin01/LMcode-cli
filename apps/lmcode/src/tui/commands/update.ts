@@ -1,22 +1,23 @@
 /**
  * /update slash command — manually install the latest LMcode update.
  *
- * Runs `git pull + pnpm install + pnpm -r build` in ~/.lmcode,
+ * Runs `git pull + pnpm install + pnpm -r build` in the detected source clone,
  * then asks the user to restart.  Each step has a timeout and network-
  * error detection with user-friendly Chinese prompts.
  */
 
 import { spawn } from 'node:child_process';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 
 import { readUpdateCache } from '#/cli/update/cache';
 import { refreshUpdateCache } from '#/cli/update/refresh';
 import { selectUpdateTarget } from '#/cli/update/select';
+import { resolveSourceInstallDir } from '#/cli/update/source';
+import {
+  spawnTargetForWindows,
+  terminateProcessTree,
+} from '#/utils/process/spawn-command';
 
 import type { SlashCommandHost } from './dispatch';
-
-const INSTALL_DIR = join(homedir(), '.lmcode');
 
 // Per-step timeouts (ms).  The default Node.js spawn timeout is infinite.
 const TIMEOUTS: Record<string, number> = {
@@ -61,22 +62,29 @@ async function runInstallStep(
   const timeoutMs = TIMEOUTS[`${cmd} ${args[0]}`] ?? 120_000;
 
   return new Promise<StepResult>((resolve) => {
-    const child = spawn(cmd, args, { cwd, stdio: 'pipe' });
+    const target = spawnTargetForWindows(cmd, args);
+    const child = spawn(target.cmd, target.args, {
+      cwd,
+      stdio: 'pipe',
+      detached: process.platform !== 'win32',
+    });
     let stderr = '';
     let settled = false;
+    child.stdout?.resume();
     child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
 
     const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        child.kill('SIGTERM');
+      if (settled) return;
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      settled = true;
+      void terminateProcessTree(child).then(() => {
         resolve({
           ok: false,
           message:
             `${label}超时，可能因网络原因卡住。\n` +
             '请检查网络后重试（国内用户建议科学上网）。',
         });
-      }
+      });
     }, timeoutMs);
 
     const finalize = (result: StepResult): void => {
@@ -100,7 +108,7 @@ async function runInstallStep(
       }
     });
 
-    child.once('exit', (code, signal) => {
+    child.once('close', (code, signal) => {
       if (code === 0) {
         finalize({ ok: true, message: '' });
         return;
@@ -144,6 +152,12 @@ export async function handleUpdateCommand(host: SlashCommandHost): Promise<void>
 
   host.showStatus(`正在更新到 ${target.version}...`);
 
+  const installDir = resolveSourceInstallDir();
+  if (installDir === null) {
+    host.showError('当前安装不是可自动更新的源码克隆，请按原安装方式手动更新。');
+    return;
+  }
+
   const steps: Array<{ label: string; cmd: string; args: string[] }> = [
     { label: '拉取最新代码', cmd: 'git', args: ['pull', 'origin', 'main'] },
     { label: '安装依赖', cmd: 'pnpm', args: ['install'] },
@@ -152,7 +166,7 @@ export async function handleUpdateCommand(host: SlashCommandHost): Promise<void>
 
   for (const step of steps) {
     host.showStatus(`正在${step.label}...`);
-    const result = await runInstallStep(step.cmd, step.args, INSTALL_DIR, step.label);
+    const result = await runInstallStep(step.cmd, step.args, installDir, step.label);
     if (!result.ok) {
       host.showError(`❌ ${result.message}`);
       return;

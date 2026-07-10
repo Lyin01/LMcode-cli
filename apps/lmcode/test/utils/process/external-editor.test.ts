@@ -33,6 +33,12 @@ function shellPath(cmd: string): string {
   return match[1]!;
 }
 
+function cmdPath(cmd: string): string {
+  const match = cmd.match(/"([^"]+)""$/);
+  if (!match) throw new Error(`Could not parse temp path from: ${cmd}`);
+  return match[1]!;
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
@@ -58,13 +64,44 @@ describe('external-editor helpers', () => {
       return child as never;
     });
 
-    await expect(editInExternalEditor('seed', 'code --wait')).resolves.toBe('edited text');
+    await expect(editInExternalEditor('seed', 'code --wait', 'linux')).resolves.toBe('edited text');
     expect(mocks.spawn).toHaveBeenCalledWith(
       '/bin/sh',
       ['-c', expect.stringMatching(/^code --wait /)],
-      { stdio: 'inherit' },
+      { stdio: 'inherit', windowsVerbatimArguments: false },
     );
     expect(mocks.rmCalls).toHaveBeenCalled();
+  });
+
+  it('uses cmd.exe and preserves quoted editor paths on Windows', async () => {
+    vi.stubEnv('ComSpec', 'C:\\Windows\\System32\\cmd.exe');
+    mocks.spawn.mockImplementation((_cmd: string, args: string[]) => {
+      const child = new EventEmitter();
+      void writeFile(cmdPath(args[3]!), 'edited on Windows', 'utf8').then(() => {
+        child.emit('exit', 0, null);
+      });
+      return child as never;
+    });
+
+    await expect(
+      editInExternalEditor(
+        'seed',
+        '"C:\\Program Files\\LMcode Editor\\editor.exe" --wait',
+        'win32',
+      ),
+    ).resolves.toBe('edited on Windows');
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      'C:\\Windows\\System32\\cmd.exe',
+      [
+        '/d',
+        '/s',
+        '/c',
+        expect.stringMatching(
+          /^""C:\\Program Files\\LMcode Editor\\editor\.exe" --wait .*"$/,
+        ),
+      ],
+      { stdio: 'inherit', windowsVerbatimArguments: true },
+    );
   });
 
   it('returns undefined when the editor exits non-zero', async () => {
@@ -74,6 +111,6 @@ describe('external-editor helpers', () => {
       return child as never;
     });
 
-    await expect(editInExternalEditor('seed', 'false')).resolves.toBeUndefined();
+    await expect(editInExternalEditor('seed', 'false', 'linux')).resolves.toBeUndefined();
   });
 });
