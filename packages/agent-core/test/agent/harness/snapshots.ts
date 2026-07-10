@@ -225,7 +225,7 @@ function formatText(text: string): string {
   if (text.includes('<!-- Compression Priorities (in order) -->')) {
     return '<compaction-instruction>';
   }
-  return JSON.stringify(text);
+  return JSON.stringify(normalizeVolatileText(text));
 }
 
 function formatToolCall(call: Message['toolCalls'][number]): string {
