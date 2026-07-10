@@ -3,9 +3,29 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vm from 'node:vm';
 import { parseHTML } from 'linkedom';
+import type { Browser, BrowserType } from 'playwright-core';
 
-let tsModule: any;
-let playwrightModule: any;
+export interface TypeScriptRuntime {
+  readonly ScriptTarget: { readonly Latest: number };
+  readonly ScriptKind: { readonly JS: number };
+  createSourceFile(
+    filepath: string,
+    code: string,
+    target: number,
+    setParentNodes: boolean,
+    scriptKind?: number,
+  ): {
+    readonly parseDiagnostics?: readonly {
+      readonly messageText: unknown;
+      readonly start?: number | undefined;
+    }[];
+    getLineAndCharacterOfPosition(position: number): { readonly line: number; readonly character: number };
+  };
+  flattenDiagnosticMessageText(messageText: unknown, newLine: string): string;
+}
+
+let tsModule: TypeScriptRuntime | null | undefined;
+let playwrightModule: PlaywrightRuntime | null | undefined;
 
 // Keyframe capture schedule (ms from page load) for canvas animations.
 // NOTE: the last entry intentionally sits *past* the point where most
@@ -14,12 +34,58 @@ let playwrightModule: any;
 // shapes show up. Capturing only up to ~15s misses that entire class of bugs.
 export const RUNTIME_KEYFRAME_TIMES_MS = [0, 4000, 9000, 15000, 20000];
 
+export type HtmlRuntimeValidation =
+  | { readonly status: 'passed' }
+  | { readonly status: 'failed' }
+  | {
+      readonly status: 'skipped';
+      readonly reason: 'playwright-unavailable' | 'runtime-validation-error';
+      readonly detail: string | undefined;
+    };
+
+export type SyntaxValidation =
+  | { readonly status: 'passed' }
+  | { readonly status: 'failed' }
+  | {
+      readonly status: 'skipped';
+      readonly reason: 'typescript-unavailable' | 'syntax-validation-error';
+      readonly detail: string | undefined;
+    };
+
+export interface FileValidationResult {
+  readonly error: string | null;
+  readonly syntax: SyntaxValidation | undefined;
+  readonly runtime: HtmlRuntimeValidation | undefined;
+  readonly screenshots: string[] | undefined;
+  readonly keyframeTimesMs: number[] | undefined;
+}
+
+interface SyntaxCheckResult {
+  readonly error: string | null;
+  readonly syntax: SyntaxValidation;
+}
+
+export interface HtmlRuntimeValidationOptions {
+  readonly loadPlaywright?: (() => Promise<PlaywrightRuntime | null>) | undefined;
+}
+
+export interface SyntaxValidationOptions {
+  readonly loadTypeScript?: (() => Promise<TypeScriptRuntime | null>) | undefined;
+}
+
+export interface FileValidationOptions
+  extends HtmlRuntimeValidationOptions,
+    SyntaxValidationOptions {}
+
+export interface PlaywrightRuntime {
+  readonly chromium: BrowserType;
+}
+
 // Lazy dynamic imports for optional dependencies
 async function getTs() {
   if (tsModule === undefined) {
     try {
-      // @ts-ignore
-      tsModule = await import('typescript');
+      tsModule = (await import('typescript')) as unknown as TypeScriptRuntime;
     } catch {
       tsModule = null;
     }
@@ -180,15 +246,25 @@ const MODULE_GOAL_ERROR_RE =
 /**
  * Validate module-goal JavaScript. `vm.Script` cannot parse import/export
  * (and `vm.SourceTextModule` needs a runtime flag), so this uses the
- * TypeScript parser. Fails open when typescript is unavailable — a missed
- * validation is recoverable, a false "syntax error" on valid code is not.
+ * TypeScript parser. The public compatibility wrapper fails open, while the
+ * evidence-aware path preserves whether validation was skipped.
  */
 export async function validateJavaScriptModule(
   code: string,
   filepath: string,
 ): Promise<string | null> {
-  const ts = await getTs();
-  if (!ts) return null;
+  return (await validateJavaScriptModuleWithEvidence(code, filepath)).error;
+}
+
+async function validateJavaScriptModuleWithEvidence(
+  code: string,
+  filepath: string,
+  options: SyntaxValidationOptions = {},
+): Promise<SyntaxCheckResult> {
+  const ts = await (options.loadTypeScript ?? getTs)();
+  if (!ts) {
+    return skippedSyntaxValidation('typescript-unavailable', undefined);
+  }
   try {
     const sourceFile = ts.createSourceFile(
       filepath,
@@ -199,7 +275,7 @@ export async function validateJavaScriptModule(
     );
     const diagnostics = sourceFile.parseDiagnostics;
     if (diagnostics && diagnostics.length > 0) {
-      const first = diagnostics[0];
+      const first = diagnostics[0]!;
       const message = ts.flattenDiagnosticMessageText(first.messageText, '\n');
       const position = first.start !== undefined
         ? sourceFile.getLineAndCharacterOfPosition(first.start)
@@ -207,12 +283,14 @@ export async function validateJavaScriptModule(
       const lineNum = position ? position.line + 1 : null;
       const lineStr = position ? ` at line ${position.line + 1}, col ${position.character + 1}` : '';
       const context = lineNum ? `\n\nContext around line ${lineNum}:\n${getCodeContext(code, lineNum)}` : '';
-      return `JavaScript syntax error: ${message}${lineStr}${context}`;
+      return completedSyntaxValidation(
+        `JavaScript syntax error: ${message}${lineStr}${context}`,
+      );
     }
-  } catch {
-    return null;
+  } catch (error: unknown) {
+    return skippedSyntaxValidation('syntax-validation-error', errorDetail(error));
   }
-  return null;
+  return completedSyntaxValidation(null);
 }
 
 /**
@@ -226,24 +304,40 @@ export async function validateJavaScriptAuto(
   code: string,
   filepath: string,
 ): Promise<string | null> {
+  return (await validateJavaScriptAutoWithEvidence(code, filepath)).error;
+}
+
+async function validateJavaScriptAutoWithEvidence(
+  code: string,
+  filepath: string,
+  options: SyntaxValidationOptions = {},
+): Promise<SyntaxCheckResult> {
   const scriptError = validateJavaScript(code, filepath);
-  if (scriptError === null) return null;
+  if (scriptError === null) return completedSyntaxValidation(null);
   if (MODULE_GOAL_ERROR_RE.test(scriptError)) {
-    return validateJavaScriptModule(code, filepath);
+    return validateJavaScriptModuleWithEvidence(code, filepath, options);
   }
-  return scriptError;
+  return completedSyntaxValidation(scriptError);
 }
 
 export async function validateTypeScript(code: string, filepath: string): Promise<string | null> {
-  const ts = await getTs();
+  return (await validateTypeScriptWithEvidence(code, filepath)).error;
+}
+
+async function validateTypeScriptWithEvidence(
+  code: string,
+  filepath: string,
+  options: SyntaxValidationOptions = {},
+): Promise<SyntaxCheckResult> {
+  const ts = await (options.loadTypeScript ?? getTs)();
   if (!ts) {
-    return null;
+    return skippedSyntaxValidation('typescript-unavailable', undefined);
   }
   try {
     const sourceFile = ts.createSourceFile(filepath, code, ts.ScriptTarget.Latest, true);
     const diagnostics = sourceFile.parseDiagnostics;
     if (diagnostics && diagnostics.length > 0) {
-      const first = diagnostics[0];
+      const first = diagnostics[0]!;
       const message = ts.flattenDiagnosticMessageText(first.messageText, '\n');
       const position = first.start !== undefined
         ? sourceFile.getLineAndCharacterOfPosition(first.start)
@@ -251,12 +345,14 @@ export async function validateTypeScript(code: string, filepath: string): Promis
       const lineNum = position ? position.line + 1 : null;
       const lineStr = position ? ` at line ${position.line + 1}, col ${position.character + 1}` : '';
       const context = lineNum ? `\n\nContext around line ${lineNum}:\n${getCodeContext(code, lineNum)}` : '';
-      return `TypeScript syntax error: ${message}${lineStr}${context}`;
+      return completedSyntaxValidation(
+        `TypeScript syntax error: ${message}${lineStr}${context}`,
+      );
     }
-  } catch (err: any) {
-    return `TypeScript parser failed: ${err.message}`;
+  } catch (error: unknown) {
+    return skippedSyntaxValidation('syntax-validation-error', errorDetail(error));
   }
-  return null;
+  return completedSyntaxValidation(null);
 }
 
 /** JavaScript MIME types that mark a classic script per the HTML spec. */
@@ -284,6 +380,15 @@ function classifyScriptBlock(script: {
 }
 
 export async function validateHtmlScripts(html: string, filepath: string): Promise<string | null> {
+  return (await validateHtmlScriptsWithEvidence(html, filepath)).error;
+}
+
+async function validateHtmlScriptsWithEvidence(
+  html: string,
+  filepath: string,
+  options: SyntaxValidationOptions = {},
+): Promise<SyntaxCheckResult> {
+  let skippedValidation: SyntaxValidation | undefined;
   try {
     const { document } = parseHTML(html);
     const scripts = document.querySelectorAll('script');
@@ -292,12 +397,13 @@ export async function validateHtmlScripts(html: string, filepath: string): Promi
       const kind = classifyScriptBlock(script);
       if (kind === 'data') continue;
       const code = script.textContent || '';
-      const error =
+      const result =
         kind === 'typescript'
-          ? await validateTypeScript(code, filepath)
+          ? await validateTypeScriptWithEvidence(code, filepath, options)
           : kind === 'module'
-            ? await validateJavaScriptModule(code, filepath)
-            : validateJavaScript(code, filepath);
+            ? await validateJavaScriptModuleWithEvidence(code, filepath, options)
+            : completedSyntaxValidation(validateJavaScript(code, filepath));
+      const error = result.error;
       if (error) {
         // Adjust local line numbers to be absolute line numbers relative to the parent HTML file
         const byteOffset = html.indexOf(code);
@@ -332,31 +438,51 @@ export async function validateHtmlScripts(html: string, filepath: string): Promi
           ? `\n\nContext around line ${absoluteLineNum} of HTML:\n${getCodeContext(html, absoluteLineNum)}`
           : '';
 
-        return `HTML Script block error: ${adjustedError}${context}`;
+        return completedSyntaxValidation(
+          `HTML Script block error: ${adjustedError}${context}`,
+        );
+      }
+      if (result.syntax.status === 'skipped' && skippedValidation === undefined) {
+        skippedValidation = result.syntax;
       }
     }
-  } catch (err: any) {
-    return `HTML parse error: ${err.message}`;
+  } catch (error: unknown) {
+    return completedSyntaxValidation(`HTML parse error: ${errorDetail(error)}`);
   }
-  return null;
+  return {
+    error: null,
+    syntax: skippedValidation ?? { status: 'passed' },
+  };
 }
 
 export async function validateHtmlRuntime(
   filepath: string,
   content: string,
-): Promise<{ error: string | null; screenshots?: string[]; keyframeTimesMs?: number[] }> {
-  const playwright = await getPlaywright();
+  options: HtmlRuntimeValidationOptions = {},
+): Promise<FileValidationResult> {
+  const playwright = await (options.loadPlaywright ?? getPlaywright)();
   if (!playwright) {
-    return { error: null };
+    return {
+      error: null,
+      syntax: undefined,
+      runtime: {
+        status: 'skipped',
+        reason: 'playwright-unavailable',
+        detail: undefined,
+      },
+      screenshots: undefined,
+      keyframeTimesMs: undefined,
+    };
   }
-  let browser: any;
+  let browser: Browser | undefined;
   try {
     const executablePath = resolveChromiumExecutable();
-    browser = await playwright.chromium.launch({
+    const launchedBrowser = await playwright.chromium.launch({
       headless: true,
-      ...(executablePath ? { executablePath } : {}),
+      executablePath,
     });
-    const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    browser = launchedBrowser;
+    const context = await launchedBrowser.newContext({ viewport: { width: 1200, height: 800 } });
     const page = await context.newPage();
 
     const errorsMap = new Map<string, number>();
@@ -365,10 +491,10 @@ export async function validateHtmlRuntime(
       errorsMap.set(cleaned, (errorsMap.get(cleaned) || 0) + 1);
     };
 
-    page.on('pageerror', (exception: any) => {
+    page.on('pageerror', (exception) => {
       registerError(`Uncaught Page Exception: ${exception.message}\n${exception.stack || ''}`);
     });
-    page.on('console', (msg: any) => {
+    page.on('console', (msg) => {
       if (msg.type() === 'error') {
         registerError(`Browser console.error: ${msg.text()}`);
       }
@@ -393,11 +519,11 @@ export async function validateHtmlRuntime(
       }
     } else {
       await new Promise((r) => setTimeout(r, 2000));
+      const buf = await page.screenshot({ type: 'png' });
+      screenshots.push(buf.toString('base64'));
     }
 
-    await browser.close();
-
-    const keyframeTimesMs = isCanvasAnimation ? [...RUNTIME_KEYFRAME_TIMES_MS] : undefined;
+    const keyframeTimesMs = isCanvasAnimation ? [...RUNTIME_KEYFRAME_TIMES_MS] : [2000];
 
     if (errorsMap.size > 0) {
       const formattedErrors: string[] = [];
@@ -421,48 +547,112 @@ export async function validateHtmlRuntime(
 
       return {
         error: `Headless Playwright captured runtime errors:\n${formattedErrors.join('\n')}${snippetText}`,
+        syntax: undefined,
+        runtime: { status: 'failed' },
         screenshots,
         keyframeTimesMs,
       };
     }
-    return { error: null, screenshots, keyframeTimesMs };
-  } catch (err: any) {
+    return {
+      error: null,
+      syntax: undefined,
+      runtime: { status: 'passed' },
+      screenshots,
+      keyframeTimesMs,
+    };
+  } catch (error: unknown) {
+    return {
+      error: null,
+      syntax: undefined,
+      runtime: {
+        status: 'skipped',
+        reason: 'runtime-validation-error',
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      screenshots: undefined,
+      keyframeTimesMs: undefined,
+    };
+  } finally {
     if (browser) {
       try {
         await browser.close();
       } catch {}
     }
-    return { error: null };
   }
 }
 
 export async function validateFileSyntaxWithScreenshots(
   filepath: string,
   content: string,
-): Promise<{ error: string | null; screenshots?: string[]; keyframeTimesMs?: number[] }> {
+  options: FileValidationOptions = {},
+): Promise<FileValidationResult> {
   const ext = filepath.split('.').pop()?.toLowerCase();
   if (ext === 'js') {
     // Ambiguous goal: plain ESM `.js` is everywhere, so auto-detect.
-    return { error: await validateJavaScriptAuto(content, filepath) };
+    return staticValidationResult(
+      await validateJavaScriptAutoWithEvidence(content, filepath, options),
+    );
   }
   if (ext === 'mjs') {
-    return { error: await validateJavaScriptModule(content, filepath) };
+    return staticValidationResult(
+      await validateJavaScriptModuleWithEvidence(content, filepath, options),
+    );
   }
   if (ext === 'cjs') {
-    return { error: validateJavaScript(content, filepath) };
+    return staticValidationResult(completedSyntaxValidation(validateJavaScript(content, filepath)));
   }
   if (ext === 'ts' || ext === 'mts' || ext === 'cts') {
-    return { error: await validateTypeScript(content, filepath) };
+    return staticValidationResult(await validateTypeScriptWithEvidence(content, filepath, options));
   }
   if (ext === 'html' || ext === 'htm') {
-    const htmlErr = await validateHtmlScripts(content, filepath);
-    if (htmlErr) return { error: htmlErr };
-    return await validateHtmlRuntime(filepath, content);
+    const htmlValidation = await validateHtmlScriptsWithEvidence(content, filepath, options);
+    if (htmlValidation.error) return staticValidationResult(htmlValidation);
+    return {
+      ...(await validateHtmlRuntime(filepath, content, options)),
+      syntax: htmlValidation.syntax,
+    };
   }
-  return { error: null };
+  return {
+    error: null,
+    syntax: undefined,
+    runtime: undefined,
+    screenshots: undefined,
+    keyframeTimesMs: undefined,
+  };
 }
 
 export async function validateFileSyntax(filepath: string, content: string): Promise<string | null> {
   const res = await validateFileSyntaxWithScreenshots(filepath, content);
   return res.error;
+}
+
+function completedSyntaxValidation(error: string | null): SyntaxCheckResult {
+  return {
+    error,
+    syntax: { status: error === null ? 'passed' : 'failed' },
+  };
+}
+
+function skippedSyntaxValidation(
+  reason: Extract<SyntaxValidation, { status: 'skipped' }>['reason'],
+  detail: string | undefined,
+): SyntaxCheckResult {
+  return {
+    error: null,
+    syntax: { status: 'skipped', reason, detail },
+  };
+}
+
+function staticValidationResult(result: SyntaxCheckResult): FileValidationResult {
+  return {
+    error: result.error,
+    syntax: result.syntax,
+    runtime: undefined,
+    screenshots: undefined,
+    keyframeTimesMs: undefined,
+  };
+}
+
+function errorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

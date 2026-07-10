@@ -234,6 +234,9 @@ export class SessionReplayRenderer {
     if (message.origin?.kind === 'injection') {
       return;
     }
+    if (message.origin?.kind === 'system_trigger') {
+      return;
+    }
     if (message.origin?.kind === 'cron_job') {
       this.renderCronJob(context, message.origin);
       return;

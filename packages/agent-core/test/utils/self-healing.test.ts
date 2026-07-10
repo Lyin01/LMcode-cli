@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import type { PlaywrightRuntime } from '../../src/utils/self-healing';
 import {
   validateJavaScript,
   validateJavaScriptAuto,
   validateJavaScriptModule,
   validateTypeScript,
   validateHtmlScripts,
+  validateHtmlRuntime,
   validateFileSyntax,
   validateFileSyntaxWithScreenshots,
   resolveChromiumExecutable,
@@ -181,12 +183,77 @@ describe('self-healing: syntax validation', () => {
     it('returns structured result for js', async () => {
       const result = await validateFileSyntaxWithScreenshots('foo.js', 'const x = ;');
       expect(result.error).toContain('JavaScript syntax error');
+      expect(result.syntax).toEqual({ status: 'failed' });
+      expect(result.runtime).toBeUndefined();
       expect(result.screenshots).toBeUndefined();
     });
 
     it('returns structured result for valid html', async () => {
       const result = await validateFileSyntaxWithScreenshots('foo.html', '<html><body>Hello</body></html>');
       expect(result.error).toBeNull();
+      expect(result.syntax).toEqual({ status: 'passed' });
+      expect(['passed', 'skipped']).toContain(result.runtime?.status);
+    });
+
+    it('reports skipped when browser runtime validation is unavailable', async () => {
+      const result = await validateHtmlRuntime('foo.html', '<html><body>Hello</body></html>', {
+        loadPlaywright: async () => null,
+      });
+
+      expect(result).toEqual({
+        error: null,
+        syntax: undefined,
+        runtime: {
+          status: 'skipped',
+          reason: 'playwright-unavailable',
+          detail: undefined,
+        },
+        screenshots: undefined,
+        keyframeTimesMs: undefined,
+      });
+    });
+
+    it('reports skipped instead of passed when the browser cannot launch', async () => {
+      const playwright = {
+        chromium: {
+          launch: async () => {
+            throw new Error('browser launch failed');
+          },
+        },
+      } as unknown as PlaywrightRuntime;
+      const result = await validateHtmlRuntime('foo.html', '<html><body>Hello</body></html>', {
+        loadPlaywright: async () => playwright,
+      });
+
+      expect(result.error).toBeNull();
+      expect(result.runtime).toEqual({
+        status: 'skipped',
+        reason: 'runtime-validation-error',
+        detail: 'browser launch failed',
+      });
+    });
+
+    it('does not claim module syntax passed when the parser and browser are unavailable', async () => {
+      const result = await validateFileSyntaxWithScreenshots(
+        'foo.html',
+        '<html><script type="module">const value = ;</script></html>',
+        {
+          loadTypeScript: async () => null,
+          loadPlaywright: async () => null,
+        },
+      );
+
+      expect(result.error).toBeNull();
+      expect(result.syntax).toEqual({
+        status: 'skipped',
+        reason: 'typescript-unavailable',
+        detail: undefined,
+      });
+      expect(result.runtime).toEqual({
+        status: 'skipped',
+        reason: 'playwright-unavailable',
+        detail: undefined,
+      });
     });
   });
 

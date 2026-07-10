@@ -31,11 +31,25 @@ describe('Spec-consistency critic', () => {
     expect(ctx.llmCalls).toHaveLength(4);
     const criticCall = ctx.llmCalls[2];
     expect(criticCall?.systemPrompt).toContain('specification-compliance reviewer');
-    expect(messageText(criticCall?.history.at(-1))).toContain('Original user request');
+    const criticInput = messageText(criticCall?.history.at(-1));
+    expect(criticInput).toContain('Original user request');
+    expect(criticInput).toContain('Automatic validation limitations');
+    expect(criticInput).toContain('Automatic post-write validation did not complete');
 
     const followupTexts = ctx.llmCalls[3]?.history.map(messageText) ?? [];
-    expect(followupTexts.some((text) => text.includes('Spec-consistency check'))).toBe(true);
+    expect(
+      followupTexts.some((text) => text.includes('LMcode internal specification review')),
+    ).toBe(true);
     expect(followupTexts.some((text) => text.includes('also update the README'))).toBe(true);
+    const criticReminder = ctx.agent.context.history.find(
+      (message) =>
+        message.origin?.kind === 'system_trigger' && message.origin.name === 'spec_critic',
+    );
+    expect(messageText(criticReminder)).toContain('<system-reminder>');
+    expect(messageText(criticReminder)).toContain('not a new user message');
+    expect(
+      ctx.agent.context.history.filter((message) => message.origin?.kind === 'user'),
+    ).toHaveLength(1);
 
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -59,7 +73,9 @@ describe('Spec-consistency critic', () => {
 
     expect(ctx.llmCalls).toHaveLength(3);
     const historyTexts = ctx.agent.context.history.map(messageText);
-    expect(historyTexts.some((text) => text.includes('Spec-consistency check'))).toBe(false);
+    expect(
+      historyTexts.some((text) => text.includes('LMcode internal specification review')),
+    ).toBe(false);
   });
 
   it('skips the critic when enableSpecCritic is false', async () => {
@@ -129,6 +145,12 @@ describe('Spec-consistency critic', () => {
       followupTexts.some((text) => text.includes('Requirement-fidelity check')),
     ).toBe(true);
     expect(followupTexts.some((text) => text.includes('blind-pool'))).toBe(true);
+    const fidelityReminder = ctx.agent.context.history.find(
+      (message) =>
+        message.origin?.kind === 'system_trigger' &&
+        message.origin.name === 'direct_answer_requirement_fidelity',
+    );
+    expect(messageText(fidelityReminder)).toContain('<system-reminder>');
   });
 
   it('reviews high-constraint direct answers even when no files changed', async () => {
@@ -168,7 +190,9 @@ describe('Spec-consistency critic', () => {
     expect(messageText(criticCall?.history.at(-1))).toContain('(none)');
 
     const followupTexts = ctx.llmCalls[2]?.history.map(messageText) ?? [];
-    expect(followupTexts.some((text) => text.includes('Spec-consistency check'))).toBe(true);
+    expect(
+      followupTexts.some((text) => text.includes('LMcode internal specification review')),
+    ).toBe(true);
     expect(
       followupTexts.some((text) => text.includes('ignored that shapes can be distinguished')),
     ).toBe(true);

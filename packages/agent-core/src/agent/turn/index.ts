@@ -22,12 +22,14 @@ import {
   type LoopRecordedEvent,
   type LoopTurnStopReason,
 } from '../../loop/index';
+import type { ExecutableToolOutput } from '../../loop/types';
 import type { AgentEvent, TurnEndedEvent } from '../../rpc';
 import { abortable, userCancellationReason } from '../../utils/abort';
 import { USER_PROMPT_ORIGIN, type PromptOrigin } from '../context';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { ToolCallDeduplicator } from './tool-dedup';
 import CRITIC_SYSTEM_PROMPT from './critic-system.md';
+import SPEC_CRITIC_CONTINUATION_PROMPT from './spec-critic-continuation.md';
 import SPEC_CRITIC_SYSTEM_PROMPT from './spec-critic-system.md';
 import VISUAL_AUDITOR_SYSTEM_PROMPT from './visual-auditor-system.md';
 import { resolvePathAccessPath } from '../../tools/policies/path-access';
@@ -73,6 +75,7 @@ const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
 
 const SPEC_CRITIC_MAX_REQUEST_CHARS = 6_000;
 const SPEC_CRITIC_MAX_RESPONSE_CHARS = 4_000;
+const SPEC_CRITIC_MAX_VALIDATION_CHARS = 4_000;
 const SPEC_CRITIC_MAX_FILES = 30;
 const DIRECT_ANSWER_REVIEW_MIN_LENGTH = 20;
 const DIRECT_ANSWER_FIDELITY_MAX_CONTINUATIONS = 3;
@@ -536,6 +539,7 @@ export class TurnFlow {
     signal: AbortSignal,
     input: readonly ContentPart[],
     mutatedPaths: ReadonlySet<string>,
+    validationLimitations: ReadonlyMap<string, string>,
   ): Promise<string | undefined> {
     const requestText = input
       .map((part) => (part.type === 'text' ? part.text : ''))
@@ -549,6 +553,9 @@ export class TurnFlow {
       SPEC_CRITIC_MAX_RESPONSE_CHARS,
     );
     const files = [...mutatedPaths].slice(0, SPEC_CRITIC_MAX_FILES).join('\n');
+    const limitations = [...validationLimitations.values()]
+      .join('\n')
+      .slice(0, SPEC_CRITIC_MAX_VALIDATION_CHARS);
 
     try {
       const response = await this.agent.generate(
@@ -567,6 +574,11 @@ export class TurnFlow {
                   '',
                   '## Files the agent changed',
                   files.length > 0 ? files : '(none)',
+                  '',
+                  '## Automatic validation limitations',
+                  limitations.length > 0
+                    ? limitations
+                    : '(none recorded; absence is not evidence that validation ran)',
                   '',
                   '## Agent final response',
                   finalText.length > 0 ? finalText : '(no final text)',
@@ -611,6 +623,7 @@ export class TurnFlow {
     let specCriticUsed = false;
     let directAnswerFidelityContinuationCount = 0;
     const specMutatedPaths = new Set<string>();
+    const validationLimitations = new Map<string, string>();
     const deduper = new ToolCallDeduplicator();
     await this.agent.mcp?.waitForInitialLoad(signal);
     while (true) {
@@ -714,8 +727,8 @@ export class TurnFlow {
                   : undefined;
               if (directAnswerRequirementGap !== undefined) {
                 directAnswerFidelityContinuationCount += 1;
-                this.agent.context.appendUserMessage(
-                  [{ type: 'text', text: directAnswerRequirementGap }],
+                this.agent.context.appendSystemReminder(
+                  directAnswerRequirementGap,
                   { kind: 'system_trigger', name: 'direct_answer_requirement_fidelity' },
                 );
                 return { continue: true };
@@ -731,20 +744,19 @@ export class TurnFlow {
                   shouldReviewDirectAnswerForRequirementFidelity(input))
               ) {
                 specCriticUsed = true;
-                const missing = await this.runSpecCritic(signal, input, specMutatedPaths);
+                const missing = await this.runSpecCritic(
+                  signal,
+                  input,
+                  specMutatedPaths,
+                  validationLimitations,
+                );
                 signal.throwIfAborted();
                 if (missing !== undefined) {
-                  this.agent.context.appendUserMessage(
-                    [
-                      {
-                        type: 'text',
-                        text:
-                          'Spec-consistency check: the original request contains ' +
-                          'requirements the work above has not addressed yet:\n' +
-                          missing +
-                          '\nAddress each item now, or state explicitly why it does not apply.',
-                      },
-                    ],
+                  this.agent.context.appendSystemReminder(
+                    SPEC_CRITIC_CONTINUATION_PROMPT.replace(
+                      '__MISSING_REQUIREMENTS__',
+                      escapeXmlText(missing),
+                    ),
                     { kind: 'system_trigger', name: 'spec_critic' },
                   );
                   return { continue: true };
@@ -800,6 +812,9 @@ export class TurnFlow {
               ) {
                 const path = pathArgFromToolArgs(ctx.args);
                 if (path !== undefined) {
+                  const validationNotices: string[] = [];
+                  let validationPath = path;
+                  let validationPathKey = path;
                   try {
                     const workspace = {
                       workspaceDir: this.agent.config.cwd,
@@ -810,6 +825,15 @@ export class TurnFlow {
                       workspace,
                       operation: 'write',
                     });
+                    validationPath = resolvedPath;
+                    validationPathKey =
+                      this.agent.jian.pathClass() === 'win32'
+                        ? resolvedPath.toLowerCase()
+                        : resolvedPath;
+                    clearValidationLimitationsForPath(
+                      validationLimitations,
+                      validationPathKey,
+                    );
                     const content = await this.agent.jian.readText(resolvedPath);
                     const validationRes = await validateFileSyntaxWithScreenshots(resolvedPath, content);
                     if (validationRes.error) {
@@ -818,69 +842,139 @@ export class TurnFlow {
                         output: `Code validation failed. Please fix the following issue:\n${validationRes.error}`,
                       };
                     } else {
-                      // 1. Run LMM Visual Auditor if screenshots are captured
+                      if (validationRes.syntax?.status === 'skipped') {
+                        this.agent.log.warn('Static syntax validation skipped', {
+                          path,
+                          reason: validationRes.syntax.reason,
+                          detail: validationRes.syntax.detail,
+                        });
+                        addValidationLimitation(
+                          validationNotices,
+                          validationLimitations,
+                          validationPathKey,
+                          validationPath,
+                          'syntax',
+                          `Automatic syntax validation was skipped (${validationRes.syntax.reason}). ` +
+                            'Do not claim that syntax was verified unless a separate parser or build check succeeds.',
+                        );
+                      }
+
+                      if (validationRes.runtime?.status === 'skipped') {
+                        this.agent.log.warn('HTML runtime validation skipped', {
+                          path,
+                          reason: validationRes.runtime.reason,
+                          detail: validationRes.runtime.detail,
+                        });
+                        addValidationLimitation(
+                          validationNotices,
+                          validationLimitations,
+                          validationPathKey,
+                          validationPath,
+                          'runtime',
+                          `Automatic browser validation was skipped (${validationRes.runtime.reason}). ` +
+                            'Runtime behavior and visual output were not verified. ' +
+                            'Do not claim browser or visual verification unless a separate observable browser check succeeds.',
+                        );
+                      }
+
+                      // Run the visual auditor only when keyframes exist and the model can inspect them.
                       let visualRejected = false;
                       let visualFeedback = '';
-                      if (
-                        validationRes.screenshots &&
-                        validationRes.screenshots.length > 0 &&
-                        this.agent.config.modelCapabilities.image_in
-                      ) {
-                        try {
-                          // Label each frame by its capture time; the last one
-                          // is the terminal/end state where uncleared-buffer
-                          // ghosts and never-ending particle fields surface.
-                          const keyTimes = validationRes.keyframeTimesMs;
-                          const frameLines = validationRes.screenshots
-                            .map((_, i) => {
-                              const isLast = i === validationRes.screenshots!.length - 1;
-                              const at =
-                                keyTimes && keyTimes[i] != null
-                                  ? `${(keyTimes[i] / 1000).toFixed(1)}s`
-                                  : `frame ${i + 1}`;
-                              return `- Screenshot ${i + 1}: ${at}${isLast ? ' — TERMINAL / end state' : ''}`;
-                            })
-                            .join('\n');
-
-                          const visualSystemPrompt = VISUAL_AUDITOR_SYSTEM_PROMPT.replace(
-                            '{{FRAME_LINES}}',
-                            frameLines,
+                      const screenshots = validationRes.screenshots;
+                      if (screenshots !== undefined && screenshots.length > 0) {
+                        if (!this.agent.config.modelCapabilities.image_in) {
+                          addValidationLimitation(
+                            validationNotices,
+                            validationLimitations,
+                            validationPathKey,
+                            validationPath,
+                            'visual',
+                            'Browser runtime validation passed and keyframe screenshots were captured, ' +
+                              'but visual compliance was not reviewed because the active model cannot inspect images. ' +
+                              'Do not claim that appearance, animation timing, or the terminal frame was visually verified.',
                           );
+                        } else {
+                          try {
+                            // Label each frame by its capture time; the last one
+                            // is the terminal/end state where uncleared-buffer
+                            // ghosts and never-ending particle fields surface.
+                            const keyTimes = validationRes.keyframeTimesMs;
+                            const frameLines = screenshots
+                              .map((_, i) => {
+                                const isLast = i === screenshots.length - 1;
+                                const at =
+                                  keyTimes && keyTimes[i] != null
+                                    ? `${(keyTimes[i] / 1000).toFixed(1)}s`
+                                    : `frame ${i + 1}`;
+                                return `- Screenshot ${i + 1}: ${at}${isLast ? ' — TERMINAL / end state' : ''}`;
+                              })
+                              .join('\n');
 
-                          const { project: projectVisual } = await import('../context/projector');
-                          const visualHistory = [...projectVisual(this.agent.context.history)];
-                          const contentParts: ContentPart[] = [
-                            {
-                              type: 'text',
-                              text: 'Here are the rendered keyframe screenshots, in order. Verify them against the user request above.',
-                            },
-                          ];
-                          for (const base64Img of validationRes.screenshots) {
-                            contentParts.push({
-                              type: 'image_url',
-                              imageUrl: {
-                                url: `data:image/png;base64,${base64Img}`,
+                            const visualSystemPrompt = VISUAL_AUDITOR_SYSTEM_PROMPT.replace(
+                              '{{FRAME_LINES}}',
+                              frameLines,
+                            );
+
+                            const { project: projectVisual } = await import('../context/projector');
+                            const visualHistory = [...projectVisual(this.agent.context.history)];
+                            const contentParts: ContentPart[] = [
+                              {
+                                type: 'text',
+                                text: 'Here are the rendered keyframe screenshots, in order. Verify them against the user request above.',
                               },
+                            ];
+                            for (const base64Img of screenshots) {
+                              contentParts.push({
+                                type: 'image_url',
+                                imageUrl: {
+                                  url: `data:image/png;base64,${base64Img}`,
+                                },
+                              });
+                            }
+                            visualHistory.push({
+                              role: 'user',
+                              content: contentParts,
+                              toolCalls: [],
                             });
-                          }
-                          visualHistory.push({ role: 'user', content: contentParts, toolCalls: [] });
 
-                          const visualResponse = await this.agent.rawGenerate(
-                            this.agent.config.provider,
-                            visualSystemPrompt,
-                            [],
-                            visualHistory,
-                          );
-                          const visualText = contentPartsText(visualResponse.message.content);
+                            const visualResponse = await this.agent.rawGenerate(
+                              this.agent.config.provider,
+                              visualSystemPrompt,
+                              [],
+                              visualHistory,
+                            );
+                            const visualText = contentPartsText(
+                              visualResponse.message.content,
+                            ).trim();
 
-                          if (visualText.startsWith('VISUAL_REJECT:')) {
-                            visualRejected = true;
-                            visualFeedback = `Visual review rejected by LMM Auditor:\n${visualText.substring(14).trim()}`;
+                            if (visualText.startsWith('VISUAL_REJECT:')) {
+                              visualRejected = true;
+                              visualFeedback = `Visual review rejected by LMM Auditor:\n${visualText.substring(14).trim()}`;
+                            } else if (visualText !== 'VISUAL_APPROVE') {
+                              addValidationLimitation(
+                                validationNotices,
+                                validationLimitations,
+                                validationPathKey,
+                                validationPath,
+                                'visual',
+                                'Browser runtime validation passed, but the visual auditor returned an inconclusive verdict. ' +
+                                  'Do not claim that visual compliance was verified.',
+                              );
+                            }
+                          } catch (error) {
+                            this.agent.log.warn('LMM Visual Auditor failed or timed out', {
+                              error: errorMessage(error),
+                            });
+                            addValidationLimitation(
+                              validationNotices,
+                              validationLimitations,
+                              validationPathKey,
+                              validationPath,
+                              'visual',
+                              'Browser runtime validation passed, but the visual auditor failed or timed out. ' +
+                                'Do not claim that visual compliance was verified.',
+                            );
                           }
-                        } catch (error) {
-                          this.agent.log.warn('LMM Visual Auditor failed or timed out', {
-                            error: errorMessage(error),
-                          });
                         }
                       }
 
@@ -890,8 +984,9 @@ export class TurnFlow {
                           output: visualFeedback,
                         };
                       } else {
-                        // 2. Syntax and Visual passed! Now run Critic LLM review
-                        const prompt = `File Path: ${resolvedPath}
+                        // Run a source review independently of runtime and visual evidence.
+                        try {
+                          const prompt = `File Path: ${resolvedPath}
 
 Please review the current content of this file:
 \`\`\`
@@ -900,35 +995,80 @@ ${content}
 
 Evaluate if this file meets high-quality software engineering standards and the original requirements. Reply with APPROVE or REJECT.`;
 
-                        const { project } = await import('../context/projector');
-                        const history = [...project(this.agent.context.history)];
-                        history.push({
-                          role: 'user',
-                          content: [{ type: 'text', text: prompt }],
-                          toolCalls: [],
-                        });
+                          const { project } = await import('../context/projector');
+                          const history = [...project(this.agent.context.history)];
+                          history.push({
+                            role: 'user',
+                            content: [{ type: 'text', text: prompt }],
+                            toolCalls: [],
+                          });
 
-                        const criticResponse = await this.agent.rawGenerate(
-                          this.agent.config.provider,
-                          CRITIC_SYSTEM_PROMPT,
-                          [],
-                          history,
-                        );
-                        const criticText = contentPartsText(criticResponse.message.content);
+                          const criticResponse = await this.agent.rawGenerate(
+                            this.agent.config.provider,
+                            CRITIC_SYSTEM_PROMPT,
+                            [],
+                            history,
+                          );
+                          const criticText = contentPartsText(
+                            criticResponse.message.content,
+                          ).trim();
 
-                        if (criticText.startsWith('REJECT:')) {
-                          finalResult = {
-                            isError: true,
-                            output: `Code review rejected by Critic:\n${criticText.substring(7).trim()}`,
-                          };
+                          if (criticText.startsWith('REJECT:')) {
+                            finalResult = {
+                              isError: true,
+                              output: `Code review rejected by Critic:\n${criticText.substring(7).trim()}`,
+                            };
+                          } else if (criticText !== 'APPROVE') {
+                            addValidationLimitation(
+                              validationNotices,
+                              validationLimitations,
+                              validationPathKey,
+                              validationPath,
+                              'source',
+                              'Automatic source review returned an inconclusive verdict. ' +
+                                'Do not describe automated code review as passed.',
+                            );
+                          }
+                        } catch (error) {
+                          if (isAbortError(error)) throw error;
+                          this.agent.log.warn('Automatic source review failed or timed out', {
+                            error: errorMessage(error),
+                            path,
+                          });
+                          addValidationLimitation(
+                            validationNotices,
+                            validationLimitations,
+                            validationPathKey,
+                            validationPath,
+                            'source',
+                            'Automatic source review failed or timed out. ' +
+                              'Do not describe automated code review as passed.',
+                          );
                         }
                       }
                     }
                   } catch (error) {
+                    if (isAbortError(error)) throw error;
+                    clearValidationLimitationsForPath(
+                      validationLimitations,
+                      validationPathKey,
+                    );
                     this.agent.log.warn('Self-healing code validation skipped or failed internally', {
                       error: errorMessage(error),
                       path,
                     });
+                    addValidationLimitation(
+                      validationNotices,
+                      validationLimitations,
+                      validationPathKey,
+                      validationPath,
+                      'overall',
+                      'Automatic post-write validation did not complete, so its overall result is inconclusive. ' +
+                        'Do not claim syntax, runtime, or visual verification based on this check.',
+                    );
+                  }
+                  for (const notice of validationNotices) {
+                    finalResult = appendToolResultNotice(finalResult, notice);
                   }
                 }
               }
@@ -1270,4 +1410,50 @@ function messageContentText(content: Message['content']): string {
   return content
     .map((part) => (part.type === 'text' ? part.text : ''))
     .join('');
+}
+
+type ValidationLimitationKind = 'syntax' | 'runtime' | 'visual' | 'source' | 'overall';
+
+function addValidationLimitation(
+  notices: string[],
+  limitations: Map<string, string>,
+  pathKey: string,
+  displayPath: string,
+  kind: ValidationLimitationKind,
+  notice: string,
+): void {
+  const rendered = `File ${JSON.stringify(displayPath)}: ${notice}`;
+  limitations.set(`${pathKey}\0${kind}`, rendered);
+  notices.push(rendered);
+}
+
+function clearValidationLimitationsForPath(
+  limitations: Map<string, string>,
+  path: string,
+): void {
+  const prefix = `${path}\0`;
+  for (const key of limitations.keys()) {
+    if (key.startsWith(prefix)) limitations.delete(key);
+  }
+}
+
+function appendToolResultNotice(
+  result: ExecutableToolResult,
+  notice: string,
+): ExecutableToolResult {
+  const suffix = `\n\n<system>Automatic validation notice: ${escapeXmlText(notice)}</system>`;
+  const output: ExecutableToolOutput =
+    typeof result.output === 'string'
+      ? `${result.output}${suffix}`
+      : [...result.output, { type: 'text', text: suffix }];
+  return { ...result, output };
+}
+
+function escapeXmlText(input: string): string {
+  return input
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
 }

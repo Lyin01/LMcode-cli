@@ -371,6 +371,35 @@ describe('LmcodeTUI resume message replay', () => {
     ]);
   });
 
+  it('does not replay internal system triggers as user messages', async () => {
+    const driver = await replayIntoDriver([
+      message('user', [{ type: 'text', text: 'build the requested file' }]),
+      message('assistant', [{ type: 'text', text: 'Initial completion.' }]),
+      message(
+        'user',
+        [
+          {
+            type: 'text',
+            text: '<system-reminder>LMcode internal specification review</system-reminder>',
+          },
+        ],
+        { origin: { kind: 'system_trigger', name: 'spec_critic' } },
+      ),
+      message('assistant', [{ type: 'text', text: 'Corrected completion.' }]),
+    ]);
+
+    expect(
+      driver.state.transcriptEntries
+        .filter((entry) => entry.kind === 'user')
+        .map((entry) => entry.content),
+    ).toEqual(['build the requested file']);
+    expect(
+      driver.state.transcriptEntries.some((entry) =>
+        entry.content.includes('LMcode internal specification review'),
+      ),
+    ).toBe(false);
+  });
+
   it('skips cron_job origin records during replay', async () => {
     const cronFire =
       '<cron-fire jobId="job-1" cron="*/5 * * * *" recurring="true" coalescedCount="1">\nrun nightly\n</cron-fire>';
