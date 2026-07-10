@@ -1,7 +1,13 @@
-import { spawn, type ChildProcessWithoutNullStreams, execSync } from 'node:child_process';
+import {
+  execSync,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 import { z } from 'zod';
+
+import { terminateProcessTree } from '#/utils/spawn-command';
 
 import type { HookResult } from './types';
 
@@ -58,7 +64,6 @@ const WINDOWS_SHELL: string | boolean = (() => {
     return true;
   }
 })();
-const KILL_GRACE_MS = 100;
 const OptionalStringSchema = z.preprocess(
   (value) => {
     if (value === undefined || value === null) return undefined;
@@ -90,6 +95,8 @@ export async function runHook(
   input: Record<string, unknown>,
   options: RunHookOptions,
 ): Promise<HookResult> {
+  if (options.signal?.aborted === true) return allowResult({});
+
   let child: ChildProcessWithoutNullStreams;
   try {
     child = spawn(command, {
@@ -105,7 +112,7 @@ export async function runHook(
   return new Promise<HookResult>((resolve) => {
     let stdout = '';
     let stderr = '';
-    let settled = false;
+    let claimed = false;
     const timeoutMs = timeoutSeconds(options.timeout) * 1000;
 
     const cleanup = () => {
@@ -113,28 +120,37 @@ export async function runHook(
       options.signal?.removeEventListener('abort', onAbort);
     };
 
-    const settle = (result: HookResult): void => {
-      if (settled) return;
-      settled = true;
+    const claim = (): boolean => {
+      if (claimed) return false;
+      claimed = true;
       cleanup();
+      return true;
+    };
+
+    const settle = (result: HookResult): void => {
+      if (!claim()) return;
       resolve(result);
     };
 
-    const timeout = setTimeout(() => {
-      killProcess(child);
-      settle(allowResult({ stdout, stderr, timedOut: true }));
-    }, timeoutMs);
-
-    const onAbort = (): void => {
-      killProcess(child);
-      settle(allowResult({ stdout, stderr }));
+    const terminateAndSettle = (result: HookResult): void => {
+      if (!claim()) return;
+      void terminateProcessTree(child).then(
+        () => {
+          resolve(result);
+        },
+        () => {
+          resolve(result);
+        },
+      );
     };
 
-    options.signal?.addEventListener('abort', onAbort, { once: true });
-    if (options.signal?.aborted === true) {
-      onAbort();
-      return;
-    }
+    const onAbort = (): void => {
+      terminateAndSettle(allowResult({ stdout, stderr }));
+    };
+
+    const timeout = setTimeout(() => {
+      terminateAndSettle(allowResult({ stdout, stderr, timedOut: true }));
+    }, timeoutMs);
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -152,6 +168,12 @@ export async function runHook(
     });
 
     child.stdin.on('error', () => {});
+
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    if (options.signal?.aborted === true) {
+      onAbort();
+      return;
+    }
     child.stdin.end(JSON.stringify(input));
   });
 }
@@ -242,28 +264,6 @@ function allowResult(input: {
     timedOut: input.timedOut,
     structuredOutput: input.structuredOutput,
   };
-}
-
-function killProcess(child: ChildProcessWithoutNullStreams): void {
-  tryKillProcess(child, 'SIGTERM');
-  const killTimer = setTimeout(() => {
-    tryKillProcess(child, 'SIGKILL');
-  }, KILL_GRACE_MS);
-  killTimer.unref();
-}
-
-function tryKillProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
-  try {
-    if (process.platform !== 'win32' && child.pid !== undefined) {
-      process.kill(-child.pid, signal);
-    } else {
-      child.kill(signal);
-    }
-  } catch {
-    try {
-      child.kill(signal);
-    } catch {}
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
