@@ -4,5 +4,6 @@ export default defineConfig({
   test: {
     name: 'memory',
     include: ['test/**/*.test.ts'],
+    fileParallelism: false,
   },
 });
