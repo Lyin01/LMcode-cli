@@ -5,7 +5,7 @@ import { join } from 'pathe';
 import { describe, expect, it } from 'vitest';
 
 import { LmcodeError } from '../../src/errors';
-import { StdioMcpClient, adaptStdioCommandForWindows } from '../../src/mcp/client-stdio';
+import { StdioMcpClient } from '../../src/mcp/client-stdio';
 
 const here = import.meta.dirname;
 const fixture = join(here, 'fixtures', 'mock-stdio-server.mjs');
@@ -267,33 +267,8 @@ describe('StdioMcpClient', () => {
   }, 15000);
 });
 
-describe('adaptStdioCommandForWindows', () => {
-  it('wraps a .cmd/npx-style command in cmd.exe /c on Windows', () => {
-    const out = adaptStdioCommandForWindows('npx', ['-y', '@scope/server'], 'win32');
-    expect(out.command.toLowerCase()).toMatch(/cmd\.exe$/);
-    expect(out.args).toEqual(['/c', 'npx', '-y', '@scope/server']);
-  });
-
-  it('passes a direct .exe target through unchanged on Windows', () => {
-    const out = adaptStdioCommandForWindows('C:/tools/server.EXE', ['--stdio'], 'win32');
-    expect(out).toEqual({ command: 'C:/tools/server.EXE', args: ['--stdio'] });
-  });
-
-  it('does not wrap on non-Windows platforms', () => {
-    expect(adaptStdioCommandForWindows('npx', ['-y', 'server'], 'linux')).toEqual({
-      command: 'npx',
-      args: ['-y', 'server'],
-    });
-  });
-
-  it('tolerates undefined args', () => {
-    expect(adaptStdioCommandForWindows('npx', undefined, 'linux')).toEqual({
-      command: 'npx',
-      args: [],
-    });
-    expect(adaptStdioCommandForWindows('npx', undefined, 'win32').args).toEqual(['/c', 'npx']);
-  });
-});
+// Unit tests for the command adaptation live in test/utils/spawn-command.test.ts
+// (the adapter is shared with the LSP client).
 
 describe('StdioMcpClient — Windows .cmd shim', () => {
   // Regression: without the cmd.exe /c adaptation, spawning a .cmd shim (how
