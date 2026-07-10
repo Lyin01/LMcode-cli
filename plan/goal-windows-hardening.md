@@ -39,6 +39,7 @@
 - `utils/fs.ts` atomicWrite：Windows pre-unlink + MoveFileEx 语义已处理。
 
 ## 补充发现（首轮后继续挖到的真 bug）
+- **自更新在 Windows 必坏且留撕裂状态 + LMCODE_HOME 目录错位**（`9d70566` 已修）：`installUpdate` 裸 spawn `pnpm`（.cmd shim → ENOENT，本机实证），且死在 `git pull` 成功**之后**——克隆目录留下"新源码+旧依赖/旧 dist"的半升级状态。修法：`cmd.exe /c` argv 包装（不用 `shell:true`，Node 已对 args 数组形式发 DEP0190 弃用警告，实测会打到用户终端）。第二个 bug：installDir 写死 `~/.lmcode` 而检测尊重 `LMCODE_HOME` → 检测说可更新、更新却跑错目录；抽 `resolveSourceInstallDir()` 作为唯一权威。顺带：Windows 手动升级提示从 `./install.sh` 改为 `install.ps1`。**规律确认**：这是同一 bug 类的第 3 例（MCP→LSP→update），全仓 spawn 点已扫尽。
 - **LSP 语言服务器（TS/Python）在 Windows 全启不动**（`e34bf96` 已修，v0.9.8 后）：与 MCP 同类——`LspClient` 经 `jian.exec`（shell-less spawn）启动 `typescript-language-server`/`pyright-langserver`，它们是 npm `.cmd` shim → 裸名 ENOENT / 直接路径 EINVAL（Node CVE-2024-27980 防护）。rust-analyzer/gopls（真 .exe）不受影响。修法：MCP 适配器提升为共享 `utils/spawn-command.ts`（防两处分叉），LSP 按 `jian.osEnv.osKind`（而非本机 platform）判 Windows。本机实证：直 spawn `.cmd` → EINVAL；`cmd.exe /c` → exit 0。**审计余项**：全仓其余 `jian.exec`/spawn 调用方（git、rg、taskkill）都是真二进制，无同类隐患。
 - **MCP stdio 服务在 Windows 全启不动**（`f867f8b` 已修）：MCP SDK 的 transport 用 `shell:false` spawn，Node 无法执行 `npx/npm/pnpm/yarn` 解析到的 `.cmd`/`.bat` shim（`spawn('npx')` → ENOENT，libuv 只补 `.exe` 不补 PATHEXT）。而绝大多数 MCP 服务都是 `npx -y @scope/server` 启动 → **Windows 主用户群的 MCP 功能静默失效**。修法：`client-stdio.ts` 加 `adaptStdioCommandForWindows`，非 `.exe` 命令包 `cmd.exe /c`；单测 + Windows-only 集成测试（真 `.cmd` shim 连通）。本机实测 `spawn('npx',{shell:false})` 复现 ENOENT。
 
