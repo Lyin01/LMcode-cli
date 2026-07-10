@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 
+import { spawnTargetForWindows } from '#/utils/process/spawn-command';
+
 import { readUpdateCache } from './cache';
 import { promptForInstallConfirmation, type InstallPromptOptions } from './prompt';
 import { refreshUpdateCache } from './refresh';
@@ -65,26 +67,6 @@ async function promptInstall(
     installSource: source,
   };
   return promptForInstallConfirmation(options);
-}
-
-/**
- * pnpm resolves to a .cmd shim on Windows, which a shell-less spawn cannot
- * execute (ENOENT/EINVAL since Node's CVE-2024-27980 mitigation) — the update
- * then died AFTER `git pull`, leaving the clone half-upgraded. Wrap commands
- * in `cmd.exe /c` so PATHEXT resolution runs; argv boundaries are preserved
- * (no `shell: true`, which Node deprecates with an args array — DEP0190).
- * Mirrors `utils/spawn-command.ts` in agent-core; kept local because the CLI
- * bootstrap deliberately avoids importing the agent-core barrel.
- */
-export function spawnTargetForWindows(
-  cmd: string,
-  args: readonly string[],
-  platform: NodeJS.Platform = process.platform,
-): { cmd: string; args: string[] } {
-  if (platform !== 'win32' || /\.exe$/i.test(cmd)) {
-    return { cmd, args: [...args] };
-  }
-  return { cmd: process.env['ComSpec'] ?? 'cmd.exe', args: ['/c', cmd, ...args] };
 }
 
 async function installUpdate(installDir: string): Promise<void> {
