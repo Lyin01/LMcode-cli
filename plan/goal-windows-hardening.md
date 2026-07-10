@@ -39,6 +39,7 @@
 - `utils/fs.ts` atomicWrite：Windows pre-unlink + MoveFileEx 语义已处理。
 
 ## 补充发现（首轮后继续挖到的真 bug）
+- **LSP 语言服务器（TS/Python）在 Windows 全启不动**（`e34bf96` 已修，v0.9.8 后）：与 MCP 同类——`LspClient` 经 `jian.exec`（shell-less spawn）启动 `typescript-language-server`/`pyright-langserver`，它们是 npm `.cmd` shim → 裸名 ENOENT / 直接路径 EINVAL（Node CVE-2024-27980 防护）。rust-analyzer/gopls（真 .exe）不受影响。修法：MCP 适配器提升为共享 `utils/spawn-command.ts`（防两处分叉），LSP 按 `jian.osEnv.osKind`（而非本机 platform）判 Windows。本机实证：直 spawn `.cmd` → EINVAL；`cmd.exe /c` → exit 0。**审计余项**：全仓其余 `jian.exec`/spawn 调用方（git、rg、taskkill）都是真二进制，无同类隐患。
 - **MCP stdio 服务在 Windows 全启不动**（`f867f8b` 已修）：MCP SDK 的 transport 用 `shell:false` spawn，Node 无法执行 `npx/npm/pnpm/yarn` 解析到的 `.cmd`/`.bat` shim（`spawn('npx')` → ENOENT，libuv 只补 `.exe` 不补 PATHEXT）。而绝大多数 MCP 服务都是 `npx -y @scope/server` 启动 → **Windows 主用户群的 MCP 功能静默失效**。修法：`client-stdio.ts` 加 `adaptStdioCommandForWindows`，非 `.exe` 命令包 `cmd.exe /c`；单测 + Windows-only 集成测试（真 `.cmd` shim 连通）。本机实测 `spawn('npx',{shell:false})` 复现 ENOENT。
 
 ## 进度日志
