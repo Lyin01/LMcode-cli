@@ -1,12 +1,10 @@
 import { spawn } from 'node:child_process';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 
 import { readUpdateCache } from './cache';
 import { promptForInstallConfirmation, type InstallPromptOptions } from './prompt';
 import { refreshUpdateCache } from './refresh';
 import { selectUpdateTarget } from './select';
-import { detectInstallSource } from './source';
+import { detectInstallSource, resolveSourceInstallDir } from './source';
 import {
   type InstallSource,
   type UpdateDecision,
@@ -26,12 +24,23 @@ function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * The one-liner a user can paste to upgrade a source install by hand.
+ * install.sh is a no-op pointer on Windows — the clone layout there is
+ * produced and upgraded by install.ps1 (same --upgrade flag).
+ */
+export function manualUpdateCommand(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? 'cd ~/.lmcode; powershell -ExecutionPolicy Bypass -File install.ps1 --upgrade'
+    : 'cd ~/.lmcode && ./install.sh --upgrade';
+}
+
 function renderManualUpdateMessage(currentVersion: string, target: UpdateTarget): string {
   return (
     `LMcode 有新版本可用 ` +
     `(${currentVersion} -> ${target.version})。\n` +
     `自动更新失败，请手动执行：\n` +
-    `  cd ~/.lmcode && ./install.sh --upgrade\n`
+    `  ${manualUpdateCommand()}\n`
   );
 }
 
@@ -58,6 +67,26 @@ async function promptInstall(
   return promptForInstallConfirmation(options);
 }
 
+/**
+ * pnpm resolves to a .cmd shim on Windows, which a shell-less spawn cannot
+ * execute (ENOENT/EINVAL since Node's CVE-2024-27980 mitigation) — the update
+ * then died AFTER `git pull`, leaving the clone half-upgraded. Wrap commands
+ * in `cmd.exe /c` so PATHEXT resolution runs; argv boundaries are preserved
+ * (no `shell: true`, which Node deprecates with an args array — DEP0190).
+ * Mirrors `utils/spawn-command.ts` in agent-core; kept local because the CLI
+ * bootstrap deliberately avoids importing the agent-core barrel.
+ */
+export function spawnTargetForWindows(
+  cmd: string,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): { cmd: string; args: string[] } {
+  if (platform !== 'win32' || /\.exe$/i.test(cmd)) {
+    return { cmd, args: [...args] };
+  }
+  return { cmd: process.env['ComSpec'] ?? 'cmd.exe', args: ['/c', cmd, ...args] };
+}
+
 async function installUpdate(installDir: string): Promise<void> {
   const commands: readonly { readonly cmd: string; readonly args: readonly string[]; readonly cwd?: string }[] = [
     { cmd: 'git', args: ['pull', 'origin', 'main'], cwd: installDir },
@@ -72,7 +101,8 @@ async function installUpdate(installDir: string): Promise<void> {
       resolve = res;
       reject = rej;
     });
-    const child = spawn(cmd, args, { cwd, stdio: 'inherit' });
+    const target = spawnTargetForWindows(cmd, args);
+    const child = spawn(target.cmd, target.args, { cwd, stdio: 'inherit' });
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) {
@@ -115,17 +145,22 @@ export async function runUpdatePreflight(
     const decision = decideUpdateAction(target, isInteractive);
     if (decision === 'none' || target === null) return 'continue';
 
-    const installCommand = 'cd ~/.lmcode && git pull && pnpm install && pnpm -r build';
-
     if (source === 'unsupported') {
       stdout.write(renderManualUpdateMessage(currentVersion, target));
       return 'continue';
     }
 
+    // Run the update where the source install was actually detected — with
+    // LMCODE_HOME set, that is not necessarily ~/.lmcode.
+    const installDir = resolveSourceInstallDir();
+    if (installDir === null) {
+      stdout.write(renderManualUpdateMessage(currentVersion, target));
+      return 'continue';
+    }
+    const installCommand = `cd ${installDir} && git pull && pnpm install && pnpm -r build`;
+
     const confirmed = await promptInstall(currentVersion, target, source, installCommand);
     if (!confirmed) return 'continue';
-
-    const installDir = join(homedir(), '.lmcode');
 
     try {
       await installUpdate(installDir);
