@@ -1,15 +1,14 @@
-// Lazy-loaded — see getEnv() below.
-let _env: ReturnType<typeof createEnv> | undefined;
+import * as nunjucks from 'nunjucks';
 
-function createEnv() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nunjucks = require('nunjucks');
+let environment: nunjucks.Environment | undefined;
+
+function createEnv(): nunjucks.Environment {
   return new nunjucks.Environment(null, { autoescape: false, throwOnUndefined: true });
 }
 
-function getEnv(): ReturnType<typeof createEnv> {
-  if (!_env) _env = createEnv();
-  return _env;
+function getEnv(): nunjucks.Environment {
+  environment ??= createEnv();
+  return environment;
 }
 
 export function renderPrompt(template: string, vars: Record<string, unknown>): string {
