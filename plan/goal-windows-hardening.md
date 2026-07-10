@@ -34,7 +34,7 @@
 | 6 | 文件锁 EPERM/EBUSY：审计所有 rename/unlink 点 | 文件锁 | ✅ 已审，无确定 bug。`logging/sinks.ts` 日志轮转安全（每次 append 开/关文件，轮转时不持有句柄）；`memory/store.ts` rename 已 `.catch`。**潜在项**（非 bug）：`mcp/oauth/store.ts`、`plugin/store.ts` 各自实现"写 tmp→rename"原子写，但未带 `fs.ts atomicWrite` 的 Windows pre-unlink——因 Node `fs.rename` 在 Win 上会替换**已关闭**的目标（MoveFileEx），仅当目标被并发持有才失败。建议后续统一收敛到 `atomicWrite`；oauth 属安全敏感，不做自动 drive-by。 |
 | 7 | `tui/commands/update.ts` 复制了旧更新执行器：裸 spawn `pnpm` 且硬编码 `~/.lmcode`，预检修复未覆盖 `/update`；超时只杀父 shell 且 stdout 未消费 | Shell / home | ✅ 本轮修复：共享 Windows spawn + 安装目录解析；drain stdout，超时终止完整进程树并等待 close |
 | 8 | 外部编辑器无条件 spawn `/bin/sh`，Windows Ctrl-G 必报 ENOENT | Shell | ✅ 本轮修复：Windows 使用 `ComSpec /d /s /c` + `windowsVerbatimArguments`；真实 cmd 写回验证通过 |
-| 9 | `pnpm dev` 引用从未入库的 marketplace server，随后还会直启 `tsx.cmd`，源码入口又在 ESM 中调用裸 `require` | Shell / ESM | ✅ 本轮修复：移除失效 server，Node 直跑 `tsx/cli`，nunjucks 改 ESM import；真实 dev smoke 输出 0.9.8 |
+| 9 | `pnpm dev` 引用从未入库的 marketplace server，随后还会直启 `tsx.cmd`，源码入口又在 ESM 中调用裸 `require`；Node 22 还会拒绝 package-local `#/` specifier | Shell / ESM | ✅ 本轮修复：移除失效 server，Node 直跑 `tsx/cli`，nunjucks 改 ESM import，source loader 按 importer package 解析 `#/`；Node 22 smoke 输出 0.9.8 |
 | 10 | `release.yml` 缺 `.changeset` 且无 publish/auth，约 60 次确定性红灯 | CI | ✅ 本轮移除无效 workflow；现有手工发布流程不变 |
 | 11 | memory 三个 SQLite-heavy 测试文件在 Windows runner 并发建库时偶发撞默认 5s 超时 | CI / 文件锁 | ✅ 本轮仅对 memory 项目关闭文件并行；保留测试隔离与 5s 阈值 |
 
@@ -58,7 +58,7 @@
 - **2026-07-07 · 审计 #6**（文件锁/rename）：无确定 bug；记下 oauth/store、plugin/store 未收敛到 `atomicWrite` 的潜在项。
 - **2026-07-07 · 审计 #3 + 修复 #2**：#3（`node:path`）审计判定纪律良好、无额外确定 bug（详见表）。#2 收掉 detectLmcodePath 分叉——抽 `cli/lm-path.ts` 两处共用 + 纯函数单测。
 - **2026-07-07 · 审计 #4，首轮全审计完成**：bash 工具/shell 探测成熟且测试充分，无确定 bug。
-- **2026-07-10 · 二次进程审计**：PR #10 合入并确认主干 CI 全绿后，复核应用层 spawn 点，修复 #7-#9；同时收掉确定性 Release 红灯 #10 与 Windows SQLite runner 抖动 #11。窄验证：进程/更新测试 10/10、memory 65/65、agent-core 与 lmcode typecheck、lint 0 error、真实 Windows editor/dev/process-tree smoke 通过；整仓 4,876 tests 通过。
+- **2026-07-10 · 二次进程审计**：PR #10 合入并确认主干 CI 全绿后，复核应用层 spawn 点，修复 #7-#9；同时收掉确定性 Release 红灯 #10 与 Windows SQLite runner 抖动 #11。PR #11 首轮 CI 的双平台 dev smoke 继续暴露 Node 22 对非法 `#/` package specifier 的拒绝，新增按 importer package 解析的 source loader。窄验证：进程/更新测试 10/10、loader 3/3、memory 65/65、agent-core 与 lmcode typecheck、lint 0 error、真实 Windows editor/dev/process-tree smoke 通过；整仓 4,876 tests 通过。
 
 ## 首轮全审计结论
 所有方法论类别已覆盖：
