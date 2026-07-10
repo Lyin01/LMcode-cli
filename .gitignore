@@ -10,6 +10,10 @@ coverage/
 .claude
 .conductor
 .lmcode
+# …except test fixtures that deliberately ship a .lmcode dir: the unanchored
+# `.lmcode` rule above swallowed them, so they existed only on the author's
+# machine and every CI run failed on the missing fixture.
+!packages/migration-legacy/test/fixtures/**/.lmcode
 .lmcode-stash-dir
 plugins/cdn/
 superpowers
