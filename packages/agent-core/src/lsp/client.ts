@@ -1,5 +1,7 @@
 import type { Jian, JianProcess } from '@lmcode-cli/jian';
 
+import { adaptSpawnCommandForWindows, platformFromOsKind } from '#/utils/spawn-command';
+
 export interface LspLocation {
   readonly uri: string;
   readonly range: {
@@ -61,8 +63,17 @@ export class LspClient {
       throw new Error('LSP command is empty');
     }
 
+    // Language servers from npm (typescript-language-server, pyright) are
+    // .cmd shims on Windows, which a shell-less spawn cannot execute — wrap
+    // via cmd.exe /c. Platform comes from the jian's host OS, not the local
+    // process: the server runs wherever the jian executes.
+    const adapted = adaptSpawnCommandForWindows(
+      this.command[0]!,
+      this.command.slice(1),
+      platformFromOsKind(this.jian.osEnv.osKind),
+    );
     try {
-      this.process = await this.jian.exec(...this.command);
+      this.process = await this.jian.exec(adapted.command, ...adapted.args);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to start language server ${this.command[0]}: ${message}`, {
