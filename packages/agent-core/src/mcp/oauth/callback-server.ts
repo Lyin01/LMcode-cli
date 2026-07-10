@@ -43,15 +43,37 @@ const ERROR_HTML =
   '<p>The authorization server reported an error. Return to lmcode for details.</p>' +
   '</body></html>';
 
+type CallbackOutcome =
+  | { readonly kind: 'code'; readonly value: CallbackResult }
+  | { readonly kind: 'error'; readonly error: Error };
+
 export async function startCallbackServer(): Promise<CallbackServer> {
   let resolveCode: ((value: CallbackResult) => void) | undefined;
   let rejectCode: ((reason: Error) => void) | undefined;
   let settled = false;
+  // The callback can land before anyone calls waitForCode(): complete() is
+  // invoked by the caller at its own pace, and an already-authorized server
+  // auto-redirects within milliseconds. Without buffering, that outcome was
+  // dropped while `settled` latched — waitForCode() then hung forever (its
+  // timeout also runs through the latch).
+  let pendingOutcome: CallbackOutcome | undefined;
 
   const settle = (fn: () => void) => {
     if (settled) return;
     settled = true;
     fn();
+  };
+
+  const deliver = (outcome: CallbackOutcome) => {
+    settle(() => {
+      if (outcome.kind === 'code' && resolveCode !== undefined) {
+        resolveCode(outcome.value);
+      } else if (outcome.kind === 'error' && rejectCode !== undefined) {
+        rejectCode(outcome.error);
+      } else {
+        pendingOutcome = outcome;
+      }
+    });
   };
 
   const server: Server = createServer((req, res) => {
@@ -78,26 +100,21 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     if (errorParam !== null) {
       const description = url.searchParams.get('error_description') ?? '';
       res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
-      settle(() => {
-        rejectCode?.(
-          new Error(`OAuth error: ${errorParam}${description ? ` — ${description}` : ''}`),
-        );
+      deliver({
+        kind: 'error',
+        error: new Error(`OAuth error: ${errorParam}${description ? ` — ${description}` : ''}`),
       });
       return;
     }
     const code = url.searchParams.get('code');
     if (code === null || code.length === 0) {
       res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
-      settle(() => {
-        rejectCode?.(new Error('OAuth callback missing authorization code'));
-      });
+      deliver({ kind: 'error', error: new Error('OAuth callback missing authorization code') });
       return;
     }
     const state = url.searchParams.get('state') ?? undefined;
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(SUCCESS_HTML);
-    settle(() => {
-      resolveCode?.({ code, state });
-    });
+    deliver({ kind: 'code', value: { code, state } });
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -145,6 +162,14 @@ export async function startCallbackServer(): Promise<CallbackServer> {
         void close();
         reject(reason);
       };
+      // Replay an outcome that arrived before this waiter was armed.
+      if (pendingOutcome !== undefined) {
+        const outcome = pendingOutcome;
+        pendingOutcome = undefined;
+        if (outcome.kind === 'code') resolveCode(outcome.value);
+        else rejectCode(outcome.error);
+        return;
+      }
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
           settle(() => rejectCode?.(new Error('OAuth callback timed out')));
