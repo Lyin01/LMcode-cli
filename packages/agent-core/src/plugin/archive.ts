@@ -4,20 +4,20 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { type Entry, fromBuffer as yauzlFromBuffer } from 'yauzl';
 
+const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+
 export async function downloadZip(url: string, signal?: AbortSignal): Promise<Buffer> {
-  const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => {
-    controller.abort();
-  }, 10 * 60 * 1000);
-  try {
-    const resp = await fetch(url, { signal: signal ?? controller.signal });
-    if (!resp.ok) {
-      throw new Error(`Failed to download zip: HTTP ${resp.status} ${resp.statusText}`);
-    }
-    return Buffer.from(await resp.arrayBuffer());
-  } finally {
-    clearTimeout(timeoutHandle);
+  // Combine rather than substitute: the old `signal ?? timeout` form silently
+  // dropped the 10-minute cap whenever a caller passed its own signal, letting
+  // a hung download block that caller forever.
+  const timeoutSignal = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
+  const effectiveSignal =
+    signal === undefined ? timeoutSignal : AbortSignal.any([signal, timeoutSignal]);
+  const resp = await fetch(url, { signal: effectiveSignal });
+  if (!resp.ok) {
+    throw new Error(`Failed to download zip: HTTP ${resp.status} ${resp.statusText}`);
   }
+  return Buffer.from(await resp.arrayBuffer());
 }
 
 export async function extractZip(buffer: Buffer, destDir: string): Promise<string> {

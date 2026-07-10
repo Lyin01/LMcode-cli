@@ -120,6 +120,36 @@ describe('downloadZip', () => {
 
     await expect(downloadZip(url)).rejects.toThrow(/Failed to download zip: HTTP 404/i);
   });
+
+  it('honors a caller-provided abort signal', async () => {
+    // A server that accepts the connection but never responds — only the
+    // signal can end this request.
+    const { createServer } = await import('node:http');
+    const sockets: import('node:net').Socket[] = [];
+    const server = createServer(() => {
+      /* never respond */
+    });
+    server.on('connection', (socket) => sockets.push(socket));
+    const url = await new Promise<string>((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address()!;
+        resolve(`http://127.0.0.1:${(addr as any).port}`);
+      });
+    });
+
+    try {
+      const controller = new AbortController();
+      const pending = downloadZip(url, controller.signal);
+      controller.abort();
+      // The caller's signal must abort the request even though the internal
+      // 10-minute timeout signal is also armed (they are combined, and the
+      // old `signal ?? timeout` form would have dropped the timeout instead).
+      await expect(pending).rejects.toThrow();
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      server.close();
+    }
+  });
 });
 
 describe('extractZip', () => {
