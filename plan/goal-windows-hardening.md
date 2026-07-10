@@ -4,7 +4,7 @@
 
 **目标**：系统性排查并消除 LMcode 全仓的跨平台隐患，让 Windows（主用户群、宪法红线）与 POSIX 行为一致、无静默降级。
 
-**分支**：`auto/loop-iterations`（`main` 保持干净）。
+**分支**：`codex/windows-process-followup`（`main` 保持干净）。
 
 ## 护栏（不可违反）
 - 主干常绿：每步都要 lint + typecheck/test 通过才提交。
@@ -32,6 +32,11 @@
 | 4 | `tools/builtin/shell/bash.ts` 跨平台命令构造（`type -P`、`/dev/null`、python 探测、`WINDOWS_NUL_REDIRECT`） | Shell | ✅ 已审，无确定 bug。Win 走 Git Bash（`jian/environment.ts` 全面探测：`LMCODE_SHELL_PATH` 覆盖→git.exe 推断→scoop walk-up→PATH bash.exe→知名安装根，找不到抛 `JianShellNotFoundError` 带安装提示）；`WINDOWS_NUL_REDIRECT` 转 `NUL`→`/dev/null`、`windowsPathToPosixPath` 转 cwd。测试充分（environment.test 29 处 win32 断言 + 专门的 bash-windows-kill.test） |
 | 5 | `footer.ts` / `session-picker.ts` 用 `process.env.HOME`（Win 上 undefined）+ `/` 分隔符做 home 别名 → Win 上 `~` 与 footer 截断全失效，显示完整原生长路径 | 临时/home + 路径 | ✅ 已修 `2be80ed`：抽 `tui/utils/path-display.ts` 的 `aliasHome`（os.homedir + 正斜杠视图 + home 可注入），两处共用，10 用例。`/tmp` 扫描仅命中注释，无隐患 |
 | 6 | 文件锁 EPERM/EBUSY：审计所有 rename/unlink 点 | 文件锁 | ✅ 已审，无确定 bug。`logging/sinks.ts` 日志轮转安全（每次 append 开/关文件，轮转时不持有句柄）；`memory/store.ts` rename 已 `.catch`。**潜在项**（非 bug）：`mcp/oauth/store.ts`、`plugin/store.ts` 各自实现"写 tmp→rename"原子写，但未带 `fs.ts atomicWrite` 的 Windows pre-unlink——因 Node `fs.rename` 在 Win 上会替换**已关闭**的目标（MoveFileEx），仅当目标被并发持有才失败。建议后续统一收敛到 `atomicWrite`；oauth 属安全敏感，不做自动 drive-by。 |
+| 7 | `tui/commands/update.ts` 复制了旧更新执行器：裸 spawn `pnpm` 且硬编码 `~/.lmcode`，预检修复未覆盖 `/update`；超时只杀父 shell 且 stdout 未消费 | Shell / home | ✅ 本轮修复：共享 Windows spawn + 安装目录解析；drain stdout，超时终止完整进程树并等待 close |
+| 8 | 外部编辑器无条件 spawn `/bin/sh`，Windows Ctrl-G 必报 ENOENT | Shell | ✅ 本轮修复：Windows 使用 `ComSpec /d /s /c` + `windowsVerbatimArguments`；真实 cmd 写回验证通过 |
+| 9 | `pnpm dev` 引用从未入库的 marketplace server，随后还会直启 `tsx.cmd`，源码入口又在 ESM 中调用裸 `require` | Shell / ESM | ✅ 本轮修复：移除失效 server，Node 直跑 `tsx/cli`，nunjucks 改 ESM import；真实 dev smoke 输出 0.9.8 |
+| 10 | `release.yml` 缺 `.changeset` 且无 publish/auth，约 60 次确定性红灯 | CI | ✅ 本轮移除无效 workflow；现有手工发布流程不变 |
+| 11 | memory 三个 SQLite-heavy 测试文件在 Windows runner 并发建库时偶发撞默认 5s 超时 | CI / 文件锁 | ✅ 本轮仅对 memory 项目关闭文件并行；保留测试隔离与 5s 阈值 |
 
 **已确认安全（无需动）**：
 - `utils/workdir-slug.ts` + `session/store/workdir-key.ts`：保留名/尾点被 `wd_<slug>_<hash>` 包裹中和。
@@ -44,7 +49,7 @@
 - **rg-locator 审计（2026-07-10）**：干净。pinned SHA-256、同目录 staging+rename、chmod 仅 POSIX、`.exe` 命名正确；已缓存二进制短路下载（无"覆盖运行中 exe"路径）。
 - **plugin 子系统审计（2026-07-10）**：整体工程质量高——zip-slip 防护正确（`path.sep` 包含性检查）、staging 建在目标同目录（无 EXDEV）、tmpDir 清理在 finally、github-resolver 的 redirect/配额/ref 编码全部严谨。唯一真缺陷已修 `7dabac7`：`downloadZip` 的 `signal ?? timeout` 会在调用方传 signal 时**静默丢掉 10 分钟超时**（当前无生产调用传 signal，属潜在陷阱）；改用 `AbortSignal.any` 合并。**边缘子系统扫荡至此覆盖：MCP、LSP、update、plugin**。
 - **自更新在 Windows 必坏且留撕裂状态 + LMCODE_HOME 目录错位**（`9d70566` 已修）：`installUpdate` 裸 spawn `pnpm`（.cmd shim → ENOENT，本机实证），且死在 `git pull` 成功**之后**——克隆目录留下"新源码+旧依赖/旧 dist"的半升级状态。修法：`cmd.exe /c` argv 包装（不用 `shell:true`，Node 已对 args 数组形式发 DEP0190 弃用警告，实测会打到用户终端）。第二个 bug：installDir 写死 `~/.lmcode` 而检测尊重 `LMCODE_HOME` → 检测说可更新、更新却跑错目录；抽 `resolveSourceInstallDir()` 作为唯一权威。顺带：Windows 手动升级提示从 `./install.sh` 改为 `install.ps1`。**规律确认**：这是同一 bug 类的第 3 例（MCP→LSP→update），全仓 spawn 点已扫尽。
-- **LSP 语言服务器（TS/Python）在 Windows 全启不动**（`e34bf96` 已修，v0.9.8 后）：与 MCP 同类——`LspClient` 经 `jian.exec`（shell-less spawn）启动 `typescript-language-server`/`pyright-langserver`，它们是 npm `.cmd` shim → 裸名 ENOENT / 直接路径 EINVAL（Node CVE-2024-27980 防护）。rust-analyzer/gopls（真 .exe）不受影响。修法：MCP 适配器提升为共享 `utils/spawn-command.ts`（防两处分叉），LSP 按 `jian.osEnv.osKind`（而非本机 platform）判 Windows。本机实证：直 spawn `.cmd` → EINVAL；`cmd.exe /c` → exit 0。**审计余项**：全仓其余 `jian.exec`/spawn 调用方（git、rg、taskkill）都是真二进制，无同类隐患。
+- **LSP 语言服务器（TS/Python）在 Windows 全启不动**（`e34bf96` 已修，v0.9.8 后）：与 MCP 同类——`LspClient` 经 `jian.exec`（shell-less spawn）启动 `typescript-language-server`/`pyright-langserver`，它们是 npm `.cmd` shim → 裸名 ENOENT / 直接路径 EINVAL（Node CVE-2024-27980 防护）。rust-analyzer/gopls（真 .exe）不受影响。修法：MCP 适配器提升为共享 `utils/spawn-command.ts`（防两处分叉），LSP 按 `jian.osEnv.osKind`（而非本机 platform）判 Windows。本机实证：直 spawn `.cmd` → EINVAL；`cmd.exe /c` → exit 0。后续应用层复核又发现 `/update`、外部编辑器与 dev script 三个遗漏，见 #7-#9；`jian.exec` 内的其余调用方仍确认安全。
 - **MCP stdio 服务在 Windows 全启不动**（`f867f8b` 已修）：MCP SDK 的 transport 用 `shell:false` spawn，Node 无法执行 `npx/npm/pnpm/yarn` 解析到的 `.cmd`/`.bat` shim（`spawn('npx')` → ENOENT，libuv 只补 `.exe` 不补 PATHEXT）。而绝大多数 MCP 服务都是 `npx -y @scope/server` 启动 → **Windows 主用户群的 MCP 功能静默失效**。修法：`client-stdio.ts` 加 `adaptStdioCommandForWindows`，非 `.exe` 命令包 `cmd.exe /c`；单测 + Windows-only 集成测试（真 `.cmd` shim 连通）。本机实测 `spawn('npx',{shell:false})` 复现 ENOENT。
 
 ## 进度日志
@@ -53,6 +58,7 @@
 - **2026-07-07 · 审计 #6**（文件锁/rename）：无确定 bug；记下 oauth/store、plugin/store 未收敛到 `atomicWrite` 的潜在项。
 - **2026-07-07 · 审计 #3 + 修复 #2**：#3（`node:path`）审计判定纪律良好、无额外确定 bug（详见表）。#2 收掉 detectLmcodePath 分叉——抽 `cli/lm-path.ts` 两处共用 + 纯函数单测。
 - **2026-07-07 · 审计 #4，首轮全审计完成**：bash 工具/shell 探测成熟且测试充分，无确定 bug。
+- **2026-07-10 · 二次进程审计**：PR #10 合入并确认主干 CI 全绿后，复核应用层 spawn 点，修复 #7-#9；同时收掉确定性 Release 红灯 #10 与 Windows SQLite runner 抖动 #11。窄验证：进程/更新测试 10/10、memory 65/65、agent-core 与 lmcode typecheck、lint 0 error、真实 Windows editor/dev/process-tree smoke 通过；整仓 4,876 tests 通过。
 
 ## 首轮全审计结论
 所有方法论类别已覆盖：
