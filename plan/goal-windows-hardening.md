@@ -4,7 +4,7 @@
 
 **目标**：系统性排查并消除 LMcode 全仓的跨平台隐患，让 Windows（主用户群、宪法红线）与 POSIX 行为一致、无静默降级。
 
-**分支**：`codex/fix-cc-connect-status`（`main` 保持干净）。
+**分支**：`codex/kill-hook-process-trees`（`main` 保持干净）。
 
 ## 护栏（不可违反）
 - 主干常绿：每步都要 lint + typecheck/test 通过才提交。
@@ -39,6 +39,7 @@
 | 11 | memory 三个 SQLite-heavy 测试文件在 Windows runner 并发建库时偶发撞默认 5s 超时 | CI / 文件锁 | ✅ 本轮仅对 memory 项目关闭文件并行；保留测试隔离与 5s 阈值 |
 | 12 | JIAN process-tree 测试只等 PID 文件存在，可能在 open→write 窗口读到空串并误报 `NaN` | CI / 测试竞态 | ✅ 修复：Windows/POSIX 共用 `waitForPidFile()`，等到内容是正整数；生产 kill 断言保持不变 |
 | 13 | `cc-connect` 状态探测在 Windows 匹配 PowerShell 查询自身、在 POSIX 匹配 `pgrep` 的父 shell，未运行时页脚仍显示 active | 进程 / 状态 | ✅ 修复：Windows needle 经环境变量传入并排除完整祖先链；POSIX 改用无 shell 的 `execFile(pgrep)`；双平台真实进程契约测试覆盖 false→true |
+| 14 | Hook timeout/abort 在 Windows 只终止父 shell，后代脚本会在 runner 已返回后继续执行 | 进程 / 取消 | ✅ 修复：先抢占 timeout/abort outcome，再等待进程树终止后 resolve；Windows `taskkill /T /F`，POSIX 保留进程组 TERM→KILL；真实后代 PID 契约覆盖两条状态转换 |
 
 **已确认安全（无需动）**：
 - `utils/workdir-slug.ts` + `session/store/workdir-key.ts`：保留名/尾点被 `wd_<slug>_<hash>` 包裹中和。
@@ -63,6 +64,7 @@
 - **2026-07-10 · 二次进程审计**：PR #10 合入并确认主干 CI 全绿后，复核应用层 spawn 点，修复 #7-#9；同时收掉确定性 Release 红灯 #10 与 Windows SQLite runner 抖动 #11。PR #11 首轮 CI 的双平台 dev smoke 继续暴露 Node 22 对非法 `#/` package specifier 的拒绝，新增按 importer package 解析的 source loader。窄验证：进程/更新测试 10/10、loader 3/3、memory 65/65、agent-core 与 lmcode typecheck、lint 0 error、真实 Windows editor/dev/process-tree smoke 通过；整仓 4,876 tests 通过。
 - **2026-07-10 · 主干 flaky 收尾**：PR #11 合入后，同 tree 的 Ubuntu process-tree 测试在 PID 文件已创建但尚未写入的窗口读到空串；Windows、build、lint、typecheck 均绿。修复 #12，本机 Windows 对称用例连续 10 轮通过，交由 Ubuntu PR CI 验证 POSIX 路径。
 - **2026-07-10 · PR #12 与 cc-connect 状态收尾**：PR #12 rebase 合入 `main`（`7806892`），主干 CI `29095433188` 双平台测试、build、lint、typecheck 全绿，且只触发 CI、不再触发已删除的 Release workflow。随后实证 #13：没有 daemon 时 Windows 查询与 POSIX `pgrep` 都会命中自己的探测进程；失败测试先行复现，修后 Windows 真实入口返回 false，并用唯一 marker 契约在 Windows/Ubuntu 分别验证 unmanaged 目标仍可检出。
+- **2026-07-10 · PR #13 与 hook 取消语义**：PR #13 rebase 合入 `main`（`f295688`），主干 CI `29097835205` 双平台全绿且仍只触发 CI。随后实证 #14：Windows hook timeout 返回后，Node 后代仍存活并写出 marker；runner 改为同步 claim 结果、异步清理整棵树、清理完成后才 resolve，避免 child close 抢走 timeout/abort 语义。Windows 聚焦测试连续 3 轮通过，hooks 40/40、agent-core 2,417 tests、typecheck、目标 lint 全绿。
 
 ## 首轮全审计结论
 所有方法论类别已覆盖：
