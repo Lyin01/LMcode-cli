@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 
 import { describe, expect, it } from 'vitest';
 
-import { detectInstallSource } from '#/cli/update/source';
+import { detectInstallSource, resolveSourceInstallDir } from '#/cli/update/source';
 
 describe('detectInstallSource', () => {
   it('returns source when the install directory contains a .git directory', () => {
@@ -43,5 +43,44 @@ describe('detectInstallSource', () => {
         existsSync: (path: string) => path === '/home/user/.lmcode',
       }),
     ).toBe('unsupported');
+  });
+});
+
+describe('resolveSourceInstallDir', () => {
+  it('returns the configured install dir when it contains .git', () => {
+    expect(
+      resolveSourceInstallDir({
+        getInstallDir: () => '/home/user/.lmcode',
+        existsSync: (path: string) => path === '/home/user/.lmcode/.git',
+      }),
+    ).toBe('/home/user/.lmcode');
+  });
+
+  it('normalizes a Windows-style install dir to forward slashes', () => {
+    expect(
+      resolveSourceInstallDir({
+        getInstallDir: () => 'C:\\Users\\dev\\.lmcode',
+        existsSync: (path: string) => path === 'C:/Users/dev/.lmcode/.git',
+      }),
+    ).toBe('C:/Users/dev/.lmcode');
+  });
+
+  it('falls back to the legacy ~/.lmcode clone when LMCODE_HOME points elsewhere', () => {
+    const legacyDir = `${homedir().replace(/\\/g, '/')}/.lmcode`;
+    expect(
+      resolveSourceInstallDir({
+        getInstallDir: () => '/custom/path',
+        existsSync: (path: string) => path === `${legacyDir}/.git`,
+      }),
+    ).toBe(legacyDir);
+  });
+
+  it('returns null when no source install exists', () => {
+    expect(
+      resolveSourceInstallDir({
+        getInstallDir: () => '/home/user/.lmcode',
+        existsSync: () => false,
+      }),
+    ).toBeNull();
   });
 });

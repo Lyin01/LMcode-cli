@@ -32,20 +32,29 @@ export interface DetectInstallSourceDeps {
   readonly existsSync: (path: string) => boolean;
 }
 
-export function detectInstallSource(
+/**
+ * Resolve the directory of a source (git clone) install, or `null` when the
+ * running CLI was not installed from source.
+ *
+ * This is the single authority for *where* the install lives: the update
+ * installer must run `git pull` / `pnpm` in the directory that was actually
+ * detected, not a hardcoded `~/.lmcode` — with `LMCODE_HOME` pointing at a
+ * custom clone, those two differ and the update would run in the wrong place.
+ */
+export function resolveSourceInstallDir(
   deps: Partial<DetectInstallSourceDeps> = {},
-): InstallSource {
+): string | null {
   const resolved: DetectInstallSourceDeps = {
     getInstallDir: deps.getInstallDir ?? (() => resolveLmcodeHome()),
     existsSync: deps.existsSync ?? existsSync,
   };
 
-  const installDir = resolved.getInstallDir();
+  const installDir = joinPosix(resolved.getInstallDir());
 
   // Source install is recognised when the install directory contains a .git
   // directory — this matches the layout produced by install.sh / install.ps1.
   if (resolved.existsSync(joinPosix(installDir, '.git'))) {
-    return 'source';
+    return installDir;
   }
 
   // Also recognise the legacy ~/.lmcode path even when LMCODE_HOME
@@ -53,8 +62,14 @@ export function detectInstallSource(
   // clone location).
   const legacyDir = joinPosix(homedir(), LMCODE_DATA_DIR_NAME);
   if (legacyDir !== installDir && resolved.existsSync(joinPosix(legacyDir, '.git'))) {
-    return 'source';
+    return legacyDir;
   }
 
-  return 'unsupported';
+  return null;
+}
+
+export function detectInstallSource(
+  deps: Partial<DetectInstallSourceDeps> = {},
+): InstallSource {
+  return resolveSourceInstallDir(deps) === null ? 'unsupported' : 'source';
 }
