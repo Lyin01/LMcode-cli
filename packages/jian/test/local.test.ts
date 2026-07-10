@@ -1,4 +1,4 @@
-import { mkdtemp, realpath as nodeRealpath, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath as nodeRealpath, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 
 import { join, normalize } from 'pathe';
@@ -30,6 +30,20 @@ const symlinkSupported = await (async (): Promise<boolean> => {
 
 function nodeArgs(code: string): string[] {
   return ['node', '-e', code];
+}
+
+async function waitForPidFile(path: string): Promise<number> {
+  const start = Date.now();
+  while (Date.now() - start < 5_000) {
+    try {
+      const pid = Number.parseInt((await readFile(path, 'utf-8')).trim(), 10);
+      if (Number.isInteger(pid) && pid > 0) return pid;
+    } catch {
+      // The writer has not created the file yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for a valid PID in ${path}`);
 }
 
 describe('LocalJian', () => {
@@ -776,20 +790,8 @@ describe('LocalProcess.kill safety', () => {
         `;
         const proc = await jian.exec('node', '-e', code);
 
-        // Wait for grandchild pid to be written.
-        const { stat, readFile } = await import('node:fs/promises');
         const pidPath = join(tmp, 'grandchild.pid');
-        const start = Date.now();
-        while (Date.now() - start < 5000) {
-          try {
-            if ((await stat(pidPath)).isFile()) break;
-          } catch {
-            /* not yet */
-          }
-          await new Promise((r) => setTimeout(r, 50));
-        }
-        const grandchildPid = Number.parseInt((await readFile(pidPath, 'utf-8')).trim(), 10);
-        expect(Number.isNaN(grandchildPid)).toBe(false);
+        const grandchildPid = await waitForPidFile(pidPath);
 
         // Force-kill the parent tree. On Windows, jian maps SIGKILL to
         // `taskkill /T /F`, which tears down the whole tree; a graceful
@@ -844,18 +846,7 @@ describe('LocalProcess.kill safety', () => {
         `;
         const proc = await jian.exec('bash', '-c', script);
 
-        const { stat, readFile } = await import('node:fs/promises');
-        const start = Date.now();
-        while (Date.now() - start < 5000) {
-          try {
-            if ((await stat(pidFile)).isFile()) break;
-          } catch {
-            /* not yet */
-          }
-          await new Promise((r) => setTimeout(r, 50));
-        }
-        const grandchildPid = Number.parseInt((await readFile(pidFile, 'utf-8')).trim(), 10);
-        expect(Number.isNaN(grandchildPid)).toBe(false);
+        const grandchildPid = await waitForPidFile(pidFile);
 
         await proc.kill('SIGTERM');
         await proc.wait();
