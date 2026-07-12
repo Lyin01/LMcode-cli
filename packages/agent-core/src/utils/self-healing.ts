@@ -5,6 +5,8 @@ import * as vm from 'node:vm';
 import { parseHTML } from 'linkedom';
 import type { Browser, BrowserType } from 'playwright-core';
 
+import { abortable } from './abort';
+
 export interface TypeScriptRuntime {
   readonly ScriptTarget: { readonly Latest: number };
   readonly ScriptKind: { readonly JS: number };
@@ -33,13 +35,17 @@ let playwrightModule: PlaywrightRuntime | null | undefined;
 // where uncleared-buffer ghosts, never-ending particle fields and leftover
 // shapes show up. Capturing only up to ~15s misses that entire class of bugs.
 export const RUNTIME_KEYFRAME_TIMES_MS = [0, 4000, 9000, 15000, 20000];
+export const MAX_SELF_HEALING_SOURCE_BYTES = 256 * 1024;
 
 export type HtmlRuntimeValidation =
   | { readonly status: 'passed' }
   | { readonly status: 'failed' }
   | {
       readonly status: 'skipped';
-      readonly reason: 'playwright-unavailable' | 'runtime-validation-error';
+      readonly reason:
+        | 'playwright-unavailable'
+        | 'runtime-validation-error'
+        | 'source-too-large';
       readonly detail: string | undefined;
     };
 
@@ -48,7 +54,10 @@ export type SyntaxValidation =
   | { readonly status: 'failed' }
   | {
       readonly status: 'skipped';
-      readonly reason: 'typescript-unavailable' | 'syntax-validation-error';
+      readonly reason:
+        | 'typescript-unavailable'
+        | 'syntax-validation-error'
+        | 'source-too-large';
       readonly detail: string | undefined;
     };
 
@@ -67,18 +76,38 @@ interface SyntaxCheckResult {
 
 export interface HtmlRuntimeValidationOptions {
   readonly loadPlaywright?: (() => Promise<PlaywrightRuntime | null>) | undefined;
+  readonly signal?: AbortSignal | undefined;
 }
 
 export interface SyntaxValidationOptions {
   readonly loadTypeScript?: (() => Promise<TypeScriptRuntime | null>) | undefined;
+  readonly signal?: AbortSignal | undefined;
 }
 
-export interface FileValidationOptions
-  extends HtmlRuntimeValidationOptions,
-    SyntaxValidationOptions {}
+export interface FileValidationOptions {
+  readonly loadPlaywright?: (() => Promise<PlaywrightRuntime | null>) | undefined;
+  readonly loadTypeScript?: (() => Promise<TypeScriptRuntime | null>) | undefined;
+  readonly signal?: AbortSignal | undefined;
+}
 
 export interface PlaywrightRuntime {
   readonly chromium: BrowserType;
+}
+
+function awaitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  return signal === undefined ? promise : abortable(promise, signal);
+}
+
+async function sleepWithSignal(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  let timer!: NodeJS.Timeout;
+  const sleep = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await awaitWithSignal(sleep, signal);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Lazy dynamic imports for optional dependencies
@@ -261,7 +290,8 @@ async function validateJavaScriptModuleWithEvidence(
   filepath: string,
   options: SyntaxValidationOptions = {},
 ): Promise<SyntaxCheckResult> {
-  const ts = await (options.loadTypeScript ?? getTs)();
+  const ts = await awaitWithSignal((options.loadTypeScript ?? getTs)(), options.signal);
+  options.signal?.throwIfAborted();
   if (!ts) {
     return skippedSyntaxValidation('typescript-unavailable', undefined);
   }
@@ -329,7 +359,8 @@ async function validateTypeScriptWithEvidence(
   filepath: string,
   options: SyntaxValidationOptions = {},
 ): Promise<SyntaxCheckResult> {
-  const ts = await (options.loadTypeScript ?? getTs)();
+  const ts = await awaitWithSignal((options.loadTypeScript ?? getTs)(), options.signal);
+  options.signal?.throwIfAborted();
   if (!ts) {
     return skippedSyntaxValidation('typescript-unavailable', undefined);
   }
@@ -460,7 +491,11 @@ export async function validateHtmlRuntime(
   content: string,
   options: HtmlRuntimeValidationOptions = {},
 ): Promise<FileValidationResult> {
-  const playwright = await (options.loadPlaywright ?? getPlaywright)();
+  const playwright = await awaitWithSignal(
+    (options.loadPlaywright ?? getPlaywright)(),
+    options.signal,
+  );
+  options.signal?.throwIfAborted();
   if (!playwright) {
     return {
       error: null,
@@ -477,13 +512,23 @@ export async function validateHtmlRuntime(
   let browser: Browser | undefined;
   try {
     const executablePath = resolveChromiumExecutable();
-    const launchedBrowser = await playwright.chromium.launch({
+    const launchPromise = playwright.chromium.launch({
       headless: true,
       executablePath,
     });
+    void launchPromise.then(
+      (lateBrowser) => {
+        if (options.signal?.aborted === true) void lateBrowser.close().catch(() => {});
+      },
+      () => {},
+    );
+    const launchedBrowser = await awaitWithSignal(launchPromise, options.signal);
     browser = launchedBrowser;
-    const context = await launchedBrowser.newContext({ viewport: { width: 1200, height: 800 } });
-    const page = await context.newPage();
+    const context = await awaitWithSignal(
+      launchedBrowser.newContext({ viewport: { width: 1200, height: 800 } }),
+      options.signal,
+    );
+    const page = await awaitWithSignal(context.newPage(), options.signal);
 
     const errorsMap = new Map<string, number>();
     const registerError = (msg: string) => {
@@ -501,7 +546,10 @@ export async function validateHtmlRuntime(
     });
 
     const fileUrl = `file://${filepath.replace(/\\/g, '/')}`;
-    await page.goto(fileUrl, { waitUntil: 'load', timeout: 5000 });
+    await awaitWithSignal(
+      page.goto(fileUrl, { waitUntil: 'load', timeout: 5000 }),
+      options.signal,
+    );
 
     const screenshots: string[] = [];
     const isCanvasAnimation =
@@ -513,13 +561,13 @@ export async function validateHtmlRuntime(
       for (const at of RUNTIME_KEYFRAME_TIMES_MS) {
         const wait = at - lastAt;
         lastAt = at;
-        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-        const buf = await page.screenshot({ type: 'png' });
+        if (wait > 0) await sleepWithSignal(wait, options.signal);
+        const buf = await awaitWithSignal(page.screenshot({ type: 'png' }), options.signal);
         screenshots.push(buf.toString('base64'));
       }
     } else {
-      await new Promise((r) => setTimeout(r, 2000));
-      const buf = await page.screenshot({ type: 'png' });
+      await sleepWithSignal(2000, options.signal);
+      const buf = await awaitWithSignal(page.screenshot({ type: 'png' }), options.signal);
       screenshots.push(buf.toString('base64'));
     }
 
@@ -561,6 +609,7 @@ export async function validateHtmlRuntime(
       keyframeTimesMs,
     };
   } catch (error: unknown) {
+    if (options.signal?.aborted === true) options.signal.throwIfAborted();
     return {
       error: null,
       syntax: undefined,
@@ -575,9 +624,10 @@ export async function validateHtmlRuntime(
   } finally {
     if (browser) {
       try {
-        await browser.close();
+        await awaitWithSignal(browser.close(), options.signal);
       } catch {}
     }
+    if (options.signal?.aborted === true) options.signal.throwIfAborted();
   }
 }
 
@@ -586,7 +636,35 @@ export async function validateFileSyntaxWithScreenshots(
   content: string,
   options: FileValidationOptions = {},
 ): Promise<FileValidationResult> {
+  options.signal?.throwIfAborted();
   const ext = filepath.split('.').pop()?.toLowerCase();
+  const sourceBytes = Buffer.byteLength(content, 'utf8');
+  if (sourceBytes > MAX_SELF_HEALING_SOURCE_BYTES) {
+    const detail =
+      `Source is ${String(sourceBytes)} bytes; automatic validation is limited to ` +
+      `${String(MAX_SELF_HEALING_SOURCE_BYTES)} bytes.`;
+    const validatesSyntax =
+      ext === 'js' ||
+      ext === 'mjs' ||
+      ext === 'cjs' ||
+      ext === 'ts' ||
+      ext === 'mts' ||
+      ext === 'cts' ||
+      ext === 'html' ||
+      ext === 'htm';
+    const validatesRuntime = ext === 'html' || ext === 'htm';
+    return {
+      error: null,
+      syntax: validatesSyntax
+        ? { status: 'skipped', reason: 'source-too-large', detail }
+        : undefined,
+      runtime: validatesRuntime
+        ? { status: 'skipped', reason: 'source-too-large', detail }
+        : undefined,
+      screenshots: undefined,
+      keyframeTimesMs: undefined,
+    };
+  }
   if (ext === 'js') {
     // Ambiguous goal: plain ESM `.js` is everywhere, so auto-detect.
     return staticValidationResult(
@@ -606,6 +684,7 @@ export async function validateFileSyntaxWithScreenshots(
   }
   if (ext === 'html' || ext === 'htm') {
     const htmlValidation = await validateHtmlScriptsWithEvidence(content, filepath, options);
+    options.signal?.throwIfAborted();
     if (htmlValidation.error) return staticValidationResult(htmlValidation);
     return {
       ...(await validateHtmlRuntime(filepath, content, options)),

@@ -24,7 +24,11 @@ import {
 } from '../../loop/index';
 import type { ExecutableToolOutput } from '../../loop/types';
 import type { AgentEvent, TurnEndedEvent } from '../../rpc';
-import { abortable, userCancellationReason } from '../../utils/abort';
+import {
+  abortable,
+  createDeadlineAbortSignal,
+  userCancellationReason,
+} from '../../utils/abort';
 import { USER_PROMPT_ORIGIN, type PromptOrigin } from '../context';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { ToolCallDeduplicator } from './tool-dedup';
@@ -33,7 +37,10 @@ import SPEC_CRITIC_CONTINUATION_PROMPT from './spec-critic-continuation.md';
 import SPEC_CRITIC_SYSTEM_PROMPT from './spec-critic-system.md';
 import VISUAL_AUDITOR_SYSTEM_PROMPT from './visual-auditor-system.md';
 import { resolvePathAccessPath } from '../../tools/policies/path-access';
-import { validateFileSyntaxWithScreenshots } from '../../utils/self-healing';
+import {
+  MAX_SELF_HEALING_SOURCE_BYTES,
+  validateFileSyntaxWithScreenshots,
+} from '../../utils/self-healing';
 
 interface ActiveTurn {
   controller: AbortController;
@@ -77,13 +84,37 @@ const SPEC_CRITIC_MAX_REQUEST_CHARS = 6_000;
 const SPEC_CRITIC_MAX_RESPONSE_CHARS = 4_000;
 const SPEC_CRITIC_MAX_VALIDATION_CHARS = 4_000;
 const SPEC_CRITIC_MAX_FILES = 30;
+const SPEC_CRITIC_INCONCLUSIVE_FINDING =
+  'The automated specification review returned no valid verdict. Re-check every explicit requirement against the changed artifacts and available validation evidence before completing.';
 const DIRECT_ANSWER_REVIEW_MIN_LENGTH = 20;
 const DIRECT_ANSWER_FIDELITY_MAX_CONTINUATIONS = 3;
+const POST_WRITE_STAGE_TIMEOUT_MS = 30_000;
 const DIRECT_ANSWER_REVIEW_PATTERNS: readonly RegExp[] = [
   /可分辨|手感|能看到|看得见|可观察|可检测|可选择|能选择|可控制|提前决定/u,
   /最少|最多|保证|必然|一定|无论|至少|至多/u,
   /必须|不要|不能|不得|输出格式|严格|完整/u,
 ];
+
+async function withPostWriteStageDeadline<T>(
+  sourceSignal: AbortSignal,
+  review: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const deadline = createDeadlineAbortSignal(sourceSignal, POST_WRITE_STAGE_TIMEOUT_MS);
+  try {
+    return await abortable(review(deadline.signal), deadline.signal);
+  } catch (error) {
+    if (sourceSignal.aborted) sourceSignal.throwIfAborted();
+    if (deadline.timedOut()) {
+      throw new Error('Automatic post-write stage timed out after 30 seconds', { cause: error });
+    }
+    if (isAbortError(error)) {
+      throw new Error('Automatic post-write stage was aborted unexpectedly', { cause: error });
+    }
+    throw error;
+  } finally {
+    deadline.clear();
+  }
+}
 
 const DIRECT_ANSWER_OBSERVABLE_OR_CONTROL_PATTERN =
   /(?:\u53ef\u5206\u8fa8|\u624b\u611f|\u80fd\u6478\u51fa|\u53ef\u6478\u51fa|\u80fd\u770b\u5230|\u770b\u5f97\u89c1|\u53ef\u89c2\u5bdf|\u53ef\u68c0\u6d4b|\u53ef\u9009\u62e9|\u80fd\u9009\u62e9|\u53ef\u63a7\u5236|\u63d0\u524d\u51b3\u5b9a)/u;
@@ -575,7 +606,7 @@ export class TurnFlow {
                   '## Files the agent changed',
                   files.length > 0 ? files : '(none)',
                   '',
-                  '## Automatic validation limitations',
+                  '## Automatic validation evidence',
                   limitations.length > 0
                     ? limitations
                     : '(none recorded; absence is not evidence that validation ran)',
@@ -595,14 +626,15 @@ export class TurnFlow {
         this.agent.usage.record(this.agent.config.model, response.usage, 'turn');
       }
       const verdict = generateResultText(response).trim();
-      if (verdict.length === 0 || verdict.startsWith('SPEC_OK')) return undefined;
       const markerIndex = verdict.indexOf('SPEC_MISSING');
-      if (markerIndex < 0) return undefined;
-      const missing = verdict
-        .slice(markerIndex + 'SPEC_MISSING'.length)
-        .replace(/^[:\s]+/, '')
-        .trim();
-      return missing.length > 0 ? missing : undefined;
+      if (markerIndex >= 0) {
+        const missing = verdict
+          .slice(markerIndex + 'SPEC_MISSING'.length)
+          .replace(/^[:\s]+/, '')
+          .trim();
+        if (missing.length > 0) return missing;
+      }
+      return verdict === 'SPEC_OK' ? undefined : SPEC_CRITIC_INCONCLUSIVE_FINDING;
     } catch (error) {
       if (isAbortError(error)) throw error;
       this.agent.log.warn('spec critic failed; completing turn without review', { error });
@@ -624,7 +656,39 @@ export class TurnFlow {
     let directAnswerFidelityContinuationCount = 0;
     const specMutatedPaths = new Set<string>();
     const validationLimitations = new Map<string, string>();
-    const deduper = new ToolCallDeduplicator();
+    const deduper = new ToolCallDeduplicator(
+      this.agent.config.cwd,
+      this.agent.jian.pathClass(),
+      this.agent.jian.gethome(),
+    );
+    let dedupContextHistory = this.agent.context.history;
+    let dedupMicroCompactionRevision = this.agent.microCompaction.revision;
+    let dedupHookExecutionRevision = this.agent.hooks?.executionRevision ?? 0;
+    let dedupBackgroundRevision = this.agent.background.workspaceSideEffectRevision;
+    const refreshDedupContext = (): void => {
+      const currentContextHistory = this.agent.context.history;
+      const currentMicroCompactionRevision = this.agent.microCompaction.revision;
+      const currentHookExecutionRevision = this.agent.hooks?.executionRevision ?? 0;
+      const currentBackgroundRevision = this.agent.background.workspaceSideEffectRevision;
+      if (
+        currentContextHistory !== dedupContextHistory ||
+        currentMicroCompactionRevision !== dedupMicroCompactionRevision ||
+        currentHookExecutionRevision !== dedupHookExecutionRevision ||
+        currentBackgroundRevision !== dedupBackgroundRevision
+      ) {
+        deduper.clearReadCoverage();
+      }
+      dedupContextHistory = currentContextHistory;
+      dedupMicroCompactionRevision = currentMicroCompactionRevision;
+      dedupHookExecutionRevision = currentHookExecutionRevision;
+      dedupBackgroundRevision = currentBackgroundRevision;
+      if (
+        this.agent.hooks?.hasActiveExecutions === true ||
+        this.agent.background.hasActiveWorkspaceTasks
+      ) {
+        deduper.disableReadCoverage();
+      }
+    };
     await this.agent.mcp?.waitForInitialLoad(signal);
     while (true) {
       signal.throwIfAborted();
@@ -645,6 +709,7 @@ export class TurnFlow {
             beforeStep: async ({ signal: stepSignal, stepNumber }) => {
               this.flushSteerBuffer();
               await this.agent.fullCompaction.beforeStep(stepSignal);
+              refreshDedupContext();
 
               // Only inject on the first step of each turn to preserve
               // the prefix-cache across steps within the same turn.
@@ -765,6 +830,7 @@ export class TurnFlow {
               return { continue: false };
             },
             prepareToolExecution: async (ctx) => {
+              refreshDedupContext();
               const cached = deduper.checkSameStep(
                 ctx.toolCall.id,
                 ctx.toolCall.name,
@@ -774,22 +840,48 @@ export class TurnFlow {
               return undefined;
             },
             authorizeToolExecution: async (ctx) => {
-              return this.agent.permission.beforeToolCall(ctx);
+              const authorization = await this.agent.permission.beforeToolCall(ctx);
+              refreshDedupContext();
+              if (
+                authorization?.block !== true &&
+                authorization?.syntheticResult === undefined
+              ) {
+                const argRecord =
+                  typeof ctx.args === 'object' && ctx.args !== null
+                    ? (ctx.args as Record<string, unknown>)
+                    : undefined;
+                const hasAsynchronousWorkspaceSideEffects =
+                  ctx.toolCall.name === 'Agent' ||
+                  ctx.toolCall.name === 'WolfPack' ||
+                  (ctx.toolCall.name === 'Bash' && argRecord?.['run_in_background'] === true);
+                if (hasAsynchronousWorkspaceSideEffects) {
+                  deduper.disableReadCoverage();
+                } else {
+                  deduper.observeAuthorizedExecution(
+                    ctx.toolCall.id,
+                    ctx.execution.accesses,
+                  );
+                }
+              }
+              return authorization;
             },
             finalizeToolResult: async (ctx) => {
-              // Resolve dedup BEFORE firing the PostToolUse hook so same-step
-              // dups (whose ctx.result is the dedup placeholder) report the
-              // original's real outcome, not an empty success.
+              const sameStepDuplicate = deduper.isSameStepDuplicate(ctx.toolCall.id);
               let finalResult = await deduper.finalizeResult(
                 ctx.toolCall.id,
                 ctx.toolCall.name,
                 ctx.args,
                 ctx.result,
               );
+              if (sameStepDuplicate) {
+                ctx.signal.throwIfAborted();
+                finalResult = deduper.finalResultForCall(ctx.toolCall.id, finalResult);
+              }
 
               // Track successful file mutations for the spec-consistency
               // critic that runs when the turn stops.
               if (
+                !sameStepDuplicate &&
                 finalResult.isError !== true &&
                 (ctx.toolCall.name === 'Write' ||
                   ctx.toolCall.name === 'Edit' ||
@@ -804,6 +896,7 @@ export class TurnFlow {
 
               // ── Post-write self-healing validation ──
               if (
+                !sameStepDuplicate &&
                 finalResult.isError !== true &&
                 this.agent.lmcodeConfig?.enableSelfHealing !== false &&
                 (ctx.toolCall.name === 'Write' ||
@@ -830,53 +923,94 @@ export class TurnFlow {
                       this.agent.jian.pathClass() === 'win32'
                         ? resolvedPath.toLowerCase()
                         : resolvedPath;
-                    clearValidationLimitationsForPath(
+                    const { content, validationRes } = await withPostWriteStageDeadline(
+                      signal,
+                      async (validationSignal) => {
+                        const content = await abortable(
+                          this.agent.jian.readText(resolvedPath),
+                          validationSignal,
+                        );
+                        const validationRes = await validateFileSyntaxWithScreenshots(
+                          resolvedPath,
+                          content,
+                          { signal: validationSignal },
+                        );
+                        return { content, validationRes };
+                      },
+                    );
+                    clearValidationLimitation(
                       validationLimitations,
                       validationPathKey,
+                      'overall',
                     );
-                    const content = await this.agent.jian.readText(resolvedPath);
-                    const validationRes = await validateFileSyntaxWithScreenshots(resolvedPath, content);
+
+                    if (validationRes.syntax?.status === 'passed') {
+                      clearValidationLimitation(
+                        validationLimitations,
+                        validationPathKey,
+                        'syntax',
+                      );
+                    } else if (validationRes.syntax?.status === 'skipped') {
+                      this.agent.log.warn('Static syntax validation skipped', {
+                        path,
+                        reason: validationRes.syntax.reason,
+                        detail: validationRes.syntax.detail,
+                      });
+                      addValidationLimitation(
+                        validationNotices,
+                        validationLimitations,
+                        validationPathKey,
+                        validationPath,
+                        'syntax',
+                        `Automatic syntax validation was skipped (${validationRes.syntax.reason}). ` +
+                          'Do not claim that syntax was verified unless a separate parser or build check succeeds.',
+                      );
+                    }
+
+                    if (validationRes.runtime?.status === 'passed') {
+                      clearValidationLimitation(
+                        validationLimitations,
+                        validationPathKey,
+                        'runtime',
+                      );
+                    } else if (validationRes.runtime?.status === 'skipped') {
+                      this.agent.log.warn('HTML runtime validation skipped', {
+                        path,
+                        reason: validationRes.runtime.reason,
+                        detail: validationRes.runtime.detail,
+                      });
+                      addValidationLimitation(
+                        validationNotices,
+                        validationLimitations,
+                        validationPathKey,
+                        validationPath,
+                        'runtime',
+                        `Automatic browser validation was skipped (${validationRes.runtime.reason}). ` +
+                          'Runtime behavior and visual output were not verified. ' +
+                          'Do not claim browser or visual verification unless a separate observable browser check succeeds.',
+                      );
+                    }
+
                     if (validationRes.error) {
+                      const failureKind: ValidationLimitationKind =
+                        validationRes.syntax?.status === 'failed'
+                          ? 'syntax'
+                          : validationRes.runtime?.status === 'failed'
+                            ? 'runtime'
+                            : 'overall';
+                      addValidationLimitation(
+                        validationNotices,
+                        validationLimitations,
+                        validationPathKey,
+                        validationPath,
+                        failureKind,
+                        `Automatic ${failureKind} validation failed: ${summarizeValidationFailure(validationRes.error)}`,
+                      );
                       finalResult = {
                         isError: true,
                         output: `Code validation failed. Please fix the following issue:\n${validationRes.error}`,
                       };
                     } else {
-                      if (validationRes.syntax?.status === 'skipped') {
-                        this.agent.log.warn('Static syntax validation skipped', {
-                          path,
-                          reason: validationRes.syntax.reason,
-                          detail: validationRes.syntax.detail,
-                        });
-                        addValidationLimitation(
-                          validationNotices,
-                          validationLimitations,
-                          validationPathKey,
-                          validationPath,
-                          'syntax',
-                          `Automatic syntax validation was skipped (${validationRes.syntax.reason}). ` +
-                            'Do not claim that syntax was verified unless a separate parser or build check succeeds.',
-                        );
-                      }
-
-                      if (validationRes.runtime?.status === 'skipped') {
-                        this.agent.log.warn('HTML runtime validation skipped', {
-                          path,
-                          reason: validationRes.runtime.reason,
-                          detail: validationRes.runtime.detail,
-                        });
-                        addValidationLimitation(
-                          validationNotices,
-                          validationLimitations,
-                          validationPathKey,
-                          validationPath,
-                          'runtime',
-                          `Automatic browser validation was skipped (${validationRes.runtime.reason}). ` +
-                            'Runtime behavior and visual output were not verified. ' +
-                            'Do not claim browser or visual verification unless a separate observable browser check succeeds.',
-                        );
-                      }
-
                       // Run the visual auditor only when keyframes exist and the model can inspect them.
                       let visualRejected = false;
                       let visualFeedback = '';
@@ -901,12 +1035,13 @@ export class TurnFlow {
                             const keyTimes = validationRes.keyframeTimesMs;
                             const frameLines = screenshots
                               .map((_, i) => {
-                                const isLast = i === screenshots.length - 1;
+                                const isTerminal =
+                                  screenshots.length > 1 && i === screenshots.length - 1;
                                 const at =
                                   keyTimes && keyTimes[i] != null
                                     ? `${(keyTimes[i] / 1000).toFixed(1)}s`
                                     : `frame ${i + 1}`;
-                                return `- Screenshot ${i + 1}: ${at}${isLast ? ' — TERMINAL / end state' : ''}`;
+                                return `- Screenshot ${i + 1}: ${at}${isTerminal ? ' — TERMINAL / end state' : ''}`;
                               })
                               .join('\n');
 
@@ -937,11 +1072,17 @@ export class TurnFlow {
                               toolCalls: [],
                             });
 
-                            const visualResponse = await this.agent.rawGenerate(
-                              this.agent.config.provider,
-                              visualSystemPrompt,
-                              [],
-                              visualHistory,
+                            const visualResponse = await withPostWriteStageDeadline(
+                              signal,
+                              (reviewSignal) =>
+                                this.agent.generate(
+                                  this.agent.config.provider,
+                                  visualSystemPrompt,
+                                  [],
+                                  visualHistory,
+                                  undefined,
+                                  { signal: reviewSignal },
+                                ),
                             );
                             const visualText = contentPartsText(
                               visualResponse.message.content,
@@ -949,8 +1090,23 @@ export class TurnFlow {
 
                             if (visualText.startsWith('VISUAL_REJECT:')) {
                               visualRejected = true;
-                              visualFeedback = `Visual review rejected by LMM Auditor:\n${visualText.substring(14).trim()}`;
-                            } else if (visualText !== 'VISUAL_APPROVE') {
+                              const rejection = visualText.substring(14).trim();
+                              visualFeedback = `Visual review rejected by LMM Auditor:\n${rejection}`;
+                              addValidationLimitation(
+                                validationNotices,
+                                validationLimitations,
+                                validationPathKey,
+                                validationPath,
+                                'visual',
+                                `Automatic visual review rejected the rendered output: ${summarizeValidationFailure(rejection)}`,
+                              );
+                            } else if (visualText === 'VISUAL_APPROVE') {
+                              clearValidationLimitation(
+                                validationLimitations,
+                                validationPathKey,
+                                'visual',
+                              );
+                            } else {
                               addValidationLimitation(
                                 validationNotices,
                                 validationLimitations,
@@ -962,6 +1118,8 @@ export class TurnFlow {
                               );
                             }
                           } catch (error) {
+                            if (signal.aborted) signal.throwIfAborted();
+                            if (isAbortError(error)) throw error;
                             this.agent.log.warn('LMM Visual Auditor failed or timed out', {
                               error: errorMessage(error),
                             });
@@ -983,6 +1141,18 @@ export class TurnFlow {
                           isError: true,
                           output: visualFeedback,
                         };
+                      } else if (
+                        Buffer.byteLength(content, 'utf8') > MAX_SELF_HEALING_SOURCE_BYTES
+                      ) {
+                        addValidationLimitation(
+                          validationNotices,
+                          validationLimitations,
+                          validationPathKey,
+                          validationPath,
+                          'source',
+                          'Automatic source review was skipped because the file exceeds the safe validation size limit. ' +
+                            'Do not describe automated code review as passed.',
+                        );
                       } else {
                         // Run a source review independently of runtime and visual evidence.
                         try {
@@ -1003,22 +1173,43 @@ Evaluate if this file meets high-quality software engineering standards and the 
                             toolCalls: [],
                           });
 
-                          const criticResponse = await this.agent.rawGenerate(
-                            this.agent.config.provider,
-                            CRITIC_SYSTEM_PROMPT,
-                            [],
-                            history,
+                          const criticResponse = await withPostWriteStageDeadline(
+                            signal,
+                            (reviewSignal) =>
+                              this.agent.generate(
+                                this.agent.config.provider,
+                                CRITIC_SYSTEM_PROMPT,
+                                [],
+                                history,
+                                undefined,
+                                { signal: reviewSignal },
+                              ),
                           );
                           const criticText = contentPartsText(
                             criticResponse.message.content,
                           ).trim();
 
                           if (criticText.startsWith('REJECT:')) {
+                            const rejection = criticText.substring(7).trim();
                             finalResult = {
                               isError: true,
-                              output: `Code review rejected by Critic:\n${criticText.substring(7).trim()}`,
+                              output: `Code review rejected by Critic:\n${rejection}`,
                             };
-                          } else if (criticText !== 'APPROVE') {
+                            addValidationLimitation(
+                              validationNotices,
+                              validationLimitations,
+                              validationPathKey,
+                              validationPath,
+                              'source',
+                              `Automatic source review rejected the file: ${summarizeValidationFailure(rejection)}`,
+                            );
+                          } else if (criticText === 'APPROVE') {
+                            clearValidationLimitation(
+                              validationLimitations,
+                              validationPathKey,
+                              'source',
+                            );
+                          } else {
                             addValidationLimitation(
                               validationNotices,
                               validationLimitations,
@@ -1030,6 +1221,7 @@ Evaluate if this file meets high-quality software engineering standards and the 
                             );
                           }
                         } catch (error) {
+                          if (signal.aborted) signal.throwIfAborted();
                           if (isAbortError(error)) throw error;
                           this.agent.log.warn('Automatic source review failed or timed out', {
                             error: errorMessage(error),
@@ -1048,11 +1240,8 @@ Evaluate if this file meets high-quality software engineering standards and the 
                       }
                     }
                   } catch (error) {
+                    if (signal.aborted) signal.throwIfAborted();
                     if (isAbortError(error)) throw error;
-                    clearValidationLimitationsForPath(
-                      validationLimitations,
-                      validationPathKey,
-                    );
                     this.agent.log.warn('Self-healing code validation skipped or failed internally', {
                       error: errorMessage(error),
                       path,
@@ -1073,6 +1262,7 @@ Evaluate if this file meets high-quality software engineering standards and the 
                 }
               }
 
+              deduper.recordFinalResult(ctx.toolCall.id, finalResult);
               const { isError, output } = finalResult;
 
               // Count the tool execution for session stats.
@@ -1104,6 +1294,7 @@ Evaluate if this file meets high-quality software engineering standards and the 
                   toolOutput: isError === true ? undefined : toolOutputText(output).slice(0, 2000),
                 },
               });
+              refreshDedupContext();
               return finalResult;
             },
           },
@@ -1427,14 +1618,17 @@ function addValidationLimitation(
   notices.push(rendered);
 }
 
-function clearValidationLimitationsForPath(
+function clearValidationLimitation(
   limitations: Map<string, string>,
-  path: string,
+  pathKey: string,
+  kind: ValidationLimitationKind,
 ): void {
-  const prefix = `${path}\0`;
-  for (const key of limitations.keys()) {
-    if (key.startsWith(prefix)) limitations.delete(key);
-  }
+  limitations.delete(`${pathKey}\0${kind}`);
+}
+
+function summarizeValidationFailure(error: string): string {
+  const oneLine = error.replaceAll(/\s+/g, ' ').trim();
+  return oneLine.length > 500 ? `${oneLine.slice(0, 497)}...` : oneLine;
 }
 
 function appendToolResultNotice(

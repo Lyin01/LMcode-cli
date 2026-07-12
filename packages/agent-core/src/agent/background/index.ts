@@ -39,6 +39,7 @@ const NOTIFICATION_TAIL_BYTES = 3_000;
 export class BackgroundManager extends BackgroundProcessManager {
   private readonly scheduledNotificationKeys = new Set<string>();
   private readonly deliveredNotificationKeys = new Set<string>();
+  private workspaceSideEffectRevisionValue = 0;
 
   constructor(public readonly agent: Agent) {
     super({
@@ -47,6 +48,7 @@ export class BackgroundManager extends BackgroundProcessManager {
     });
 
     this.onLifecycle((event, info) => {
+      this.workspaceSideEffectRevisionValue += 1;
       switch (event) {
         case 'started':
           this.agent.emitEvent({ type: 'background.task.started', info });
@@ -59,6 +61,16 @@ export class BackgroundManager extends BackgroundProcessManager {
           return;
       }
     });
+  }
+
+  /** Changes whenever a background process enters a new lifecycle state. */
+  get workspaceSideEffectRevision(): number {
+    return this.workspaceSideEffectRevisionValue;
+  }
+
+  /** Active tasks may mutate the workspace without a foreground tool call. */
+  get hasActiveWorkspaceTasks(): boolean {
+    return this.list(true, 1).length > 0;
   }
 
   override async reconcile(): Promise<ReconcileResult> {
@@ -166,6 +178,7 @@ export class BackgroundManager extends BackgroundProcessManager {
 
   override _reset(): void {
     super._reset();
+    this.workspaceSideEffectRevisionValue += 1;
     this.scheduledNotificationKeys.clear();
     this.deliveredNotificationKeys.clear();
   }

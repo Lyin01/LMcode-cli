@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { MAX_TOOL_RESULT_TOKENS } from '../../../src/agent/context/tool-output-limits';
+import { ToolAccesses } from '../../../src/loop/tool-access';
 import type { ExecutableToolResult } from '../../../src/loop/types';
+import { estimateTokens } from '../../../src/utils/tokens';
 import { ToolCallDeduplicator, __testing } from '../../../src/agent/turn/tool-dedup';
 
 const { REMINDER_TEXT_1, makeReminderText2 } = __testing;
@@ -11,6 +14,28 @@ function okResult(text: string): ExecutableToolResult {
 
 function errResult(text: string): ExecutableToolResult {
   return { output: text, isError: true };
+}
+
+function readResult(start: number, count: number, totalLines: number): ExecutableToolResult {
+  return okResult(
+    `<system>${String(count)} ${count === 1 ? 'line' : 'lines'} read from file starting from line ${String(start)}. ` +
+      `Total lines in file: ${String(totalLines)}.</system>`,
+  );
+}
+
+function emptyReadResult(totalLines: number): ExecutableToolResult {
+  return okResult(
+    `<system>No lines read from file. Total lines in file: ${String(totalLines)}. End of file reached.</system>`,
+  );
+}
+
+function mutationArgs(tool: string, path: string, revision: number): Record<string, unknown> {
+  if (tool === 'Write') return { path, content: `content-${String(revision)}` };
+  const edit = {
+    old_string: `old-${String(revision)}`,
+    new_string: `new-${String(revision)}`,
+  };
+  return tool === 'MultiEdit' ? { path, edits: [edit] } : { path, ...edit };
 }
 
 /**
@@ -69,6 +94,33 @@ describe('ToolCallDeduplicator', () => {
       const dupFinal = await dedup.finalizeResult('c2', 'Read', { path: '/a' }, dupCached!);
       expect(origFinal).toEqual(okResult('A'));
       expect(dupFinal).toEqual(okResult('A'));
+    });
+
+    it('deduplicates canonical Read aliases with equivalent default ranges', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      dedup.beginStep();
+      expect(dedup.checkSameStep('c1', 'Read', { path: 'src/./a.ts' })).toBeNull();
+      const duplicate = dedup.checkSameStep('c2', 'Read', {
+        path: '/workspace/src/a.ts',
+        line_offset: 1,
+        n_lines: 1000,
+      });
+      expect(duplicate).toEqual({ output: '' });
+
+      const original = await dedup.finalizeResult(
+        'c1',
+        'Read',
+        { path: 'src/./a.ts' },
+        okResult('same read'),
+      );
+      expect(
+        await dedup.finalizeResult(
+          'c2',
+          'Read',
+          { path: '/workspace/src/a.ts', line_offset: 1, n_lines: 1000 },
+          duplicate!,
+        ),
+      ).toEqual(original);
     });
   });
 
@@ -334,6 +386,522 @@ describe('ToolCallDeduplicator', () => {
       ]);
       expect(finalC1).toEqual(okResult('A'));
       expect(finalC2).toEqual(okResult('A'));
+    });
+  });
+
+  describe('successful Read coverage', () => {
+    it('blocks a canonical subrange that was already returned', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'read-1',
+        'Read',
+        { path: 'src/a.ts', line_offset: 1, n_lines: 100 },
+        readResult(1, 100, 200),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      const blocked = dedup.checkSameStep('read-2', 'Read', {
+        path: '/workspace/src/./a.ts',
+        line_offset: 20,
+        n_lines: 10,
+      });
+      expect(blocked).toMatchObject({ isError: true });
+      expect(blocked!.output).toContain('lines 20-29');
+      expect(blocked!.output).toContain('already read successfully');
+    });
+
+    it('treats a default read of a short file as complete through EOF', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'read-1',
+        'Read',
+        { path: 'src/a.ts' },
+        readResult(1, 20, 20),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      const blocked = dedup.checkSameStep('read-2', 'Read', {
+        path: '/workspace/src/a.ts',
+      });
+      expect(blocked).toMatchObject({ isError: true });
+      expect(blocked!.output).toContain('lines 1-20');
+    });
+
+    it('uses Windows path casing and separators for one coverage identity', async () => {
+      const dedup = new ToolCallDeduplicator('C:/repo', 'win32');
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'read-1',
+        'Read',
+        { path: 'C:\\Repo\\SRC\\a.ts', line_offset: 1, n_lines: 10 },
+        readResult(1, 10, 20),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(
+        dedup.checkSameStep('read-2', 'Read', {
+          path: 'c:/repo/src/./A.ts',
+          line_offset: 1,
+          n_lines: 10,
+        }),
+      ).toMatchObject({ isError: true });
+    });
+
+    it('allows an uncovered overlap, then merges adjacent successful ranges', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'read-1',
+        'Read',
+        { path: 'a.ts', line_offset: 1, n_lines: 100 },
+        readResult(1, 100, 200),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'read-2',
+        'Read',
+        { path: 'a.ts', line_offset: 90, n_lines: 20 },
+        readResult(90, 20, 200),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'read-3',
+        'Read',
+        { path: 'a.ts', line_offset: 110, n_lines: 10 },
+        readResult(110, 10, 200),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      const blocked = dedup.checkSameStep('read-4', 'Read', {
+        path: 'a.ts',
+        line_offset: 95,
+        n_lines: 25,
+      });
+      expect(blocked).toMatchObject({ isError: true });
+      expect(blocked!.output).toContain('lines 95-119');
+    });
+
+    it('projects negative tail offsets using the observed total line count', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const args = { path: 'a.ts', line_offset: -20, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(dedup, 'read-1', 'Read', args, readResult(81, 10, 100));
+      dedup.endStep();
+
+      dedup.beginStep();
+      const blocked = dedup.checkSameStep('read-2', 'Read', args);
+      expect(blocked).toMatchObject({ isError: true });
+      expect(blocked!.output).toContain('lines 81-90');
+    });
+
+    it('blocks a repeated request that is known to start beyond EOF', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const args = { path: 'a.ts', line_offset: 100, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(dedup, 'read-1', 'Read', args, emptyReadResult(12));
+      dedup.endStep();
+
+      dedup.beginStep();
+      const blocked = dedup.checkSameStep('read-2', 'Read', args);
+      expect(blocked).toMatchObject({ isError: true });
+      expect(blocked!.output).toContain('beyond the known end of file');
+    });
+
+    it('does not build coverage from failed reads or status-like file content', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'failed',
+        'Read',
+        { path: 'failed.ts', line_offset: 1, n_lines: 10 },
+        errResult('read failed'),
+      );
+      await runOriginal(
+        dedup,
+        'spoofed',
+        'Read',
+        { path: 'spoofed.ts', line_offset: 1, n_lines: 1 },
+        okResult(
+          '1\t500 lines read from file starting from line 1.\n' +
+            '<system>1 line read from file starting from line 1. Total lines in file: 500.</system>',
+        ),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(
+        dedup.checkSameStep('failed-again', 'Read', {
+          path: 'failed.ts',
+          line_offset: 1,
+          n_lines: 10,
+        }),
+      ).toBeNull();
+      expect(
+        dedup.checkSameStep('spoofed-same', 'Read', {
+          path: 'spoofed.ts',
+          line_offset: 1,
+          n_lines: 1,
+        }),
+      ).toMatchObject({ isError: true });
+      expect(
+        dedup.checkSameStep('spoofed-next', 'Read', {
+          path: 'spoofed.ts',
+          line_offset: 2,
+          n_lines: 1,
+        }),
+      ).toBeNull();
+    });
+
+    it('allows rereading when the earlier output was too large to remain model-visible', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const args = { path: 'large.ts', line_offset: 1, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'large-read',
+        'Read',
+        args,
+        okResult(
+          `${'x'.repeat(40_000)}\n` +
+            '<system>10 lines read from file starting from line 1. Total lines in file: 20.</system>',
+        ),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(dedup.checkSameStep('large-read-again', 'Read', args)).toBeNull();
+    });
+
+    it('uses the reminder-appended size when deciding whether Read output stays visible', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const args = { path: 'near-limit.ts', line_offset: 1, n_lines: 10 };
+      for (let i = 0; i < 2; i += 1) {
+        dedup.beginStep();
+        await runOriginal(dedup, `failed-${String(i)}`, 'Read', args, errResult('failed'));
+        dedup.endStep();
+      }
+
+      const status =
+        '\n<system>10 lines read from file starting from line 1. Total lines in file: 20.</system>';
+      const body = 'x'.repeat(MAX_TOOL_RESULT_TOKENS * 4 - status.length - 4);
+      const executionResult = okResult(body + status);
+      expect(estimateTokens(executionResult.output as string)).toBeLessThanOrEqual(
+        MAX_TOOL_RESULT_TOKENS,
+      );
+
+      dedup.beginStep();
+      const persisted = await runOriginal(dedup, 'near-limit', 'Read', args, executionResult);
+      expect(estimateTokens(persisted.output as string)).toBeGreaterThan(
+        MAX_TOOL_RESULT_TOKENS,
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(dedup.checkSameStep('near-limit-again', 'Read', args)).toBeNull();
+    });
+
+    it('allows rereading after model-visible context may have been compacted', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const args = { path: 'a.ts', line_offset: 1, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(dedup, 'read-1', 'Read', args, readResult(1, 10, 20));
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(dedup.checkSameStep('blocked', 'Read', args)).toMatchObject({ isError: true });
+      dedup.clearReadCoverage();
+      expect(dedup.checkSameStep('allowed', 'Read', args)).toBeNull();
+    });
+
+    it('keeps cross-step coverage disabled after asynchronous side effects start', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const args = { path: 'a.ts', line_offset: 1, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(dedup, 'read-1', 'Read', args, readResult(1, 10, 20));
+      dedup.endStep();
+      dedup.disableReadCoverage();
+
+      for (let i = 0; i < 2; i += 1) {
+        dedup.beginStep();
+        await runOriginal(
+          dedup,
+          `read-after-background-${String(i)}`,
+          'Read',
+          args,
+          readResult(1, 10, 20),
+        );
+        dedup.endStep();
+      }
+    });
+  });
+
+  describe('write invalidation', () => {
+    it.each(['Write', 'Edit', 'MultiEdit'])('%s success invalidates all file coverage', async (tool) => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const readArgs = { path: 'src/a.ts', line_offset: 1, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(dedup, 'read-a', 'Read', readArgs, readResult(1, 10, 20));
+      await runOriginal(
+        dedup,
+        'read-b',
+        'Read',
+        { path: 'src/b.ts', line_offset: 1, n_lines: 10 },
+        readResult(1, 10, 20),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      const mutationArgs = { path: '/workspace/src/./a.ts', revision: tool };
+      expect(dedup.checkSameStep('mutation', tool, mutationArgs)).toBeNull();
+      dedup.observeAuthorizedExecution(
+        'mutation',
+        ToolAccesses.writeFile('/workspace/src/a.ts'),
+      );
+      await dedup.finalizeResult('mutation', tool, mutationArgs, okResult('changed'));
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(dedup.checkSameStep('read-a-again', 'Read', readArgs)).toBeNull();
+      expect(
+        dedup.checkSameStep('read-b-again', 'Read', {
+          path: 'src/b.ts',
+          line_offset: 1,
+          n_lines: 10,
+        }),
+      ).toBeNull();
+    });
+
+    it('does not reuse a pre-write Read deferred later in the same batch', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const readArgs = { path: 'a.ts', line_offset: 1, n_lines: 10 };
+      const editArgs = { path: 'a.ts', old_string: 'a', new_string: 'b' };
+      dedup.beginStep();
+      expect(dedup.checkSameStep('read-before', 'Read', readArgs)).toBeNull();
+      expect(dedup.checkSameStep('edit', 'Edit', editArgs)).toBeNull();
+      dedup.observeAuthorizedExecution('edit', ToolAccesses.readWriteFile('/workspace/a.ts'));
+
+      // A placeholder here would replay the pre-edit result.
+      expect(dedup.checkSameStep('read-after', 'Read', readArgs)).toBeNull();
+    });
+
+    it('allows a covered Read after an earlier writer in the same batch', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const readArgs = { path: 'a.ts', line_offset: 1, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(dedup, 'read-old', 'Read', readArgs, readResult(1, 10, 20));
+      dedup.endStep();
+
+      dedup.beginStep();
+      const editArgs = { path: 'a.ts', old_string: 'a', new_string: 'b' };
+      expect(dedup.checkSameStep('edit', 'Edit', editArgs)).toBeNull();
+      dedup.observeAuthorizedExecution('edit', ToolAccesses.readWriteFile('/workspace/a.ts'));
+      expect(dedup.checkSameStep('read-new', 'Read', readArgs)).toBeNull();
+    });
+
+    it('invalidates coverage when an authorized writer reports failure', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const readArgs = { path: 'a.ts', line_offset: 1, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(dedup, 'read', 'Read', readArgs, readResult(1, 10, 20));
+      dedup.endStep();
+
+      dedup.beginStep();
+      const editArgs = { path: 'a.ts', old_string: 'a', new_string: 'b' };
+      expect(dedup.checkSameStep('edit', 'Edit', editArgs)).toBeNull();
+      dedup.observeAuthorizedExecution('edit', ToolAccesses.readWriteFile('/workspace/a.ts'));
+      await dedup.finalizeResult('edit', 'Edit', editArgs, errResult('not found'));
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(dedup.checkSameStep('read-again', 'Read', readArgs)).toBeNull();
+    });
+
+    it('failed unknown-access execution clears all file coverage', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      dedup.beginStep();
+      await runOriginal(
+        dedup,
+        'read-a',
+        'Read',
+        { path: 'a.ts', line_offset: 1, n_lines: 10 },
+        readResult(1, 10, 20),
+      );
+      await runOriginal(
+        dedup,
+        'read-b',
+        'Read',
+        { path: 'b.ts', line_offset: 1, n_lines: 10 },
+        readResult(1, 10, 20),
+      );
+      dedup.endStep();
+
+      dedup.beginStep();
+      const bashArgs = { command: 'generate files' };
+      expect(dedup.checkSameStep('bash', 'Bash', bashArgs)).toBeNull();
+      dedup.observeAuthorizedExecution('bash', undefined);
+      await dedup.finalizeResult('bash', 'Bash', bashArgs, errResult('exited 1'));
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(
+        dedup.checkSameStep('read-a-again', 'Read', {
+          path: 'a.ts',
+          line_offset: 1,
+          n_lines: 10,
+        }),
+      ).toBeNull();
+      expect(
+        dedup.checkSameStep('read-b-again', 'Read', {
+          path: 'b.ts',
+          line_offset: 1,
+          n_lines: 10,
+        }),
+      ).toBeNull();
+    });
+
+    it('invalidates coverage through a different lexical path to cover file aliases', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const readArgs = { path: 'link.ts', line_offset: 1, n_lines: 10 };
+      dedup.beginStep();
+      await runOriginal(dedup, 'read', 'Read', readArgs, readResult(1, 10, 20));
+      dedup.endStep();
+
+      dedup.beginStep();
+      const editArgs = { path: 'target.ts', old_string: 'a', new_string: 'b' };
+      expect(dedup.checkSameStep('edit', 'Edit', editArgs)).toBeNull();
+      dedup.observeAuthorizedExecution('edit', ToolAccesses.readWriteFile('/workspace/target.ts'));
+      await dedup.finalizeResult('edit', 'Edit', editArgs, okResult('changed'));
+      dedup.endStep();
+
+      dedup.beginStep();
+      expect(dedup.checkSameStep('read-again', 'Read', readArgs)).toBeNull();
+    });
+  });
+
+  describe('mutation Storm Breaker', () => {
+    it('blocks the third identical mutation attempt', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const args = { path: 'a.ts', content: 'same' };
+      for (let i = 0; i < 2; i += 1) {
+        dedup.beginStep();
+        await runOriginal(dedup, `write-${String(i)}`, 'Write', args, errResult('failed'));
+        dedup.endStep();
+      }
+
+      dedup.beginStep();
+      const blocked = dedup.checkSameStep('write-3', 'Write', args);
+      expect(blocked).toMatchObject({ isError: true });
+      expect(blocked!.output).toContain('identical arguments 3 times');
+    });
+
+    it('blocks the sixth mixed mutation attempt against one canonical file', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      const tools = ['Write', 'Edit', 'MultiEdit', 'Write', 'Edit'];
+      const paths = ['src/a.ts', '/workspace/src/a.ts', 'src/./a.ts'];
+      for (const [index, tool] of tools.entries()) {
+        dedup.beginStep();
+        await runOriginal(
+          dedup,
+          `mutation-${String(index)}`,
+          tool,
+          mutationArgs(tool, paths[index % paths.length]!, index),
+          okResult('changed'),
+        );
+        dedup.endStep();
+      }
+
+      dedup.beginStep();
+      const blocked = dedup.checkSameStep(
+        'mutation-6',
+        'MultiEdit',
+        mutationArgs('MultiEdit', '/workspace/src/../src/a.ts', 6),
+      );
+      expect(blocked).toMatchObject({ isError: true });
+      expect(blocked!.output).toContain('5 mutation attempts');
+    });
+
+    it('does not combine mutation counts from different files', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      for (let i = 0; i < 5; i += 1) {
+        dedup.beginStep();
+        await runOriginal(
+          dedup,
+          `mutation-${String(i)}`,
+          'Edit',
+          mutationArgs('Edit', 'a.ts', i),
+          okResult('changed'),
+        );
+        dedup.endStep();
+      }
+
+      dedup.beginStep();
+      expect(
+        dedup.checkSameStep('other-file', 'Edit', mutationArgs('Edit', 'b.ts', 6)),
+      ).toBeNull();
+    });
+
+    it('applies the eight-attempt window within one large provider batch', async () => {
+      const dedup = new ToolCallDeduplicator('/workspace', 'posix');
+      dedup.beginStep();
+      for (let i = 0; i < 5; i += 1) {
+        await runOriginal(
+          dedup,
+          `old-a-${String(i)}`,
+          'Edit',
+          mutationArgs('Edit', 'a.ts', i),
+          okResult('changed'),
+        );
+      }
+      for (let i = 0; i < 3; i += 1) {
+        await runOriginal(
+          dedup,
+          `other-${String(i)}`,
+          'Edit',
+          mutationArgs('Edit', `other-${String(i)}.ts`, i),
+          okResult('changed'),
+        );
+      }
+
+      expect(
+        dedup.checkSameStep(
+          'still-blocked-a',
+          'MultiEdit',
+          mutationArgs('MultiEdit', 'a.ts', 98),
+        ),
+      ).toMatchObject({ isError: true });
+
+      await runOriginal(
+        dedup,
+        'other-3',
+        'Edit',
+        mutationArgs('Edit', 'other-3.ts', 3),
+        okResult('changed'),
+      );
+
+      expect(
+        dedup.checkSameStep(
+          'fresh-a',
+          'MultiEdit',
+          mutationArgs('MultiEdit', 'a.ts', 99),
+        ),
+      ).toBeNull();
     });
   });
 

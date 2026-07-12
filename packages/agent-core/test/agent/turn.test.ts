@@ -110,6 +110,194 @@ describe('Agent turn flow', () => {
     });
   });
 
+  it('executes a same-file Read again after an authorized Edit changes it', async () => {
+    let content = 'alpha\n';
+    const readLines = vi.fn<Jian['readLines']>().mockImplementation(async function* () {
+      yield content;
+    });
+    const jian = createFakeJian({
+      stat: vi.fn<Jian['stat']>().mockResolvedValue({
+        stMode: 0o100644,
+        stIno: 1,
+        stDev: 1,
+        stNlink: 1,
+        stUid: 1000,
+        stGid: 1000,
+        stSize: content.length,
+        stAtime: 0,
+        stMtime: 0,
+        stCtime: 0,
+      }),
+      readBytes: vi.fn<Jian['readBytes']>().mockImplementation(async () => Buffer.from(content)),
+      readLines,
+      readText: vi.fn<Jian['readText']>().mockImplementation(async () => content),
+      writeText: vi.fn<Jian['writeText']>().mockImplementation(async (_path, next) => {
+        content = next;
+        return next.length;
+      }),
+    });
+    const ctx = testAgent({
+      jian,
+      initialConfig: {
+        providers: {},
+        enableSelfHealing: false,
+        enableSpecCritic: false,
+      },
+    });
+    ctx.configure({ tools: ['Read', 'Edit'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+
+    const readArguments = JSON.stringify({ path: 'a.txt', line_offset: 1, n_lines: 10 });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_read_before',
+      name: 'Read',
+      arguments: readArguments,
+    });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_edit',
+      name: 'Edit',
+      arguments: JSON.stringify({
+        path: 'a.txt',
+        old_string: 'alpha\n',
+        new_string: 'beta\n',
+      }),
+    });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_read_after',
+      name: 'Read',
+      arguments: readArguments,
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'done' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Read, edit, and verify a.txt' }] });
+    await ctx.untilTurnEnd();
+
+    expect(readLines).toHaveBeenCalledTimes(2);
+    const toolResults = ctx.agent.context.history.filter((message) => message.role === 'tool');
+    expect(toolResults).toHaveLength(3);
+    expect(toolResults.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'text', text: expect.stringContaining('beta') }),
+      ]),
+    );
+  });
+
+  it('does not suppress repeated Reads while a prior-turn background task is active', async () => {
+    const readLines = vi.fn<Jian['readLines']>().mockImplementation(async function* () {
+      yield 'alpha\n';
+    });
+    const jian = createFakeJian({
+      stat: vi.fn<Jian['stat']>().mockResolvedValue({
+        stMode: 0o100644,
+        stIno: 1,
+        stDev: 1,
+        stNlink: 1,
+        stUid: 1000,
+        stGid: 1000,
+        stSize: 6,
+        stAtime: 0,
+        stMtime: 0,
+        stCtime: 0,
+      }),
+      readBytes: vi.fn<Jian['readBytes']>().mockResolvedValue(Buffer.from('alpha\n')),
+      readLines,
+    });
+    const ctx = testAgent({
+      jian,
+      initialConfig: { providers: {}, enableSpecCritic: false },
+    });
+    ctx.configure({ tools: ['Read'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+
+    ctx.mockNextResponse({ type: 'text', text: 'ready' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Prepare' }] });
+    await ctx.untilTurnEnd();
+
+    ctx.agent.background.registerAgentTask(new Promise(() => {}), 'background writer');
+    const readArguments = JSON.stringify({ path: 'a.txt', line_offset: 1, n_lines: 10 });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_background_read_1',
+      name: 'Read',
+      arguments: readArguments,
+    });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_background_read_2',
+      name: 'Read',
+      arguments: readArguments,
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'done' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Read twice while it runs' }] });
+    await ctx.untilTurnEnd();
+
+    expect(readLines).toHaveBeenCalledTimes(2);
+    ctx.agent.background._reset();
+  });
+
+  it('invalidates Read coverage when a PostToolUse hook command runs', async () => {
+    const readLines = vi.fn<Jian['readLines']>().mockImplementation(async function* () {
+      yield 'alpha\n';
+    });
+    const jian = createFakeJian({
+      stat: vi.fn<Jian['stat']>().mockResolvedValue({
+        stMode: 0o100644,
+        stIno: 1,
+        stDev: 1,
+        stNlink: 1,
+        stUid: 1000,
+        stGid: 1000,
+        stSize: 6,
+        stAtime: 0,
+        stMtime: 0,
+        stCtime: 0,
+      }),
+      readBytes: vi.fn<Jian['readBytes']>().mockResolvedValue(Buffer.from('alpha\n')),
+      readLines,
+    });
+    const hookEngine = new HookEngine([
+      {
+        event: 'PostToolUse',
+        matcher: 'Read',
+        command: 'node -e "process.exit(0)"',
+      },
+    ]);
+    const ctx = testAgent({
+      jian,
+      hookEngine,
+      initialConfig: { providers: {}, enableSpecCritic: false },
+    });
+    ctx.configure({ tools: ['Read'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+
+    const readArguments = JSON.stringify({ path: 'a.txt', line_offset: 1, n_lines: 10 });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_hook_read_1',
+      name: 'Read',
+      arguments: readArguments,
+    });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_hook_read_2',
+      name: 'Read',
+      arguments: readArguments,
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'done' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Read twice around the hook' }] });
+    await ctx.untilTurnEnd();
+
+    expect(readLines).toHaveBeenCalledTimes(2);
+    expect(hookEngine.executionRevision).toBeGreaterThan(0);
+    await vi.waitFor(() => {
+      expect(hookEngine.hasActiveExecutions).toBe(false);
+    });
+  });
 
   it('emits a failed turn and error when generation fails', async () => {
     const ctx = testAgent();

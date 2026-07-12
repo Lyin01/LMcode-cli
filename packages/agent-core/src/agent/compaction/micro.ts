@@ -80,6 +80,7 @@ function findSupersededPaths(
  */
 export class MicroCompaction {
   private cutoff = 0;
+  private _revision = 0;
   readonly config: MicroCompactionConfig;
 
   constructor(
@@ -91,16 +92,25 @@ export class MicroCompaction {
 
   /** Reset the internal cutoff line (e.g. after a full compaction). */
   reset(maxCutoff = 0): void {
-    this.cutoff = Math.min(this.cutoff, maxCutoff);
+    const nextCutoff = Math.min(this.cutoff, maxCutoff);
+    if (nextCutoff === this.cutoff) return;
+    this.cutoff = nextCutoff;
+    this._revision += 1;
+  }
+
+  get revision(): number {
+    return this._revision;
   }
 
   /** Advance the cutoff line and log the change. */
   private apply(cutoff: number): void {
+    const changed = cutoff !== this.cutoff;
     this.agent.records.logRecord({
       type: 'micro_compaction.apply',
       cutoff,
     } as Record<string, unknown> as never);
     this.cutoff = cutoff;
+    if (changed) this._revision += 1;
   }
 
   /** Check whether micro-compaction is warranted and advance the cutoff. */

@@ -33,7 +33,7 @@ describe('Spec-consistency critic', () => {
     expect(criticCall?.systemPrompt).toContain('specification-compliance reviewer');
     const criticInput = messageText(criticCall?.history.at(-1));
     expect(criticInput).toContain('Original user request');
-    expect(criticInput).toContain('Automatic validation limitations');
+    expect(criticInput).toContain('Automatic validation evidence');
     expect(criticInput).toContain('Automatic post-write validation did not complete');
 
     const followupTexts = ctx.llmCalls[3]?.history.map(messageText) ?? [];
@@ -57,6 +57,50 @@ describe('Spec-consistency critic', () => {
         args: expect.objectContaining({ reason: 'completed' }),
       }),
     );
+  });
+
+  it('prioritizes missing requirements over a contradictory SPEC_OK prefix', async () => {
+    const ctx = testAgent({ jian: createCommandJian('') });
+    ctx.configure({ tools: ['Write'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+
+    ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
+    ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
+    ctx.mockNextResponse({
+      type: 'text',
+      text: 'SPEC_OK\nSPEC_MISSING:\n- README was not updated',
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'Updated the README.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt and update README' }] });
+    await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls).toHaveLength(4);
+    const followupTexts = ctx.llmCalls[3]?.history.map(messageText) ?? [];
+    expect(followupTexts.some((text) => text.includes('README was not updated'))).toBe(true);
+  });
+
+  it('continues once when the critic returns a non-protocol verdict', async () => {
+    const ctx = testAgent({ jian: createCommandJian('') });
+    ctx.configure({ tools: ['Write'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+
+    ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
+    ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Everything looks good overall.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Rechecked the requirements and finished.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt and update README' }] });
+    await ctx.untilTurnEnd();
+
+    const specCriticCalls = ctx.llmCalls.filter((call) =>
+      call.systemPrompt.includes('specification-compliance reviewer'),
+    );
+    expect(specCriticCalls).toHaveLength(1);
+    const followupTexts = ctx.llmCalls[3]?.history.map(messageText) ?? [];
+    expect(
+      followupTexts.some((text) => text.includes('returned no valid verdict')),
+    ).toBe(true);
   });
 
   it('completes the turn without continuation when the critic approves', async () => {

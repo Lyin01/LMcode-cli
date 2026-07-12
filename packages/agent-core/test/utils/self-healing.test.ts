@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { createControlledPromise } from '@antfu/utils';
+import type { Browser } from 'playwright-core';
+import { describe, expect, it, vi } from 'vitest';
 import type { PlaywrightRuntime } from '../../src/utils/self-healing';
 import {
   validateJavaScript,
@@ -15,6 +17,7 @@ import {
   cleanStack,
   extractLineNumber,
   getCodeContext,
+  MAX_SELF_HEALING_SOURCE_BYTES,
 } from '../../src/utils/self-healing';
 
 describe('self-healing: syntax validation', () => {
@@ -233,6 +236,34 @@ describe('self-healing: syntax validation', () => {
       });
     });
 
+    it('closes a browser whose launch resolves after validation is aborted', async () => {
+      const launch = createControlledPromise<Browser>();
+      const launchStarted = createControlledPromise<void>();
+      const close = vi.fn().mockResolvedValue(undefined);
+      const playwright = {
+        chromium: {
+          launch: () => {
+            launchStarted.resolve();
+            return launch;
+          },
+        },
+      } as unknown as PlaywrightRuntime;
+      const controller = new AbortController();
+      const validation = validateHtmlRuntime('foo.html', '<html></html>', {
+        loadPlaywright: async () => playwright,
+        signal: controller.signal,
+      });
+
+      await launchStarted;
+      controller.abort();
+      await expect(validation).rejects.toMatchObject({ name: 'AbortError' });
+      launch.resolve({ close } as unknown as Browser);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(close).toHaveBeenCalledOnce();
+    });
+
     it('does not claim module syntax passed when the parser and browser are unavailable', async () => {
       const result = await validateFileSyntaxWithScreenshots(
         'foo.html',
@@ -254,6 +285,22 @@ describe('self-healing: syntax validation', () => {
         reason: 'playwright-unavailable',
         detail: undefined,
       });
+    });
+
+    it('skips synchronous parsing and browser work for oversized source', async () => {
+      const loadTypeScript = vi.fn().mockRejectedValue(new Error('must not load TypeScript'));
+      const loadPlaywright = vi.fn().mockRejectedValue(new Error('must not load Playwright'));
+      const content = `<html>${'x'.repeat(MAX_SELF_HEALING_SOURCE_BYTES)}</html>`;
+
+      const result = await validateFileSyntaxWithScreenshots('large.html', content, {
+        loadTypeScript,
+        loadPlaywright,
+      });
+
+      expect(result.syntax).toMatchObject({ status: 'skipped', reason: 'source-too-large' });
+      expect(result.runtime).toMatchObject({ status: 'skipped', reason: 'source-too-large' });
+      expect(loadTypeScript).not.toHaveBeenCalled();
+      expect(loadPlaywright).not.toHaveBeenCalled();
     });
   });
 

@@ -13,6 +13,8 @@ const DEFAULT_HOOK_TIMEOUT_SECONDS = 30;
 export class HookEngine {
   private readonly byEvent = new Map<string, HookDef[]>();
   private readonly pendingTriggers = new Set<Promise<HookResult[]>>();
+  private executionRevisionValue = 0;
+  private activeExecutionCount = 0;
 
   constructor(
     hooks: readonly HookDef[] = [],
@@ -31,6 +33,16 @@ export class HookEngine {
       result[event] = hooks.length;
     }
     return result;
+  }
+
+  /** Changes whenever an external hook command starts or settles. */
+  get executionRevision(): number {
+    return this.executionRevisionValue;
+  }
+
+  /** True while at least one external hook command is still running. */
+  get hasActiveExecutions(): boolean {
+    return this.activeExecutionCount > 0;
   }
 
   trigger(event: string, args: HookEngineTriggerArgs = {}): Promise<HookResult[]> {
@@ -79,20 +91,27 @@ export class HookEngine {
     const matched = this.matchingHooks(event, matcherValue);
     if (matched.length === 0) return [];
 
-    this.emitTriggered(event, matcherValue, matched.length);
-    const startedAt = Date.now();
-    const results = await Promise.all(
-      matched.map((hook) =>
-        runHook(hook.command, inputData, {
-          timeout: hook.timeout ?? DEFAULT_HOOK_TIMEOUT_SECONDS,
-          cwd: this.options.cwd === '' ? undefined : this.options.cwd,
-          signal: args.signal,
-        }),
-      ),
-    );
-    const { action, reason } = aggregateResults(event, results);
-    this.emitResolved(event, matcherValue, action, reason, Date.now() - startedAt);
-    return results;
+    this.executionRevisionValue += 1;
+    this.activeExecutionCount += 1;
+    try {
+      this.emitTriggered(event, matcherValue, matched.length);
+      const startedAt = Date.now();
+      const results = await Promise.all(
+        matched.map((hook) =>
+          runHook(hook.command, inputData, {
+            timeout: hook.timeout ?? DEFAULT_HOOK_TIMEOUT_SECONDS,
+            cwd: this.options.cwd === '' ? undefined : this.options.cwd,
+            signal: args.signal,
+          }),
+        ),
+      );
+      const { action, reason } = aggregateResults(event, results);
+      this.emitResolved(event, matcherValue, action, reason, Date.now() - startedAt);
+      return results;
+    } finally {
+      this.activeExecutionCount -= 1;
+      this.executionRevisionValue += 1;
+    }
   }
 
   private matchingHooks(event: string, matcherValue: string): HookDef[] {

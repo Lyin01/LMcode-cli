@@ -5,6 +5,7 @@ import type { ExecutableToolResult, LoopRecordedEvent } from '../../loop';
 import { estimateTokens, estimateTokensForMessages } from '../../utils/tokens';
 import type { CompactionResult } from '../compaction';
 import { project } from './projector';
+import { MAX_TOOL_RESULT_TOKENS, TOOL_TRUNCATION_NOTICE } from './tool-output-limits';
 import {
   USER_PROMPT_ORIGIN,
   type AgentContextData,
@@ -19,15 +20,6 @@ const TOOL_EMPTY_STATUS = '<system>Tool output is empty.</system>';
 const TOOL_EMPTY_ERROR_STATUS =
   '<system>ERROR: Tool execution failed. Tool output is empty.</system>';
 const TOOL_OUTPUT_EMPTY_TEXT = 'Tool output is empty.';
-
-/** Maximum token count for tool results persisted in conversation history.
- *  Results exceeding this limit are truncated to avoid bloating every
- *  subsequent API request with stale data.  The model can re-read the
- *  full content via read_file when needed. */
-const MAX_TOOL_RESULT_TOKENS = 8000;
-
-const TOOL_TRUNCATION_NOTICE =
-  '\n[content truncated — use read_file to re-read if needed]';
 
 export interface ContextMemorySnapshot {
   readonly history: readonly ContextMessage[];
