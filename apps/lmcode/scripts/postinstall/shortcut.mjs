@@ -1,8 +1,10 @@
 /**
  * Create a desktop shortcut for LMcode on Windows.
  *
- * Only runs on Win32 and for global installs. Never fails the install —
- * errors are caught and swallowed.
+ * Only runs on Win32; the caller (postinstall.mjs) gates on global
+ * installs. Users who don't want a desktop shortcut can opt out with
+ * `LMCODE_NO_DESKTOP_SHORTCUT=1`. Never fails the install — errors are
+ * caught and swallowed.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -11,6 +13,7 @@ import { existsSync } from 'node:fs';
 
 export function createDesktopShortcut() {
   if (process.platform !== 'win32') return;
+  if (process.env['LMCODE_NO_DESKTOP_SHORTCUT'] === '1') return;
 
   const iconPath = resolve(import.meta.dirname, '../../icon.ico');
 
