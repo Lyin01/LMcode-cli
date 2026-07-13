@@ -7,11 +7,14 @@
 
 import { createInterface } from 'node:readline/promises';
 
-// Heavy modules (the SDK harness, install-source probing, shell-env
-// detection) are imported lazily inside `createDefaultExportDeps`: this
-// module is evaluated while Commander builds the program for EVERY
-// invocation, so a static SDK import here would put the whole agent
-// stack on the `lm --version` startup path. Type-only imports are free.
+// The SDK harness is imported lazily inside `getHarness`: this module is
+// evaluated while Commander builds the program for EVERY invocation, so a
+// static SDK import here would put the whole agent stack on the
+// `lm --version` startup path (type-only imports are free). It stays lazy
+// even inside `createDefaultExportDeps` so callers that inject their own
+// session deps (tests) never load the SDK at all. The remaining imports
+// below are small leaf modules — `#/cli/version` is on the startup graph
+// anyway — and safe to keep static.
 import type {
   ExportSessionInput,
   ExportSessionResult,
@@ -20,6 +23,9 @@ import type {
   ShellEnvironment,
 } from '@lmcode-cli/lmcode-sdk';
 import type { Command } from 'commander';
+
+import { createLmcodeHostIdentity } from '#/cli/version';
+import { detectShellEnvironment } from '#/utils/process/shell-env';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -111,7 +117,7 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
         sessionId: string | undefined,
         options: { output?: string; yes?: boolean; includeGlobalLog?: boolean },
       ) => {
-        await handleExport(await createDefaultExportDeps(deps), sessionId, options.output, {
+        await handleExport(createDefaultExportDeps(deps), sessionId, options.output, {
           yes: options.yes === true,
           includeGlobalLog: options.includeGlobalLog !== false,
         });
@@ -119,35 +125,35 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
     );
 }
 
-async function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): Promise<ExportDeps> {
-  const [{ LmcodeHarness, resolveLmcodeHome }, { detectInstallSource }, { createLmcodeHostIdentity }, { detectShellEnvironment }] =
-    await Promise.all([
-      import('@lmcode-cli/lmcode-sdk'),
-      import('#/cli/update/source'),
-      import('#/cli/version'),
-      import('#/utils/process/shell-env'),
-    ]);
-  let harness: LmcodeHarnessType | undefined;
+function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDeps {
   const identity = createLmcodeHostIdentity();
-  const getHarness = (): LmcodeHarnessType => {
-    harness ??= new LmcodeHarness({
-      homeDir: resolveLmcodeHome(),
-      identity,
-    });
-    return harness;
+  let harnessPromise: Promise<LmcodeHarnessType> | undefined;
+  const getHarness = (): Promise<LmcodeHarnessType> => {
+    harnessPromise ??= (async () => {
+      const { LmcodeHarness, resolveLmcodeHome } = await import('@lmcode-cli/lmcode-sdk');
+      return new LmcodeHarness({
+        homeDir: resolveLmcodeHome(),
+        identity,
+      });
+    })();
+    return harnessPromise;
   };
   return {
     listSessions:
       overrides.listSessions ??
-      ((workDir: string) =>
-        getHarness().listSessions({
+      (async (workDir: string) =>
+        (await getHarness()).listSessions({
           workDir,
         })),
     exportSession:
       overrides.exportSession ??
-      (async (input: ExportSessionInput) => getHarness().exportSession(input)),
+      (async (input: ExportSessionInput) => (await getHarness()).exportSession(input)),
     version: overrides.version ?? identity.version,
-    getInstallSource: overrides.getInstallSource ?? (() => Promise.resolve(detectInstallSource())),
+    // Lazy: `#/cli/update/source` imports `resolveLmcodeHome` from the SDK,
+    // which would drag the agent stack back onto the startup path.
+    getInstallSource:
+      overrides.getInstallSource ??
+      (async () => (await import('#/cli/update/source')).detectInstallSource()),
     getShellEnv: overrides.getShellEnv ?? detectShellEnvironment,
     confirmPreviousSession: overrides.confirmPreviousSession ?? confirmPreviousSession,
     cwd: overrides.cwd ?? (() => process.cwd()),
