@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { atomicWrite } from '../utils/fs';
 import type {
   PluginCapabilityState,
   PluginGithubMetadata,
@@ -58,7 +59,5 @@ export async function writeInstalled(
   const dir = path.join(lmcodeHomeDir, 'plugins');
   await mkdir(dir, { recursive: true });
   const final = path.join(dir, 'installed.json');
-  const tmp = `${final}.tmp`;
-  await writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
-  await rename(tmp, final);
+  await atomicWrite(final, JSON.stringify(data, null, 2));
 }

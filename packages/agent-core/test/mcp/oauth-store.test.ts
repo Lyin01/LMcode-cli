@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -41,6 +41,15 @@ describe('JsonFileStore', () => {
     const store = new JsonFileStore(dir);
     store.write('foo.json', { hello: 'world' });
     expect(store.read('foo.json')).toEqual({ hello: 'world' });
+  });
+
+  it('replaces an existing file in place without leaving temp files', async () => {
+    const store = new JsonFileStore(dir);
+    store.write('token.json', { access_token: 'old' });
+    store.write('token.json', { access_token: 'new' });
+    expect(store.read('token.json')).toEqual({ access_token: 'new' });
+    const entries = await readdir(dir);
+    expect(entries.filter((name) => name.includes('.tmp'))).toEqual([]);
   });
 
   it('returns undefined when a file is missing or unreadable JSON', () => {
