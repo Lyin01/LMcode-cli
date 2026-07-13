@@ -7,19 +7,19 @@
 
 import { createInterface } from 'node:readline/promises';
 
-import {
-  LmcodeHarness,
-  resolveLmcodeHome,
-  type ExportSessionInput,
-  type ExportSessionResult,
-  type SessionSummary,
-  type ShellEnvironment,
+// Heavy modules (the SDK harness, install-source probing, shell-env
+// detection) are imported lazily inside `createDefaultExportDeps`: this
+// module is evaluated while Commander builds the program for EVERY
+// invocation, so a static SDK import here would put the whole agent
+// stack on the `lm --version` startup path. Type-only imports are free.
+import type {
+  ExportSessionInput,
+  ExportSessionResult,
+  LmcodeHarness as LmcodeHarnessType,
+  SessionSummary,
+  ShellEnvironment,
 } from '@lmcode-cli/lmcode-sdk';
 import type { Command } from 'commander';
-
-import { detectInstallSource } from '#/cli/update/source';
-import { createLmcodeHostIdentity } from '#/cli/version';
-import { detectShellEnvironment } from '#/utils/process/shell-env';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -111,7 +111,7 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
         sessionId: string | undefined,
         options: { output?: string; yes?: boolean; includeGlobalLog?: boolean },
       ) => {
-        await handleExport(createDefaultExportDeps(deps), sessionId, options.output, {
+        await handleExport(await createDefaultExportDeps(deps), sessionId, options.output, {
           yes: options.yes === true,
           includeGlobalLog: options.includeGlobalLog !== false,
         });
@@ -119,10 +119,17 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
     );
 }
 
-function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDeps {
-  let harness: LmcodeHarness | undefined;
+async function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): Promise<ExportDeps> {
+  const [{ LmcodeHarness, resolveLmcodeHome }, { detectInstallSource }, { createLmcodeHostIdentity }, { detectShellEnvironment }] =
+    await Promise.all([
+      import('@lmcode-cli/lmcode-sdk'),
+      import('#/cli/update/source'),
+      import('#/cli/version'),
+      import('#/utils/process/shell-env'),
+    ]);
+  let harness: LmcodeHarnessType | undefined;
   const identity = createLmcodeHostIdentity();
-  const getHarness = (): LmcodeHarness => {
+  const getHarness = (): LmcodeHarnessType => {
     harness ??= new LmcodeHarness({
       homeDir: resolveLmcodeHome(),
       identity,

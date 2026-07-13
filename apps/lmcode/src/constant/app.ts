@@ -1,4 +1,4 @@
-import { ErrorCodes } from '@lmcode-cli/lmcode-sdk';
+import type { ErrorCodes } from '@lmcode-cli/lmcode-sdk';
 
 export const PRODUCT_NAME = 'LMcode';
 export const CLI_COMMAND_NAME = 'lm';
@@ -21,9 +21,13 @@ export const LMCODE_INPUT_HISTORY_DIR_NAME = 'user-history';
 export const DEFAULT_OAUTH_PROVIDER_NAME = 'managed:lmcode';
 
 // SDK/core error code that tells the TUI to show a login-required startup
-// notice. Derived from sdk's ErrorCodes so a future rename in core
-// auto-propagates instead of silently breaking the startup recovery path.
-export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
+// notice. Pinned as a literal but type-checked against the SDK's
+// ErrorCodes: if core ever changes the code value, this line stops
+// compiling. A value import here would put the ENTIRE SDK on the
+// static graph of the app's most-imported constants module — and thus
+// on the `lm --version` startup path (~4 MB of module init).
+export const OAUTH_LOGIN_REQUIRED_CODE: (typeof ErrorCodes)['AUTH_LOGIN_REQUIRED'] =
+  'auth.login_required';
 
 export const FEEDBACK_ISSUE_URL = 'https://github.com/Lyin01/LMcode-cli/issues';
 
