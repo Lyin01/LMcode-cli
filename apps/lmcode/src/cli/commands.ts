@@ -2,7 +2,10 @@ import { Command, Option } from 'commander';
 
 import { CLI_COMMAND_NAME } from '#/constant/app';
 
-import { registerMigrateCommand } from '#/migration/index';
+// Import the sub-command registration directly, not via `#/migration/index`:
+// the barrel re-exports the pi-tui migration screen, which would drag the
+// whole TUI stack into Commander's parse-time module graph.
+import { registerMigrateCommand } from '#/migration/command';
 
 import type { CLIOptions } from './options';
 import { registerExportCommand } from './sub/export';
