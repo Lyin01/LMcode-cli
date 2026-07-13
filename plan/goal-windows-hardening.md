@@ -70,6 +70,6 @@
 所有方法论类别已覆盖：
 - **修复 3 个真·Windows bug（均已测试）**：#1 channel-setup PATH 解析、#5 TUI home 别名、#2 PATH 解析分叉根因收敛。
 - **审计判定已加固/无确定 bug**：#3 `node:path` 纪律、#4 bash 工具/Git Bash 探测、#6 文件锁。
-- **潜在项（非 bug，留待考量）**：#6 的 `mcp/oauth/store.ts`、`plugin/store.ts` 未收敛到 `atomicWrite`（安全敏感，不做自动 drive-by）。
+- **潜在项（非 bug，留待考量）**：#6 的 `mcp/oauth/store.ts`、`plugin/store.ts` 未收敛到 `atomicWrite`（安全敏感，不做自动 drive-by）。→ **2026-07-13 已收敛**：`plugin/store.ts` writeInstalled 改用共享 `atomicWrite`（修掉固定 tmp 名、无 fsync、无 Windows pre-unlink、失败残留 tmp）；`mcp/oauth/store.ts` 保留同步 + 0600 语义（SDK 回调是同步的），补上 Windows pre-unlink 并注释与 atomicWrite 的关系。两处均补"替换已存在目标 + 无 tmp 残留"测试，Windows 本机真实走过 pre-unlink 路径。
 
 **净效果**：Windows（主用户群/红线）与 POSIX 行为一致性显著提升，无静默降级。分支 `auto/loop-iterations`，`main` 干净。后续若继续深挖，可从 #6 潜在项的 `atomicWrite` 收敛、或更细的 CRLF/长路径/大小写边角入手（均为收益递减项）。

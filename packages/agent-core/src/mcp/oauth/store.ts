@@ -4,9 +4,11 @@
  * `<LMCODE_HOME>/credentials/mcp/` (default
  * `~/.lmcode/credentials/mcp/`).
  *
- * Write semantics: write to `<file>.tmp.<pid>.<rand>` → fsync → rename.
- * Atomic on POSIX; best-effort on Windows. Files land at mode 0600 (parent
- * dir 0700) so other local users cannot read tokens.
+ * Write semantics: write to `<file>.tmp.<pid>.<rand>` → fsync → rename,
+ * mirroring `utils/fs.ts atomicWrite` (including its Windows pre-unlink).
+ * Kept as a separate sync implementation because the MCP SDK's
+ * OAuthClientProvider callbacks here are synchronous and files must land
+ * at mode 0600 (parent dir 0700) so other local users cannot read tokens.
  *
  * Read semantics: missing file → undefined. Corrupt JSON / wrong shape →
  * undefined (never throws). The provider treats undefined as "not stored".
@@ -107,6 +109,16 @@ export class JsonFileStore {
     }
     try {
       chmodSync(tmp, 0o600);
+      // Windows `fs.rename` maps to MoveFileEx and fails with EPERM if the
+      // target is held by another handle. Pre-unlinking turns this into the
+      // POSIX-style "replace" case (same as `utils/fs.ts atomicWrite`).
+      if (process.platform === 'win32') {
+        try {
+          unlinkSync(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
       renameSync(tmp, target);
     } catch (error) {
       try {

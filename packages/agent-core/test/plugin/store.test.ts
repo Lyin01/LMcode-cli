@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -53,6 +53,30 @@ describe('plugin store', () => {
     await writeInstalled(home, { version: 1, plugins: [] });
     const after = await readFile(path.join(home, 'plugins', 'installed.json'), 'utf8');
     expect(after).toContain('"version": 1');
+    const entries = await readdir(path.join(home, 'plugins'));
+    expect(entries.filter((name) => name.includes('.tmp'))).toEqual([]);
+  });
+
+  it('replaces an existing installed.json in place', async () => {
+    const home = await makeLMcodeHome();
+    await writeInstalled(home, { version: 1, plugins: [] });
+    const data: InstalledFile = {
+      version: 1,
+      plugins: [
+        {
+          id: 'replacement',
+          root: '/tmp/replacement',
+          source: 'local-path',
+          enabled: false,
+          installedAt: '2026-07-13T00:00:00Z',
+        },
+      ],
+    };
+    await writeInstalled(home, data);
+    const result = await readInstalled(home);
+    expect(result).toEqual(data);
+    const entries = await readdir(path.join(home, 'plugins'));
+    expect(entries.filter((name) => name.includes('.tmp'))).toEqual([]);
   });
 
   it('throws on a corrupt installed.json instead of silently dropping it', async () => {
