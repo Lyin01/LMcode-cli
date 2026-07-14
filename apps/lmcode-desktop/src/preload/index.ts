@@ -1,46 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI, exposeElectronAPI } from '@electron-toolkit/preload'
+import type { LmcodeConfigPatch } from '@lmcode-cli/lmcode-sdk'
 import type {
-  ApprovalRequest,
-  ApprovalResponse,
-  Event,
-  LmcodeConfigPatch,
-  QuestionRequest,
-  QuestionResult,
-} from '@lmcode-cli/lmcode-sdk'
-
-interface SessionEventPayload {
-  readonly sessionId: string
-  readonly event: Event
-}
-
-interface ApprovalRequestPayload extends ApprovalRequest {
-  readonly sessionId: string
-  readonly requestId: string
-  readonly request: ApprovalRequest
-}
-
-interface QuestionRequestPayload {
-  readonly sessionId: string
-  readonly requestId: string
-  readonly questionId: string
-  readonly question: string
-  readonly options: QuestionRequest['questions'][number]['options']
-  readonly request: QuestionRequest
-}
-
-interface ApprovalResponsePayload {
-  readonly requestId: string
-  readonly response: ApprovalResponse
-}
-
-interface QuestionResponsePayload {
-  readonly requestId: string
-  readonly answers: QuestionResult
-}
-
-// Expose window.electron (ipcRenderer, webFrame, webUtils, process)
-exposeElectronAPI()
+  ApprovalRequestPayload,
+  ApprovalResponsePayload,
+  InteractionSettledPayload,
+  QuestionRequestPayload,
+  QuestionResponsePayload,
+  SessionEventPayload,
+} from '../shared/ipc-types.js'
 
 // Custom API exposed as window.lmcodeAPI
 const lmcodeAPI = {
@@ -58,6 +25,9 @@ const lmcodeAPI = {
 
   deleteSession: (id: string) =>
     ipcRenderer.invoke('lmcode:deleteSession', id),
+
+  exportSession: (id: string) =>
+    ipcRenderer.invoke('lmcode:exportSession', id),
 
   renameSession: (id: string, title: string) =>
     ipcRenderer.invoke('lmcode:renameSession', id, title),
@@ -157,6 +127,14 @@ const lmcodeAPI = {
     }
   },
 
+  onInteractionSettled: (callback: (data: InteractionSettledPayload) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: InteractionSettledPayload) => callback(data)
+    ipcRenderer.on('lmcode:interactionSettled', handler)
+    return () => {
+      ipcRenderer.removeListener('lmcode:interactionSettled', handler)
+    }
+  },
+
   // ── Navigation events (from tray menu) ──────────────────────────
 
   onNavigate: (callback: (data: { route: string }) => void) => {
@@ -169,13 +147,11 @@ const lmcodeAPI = {
 
   // ── Approval / Question responses ───────────────────────────────
 
-  respondApproval: (payload: ApprovalResponsePayload) => {
-    ipcRenderer.send('lmcode:respondApproval', payload)
-  },
+  respondApproval: (payload: ApprovalResponsePayload) =>
+    ipcRenderer.invoke('lmcode:respondApproval', payload),
 
-  respondQuestion: (payload: QuestionResponsePayload) => {
-    ipcRenderer.send('lmcode:respondQuestion', payload)
-  },
+  respondQuestion: (payload: QuestionResponsePayload) =>
+    ipcRenderer.invoke('lmcode:respondQuestion', payload),
 
   // ── Memory ──────────────────────────────────────────────────────
 

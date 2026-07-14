@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useSessionStore } from '@/stores/session-store'
 import { X, Terminal } from 'lucide-react'
@@ -6,33 +6,61 @@ import type { ApprovalResponse } from '@lmcode-cli/lmcode-sdk'
 import type { ApprovalRequestPayload } from '@/types'
 
 export function ApprovalDialog() {
-  const pendingApproval = useSessionStore((s) => s.pendingApproval)
-  const setPendingApproval = useSessionStore((s) => s.setPendingApproval)
+  const activeInteraction = useSessionStore((state) => state.pendingInteractions[0])
+  if (activeInteraction?.kind !== 'approval') return null
+
+  return (
+    <ApprovalDialogContent
+      key={activeInteraction.payload.requestId}
+      pendingApproval={activeInteraction.payload}
+    />
+  )
+}
+
+interface ApprovalDialogContentProps {
+  readonly pendingApproval: ApprovalRequestPayload
+}
+
+function ApprovalDialogContent({ pendingApproval }: ApprovalDialogContentProps) {
+  const completePendingInteraction = useSessionStore((state) => state.completePendingInteraction)
+  const [responseError, setResponseError] = useState<string | null>(null)
+  const [responding, setResponding] = useState(false)
+  const respondingRef = useRef(false)
 
   const handleRespond = useCallback(
     async (response: ApprovalResponse) => {
-      if (!pendingApproval) return
+      if (respondingRef.current) return
+      respondingRef.current = true
+      setResponding(true)
+      setResponseError(null)
       try {
         await window.lmcodeAPI.respondApproval({
           requestId: pendingApproval.requestId,
           response,
         })
+        completePendingInteraction(pendingApproval.requestId)
       } catch (err) {
         console.error('Failed to respond approval:', err)
+        setResponseError('无法提交审批结果，请重试。')
+      } finally {
+        respondingRef.current = false
+        setResponding(false)
       }
-      setPendingApproval(null)
     },
-    [pendingApproval, setPendingApproval],
+    [pendingApproval, completePendingInteraction],
   )
 
-  if (!pendingApproval) return null
-
-  const toolName = pendingApproval.toolName
-  const description = pendingApproval.action
-  const args = approvalDisplayPreview(pendingApproval.display)
+  const toolName = pendingApproval.request.toolName
+  const description = pendingApproval.request.action
+  const args = approvalDisplayPreview(pendingApproval.request.display)
 
   return (
-    <Dialog.Root open={!!pendingApproval} onOpenChange={() => setPendingApproval(null)}>
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) void handleRespond({ decision: 'cancelled' })
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay data-[state=open]:animate-in data-[state=closed]:animate-out" />
         <Dialog.Content className="dialog-content data-[state=open]:animate-in data-[state=closed]:animate-out">
@@ -45,7 +73,11 @@ export function ApprovalDialog() {
                   工具调用审批
                 </Dialog.Title>
               </div>
-              <Dialog.Close className="rounded-md p-1 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]">
+              <Dialog.Close
+                aria-label="取消审批"
+                disabled={responding}
+                className="rounded-md p-1 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-wait disabled:opacity-50"
+              >
                 <X size={15} />
               </Dialog.Close>
             </div>
@@ -74,23 +106,32 @@ export function ApprovalDialog() {
               </div>
             )}
 
+            {responseError !== null ? (
+              <p className="mb-3 text-[12px] text-[var(--lm-error)]" role="alert">
+                {responseError}
+              </p>
+            ) : null}
+
             {/* Actions */}
             <div className="flex items-center justify-end gap-2">
               <button
                 onClick={() => handleRespond({ decision: 'rejected' })}
-                className="rounded-lg border border-[var(--lm-border-strong)] px-3.5 py-2 text-[13px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)]"
+                disabled={responding}
+                className="rounded-lg border border-[var(--lm-border-strong)] px-3.5 py-2 text-[13px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:cursor-wait disabled:opacity-50"
               >
                 拒绝
               </button>
               <button
                 onClick={() => handleRespond({ decision: 'approved' })}
-                className="rounded-lg bg-[var(--lm-accent)] px-3.5 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)]"
+                disabled={responding}
+                className="rounded-lg bg-[var(--lm-accent)] px-3.5 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:cursor-wait disabled:opacity-50"
               >
                 允许一次
               </button>
               <button
                 onClick={() => handleRespond({ decision: 'approved', scope: 'session' })}
-                className="rounded-lg border border-[var(--lm-border-strong)] px-3.5 py-2 text-[13px] font-medium text-[var(--lm-text-primary)] transition-colors hover:bg-[var(--lm-bg-hover)]"
+                disabled={responding}
+                className="rounded-lg border border-[var(--lm-border-strong)] px-3.5 py-2 text-[13px] font-medium text-[var(--lm-text-primary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:cursor-wait disabled:opacity-50"
               >
                 始终允许
               </button>
@@ -102,18 +143,20 @@ export function ApprovalDialog() {
   )
 }
 
-function approvalDisplayPreview(display: ApprovalRequestPayload['display']): Record<string, unknown> {
+function approvalDisplayPreview(
+  display: ApprovalRequestPayload['request']['display'],
+): Record<string, unknown> {
   switch (display.kind) {
     case 'command':
       return {
         command: display.command,
-        ...(display.cwd !== undefined ? { cwd: display.cwd } : {}),
+        cwd: display.cwd,
       }
     case 'file_io':
       return {
         operation: display.operation,
         path: display.path,
-        ...(display.detail !== undefined ? { detail: display.detail } : {}),
+        detail: display.detail,
       }
     case 'generic':
       return typeof display.detail === 'object' && display.detail !== null

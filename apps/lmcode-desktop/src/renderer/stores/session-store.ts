@@ -1,12 +1,16 @@
 import { create } from 'zustand'
 import type {
-  ApprovalRequestPayload,
   Message,
-  QuestionRequestPayload,
+  PendingInteraction,
   SessionInfo,
   ToolCallInfo,
 } from '@/types'
-import { getStoredThinking } from '@/lib/thinking'
+import {
+  DEFAULT_THINKING_EFFORT,
+  getStoredThinking,
+  setStoredThinking,
+  type ThinkingEffort,
+} from '@/lib/thinking'
 import type {
   Event,
   TurnEndedEvent,
@@ -279,13 +283,12 @@ export interface SessionStore {
   bg: Record<string, SessionSlice>
 
   model: string
-  thinkingLevel: string
+  thinkingLevel: ThinkingEffort
   permission: string
   contextTokens: number
   maxContextTokens: number
 
-  pendingApproval: ApprovalRequestPayload | null
-  pendingQuestion: QuestionRequestPayload | null
+  pendingInteractions: PendingInteraction[]
 
   setSessions: (sessions: SessionInfo[]) => void
   selectSession: (id: string) => void
@@ -302,8 +305,13 @@ export interface SessionStore {
   /** True if the given session is streaming, whether it's in view or backgrounded. */
   isSessionStreaming: (id: string) => boolean
 
-  setPendingApproval: (req: ApprovalRequestPayload | null) => void
-  setPendingQuestion: (req: QuestionRequestPayload | null) => void
+  setThinkingPreference: (level: ThinkingEffort) => Promise<void>
+  applyThinkingPreference: (sessionId: string) => Promise<void>
+  hydrateThinkingPreference: () => void
+
+  enqueuePendingInteraction: (interaction: PendingInteraction) => void
+  completePendingInteraction: (requestId: string) => void
+  discardPendingInteraction: (requestId: string) => void
 }
 
 function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): SessionInfo {
@@ -312,7 +320,7 @@ function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): 
     workDir: '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    thinkingLevel: 'auto',
+    thinkingLevel: DEFAULT_THINKING_EFFORT,
     permission: 'manual',
     contextTokens: 0,
     maxContextTokens: 128000,
@@ -330,13 +338,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   bg: {},
 
   model: '',
-  thinkingLevel: 'auto',
+  thinkingLevel: DEFAULT_THINKING_EFFORT,
   permission: 'manual',
   contextTokens: 0,
   maxContextTokens: 128000,
 
-  pendingApproval: null,
-  pendingQuestion: null,
+  pendingInteractions: [],
 
   setSessions: (sessions) => set({ sessions }),
 
@@ -366,7 +373,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       isStreaming: restored?.isStreaming ?? false,
       streamStatus: restored?.streamStatus ?? null,
       model: session.model ?? '',
-      thinkingLevel: session.thinkingLevel,
+      thinkingLevel: get().thinkingLevel,
       permission: session.permission,
       contextTokens: session.contextTokens,
       maxContextTokens: session.maxContextTokens,
@@ -375,12 +382,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   createSession: async () => {
     try {
+      const thinkingLevel = get().thinkingLevel
       const summary = await window.lmcodeAPI.createSession({
         workDir: '',
-        thinking: getStoredThinking(),
+        thinking: thinkingLevel,
       })
       const sid = summary?.id ?? `session_${Date.now()}`
-      const newSession = createNewSession(sid, { title: summary?.title, workDir: summary?.workDir ?? '' })
+      const newSession = createNewSession(sid, {
+        title: summary?.title,
+        workDir: summary?.workDir ?? '',
+        thinkingLevel,
+      })
       set((state) => {
         // Park the current session before switching so a task running there
         // survives (events keep flowing into bg) instead of being abandoned.
@@ -485,6 +497,48 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return s.bg[id]?.isStreaming ?? false
   },
 
-  setPendingApproval: (req) => set({ pendingApproval: req }),
-  setPendingQuestion: (req) => set({ pendingQuestion: req }),
+  setThinkingPreference: async (level) => {
+    setStoredThinking(level)
+    const sessionId = get().currentSessionId
+    set((state) => ({
+      thinkingLevel: level,
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId ? { ...session, thinkingLevel: level } : session,
+      ),
+    }))
+    if (sessionId !== null) await window.lmcodeAPI.setThinking(sessionId, level)
+  },
+
+  applyThinkingPreference: async (sessionId) => {
+    await window.lmcodeAPI.setThinking(sessionId, get().thinkingLevel)
+  },
+
+  hydrateThinkingPreference: () => {
+    set({ thinkingLevel: getStoredThinking() })
+  },
+
+  enqueuePendingInteraction: (interaction) =>
+    set((state) => {
+      if (
+        state.pendingInteractions.some(
+          (pending) => pending.payload.requestId === interaction.payload.requestId,
+        )
+      ) {
+        return state
+      }
+      return { pendingInteractions: [...state.pendingInteractions, interaction] }
+    }),
+
+  completePendingInteraction: (requestId) =>
+    set((state) => {
+      if (state.pendingInteractions[0]?.payload.requestId !== requestId) return state
+      return { pendingInteractions: state.pendingInteractions.slice(1) }
+    }),
+
+  discardPendingInteraction: (requestId) =>
+    set((state) => ({
+      pendingInteractions: state.pendingInteractions.filter(
+        (interaction) => interaction.payload.requestId !== requestId,
+      ),
+    })),
 }))

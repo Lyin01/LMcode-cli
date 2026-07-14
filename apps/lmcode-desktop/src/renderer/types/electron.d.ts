@@ -1,13 +1,14 @@
+import type { LmcodeConfig, LmcodeConfigPatch } from '@lmcode-cli/lmcode-sdk'
 import type {
-  ApprovalRequest,
-  ApprovalResponse,
-  Event,
-  LmcodeConfig,
-  LmcodeConfigPatch,
-  QuestionRequest,
-  QuestionResult,
-} from '@lmcode-cli/lmcode-sdk'
+  ApprovalRequestPayload,
+  ApprovalResponsePayload,
+  InteractionSettledPayload,
+  QuestionRequestPayload,
+  QuestionResponsePayload,
+  SessionEventPayload,
+} from '../../shared/ipc-types'
 
+declare global {
 interface SessionSummary {
   readonly id: string
   readonly title?: string
@@ -39,36 +40,6 @@ interface MemorySummary {
   readonly recordedAt: number
   readonly projectDir: string
   readonly tags?: string[]
-}
-
-interface SessionEventPayload {
-  readonly sessionId: string
-  readonly event: Event
-}
-
-interface ApprovalRequestPayload extends ApprovalRequest {
-  readonly sessionId: string
-  readonly requestId: string
-  readonly request: ApprovalRequest
-}
-
-interface QuestionRequestPayload {
-  readonly sessionId: string
-  readonly requestId: string
-  readonly questionId: string
-  readonly question: string
-  readonly options: QuestionRequest['questions'][number]['options']
-  readonly request: QuestionRequest
-}
-
-interface ApprovalResponsePayload {
-  readonly requestId: string
-  readonly response: ApprovalResponse
-}
-
-interface QuestionResponsePayload {
-  readonly requestId: string
-  readonly answers: QuestionResult
 }
 
 interface BackgroundTaskInfo {
@@ -117,6 +88,8 @@ interface LmcodeAPI {
   }>
 
   deleteSession: (id: string) => Promise<void>
+
+  exportSession: (id: string) => Promise<string>
 
   renameSession: (id: string, title: string) => Promise<void>
 
@@ -168,6 +141,8 @@ interface LmcodeAPI {
 
   onQuestionRequest: (callback: (data: QuestionRequestPayload) => void) => () => void
 
+  onInteractionSettled: (callback: (data: InteractionSettledPayload) => void) => () => void
+
   // Navigation events (from tray menu)
   onNavigate: (callback: (data: { route: string }) => void) => () => void
 
@@ -184,15 +159,14 @@ interface LmcodeAPI {
   getTaskOutput: (taskId: string) => Promise<string>
 
   // Approval/Question responses
-  respondApproval: (payload: ApprovalResponsePayload) => void
+  respondApproval: (payload: ApprovalResponsePayload) => Promise<void>
 
-  respondQuestion: (payload: QuestionResponsePayload) => void
+  respondQuestion: (payload: QuestionResponsePayload) => Promise<void>
 
   // App control
   quit: () => void
 }
 
-declare global {
   interface Window {
     lmcodeAPI: LmcodeAPI
   }

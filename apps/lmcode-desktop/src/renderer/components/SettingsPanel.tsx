@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { X, Sun, Moon, Monitor } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useConfigStore } from '@/stores/config-store'
 import { useSessionStore } from '@/stores/session-store'
 import type { ThemePref } from '@/lib/theme'
+import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 
 interface SettingsPanelProps {
   open: boolean
@@ -11,14 +11,6 @@ interface SettingsPanelProps {
   theme: ThemePref
   onThemeChange: (theme: ThemePref) => void
 }
-
-const THINKING_LEVELS = [
-  { value: 'auto', label: '自动' },
-  { value: 'none', label: '不思考' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-]
 
 const PERMISSION_MODES = [
   { value: 'manual', label: '手动审批' },
@@ -36,21 +28,18 @@ const selectClass =
   'w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[14px] text-[var(--lm-text-primary)] outline-none transition-colors focus:border-[var(--lm-accent)] disabled:cursor-not-allowed disabled:opacity-50'
 
 export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsPanelProps) {
-  const config = useConfigStore((s) => s.config)
-  const updateConfig = useConfigStore((s) => s.updateConfig)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
+  const sessionThinkingLevel = useSessionStore((s) => s.thinkingLevel)
+  const sessionPermission = useSessionStore((s) => s.permission)
+  const setThinkingPreference = useSessionStore((s) => s.setThinkingPreference)
 
-  const [thinkingLevel, setThinkingLevel] = useState('auto')
   const [permission, setPermission] = useState('manual')
   const [saving, setSaving] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (config) {
-      setThinkingLevel((config.thinkingLevel as string) ?? 'auto')
-      setPermission((config.permission as string) ?? 'manual')
-    }
-  }, [config])
+    setPermission(sessionPermission)
+  }, [sessionPermission])
 
   useEffect(() => {
     if (!open) return
@@ -65,31 +54,34 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
     if (open && panelRef.current) panelRef.current.focus()
   }, [open])
 
-  const handleSettingChange = useCallback(
-    async (key: string, value: string, sessionMethod?: (id: string, val: string) => Promise<void>) => {
+  const handleSessionSettingChange = useCallback(
+    async (key: string, value: string, sessionMethod: (id: string, val: string) => Promise<void>) => {
       setSaving(key)
       try {
-        await updateConfig({ [key]: value })
-        if (currentSessionId && sessionMethod) {
-          await sessionMethod(currentSessionId, value)
-        }
+        if (currentSessionId) await sessionMethod(currentSessionId, value)
       } catch (err) {
         console.error(`Failed to update ${key}:`, err)
       } finally {
         setSaving(null)
       }
     },
-    [currentSessionId, updateConfig],
+    [currentSessionId],
   )
 
-  const handleThinkingChange = async (value: string) => {
-    setThinkingLevel(value)
-    await handleSettingChange('thinkingLevel', value, window.lmcodeAPI.setThinking)
+  const handleThinkingChange = async (value: ThinkingEffort) => {
+    setSaving('thinkingLevel')
+    try {
+      await setThinkingPreference(value)
+    } catch (err) {
+      console.error('Failed to update thinkingLevel:', err)
+    } finally {
+      setSaving(null)
+    }
   }
 
   const handlePermissionChange = async (value: string) => {
     setPermission(value)
-    await handleSettingChange('permission', value, window.lmcodeAPI.setPermission)
+    await handleSessionSettingChange('permission', value, window.lmcodeAPI.setPermission)
   }
 
   if (!open) return null
@@ -143,12 +135,12 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
           <section>
             <label className="mb-1.5 block text-[12px] font-medium text-[var(--lm-text-secondary)]">思考深度</label>
             <select
-              value={thinkingLevel}
+              value={sessionThinkingLevel}
               disabled={saving === 'thinkingLevel'}
-              onChange={(e) => handleThinkingChange(e.target.value)}
+              onChange={(e) => handleThinkingChange(e.target.value as ThinkingEffort)}
               className={selectClass}
             >
-              {THINKING_LEVELS.map((opt) => (
+              {THINKING_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>

@@ -9,9 +9,8 @@ import type {
 
 export function useEvents() {
   const handleEvent = useSessionStore((s) => s.handleEvent)
-  const currentSessionId = useSessionStore((s) => s.currentSessionId)
-  const setPendingApproval = useSessionStore((s) => s.setPendingApproval)
-  const setPendingQuestion = useSessionStore((s) => s.setPendingQuestion)
+  const enqueuePendingInteraction = useSessionStore((s) => s.enqueuePendingInteraction)
+  const discardPendingInteraction = useSessionStore((s) => s.discardPendingInteraction)
   const addOrUpdateTask = useTaskStore((s) => s.addOrUpdateTask)
 
   useEffect(() => {
@@ -33,17 +32,22 @@ export function useEvents() {
     })
 
     const unsubApproval = window.lmcodeAPI.onApprovalRequest((request: ApprovalRequestPayload) => {
-      setPendingApproval(request)
+      enqueuePendingInteraction({ kind: 'approval', payload: request })
     })
 
     const unsubQuestion = window.lmcodeAPI.onQuestionRequest((request: QuestionRequestPayload) => {
-      setPendingQuestion(request)
+      enqueuePendingInteraction({ kind: 'question', payload: request })
+    })
+
+    const unsubInteractionSettled = window.lmcodeAPI.onInteractionSettled(({ requestId }) => {
+      discardPendingInteraction(requestId)
     })
 
     return () => {
       unsubEvent()
       unsubApproval()
       unsubQuestion()
+      unsubInteractionSettled()
     }
-  }, [handleEvent, setPendingApproval, setPendingQuestion, addOrUpdateTask])
+  }, [handleEvent, enqueuePendingInteraction, discardPendingInteraction, addOrUpdateTask])
 }

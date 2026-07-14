@@ -1,12 +1,14 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage, Notification, globalShortcut, dialog } from 'electron'
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage, globalShortcut, dialog } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import updaterPkg from 'electron-updater'
 import { LmcodeHarness } from '@lmcode-cli/lmcode-sdk'
-import { registerAllHandlers } from './ipc/handler.js'
+import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
+import { onceAsync, ShutdownCoordinator } from './lifecycle.js'
+import { classifyNavigation } from './security.js'
 
 // electron-updater is CommonJS; destructure the default export for ESM.
 const { autoUpdater } = updaterPkg
@@ -22,6 +24,10 @@ let mainWindow: BrowserWindow | null = null
 let harness: LmcodeHarness | null = null
 let tray: Tray | null = null
 let isQuitting = false
+let trustedRendererUrl: string | null = null
+let handlerRegistration: DesktopHandlerRegistration | null = null
+let handlerCleanup: Promise<void> | null = null
+let harnessInitialization: Promise<void> | null = null
 
 // ── Tray icon ─────────────────────────────────────────────────────────
 
@@ -349,17 +355,44 @@ function createWindow(): void {
     },
   })
 
-  // Prevent navigation to external URLs
+  const rendererFile = join(__dirname, '../renderer/index.html')
+  const rendererUrl = is.dev && process.env['ELECTRON_RENDERER_URL']
+    ? process.env['ELECTRON_RENDERER_URL']
+    : pathToFileURL(rendererFile).href
+  trustedRendererUrl = rendererUrl
+
+  const openExternal = (url: string): void => {
+    void shell.openExternal(url).catch(() => {})
+  }
+
+  const handleNavigation = (event: Electron.Event, url: string): void => {
+    const action = classifyNavigation(url, rendererUrl)
+    if (action === 'allow-local') return
+
+    event.preventDefault()
+    if (action === 'open-external') openExternal(url)
+  }
+
+  // New windows are never created. Safe web links are delegated to the OS;
+  // file/custom-protocol/javascript URLs are denied without being launched.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (classifyNavigation(url, rendererUrl) === 'open-external') {
+      openExternal(url)
+    }
     return { action: 'deny' }
   })
+  mainWindow.webContents.on('will-navigate', handleNavigation)
+  mainWindow.webContents.on('will-redirect', handleNavigation)
 
   // Load renderer
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']).catch((error: unknown) => {
+      console.error('Failed to load the desktop renderer URL:', error)
+    })
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void mainWindow.loadFile(rendererFile).catch((error: unknown) => {
+      console.error('Failed to load the desktop renderer file:', error)
+    })
   }
 
   // Show window when ready to avoid visual flash
@@ -398,12 +431,97 @@ async function initHarness(): Promise<void> {
   await harness.ensureConfigFile()
 
   // Register all IPC handlers
-  if (mainWindow) {
-    registerAllHandlers(harness, mainWindow)
-  }
+  await attachHandlersToCurrentWindow()
 }
 
 // ── App lifecycle ──────────────────────────────────────────────────────
+
+function closeHandlerRegistration(): Promise<void> {
+  if (handlerCleanup !== null) return handlerCleanup
+  const registration = handlerRegistration
+  handlerRegistration = null
+  if (registration === null) return Promise.resolve()
+
+  const cleanup = registration.close()
+  handlerCleanup = cleanup
+  void cleanup.then(
+    () => {
+      if (handlerCleanup === cleanup) handlerCleanup = null
+    },
+    () => {
+      if (handlerCleanup === cleanup) handlerCleanup = null
+    },
+  )
+  return cleanup
+}
+
+async function attachHandlersToCurrentWindow(): Promise<void> {
+  if (handlerCleanup !== null) {
+    await handlerCleanup.catch((error: unknown) => {
+      console.error('Failed to dispose handlers for the previous window:', error)
+    })
+  }
+  if (
+    handlerRegistration !== null ||
+    harness === null ||
+    mainWindow === null ||
+    trustedRendererUrl === null ||
+    isQuitting
+  ) return
+  handlerRegistration = registerAllHandlers(harness, mainWindow, trustedRendererUrl)
+}
+
+const closeRuntime = onceAsync(async (): Promise<void> => {
+  if (harnessInitialization !== null) {
+    await harnessInitialization.catch(() => {
+      // Startup owns its failure; still close resources it managed to create.
+    })
+  }
+
+  const currentHarness = harness
+  harness = null
+
+  const errors: unknown[] = []
+  try {
+    await closeHandlerRegistration()
+  } catch (error) {
+    errors.push(error)
+  }
+  try {
+    await currentHarness?.close()
+  } catch (error) {
+    errors.push(error)
+  }
+  if (errors.length > 0) throw new AggregateError(errors, 'Failed to close desktop runtime')
+})
+
+async function cleanupApplication(): Promise<void> {
+  const errors: unknown[] = []
+  try {
+    globalShortcut.unregisterAll()
+  } catch (error) {
+    errors.push(error)
+  }
+  try {
+    tray?.destroy()
+  } catch (error) {
+    errors.push(error)
+  } finally {
+    tray = null
+  }
+  try {
+    await closeRuntime()
+  } catch (error) {
+    errors.push(error)
+  }
+  if (errors.length > 0) throw new AggregateError(errors, 'Failed to clean up desktop application')
+}
+
+const shutdownCoordinator = new ShutdownCoordinator(
+  cleanupApplication,
+  () => app.quit(),
+  (error) => console.error('Failed to shut down LMCODE cleanly:', error),
+)
 
 // Single-instance: launching the app again must NOT spin up a second harness
 // against the same userData (sessions/SQLite) — that races the running one and
@@ -420,26 +538,33 @@ if (!gotSingleInstanceLock) {
     }
   })
 
-  app.whenReady().then(async () => {
+  void app.whenReady().then(async () => {
     createWindow()
     Menu.setApplicationMenu(buildAppMenu())
-    await initHarness()
+    const initialization = initHarness()
+    harnessInitialization = initialization
+    try {
+      await initialization
+    } finally {
+      if (harnessInitialization === initialization) harnessInitialization = null
+    }
+    if (isQuitting) return
     createTray()
     registerShortcuts()
     setupAutoUpdater()
     // Silent background check a few seconds after launch (only speaks up if a
     // newer release exists). Dedicated repo → no false positives from the CLI.
     setTimeout(() => void checkForUpdates(false), 5000)
+  }).catch((error: unknown) => {
+    console.error('Failed to initialize LMCODE Desktop:', error)
+    app.quit()
   })
 }
 
-app.on('window-all-closed', async () => {
-  // Clean up harness (closes all sessions)
-  if (harness) {
-    await harness.close()
-    harness = null
-  }
-
+app.on('window-all-closed', () => {
+  void closeHandlerRegistration().catch((error: unknown) => {
+    console.error('Failed to close desktop window resources:', error)
+  })
   // Don't quit — the app keeps running in the tray
   // Only quit explicitly via tray menu or app.quit()
 })
@@ -452,23 +577,10 @@ app.on('activate', () => {
     mainWindow.show()
     mainWindow.focus()
   }
+  void attachHandlersToCurrentWindow()
 })
 
-app.on('before-quit', async () => {
+app.on('before-quit', (event) => {
   isQuitting = true
-
-  // Unregister all global shortcuts
-  globalShortcut.unregisterAll()
-
-  // Destroy tray
-  if (tray) {
-    tray.destroy()
-    tray = null
-  }
-
-  // Close harness
-  if (harness) {
-    await harness.close()
-    harness = null
-  }
+  shutdownCoordinator.handleBeforeQuit(event)
 })

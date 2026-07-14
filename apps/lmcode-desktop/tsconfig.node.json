@@ -3,7 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2023"],
+    "lib": ["ES2024"],
     "strict": true,
     "isolatedModules": true,
     "noUncheckedIndexedAccess": true,
@@ -15,11 +15,17 @@
     "noEmit": true,
     "skipLibCheck": true,
     "composite": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@lmcode-cli/lmcode-sdk": ["../../packages/node-sdk/dist/index.d.mts"],
+      "@lmcode/memory": ["../../packages/memory/dist/index.d.mts"]
+    }
   },
   "include": [
-    "electron/**/*.ts",
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts",
     "vite.config.ts",
-    "src/types/electron.d.ts"
+    "vite.renderer.config.ts"
   ]
 }

@@ -9,10 +9,10 @@
 // finish in a sane time, and expose a switcher so power users can dial it back
 // up for genuinely hard problems.
 
-export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh'
+export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 const STORAGE_KEY = 'lmcode-thinking'
-const DEFAULT_EFFORT: ThinkingEffort = 'medium'
+export const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'medium'
 
 export const THINKING_OPTIONS: ReadonlyArray<{ value: ThinkingEffort; label: string; hint: string }> = [
   { value: 'off', label: '关闭思考', hint: '最快，直接回答' },
@@ -29,7 +29,7 @@ export function getStoredThinking(): ThinkingEffort {
   } catch {
     // ignore (e.g. storage disabled)
   }
-  return DEFAULT_EFFORT
+  return DEFAULT_THINKING_EFFORT
 }
 
 export function setStoredThinking(effort: ThinkingEffort): void {

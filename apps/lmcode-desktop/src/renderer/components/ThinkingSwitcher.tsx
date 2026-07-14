@@ -5,8 +5,6 @@ import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session-store'
 import {
   THINKING_OPTIONS,
-  getStoredThinking,
-  setStoredThinking,
   thinkingLabel,
   type ThinkingEffort,
 } from '@/lib/thinking'
@@ -19,32 +17,35 @@ import {
  */
 export function ThinkingSwitcher() {
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
-  const [effort, setEffort] = useState<ThinkingEffort>(() => getStoredThinking())
+  const effort = useSessionStore((s) => s.thinkingLevel)
+  const setThinkingPreference = useSessionStore((s) => s.setThinkingPreference)
+  const applyThinkingPreference = useSessionStore((s) => s.applyThinkingPreference)
+  const hydrateThinkingPreference = useSessionStore((s) => s.hydrateThinkingPreference)
   const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    hydrateThinkingPreference()
+  }, [hydrateThinkingPreference])
 
   // Re-apply the preferred effort to whatever session is now active. Sessions
   // otherwise inherit config's "high" default on the main side.
   useEffect(() => {
     if (!currentSessionId) return
-    window.lmcodeAPI.setThinking(currentSessionId, effort).catch((err) => {
+    applyThinkingPreference(currentSessionId).catch((err) => {
       console.error('Failed to apply thinking level:', err)
     })
-  }, [currentSessionId, effort])
+  }, [currentSessionId, applyThinkingPreference])
 
   const handleSelect = useCallback(
     async (value: ThinkingEffort) => {
-      setEffort(value)
-      setStoredThinking(value)
       setOpen(false)
-      if (currentSessionId) {
-        try {
-          await window.lmcodeAPI.setThinking(currentSessionId, value)
-        } catch (err) {
-          console.error('Failed to set thinking level:', err)
-        }
+      try {
+        await setThinkingPreference(value)
+      } catch (err) {
+        console.error('Failed to set thinking level:', err)
       }
     },
-    [currentSessionId],
+    [setThinkingPreference],
   )
 
   return (

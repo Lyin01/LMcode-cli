@@ -1,3 +1,15 @@
+import type { Event } from '@lmcode-cli/lmcode-sdk'
+
+export type {
+  ApprovalRequestPayload,
+  ApprovalResponsePayload,
+  InteractionSettledPayload,
+  PendingInteraction,
+  QuestionRequestPayload,
+  QuestionResponsePayload,
+  SessionEventPayload,
+} from '../../shared/ipc-types'
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system' | 'tool'
@@ -34,40 +46,3 @@ export interface SessionInfo {
 }
 
 export type AgentEvent = Event
-
-export interface SessionEventPayload {
-  readonly sessionId: string
-  readonly event: Event
-}
-
-export interface ApprovalRequestPayload extends ApprovalRequest {
-  readonly sessionId: string
-  readonly requestId: string
-  readonly request: ApprovalRequest
-}
-
-export interface QuestionRequestPayload {
-  readonly sessionId: string
-  readonly requestId: string
-  readonly questionId: string
-  readonly question: string
-  readonly options: QuestionRequest['questions'][number]['options']
-  readonly request: QuestionRequest
-}
-
-export interface ApprovalResponsePayload {
-  readonly requestId: string
-  readonly response: ApprovalResponse
-}
-
-export interface QuestionResponsePayload {
-  readonly requestId: string
-  readonly answers: QuestionResult
-}
-import type {
-  ApprovalRequest,
-  ApprovalResponse,
-  Event,
-  QuestionRequest,
-  QuestionResult,
-} from '@lmcode-cli/lmcode-sdk'
