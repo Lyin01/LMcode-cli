@@ -119,11 +119,13 @@ export class MemoryLookupTool implements BuiltinTool<MemoryLookupInput> {
           }
         }
 
-        const all = candidates.map(toSummary);
-
         // Try vector search as a supplementary signal. Only runs if embeddings
-        // exist and the engine loaded successfully.
+        // exist and the engine loaded successfully. Vector hits are also
+        // candidates in their own right: limiting the ranked set to FTS hits
+        // would discard semantically relevant memos whose wording differs
+        // from the query.
         let vectorScores: Map<string, number> | undefined;
+        const candidatesById = new Map(candidates.map((memo) => [memo.id, memo]));
         const engine = store.getEmbeddingEngine();
         if (engine?.available && store.hasEmbeddings()) {
           try {
@@ -146,6 +148,9 @@ export class MemoryLookupTool implements BuiltinTool<MemoryLookupInput> {
                 vectorScores = new Map(
                   vectorResults.map((r) => [r.memo.id, r.score]),
                 );
+                for (const { memo } of vectorResults) {
+                  candidatesById.set(memo.id, memo);
+                }
               }
             }
           } catch {
@@ -153,6 +158,7 @@ export class MemoryLookupTool implements BuiltinTool<MemoryLookupInput> {
           }
         }
 
+        const all = [...candidatesById.values()].map(toSummary);
         if (all.length === 0) {
           if (vectorScores === undefined || vectorScores.size === 0) {
             return { isError: false, output: 'No memory memos found. The experience store is empty.' };

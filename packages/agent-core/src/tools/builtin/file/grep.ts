@@ -27,7 +27,7 @@ import type { BuiltinTool } from '../../../agent/tool';
 import { isAbortError } from '../../../loop/errors';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { resolvePathAccessPath } from '../../policies/path-access';
+import { resolveRealPathAccessPath } from '../../policies/path-access';
 import type { PathClass } from '../../policies/path-access';
 import { isSensitiveFile, SENSITIVE_DOT_VARIANT_SUFFIXES } from '../../policies/sensitive';
 import { toInputJsonSchema } from '../../support/input-schema';
@@ -177,17 +177,15 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     private readonly workspace: WorkspaceConfig,
   ) {}
 
-  resolveExecution(args: GrepInput): ToolExecution {
-    let path: string | undefined;
-    if (args.path !== undefined) {
-      path = resolvePathAccessPath(args.path, {
-        jian: this.jian,
-        workspace: this.workspace,
-        operation: 'search',
-        policy: { guardMode: 'absolute-outside-allowed', checkSensitive: false },
-      });
-    }
-    const searchPaths = [path ?? this.workspace.workspaceDir];
+  async resolveExecution(args: GrepInput): Promise<ToolExecution> {
+    const rawPath = args.path ?? this.workspace.workspaceDir;
+    const path = await resolveRealPathAccessPath(rawPath, {
+      jian: this.jian,
+      workspace: this.workspace,
+      operation: 'search',
+      policy: { guardMode: 'absolute-outside-allowed', checkSensitive: false },
+    });
+    const searchPaths = [path];
     const searchPath = args.path ?? this.workspace.workspaceDir;
     return {
       accesses: ToolAccesses.searchTree(searchPaths[0]!),

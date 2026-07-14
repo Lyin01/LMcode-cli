@@ -176,7 +176,10 @@ describe('HookEngine', () => {
       signal: abortController.signal,
     });
 
-    expect(Date.now() - startedAt).toBeLessThan(1000);
+    // The contract is that abort settles well before the five-second hook
+    // timeout. Leave enough headroom for process-tree termination under a
+    // fully parallel CI run.
+    expect(Date.now() - startedAt).toBeLessThan(2000);
     expect(results).toHaveLength(1);
     expect(results[0]?.action).toBe('allow');
     expect(results[0]?.timedOut).toBeUndefined();

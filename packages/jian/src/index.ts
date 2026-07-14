@@ -29,6 +29,7 @@ export {
   pathClass,
   readBytes,
   readLines,
+  realpath,
   readText,
   runWithJian,
   setCurrentJian,

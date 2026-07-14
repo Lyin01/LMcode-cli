@@ -33,6 +33,19 @@ import { createFakeJian } from '../tools/fixtures/fake-jian';
 import { createCommandJian, testAgent } from './harness/agent';
 
 describe('Agent permission', () => {
+  it('clears the approval deadline after the transport responds', async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = makePermissionManager(async () => ({ decision: 'approved' }));
+
+      await manager.beforeToolCall(hookContext({ id: 'call_timer_cleanup' }));
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('auto mode bypasses approval for ordinary builtin tools', async () => {
     const ctx = testAgent({ jian: createCommandJian('auto-output') });
     ctx.configure({ tools: ['Bash'] });
@@ -2152,7 +2165,6 @@ describe('Approval cancellation', () => {
 describe('Default git CWD Write/Edit permission', () => {
   const DIR_MODE = 0o040_755;
   const FILE_MODE = 0o100_644;
-  const SYMLINK_MODE = 0o120_777;
 
   function statResult(mode: number): Awaited<ReturnType<Jian['stat']>> {
     return {
@@ -2413,6 +2425,38 @@ describe('Default git CWD Write/Edit permission', () => {
     
   });
 
+  it('requests approval for a physical git control directory behind a symlink', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) =>
+        path === '/workspace/.git' ? '/physical/git-control' : path,
+      stat: async (path) => {
+        if (path === '/workspace/.git') return statResult(DIR_MODE);
+        throw notFound(path);
+      },
+    });
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { jian, mode: 'auto' },
+    );
+    const args = { path: '/workspace/.git/config' };
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_physical_git_control',
+          toolName: 'Read',
+          args,
+          execution: {
+            ...testExecution('Read', args),
+            accesses: ToolAccesses.readFile('/physical/git-control/config'),
+          },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+  });
+
   it('does not ask for ordinary file access when a git marker exists', async () => {
     const { jian } = gitJian();
     const { manager, requestApproval } = makePermissionManager(
@@ -2550,38 +2594,147 @@ describe('Default git CWD Write/Edit permission', () => {
     },
   );
 
-  it('bypasses approval for a lexical path inside git cwd without resolving parent symlinks', async () => {
-    const { jian } = gitJian({
-      statModes: { '/workspace/out': SYMLINK_MODE },
-    });
+  it('requests approval when a parent symlink resolves a write outside the git cwd', async () => {
+    const { jian } = gitJian();
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
       { jian },
     );
+    const args = { path: 'out/hosts', content: 'x' };
 
     await expect(
-      manager.beforeToolCall(writeHook({ path: 'out/hosts', content: 'x' })),
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_parent_symlink',
+          toolName: 'Write',
+          args,
+          execution: {
+            ...testExecution('Write', args),
+            accesses: ToolAccesses.writeFile('/etc/hosts'),
+          },
+        }),
+      ),
     ).resolves.toBeUndefined();
 
-    expect(requestApproval).not.toHaveBeenCalled();
-    
+    expect(requestApproval).toHaveBeenCalledTimes(1);
   });
 
-  it('bypasses approval for a lexical target inside git cwd without resolving target symlinks', async () => {
-    const { jian } = gitJian({
-      statModes: { '/workspace/link.txt': SYMLINK_MODE },
-    });
+  it('requests approval when a target symlink resolves a write outside the git cwd', async () => {
+    const { jian } = gitJian();
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
       { jian },
     );
+    const args = { path: 'link.txt', content: 'x' };
 
     await expect(
-      manager.beforeToolCall(writeHook({ path: 'link.txt', content: 'x' })),
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_target_symlink',
+          toolName: 'Write',
+          args,
+          execution: {
+            ...testExecution('Write', args),
+            accesses: ToolAccesses.writeFile('/outside/link.txt'),
+          },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not classify a physical write inside a linked cwd as cwd-outside', async () => {
+    const realpath = vi.fn<Jian['realpath']>(async (path) =>
+      path === '/workspace-link' ? '/physical/workspace' : path,
+    );
+    const jian = createFakeJian({
+      realpath,
+      stat: vi.fn<Jian['stat']>().mockRejectedValue(notFound('missing')),
+    });
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { cwd: '/workspace-link', jian, mode: 'auto' },
+    );
+    const args = { path: 'src/a.ts', content: 'x' };
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_linked_cwd_inside',
+          toolName: 'Write',
+          args,
+          execution: {
+            ...testExecution('Write', args),
+            accesses: ToolAccesses.writeFile('/physical/workspace/src/a.ts'),
+          },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(realpath).toHaveBeenCalledWith('/workspace-link');
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
+  it('still classifies a physical write outside a linked cwd as cwd-outside', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) =>
+        path === '/workspace-link' ? '/physical/workspace' : path,
+      stat: vi.fn<Jian['stat']>().mockRejectedValue(notFound('missing')),
+    });
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { cwd: '/workspace-link', jian, mode: 'auto' },
+    );
+    const args = { path: '/outside/a.ts', content: 'x' };
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_linked_cwd_outside',
+          toolName: 'Write',
+          args,
+          execution: {
+            ...testExecution('Write', args),
+            accesses: ToolAccesses.writeFile('/outside/a.ts'),
+          },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it('default-approves a physical write inside a linked git cwd', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) =>
+        path === '/workspace-link' ? '/physical/workspace' : path,
+      stat: vi.fn<Jian['stat']>(async (path) => {
+        if (path === '/physical/workspace/.git') return statResult(DIR_MODE);
+        throw notFound(path);
+      }),
+    });
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { cwd: '/workspace-link', jian },
+    );
+    const args = { path: 'src/a.ts', content: 'x' };
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_linked_git_cwd_inside',
+          toolName: 'Write',
+          args,
+          execution: {
+            ...testExecution('Write', args),
+            accesses: ToolAccesses.writeFile('/physical/workspace/src/a.ts'),
+          },
+        }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(requestApproval).not.toHaveBeenCalled();
-    
   });
 
   it('still requests approval for a sensitive file inside the git cwd', async () => {

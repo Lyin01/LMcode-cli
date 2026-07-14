@@ -373,6 +373,11 @@ async function latestAgentWireMtime(sessionDir: string): Promise<number | undefi
 
 function titleFromState(state: SessionSummaryState | undefined): string | undefined {
   if (state === undefined) return undefined;
+  if (
+    state.isCustomTitle !== true &&
+    state.title === 'New Session' &&
+    state.customTitle === undefined
+  ) return undefined;
   if (typeof state.isCustomTitle === 'boolean' && typeof state.title === 'string') {
     return state.title;
   }

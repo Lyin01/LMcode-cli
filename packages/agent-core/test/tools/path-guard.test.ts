@@ -11,9 +11,11 @@ import {
   assertPathAllowed,
   resolvePathAccess,
   resolvePathAccessPath,
+  resolveRealPathAccessPath,
 } from '../../src/tools/policies/path-access';
 import { isSensitiveFile } from '../../src/tools/policies/sensitive';
 import type { WorkspaceConfig } from '../../src/tools/support/workspace';
+import { createFakeJian } from './fixtures/fake-jian';
 
 const WORKSPACE: WorkspaceConfig = {
   workspaceDir: '/workspace',
@@ -29,6 +31,16 @@ const POSIX_JIAN = {
   pathClass: () => 'posix' as const,
   gethome: () => '/home/test',
 };
+
+function missingPath(path: string): Error {
+  return Object.assign(new Error(`No such file: ${path}`), { code: 'ENOENT' });
+}
+
+function sshMissingPath(path: string): Error {
+  const error = Object.assign(new Error(`No such file: ${path}`), { code: 2 });
+  error.name = 'JianFileNotFoundError';
+  return error;
+}
 
 describe('path access policy', () => {
   it('strict policy rejects absolute paths outside workspace roots', () => {
@@ -125,6 +137,125 @@ describe('path access policy', () => {
     });
 
     expect(result).toBe('/workspace/project/README.md');
+  });
+
+  it('resolves symlinks in both the workspace root and the requested path', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) => {
+        if (path === '/workspace') return '/physical/repository';
+        if (path === '/workspace/link.ts') return '/physical/repository/src/target.ts';
+        return path;
+      },
+    });
+
+    await expect(
+      resolveRealPathAccessPath('/workspace/link.ts', {
+        jian,
+        workspace: { workspaceDir: '/workspace', additionalDirs: [] },
+        operation: 'read',
+      }),
+    ).resolves.toBe('/physical/repository/src/target.ts');
+  });
+
+  it('requires an absolute input when a symlink resolves outside the workspace', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) =>
+        path === '/workspace/link.txt' ? '/outside/target.txt' : path,
+    });
+    const workspace = { workspaceDir: '/workspace', additionalDirs: [] };
+
+    await expect(
+      resolveRealPathAccessPath('link.txt', { jian, workspace, operation: 'read' }),
+    ).rejects.toMatchObject({ code: 'PATH_OUTSIDE_WORKSPACE' });
+    await expect(
+      resolveRealPathAccessPath('/workspace/link.txt', { jian, workspace, operation: 'read' }),
+    ).resolves.toBe('/outside/target.txt');
+  });
+
+  it('blocks a sensitive physical target hidden behind a non-sensitive symlink name', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) =>
+        path === '/workspace/settings.txt' ? '/home/test/.ssh/id_rsa' : path,
+    });
+
+    await expect(
+      resolveRealPathAccessPath('/workspace/settings.txt', {
+        jian,
+        workspace: { workspaceDir: '/workspace', additionalDirs: [] },
+        operation: 'read',
+      }),
+    ).rejects.toMatchObject({ code: 'PATH_SENSITIVE' });
+  });
+
+  it('preserves a missing suffix after resolving its deepest existing ancestor', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) => {
+        if (path === '/workspace') return '/physical/repository';
+        if (path.startsWith('/workspace/new')) throw missingPath(path);
+        return path;
+      },
+      stat: async (path) => {
+        throw missingPath(path);
+      },
+    });
+
+    await expect(
+      resolveRealPathAccessPath('/workspace/new/deep/file.ts', {
+        jian,
+        workspace: { workspaceDir: '/workspace', additionalDirs: [] },
+        operation: 'write',
+      }),
+    ).resolves.toBe('/physical/repository/new/deep/file.ts');
+  });
+
+  it('accepts SSH-style numeric not-found errors for a new file suffix', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) => {
+        if (path === '/workspace') return '/remote/repository';
+        if (path === '/workspace/new.ts') throw sshMissingPath(path);
+        return path;
+      },
+      stat: async (path) => {
+        throw sshMissingPath(path);
+      },
+    });
+
+    await expect(
+      resolveRealPathAccessPath('/workspace/new.ts', {
+        jian,
+        workspace: { workspaceDir: '/workspace', additionalDirs: [] },
+        operation: 'write',
+      }),
+    ).resolves.toBe('/remote/repository/new.ts');
+  });
+
+  it('rejects a dangling symlink instead of treating it as a creatable path', async () => {
+    const jian = createFakeJian({
+      realpath: async (path) => {
+        if (path === '/workspace/dangling') throw missingPath(path);
+        return path;
+      },
+      stat: async () => ({
+        stMode: 0o120_777,
+        stIno: 1,
+        stDev: 1,
+        stNlink: 1,
+        stUid: 1000,
+        stGid: 1000,
+        stSize: 0,
+        stAtime: 0,
+        stMtime: 0,
+        stCtime: 0,
+      }),
+    });
+
+    await expect(
+      resolveRealPathAccessPath('/workspace/dangling', {
+        jian,
+        workspace: { workspaceDir: '/workspace', additionalDirs: [] },
+        operation: 'write',
+      }),
+    ).rejects.toThrow(/dangling symbolic link/);
   });
 
   it('expands home for file tools unless explicitly disabled', () => {

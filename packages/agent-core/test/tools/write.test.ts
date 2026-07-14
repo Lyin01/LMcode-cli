@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { ToolAccesses } from '../../src/loop';
 import { type WriteInput, WriteInputSchema, WriteTool } from '../../src/tools/builtin/file/write';
 import { createFakeJian, PERMISSIVE_WORKSPACE, toolContentString } from './fixtures/fake-jian';
 import { executeTool } from './fixtures/execute-tool';
@@ -58,9 +59,9 @@ describe('WriteTool', () => {
     expect(params.properties.path.description).toMatch(/absolute/i);
   });
 
-  it('exposes the content on the file_io display so the approval panel can preview it', () => {
+  it('exposes the content on the file_io display so the approval panel can preview it', async () => {
     const tool = new WriteTool(createFakeJian(), PERMISSIVE_WORKSPACE);
-    const execution = tool.resolveExecution({
+    const execution = await tool.resolveExecution({
       path: '/tmp/new.txt',
       content: 'hello\nworld',
     });
@@ -75,19 +76,79 @@ describe('WriteTool', () => {
     });
   });
 
-  it('matches permission args with negated glob path semantics', () => {
+  it('matches permission args with negated glob path semantics', async () => {
     const tool = new WriteTool(createFakeJian(), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
-    const insideSrc = tool.resolveExecution({ path: './src/a.ts', content: 'x' });
-    const outsideSrc = tool.resolveExecution({ path: './README.md', content: 'x' });
+    const insideSrc = await tool.resolveExecution({ path: './src/a.ts', content: 'x' });
+    const outsideSrc = await tool.resolveExecution({ path: './README.md', content: 'x' });
     if (insideSrc.isError === true || outsideSrc.isError === true) {
       throw new TypeError('expected runnable execution');
     }
 
     expect(insideSrc.matchesRule?.('!./src/**')).toBe(false);
     expect(outsideSrc.matchesRule?.('!./src/**')).toBe(true);
+  });
+
+  it('uses the physical target for permission metadata when a symlink points outside', async () => {
+    const tool = new WriteTool(
+      createFakeJian({
+        realpath: async (path) =>
+          path === '/workspace/output.txt' ? '/outside/output.txt' : path,
+      }),
+      { workspaceDir: '/workspace', additionalDirs: [] },
+    );
+
+    const execution = await tool.resolveExecution({
+      path: '/workspace/output.txt',
+      content: 'data',
+    });
+    if (execution.isError === true) throw new TypeError('expected runnable execution');
+
+    expect(execution.accesses).toEqual(ToolAccesses.writeFile('/outside/output.txt'));
+    expect(execution.display).toMatchObject({ path: '/outside/output.txt' });
+  });
+
+  it('blocks a sensitive physical target hidden behind a symlink', async () => {
+    const tool = new WriteTool(
+      createFakeJian({
+        realpath: async (path) =>
+          path === '/workspace/notes.txt' ? '/home/test/.ssh/id_rsa' : path,
+      }),
+      { workspaceDir: '/workspace', additionalDirs: [] },
+    );
+
+    await expect(
+      tool.resolveExecution({ path: '/workspace/notes.txt', content: 'secret' }),
+    ).rejects.toMatchObject({ code: 'PATH_SENSITIVE' });
+  });
+
+  it('refuses execution when the physical target changes after approval', async () => {
+    let targetResolutionCount = 0;
+    const writeText = vi.fn();
+    const tool = new WriteTool(
+      createFakeJian({
+        realpath: async (path) => {
+          if (path !== '/workspace/output.txt') return path;
+          targetResolutionCount += 1;
+          return targetResolutionCount === 1
+            ? '/workspace/approved.txt'
+            : '/outside/replaced.txt';
+        },
+        writeText,
+      }),
+      { workspaceDir: '/workspace', additionalDirs: [] },
+    );
+    const execution = await tool.resolveExecution({
+      path: '/workspace/output.txt',
+      content: 'data',
+    });
+    if (execution.isError === true) throw new TypeError('expected runnable execution');
+
+    await expect(execution.execute(context({ path: '/workspace/output.txt', content: 'data' })))
+      .rejects.toThrow(/changed after access was approved/);
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it('guides batching large content across multiple write calls', () => {

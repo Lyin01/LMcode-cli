@@ -195,6 +195,7 @@ export class PermissionManager {
     let response: ApprovalResponse;
     if (this.agent.rpc?.requestApproval) {
       const approvalId = `approval-${String(++this.nextApprovalId)}`;
+      let timeout: NodeJS.Timeout | undefined;
       try {
         const customPromise = new Promise<ApprovalResponse>((resolve, reject) => {
           this.pendingApprovals.set(approvalId, {
@@ -223,7 +224,7 @@ export class PermissionManager {
           }
         });
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => {
+          timeout = setTimeout(() => {
             reject(new Error(`Approval request timed out after ${String(APPROVAL_TIMEOUT_MS)}ms`));
           }, APPROVAL_TIMEOUT_MS);
         });
@@ -235,6 +236,7 @@ export class PermissionManager {
           ? Promise.reject(error)
           : this.permissionPolicyResolutionToPrepare(resolved, context, policyName));
       } finally {
+        if (timeout !== undefined) clearTimeout(timeout);
         this.pendingApprovals.delete(approvalId);
       }
     } else {

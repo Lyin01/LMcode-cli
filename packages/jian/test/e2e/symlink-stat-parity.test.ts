@@ -39,6 +39,7 @@ describe.skipIf(process.platform === 'win32')('e2e: symlink stat parity', () => 
     const resolvedStat = await jian.stat(linkFile);
     expect(resolvedStat.stMode & S_IFMT).toBe(S_IFREG);
     expect(resolvedStat.stSize).toBe(Buffer.byteLength(payload, 'utf-8'));
+    expect(await jian.realpath(linkFile)).toBe(targetFile);
     expect(await jian.readText(linkFile)).toBe(payload);
   });
 
@@ -56,6 +57,7 @@ describe.skipIf(process.platform === 'win32')('e2e: symlink stat parity', () => 
 
     const resolvedStat = await jian.stat(linkDir);
     expect(resolvedStat.stMode & S_IFMT).toBe(S_IFDIR);
+    expect(await jian.realpath(linkDir)).toBe(targetDir);
 
     const entries: string[] = [];
     for await (const entry of jian.iterdir(linkDir)) {

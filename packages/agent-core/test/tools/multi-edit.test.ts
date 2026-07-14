@@ -40,9 +40,9 @@ describe('MultiEditTool', () => {
     ).toBe(true);
   });
 
-  it('summarizes the batch on the file_io display for the approval panel', () => {
+  it('summarizes the batch on the file_io display for the approval panel', async () => {
     const tool = new MultiEditTool(createFakeJian(), PERMISSIVE_WORKSPACE);
-    const execution = tool.resolveExecution({
+    const execution = await tool.resolveExecution({
       path: '/tmp/foo.ts',
       edits: [
         { old_string: 'a', new_string: 'A' },
@@ -60,6 +60,23 @@ describe('MultiEditTool', () => {
       before: 'a\nb',
       after: 'A\nB',
     });
+  });
+
+  it('blocks a sensitive physical target hidden behind a symlink', async () => {
+    const tool = new MultiEditTool(
+      createFakeJian({
+        realpath: async (path) =>
+          path === '/workspace/notes.txt' ? '/home/test/.ssh/id_rsa' : path,
+      }),
+      { workspaceDir: '/workspace', additionalDirs: [] },
+    );
+
+    await expect(
+      tool.resolveExecution({
+        path: '/workspace/notes.txt',
+        edits: [{ old_string: 'old', new_string: 'new' }],
+      }),
+    ).rejects.toMatchObject({ code: 'PATH_SENSITIVE' });
   });
 
   it('applies edits sequentially, each seeing the previous result', async () => {

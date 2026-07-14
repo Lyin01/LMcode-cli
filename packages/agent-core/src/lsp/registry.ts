@@ -17,8 +17,15 @@ const LANGUAGE_SERVERS: Readonly<Record<string, LspCommand>> = {
   '.go': { command: ['gopls'], languageId: 'go' },
 };
 
+interface StartingLspClient {
+  readonly client: LspClient;
+  readonly promise: Promise<LspClient>;
+}
+
 export class LspRegistry {
   private readonly clients = new Map<string, LspClient>();
+  private readonly startingClients = new Map<string, StartingLspClient>();
+  private stopped = false;
 
   constructor(private readonly jian: Jian) {}
 
@@ -27,18 +34,36 @@ export class LspRegistry {
    * Returns undefined if the file type is not supported.
    */
   async getClient(path: string, workspaceRoot: string): Promise<LspClient | undefined> {
+    if (this.stopped) throw new Error('LSP registry is stopped');
     const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
     const config = LANGUAGE_SERVERS[ext];
     if (config === undefined) return undefined;
 
-    const key = `${workspaceRoot}\0${config.command.join(' ')}`;
-    let client = this.clients.get(key);
-    if (client === undefined) {
-      client = new LspClient(config.command, workspaceRoot, this.jian);
-      this.clients.set(key, client);
-      await client.start();
-    }
-    return client;
+    const physicalWorkspaceRoot = await this.resolveWorkspaceRoot(workspaceRoot);
+    if (this.stopped) throw new Error('LSP registry is stopped');
+    const key = `${physicalWorkspaceRoot}\0${config.command.join(' ')}`;
+    const client = this.clients.get(key);
+    if (client !== undefined) return client;
+
+    const starting = this.startingClients.get(key);
+    if (starting !== undefined) return starting.promise;
+
+    const createdClient = new LspClient(config.command, physicalWorkspaceRoot, this.jian);
+    const startPromise = createdClient
+      .start()
+      .then(() => {
+        if (this.startingClients.get(key)?.client === createdClient) {
+          this.clients.set(key, createdClient);
+        }
+        return createdClient;
+      })
+      .finally(() => {
+        if (this.startingClients.get(key)?.client === createdClient) {
+          this.startingClients.delete(key);
+        }
+      });
+    this.startingClients.set(key, { client: createdClient, promise: startPromise });
+    return startPromise;
   }
 
   languageIdForPath(path: string): string | undefined {
@@ -47,7 +72,25 @@ export class LspRegistry {
   }
 
   async stopAll(): Promise<void> {
-    await Promise.all([...this.clients.values()].map((client) => client.stop()));
+    this.stopped = true;
+    const clients = [...this.clients.values()];
+    const startingClients = [...this.startingClients.values()];
     this.clients.clear();
+    this.startingClients.clear();
+    await Promise.allSettled([
+      ...clients.map((client) => client.stop()),
+      ...startingClients.flatMap(({ client, promise }) => [
+        client.stop(),
+        promise.then(() => undefined),
+      ]),
+    ]);
+  }
+
+  private async resolveWorkspaceRoot(workspaceRoot: string): Promise<string> {
+    try {
+      return await this.jian.realpath(workspaceRoot);
+    } catch {
+      return workspaceRoot;
+    }
   }
 }

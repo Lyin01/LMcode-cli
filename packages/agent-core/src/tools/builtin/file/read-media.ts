@@ -28,7 +28,10 @@ import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { renderPrompt } from '../../../utils/render-prompt';
-import { resolvePathAccessPath } from '../../policies/path-access';
+import {
+  resolveRealPathAccessPath,
+  revalidateRealPathAccessPath,
+} from '../../policies/path-access';
 import { MEDIA_SNIFF_BYTES, detectFileType, sniffImageDimensions } from '../../support/file-type';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
@@ -141,8 +144,8 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
     this.description = buildDescription(capabilities);
   }
 
-  resolveExecution(args: ReadMediaFileInput): ToolExecution {
-    const path = resolvePathAccessPath(args.path, {
+  async resolveExecution(args: ReadMediaFileInput): Promise<ToolExecution> {
+    const path = await resolveRealPathAccessPath(args.path, {
       jian: this.jian,
       workspace: this.workspace,
       operation: 'read',
@@ -158,7 +161,15 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
           pathClass: this.jian.pathClass(),
           homeDir: this.jian.gethome(),
         }),
-      execute: () => this.execution(args, path),
+      execute: async () =>
+        this.execution(
+          args,
+          await revalidateRealPathAccessPath(args.path, path, {
+            jian: this.jian,
+            workspace: this.workspace,
+            operation: 'read',
+          }),
+        ),
     };
   }
 

@@ -37,8 +37,10 @@ export interface Jian {
   chdir(path: string): Promise<void>;
   /** Return a new Jian with the given `cwd`. */
   withCwd(cwd: string): Jian;
-  /** Return stat metadata for `path`. */
+  /** Return stat metadata for `path`; `followSymlinks: false` performs an lstat-style probe. */
   stat(path: string, options?: { followSymlinks?: boolean }): Promise<StatResult>;
+  /** Resolve every symbolic link in an existing path and return its absolute canonical path. */
+  realpath(path: string): Promise<string>;
   /** Yield entry names in the directory at `path`. */
   iterdir(path: string): AsyncGenerator<string>;
   /** Yield paths matching `pattern` under `path`. */

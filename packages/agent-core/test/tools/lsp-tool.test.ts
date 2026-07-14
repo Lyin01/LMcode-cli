@@ -1,13 +1,21 @@
-import { describe, expect, it, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
 import type { LspClient, LspDiagnostic, LspLocation } from '../../src/lsp/client';
-import type { LspRegistry } from '../../src/lsp/registry';
+import { LspClient as RuntimeLspClient } from '../../src/lsp/client';
+import { LspRegistry } from '../../src/lsp/registry';
 import { LspInputSchema, LspTool } from '../../src/tools/builtin/lsp-tool';
+import { testAgent } from '../agent/harness/agent';
 import { createFakeJian, PERMISSIVE_WORKSPACE } from './fixtures/fake-jian';
 import { executeTool } from './fixtures/execute-tool';
 
 const signal = new AbortController().signal;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function makeLspClient(overrides?: Partial<LspClient>): LspClient {
   return {
@@ -134,3 +142,104 @@ describe('LspTool', () => {
     expect(def.output).toContain("'definition' requires both");
   });
 });
+
+describe('LSP lifecycle', () => {
+  it('coalesces concurrent startup for physical aliases of one workspace', async () => {
+    const started = deferred<void>();
+    const start = vi
+      .spyOn(RuntimeLspClient.prototype, 'start')
+      .mockImplementation(() => started.promise);
+    const registry = new LspRegistry(
+      createFakeJian({
+        realpath: async (path) =>
+          path === '/workspace-link' ? '/physical/workspace' : path,
+      }),
+    );
+
+    const fromLink = registry.getClient('/physical/workspace/a.ts', '/workspace-link');
+    const fromPhysical = registry.getClient(
+      '/physical/workspace/b.ts',
+      '/physical/workspace',
+    );
+
+    await vi.waitFor(() => {
+      expect(start).toHaveBeenCalledTimes(1);
+    });
+    started.resolve();
+
+    const [first, second] = await Promise.all([fromLink, fromPhysical]);
+    expect(first).toBe(second);
+  });
+
+  it('kills a language server whose spawn finishes after stop overtakes startup', async () => {
+    const spawned = deferred<{
+      readonly stdin: PassThrough;
+      readonly stdout: PassThrough;
+      readonly stderr: PassThrough;
+      readonly pid: number;
+      readonly exitCode: null;
+      readonly wait: () => Promise<number>;
+      readonly kill: (signal?: NodeJS.Signals) => Promise<void>;
+    }>();
+    const kill = vi.fn(async () => {});
+    const jian = createFakeJian({
+      exec: vi.fn(() => spawned.promise),
+    });
+    const client = new RuntimeLspClient(
+      ['typescript-language-server', '--stdio'],
+      '/workspace',
+      jian,
+    );
+
+    const starting = client.start();
+    await client.stop();
+    spawned.resolve({
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      pid: 123,
+      exitCode: null,
+      wait: async () => 0,
+      kill,
+    });
+
+    await expect(starting).rejects.toThrow('stopped during startup');
+    expect(kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
+  it('keeps one registry across tool refreshes and stops all clients on agent close', async () => {
+    const ctx = testAgent();
+    ctx.configure();
+    const tools = ctx.agent.tools as unknown as { lspRegistry: LspRegistry };
+    const registry = tools.lspRegistry;
+    const clients = (registry as unknown as { clients: Map<string, LspClient> }).clients;
+    const stop = vi.fn(async () => {});
+    const failingStop = vi.fn(async () => {
+      throw new Error('language server already exited');
+    });
+    clients.set('test-client', { stop } as unknown as LspClient);
+    clients.set('failed-client', { stop: failingStop } as unknown as LspClient);
+
+    ctx.agent.tools.initializeBuiltinTools();
+
+    expect(tools.lspRegistry).toBe(registry);
+    expect(clients.has('test-client')).toBe(true);
+
+    await ctx.agent.close();
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(failingStop).toHaveBeenCalledTimes(1);
+    expect(clients.size).toBe(0);
+  });
+});
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}

@@ -21,6 +21,10 @@ export type JsonObject = { readonly [key: string]: JsonValue };
 
 export type Unsubscribe = () => void;
 
+export interface RPCOperationOptions {
+  readonly signal?: AbortSignal;
+}
+
 export type { LmcodeConfig, LmcodeConfigPatch };
 
 export type TextPromptPart = Extract<ContentPart, { type: 'text' }>;
@@ -362,7 +366,10 @@ export interface AgentAPI {
   getStats: (payload: EmptyPayload) => SessionStats;
   getTools: (payload: EmptyPayload) => readonly ToolInfo[];
   getBackground: (payload: GetBackgroundPayload) => readonly BackgroundTaskInfo[];
-  extractMemoriesOnExit: (payload: EmptyPayload) => Promise<void>;
+  extractMemoriesOnExit: (
+    payload: EmptyPayload,
+    options?: RPCOperationOptions,
+  ) => Promise<void>;
   sideQuestion: (payload: SideQuestionPayload) => Promise<SideQuestionResult>;
   createGoal: (payload: CreateGoalPayload) => GoalSnapshotData;
   updateGoalStatus: (payload: UpdateGoalStatusPayload) => GoalSnapshotData | null;

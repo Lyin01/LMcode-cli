@@ -121,6 +121,7 @@ export class LtodLLM implements LLM {
         onStreamEnd: markStreamEnd,
       }),
     );
+    params.signal.throwIfAborted();
 
     // Replay merged content parts onto loop per-block callbacks after the
     // stream drained. This preserves WAL append order and stops partial
@@ -200,6 +201,7 @@ function buildLtodCallbacks(
 
   return {
     onMessagePart: (part: StreamedMessagePart) => {
+      if (params.signal.aborted) return;
       markStreamOutput();
       if (part.type === 'text') {
         if (params.onTextDelta === undefined) return;

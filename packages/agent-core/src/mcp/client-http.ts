@@ -48,6 +48,7 @@ export class HttpMcpClient implements MCPClient {
   private readonly toolCallTimeoutMs?: number;
   private started = false;
   private closed = false;
+  private closing: Promise<void> | undefined;
   // See StdioMcpClient.ready — distinguishes handshake-phase failures (caller
   // sees them via `connect()` throwing, no unexpectedClose) from post-ready
   // disconnects (the case `onUnexpectedClose` is designed to surface).
@@ -100,10 +101,12 @@ export class HttpMcpClient implements MCPClient {
     this.ready = true;
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
+  close(): Promise<void> {
     this.closed = true;
-    await this.closeStartedClient();
+    if (this.closing !== undefined) return this.closing;
+    const closing = this.closeStartedClient();
+    this.closing = closing;
+    return closing;
   }
 
   /**
@@ -136,10 +139,13 @@ export class HttpMcpClient implements MCPClient {
     return toMcpToolResult(result);
   }
 
-  private async closeStartedClient(): Promise<void> {
-    if (!this.started) return;
+  private closeStartedClient(): Promise<void> {
+    if (this.closing !== undefined) return this.closing;
+    if (!this.started) return Promise.resolve();
     this.started = false;
-    await this.client.close();
+    const closing = Promise.resolve().then(() => this.client.close());
+    this.closing = closing;
+    return closing;
   }
 
   private installTransportHooks(): void {

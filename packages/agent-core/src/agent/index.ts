@@ -5,7 +5,14 @@ import { basename, dirname, join } from 'pathe';
 import { ErrorCodes, LmcodeError, makeErrorPayload } from '#/errors';
 import { log } from '#/logging/logger';
 import type { Logger } from '#/logging/types';
-import type { AgentAPI, AgentEvent, LmcodeConfig, SDKAgentRPC, UsageStatus } from '#/rpc';
+import type {
+  AgentAPI,
+  AgentEvent,
+  LmcodeConfig,
+  RPCOperationOptions,
+  SDKAgentRPC,
+  UsageStatus,
+} from '#/rpc';
 import {
   generate,
   type ChatProvider,
@@ -21,6 +28,7 @@ import { SESSION_CONTEXT_TEMPLATE } from '../profile/default';
 import { buildTemplateVars } from '../profile/resolve';
 import type { SystemPromptContext } from '../profile/types';
 import { renderPrompt } from '../utils/render-prompt';
+import { linkAbortSignal } from '../utils/abort';
 import type { ModelProvider } from '../session/provider-manager';
 import type { SessionSubagentHost } from '../session/subagent-host';
 import type { SkillRegistry } from '../skill';
@@ -72,6 +80,14 @@ export type AgentType = 'main' | 'sub' | 'independent';
 
 const SIDE_QUESTION_SYSTEM =
   'You are a helpful coding assistant answering a quick side question. The user is in the middle of a coding session and needs a fast, concise answer. Keep your response short and focused — this is a side question, not the main task.';
+
+const EXIT_MEMORY_CLOSE_GRACE_MS = 1_000;
+
+interface ExitMemoryExtraction {
+  readonly abortController: AbortController;
+  promise: Promise<void>;
+  writingMemo: boolean;
+}
 
 export interface AgentOptions {
   readonly jian: Jian;
@@ -133,6 +149,9 @@ export class Agent {
   readonly replayBuilder: ReplayBuilder;
 
   private lastLlmConfigLogSignature?: string;
+  private readonly memoStoreReady: Promise<void> | undefined;
+  private exitMemoryExtraction: ExitMemoryExtraction | undefined;
+  private closing: Promise<void> | undefined;
 
   constructor(options: AgentOptions) {
     this.type = options.type ?? 'main';
@@ -185,8 +204,17 @@ export class Agent {
       ? new MemoryMemoStore(lmcodeHomeDir)
       : undefined;
     if (this.memoStore !== undefined && lmcodeHomeDir !== undefined) {
-      void this.memoStore.init();
-      void MemoryMemoStore.migrateLegacyStores(lmcodeHomeDir);
+      this.memoStoreReady = this.memoStore.init().then(
+        () =>
+          MemoryMemoStore.migrateLegacyStores(lmcodeHomeDir, this.memoStore).catch(
+            (error: unknown) => {
+              this.log.warn('legacy memory migration failed', { error });
+            },
+          ),
+        (error: unknown) => {
+          this.log.warn('memory store initialization failed', { error });
+        },
+      );
       // Attach embedding engine for semantic search. Best-effort — gracefully
       // degrades to keyword-only if fastembed fails to load.
       try {
@@ -194,8 +222,10 @@ export class Agent {
       } catch {
         // fastembed not available — keyword search still works.
       }
+    } else {
+      this.memoStoreReady = undefined;
     }
-    this.sessionMemory = new SessionMemory(this);
+    this.sessionMemory = new SessionMemory();
     this.workingSet = new WorkingSet();
     this.dreamTracker = new DreamTracker(lmcodeHomeDir ?? '');
     this.replayBuilder = new ReplayBuilder(this);
@@ -417,8 +447,8 @@ export class Agent {
       getStats: () => this.usage.stats(),
       getTools: () => this.tools.data(),
       getBackground: (payload) => this.background.list(payload.activeOnly ?? false, payload.limit),
-      extractMemoriesOnExit: async () => {
-        await this.extractMemoriesOnExit();
+      extractMemoriesOnExit: async (_payload, options?: RPCOperationOptions) => {
+        await this.extractMemoriesOnExit(options?.signal);
       },
       sideQuestion: async (payload) => {
         const answer = await this.sideQuestion(payload.question);
@@ -490,9 +520,44 @@ export class Agent {
   }
 
   /** Extract memory memos from the full conversation history on session exit. */
-  async extractMemoriesOnExit(): Promise<void> {
+  extractMemoriesOnExit(signal?: AbortSignal): Promise<void> {
+    if (this.closing !== undefined) {
+      return Promise.reject(new LmcodeError(ErrorCodes.SESSION_CLOSED, 'Agent is closed'));
+    }
+
+    const current = this.exitMemoryExtraction;
+    if (current !== undefined) {
+      if (signal === undefined) return current.promise;
+      const unlinkAbortSignal = linkAbortSignal(signal, current.abortController);
+      return current.promise.finally(unlinkAbortSignal);
+    }
+
+    const abortController = new AbortController();
+    const unlinkAbortSignal =
+      signal === undefined ? undefined : linkAbortSignal(signal, abortController);
+    const active = {
+      abortController,
+      promise: Promise.resolve(),
+      writingMemo: false,
+    };
+    this.exitMemoryExtraction = active;
+    active.promise = Promise.resolve()
+      .then(() => this.extractMemoriesOnExitWorker(active))
+      .finally(() => {
+        unlinkAbortSignal?.();
+        if (this.exitMemoryExtraction === active) {
+          this.exitMemoryExtraction = undefined;
+        }
+      });
+    return active.promise;
+  }
+
+  private async extractMemoriesOnExitWorker(active: ExitMemoryExtraction): Promise<void> {
+    const signal = active.abortController.signal;
     if (!this.memoStore) return;
+    signal.throwIfAborted();
     await this.memoStore.init();
+    signal.throwIfAborted();
 
     const history = this.context.history;
     if (history.length < 4) return; // Too short to contain meaningful task loops
@@ -503,6 +568,7 @@ export class Agent {
       : 'unknown';
 
     const sessionTitle = await this.getSessionTitle();
+    signal.throwIfAborted();
 
     // Adaptive sampling: prioritize turns containing tool errors (pitfalls) and their surrounding context,
     // plus the latest 10 messages to keep the final output/summary.
@@ -562,7 +628,10 @@ export class Agent {
             toolCalls: [],
           },
         ],
+        undefined,
+        { signal },
       );
+      signal.throwIfAborted();
 
       const summary = typeof response.message.content === 'string'
         ? response.message.content
@@ -572,16 +641,22 @@ export class Agent {
       if (memos.length === 0) return;
 
       const store = this.memoStore;
-      const results = await Promise.allSettled(
-        memos.map((memo) => {
-          memo.sourceSessionId = sessionId;
-          memo.sourceSessionTitle = sessionTitle ?? '';
-          memo.extractionSource = 'exit';
-          memo.projectDir = this.config.cwd;
-          return store.append(memo);
-        }),
-      );
-      const failed = results.filter((r) => r.status === 'rejected').length;
+      let failed = 0;
+      for (const memo of memos) {
+        signal.throwIfAborted();
+        memo.sourceSessionId = sessionId;
+        memo.sourceSessionTitle = sessionTitle ?? '';
+        memo.extractionSource = 'exit';
+        memo.projectDir = this.config.cwd;
+        active.writingMemo = true;
+        try {
+          await store.append(memo);
+        } catch {
+          failed += 1;
+        } finally {
+          active.writingMemo = false;
+        }
+      }
       if (failed > 0) {
         this.log.warn('Some memory memos failed to store from exit extraction', {
           failed,
@@ -594,7 +669,9 @@ export class Agent {
         sessionId,
       });
     } catch (error) {
-      this.log.warn('Exit memory extraction failed', { error: String(error) });
+      if (!signal.aborted) {
+        this.log.warn('Exit memory extraction failed', { error: String(error) });
+      }
     }
   }
 
@@ -637,17 +714,73 @@ export class Agent {
     return text || '(no response)';
   }
 
-  /** Release resources held by this agent, including the SQLite memo store. */
-  close(): void {
-    this.memoStore?.close();
+  /** Release resources held by this agent, including background workers. */
+  close(): Promise<void> {
+    if (this.closing !== undefined) return this.closing;
+    const closing = Promise.resolve().then(() => this.closeInternal());
+    this.closing = closing;
+    return closing;
+  }
+
+  get isClosing(): boolean {
+    return this.closing !== undefined;
+  }
+
+  private async closeInternal(): Promise<void> {
+    const extraction = this.exitMemoryExtraction;
+    extraction?.abortController.abort();
+    try {
+      await this.fullCompaction.close();
+    } finally {
+      try {
+        await this.settleExitMemoryExtractionForClose(extraction);
+      } finally {
+        try {
+          await this.records.flush();
+        } finally {
+          try {
+            await this.tools.close();
+          } finally {
+            await this.memoStoreReady;
+            await this.memoStore?.close();
+          }
+        }
+      }
+    }
+  }
+
+  private async settleExitMemoryExtractionForClose(
+    extraction: ExitMemoryExtraction | undefined,
+  ): Promise<void> {
+    if (extraction === undefined) return;
+
+    let resolveGrace!: () => void;
+    const graceElapsed = new Promise<void>((resolve) => {
+      resolveGrace = resolve;
+    });
+    const timeoutId = setTimeout(resolveGrace, EXIT_MEMORY_CLOSE_GRACE_MS);
+    try {
+      await Promise.race([extraction.promise.catch(() => {}), graceElapsed]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // Once abort is visible, a worker that is still inside provider generation
+    // cannot enter the write phase. If it was already appending a memo, however,
+    // keep the store alive until that local write has settled.
+    if (extraction.writingMemo) {
+      await extraction.promise.catch(() => {});
+    }
   }
 
   emitEvent(event: AgentEvent): void {
+    if (this.isClosing) return;
     if (this.records.restoring) return;
     void this.rpc?.emitEvent?.(event);
   }
 
   emitStatusUpdated(): void {
+    if (this.isClosing) return;
     if (this.records.restoring) return;
     if (!this.config.hasModel) return;
 

@@ -200,4 +200,49 @@ describe('createRPC', () => {
     });
     await expect(remoteProxy.misbehave({})).rejects.toBeInstanceOf(LmcodeError);
   });
+
+  it('propagates an abort signal to the remote operation, not only its caller', async () => {
+    interface RemoteSide {
+      waitForAbort(
+        payload: {},
+        options?: { readonly signal?: AbortSignal },
+      ): Promise<void>;
+    }
+    const [connectCaller, connectRemote] = createRPC<{}, RemoteSide>();
+    const remoteProxyPromise = connectCaller({});
+    const started = deferred<void>();
+    const remoteSettled = deferred<void>();
+    let remoteSignal: AbortSignal | undefined;
+    await connectRemote({
+      async waitForAbort(_payload, options) {
+        remoteSignal = options?.signal;
+        started.resolve();
+        await new Promise<void>((resolve) => {
+          options?.signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+        remoteSettled.resolve();
+      },
+    });
+    const remoteProxy = await remoteProxyPromise;
+    const abortController = new AbortController();
+
+    const call = remoteProxy.waitForAbort({}, { signal: abortController.signal });
+    await started.promise;
+    abortController.abort();
+
+    await expect(call).rejects.toMatchObject({ name: 'AbortError' });
+    await remoteSettled.promise;
+    expect(remoteSignal?.aborted).toBe(true);
+  });
 });
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}

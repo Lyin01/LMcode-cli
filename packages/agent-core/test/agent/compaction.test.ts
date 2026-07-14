@@ -6,6 +6,7 @@ import {
   APIConnectionError,
   APIContextOverflowError,
   APIStatusError,
+  type GenerateResult,
   UNKNOWN_CAPABILITY,
   type Message,
   type ToolCall,
@@ -130,6 +131,176 @@ describe('Agent compaction', () => {
 
     expect(strategy.shouldCompact(210_000)).toBe(true);
     expect(strategy.shouldBlock(210_000)).toBe(true);
+  });
+
+  it('starts compaction when only the predicted next step would overflow', async () => {
+    const compactionResult = deferred<GenerateResult>();
+    const proactiveOnlyStrategy: CompactionStrategy = {
+      shouldCompact: () => false,
+      shouldBlock: () => false,
+      computeCompactCount: () => 2,
+      reduceCompactOnOverflow: (messages) => messages.length,
+      estimateTurnGrowth: (maxOutputTokens) => maxOutputTokens,
+      shouldCompactProactively: () => true,
+      checkAfterStep: false,
+      maxCompactionPerTurn: 1,
+    };
+    const ctx = testAgent({
+      compactionStrategy: proactiveOnlyStrategy,
+      generate: () => compactionResult.promise,
+    });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user', 'old assistant', 20);
+    ctx.appendExchange(2, 'recent user', 'recent assistant', 40);
+    const compacted = ctx.once('context.apply_compaction');
+
+    await ctx.agent.fullCompaction.beforeStep(new AbortController().signal);
+
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(true);
+    expect(eventIndex(ctx.newEvents(), 'compaction.started')).toBeGreaterThanOrEqual(0);
+    compactionResult.resolve(textResult('Proactively compacted summary.'));
+    await compacted;
+  });
+
+  it('allows a proactive-only step when no history prefix can be compacted', async () => {
+    const proactiveWithoutPrefix: CompactionStrategy = {
+      shouldCompact: () => false,
+      shouldBlock: () => false,
+      computeCompactCount: () => 0,
+      reduceCompactOnOverflow: (messages) => messages.length,
+      estimateTurnGrowth: (maxOutputTokens) => maxOutputTokens,
+      shouldCompactProactively: () => true,
+      checkAfterStep: false,
+      maxCompactionPerTurn: 1,
+    };
+    const ctx = testAgent({ compactionStrategy: proactiveWithoutPrefix });
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'first large prompt' }]);
+
+    await expect(
+      ctx.agent.fullCompaction.beforeStep(new AbortController().signal),
+    ).resolves.toBeUndefined();
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+    expect(eventIndex(ctx.newEvents(), 'compaction.started')).toBe(-1);
+  });
+
+  it('allows a non-blocking threshold step when no history prefix can be compacted', async () => {
+    const nonBlockingWithoutPrefix: CompactionStrategy = {
+      shouldCompact: () => true,
+      shouldBlock: () => false,
+      computeCompactCount: () => 0,
+      reduceCompactOnOverflow: (messages) => messages.length,
+      estimateTurnGrowth: (maxOutputTokens) => maxOutputTokens,
+      shouldCompactProactively: () => false,
+      checkAfterStep: false,
+      maxCompactionPerTurn: 1,
+    };
+    const ctx = testAgent({ compactionStrategy: nonBlockingWithoutPrefix });
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'first large prompt' }]);
+
+    await expect(
+      ctx.agent.fullCompaction.beforeStep(new AbortController().signal),
+    ).resolves.toBeUndefined();
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+    expect(eventIndex(ctx.newEvents(), 'compaction.started')).toBe(-1);
+  });
+
+  it('still rejects a blocking step when no history prefix can be compacted', async () => {
+    const blockingWithoutPrefix: CompactionStrategy = {
+      shouldCompact: () => true,
+      shouldBlock: () => true,
+      computeCompactCount: () => 0,
+      reduceCompactOnOverflow: (messages) => messages.length,
+      estimateTurnGrowth: (maxOutputTokens) => maxOutputTokens,
+      shouldCompactProactively: () => false,
+      checkAfterStep: false,
+      maxCompactionPerTurn: 1,
+    };
+    const ctx = testAgent({ compactionStrategy: blockingWithoutPrefix });
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'first overflowing prompt' }]);
+
+    await expect(
+      ctx.agent.fullCompaction.beforeStep(new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'compaction.unable' });
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+  });
+
+  it('waits for a cancelled after-step compaction worker before closing tools', async () => {
+    const response = deferred<GenerateResult>();
+    const generateStarted = deferred<void>();
+    let workerSignal: AbortSignal | undefined;
+    const generate: GenerateFn = (_provider, _system, _tools, _history, _callbacks, options) => {
+      workerSignal = options?.signal;
+      generateStarted.resolve();
+      return response.promise;
+    };
+    const afterStepStrategy: CompactionStrategy = {
+      shouldCompact: () => true,
+      shouldBlock: () => false,
+      computeCompactCount: () => 2,
+      reduceCompactOnOverflow: (messages) => messages.length,
+      estimateTurnGrowth: (maxOutputTokens) => maxOutputTokens,
+      shouldCompactProactively: () => false,
+      checkAfterStep: true,
+      maxCompactionPerTurn: 1,
+    };
+    const ctx = testAgent({ generate, compactionStrategy: afterStepStrategy });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user', 'old assistant', 20);
+    ctx.appendExchange(2, 'recent user', 'recent assistant', 40);
+    const closeTools = vi.spyOn(ctx.agent.tools, 'close');
+
+    await ctx.agent.fullCompaction.afterStep();
+    await generateStarted.promise;
+    const closing = ctx.agent.close();
+
+    await vi.waitFor(() => {
+      expect(workerSignal?.aborted).toBe(true);
+    });
+    expect(closeTools).not.toHaveBeenCalled();
+
+    response.resolve(textResult('late compaction result'));
+    await closing;
+
+    expect(closeTools).toHaveBeenCalledTimes(1);
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+    expect(eventIndex(ctx.newEvents(), 'context.apply_compaction')).toBe(-1);
+  });
+
+  it('does not let a cancelled worker failure cancel its replacement', async () => {
+    const first = deferred<GenerateResult>();
+    const second = deferred<GenerateResult>();
+    let calls = 0;
+    const generate: GenerateFn = () => {
+      calls += 1;
+      return calls === 1 ? first.promise : second.promise;
+    };
+    const ctx = testAgent({ generate, compactionStrategy: testCompactionStrategy() });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user', 'old assistant', 20);
+    ctx.appendExchange(2, 'recent user', 'recent assistant', 40);
+
+    ctx.agent.fullCompaction.begin({ source: 'manual' });
+    await vi.waitFor(() => expect(calls).toBe(1));
+    ctx.agent.fullCompaction.cancel();
+    ctx.agent.fullCompaction.begin({ source: 'manual' });
+    await vi.waitFor(() => expect(calls).toBe(2));
+
+    first.reject(new Error('late failure from cancelled provider request'));
+    await Promise.resolve();
+
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(true);
+    second.resolve(textResult('replacement compaction'));
+    await ctx.once('context.apply_compaction');
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
   });
 
   it('backs off overflow compaction by at least five percent of the context window', () => {
@@ -1744,7 +1915,11 @@ function testCompactionStrategy(maxSize: number = 1_000): DefaultCompactionStrat
 }
 
 function overflowOnlyCompactionStrategy(maxSize: number = 14): DefaultCompactionStrategy {
-  return new DefaultCompactionStrategy(() => maxSize, {
+  return new class extends DefaultCompactionStrategy {
+    override shouldCompactProactively(): boolean {
+      return false;
+    }
+  }(() => maxSize, {
     triggerRatio: Infinity,
     blockRatio: Infinity,
     turnGrowthMultiplier: 2.5,

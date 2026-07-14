@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { LmcodeError } from '../../src/errors';
 import { StdioMcpClient } from '../../src/mcp/client-stdio';
@@ -57,6 +57,40 @@ describe('StdioMcpClient', () => {
     }
   }, 15000);
 
+  it('makes concurrent close callers wait for the same underlying shutdown', async () => {
+    const client = new StdioMcpClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture],
+    });
+    await client.connect();
+    const sdkClient = (client as unknown as {
+      readonly client: { close(): Promise<void> };
+    }).client;
+    const originalClose = sdkClient.close.bind(sdkClient);
+    const closeGate = deferred<void>();
+    const closeStarted = deferred<void>();
+    vi.spyOn(sdkClient, 'close').mockImplementation(async () => {
+      closeStarted.resolve();
+      await closeGate.promise;
+      await originalClose();
+    });
+
+    const first = client.close();
+    await closeStarted.promise;
+    const second = client.close();
+    let secondSettled = false;
+    void second.finally(() => {
+      secondSettled = true;
+    });
+    await Promise.resolve();
+
+    expect(secondSettled).toBe(false);
+    closeGate.resolve();
+    await Promise.all([first, second]);
+    expect(sdkClient.close).toHaveBeenCalledTimes(1);
+  }, 15000);
+
   it('propagates server-reported isError', async () => {
     const client = new StdioMcpClient({
       transport: 'stdio',
@@ -89,27 +123,164 @@ describe('StdioMcpClient', () => {
     }
   }, 15000);
 
+  it.skipIf(process.platform !== 'win32')(
+    'lets config.env override inherited Windows env keys with different casing',
+    async () => {
+      const client = new StdioMcpClient({
+        transport: 'stdio',
+        command: process.execPath,
+        args: [fixture],
+        env: { PATH: 'configured-path' },
+      });
+      try {
+        await client.connect();
+        const result = await client.callTool('read_env', { name: 'PATH' });
+        expect(result.content).toEqual([{ type: 'text', text: 'configured-path' }]);
+      } finally {
+        await client.close();
+      }
+    },
+    15000,
+  );
+
   it('forwards allowlisted env vars; config.env overrides on conflict', async () => {
-    // Use TERM prefix which is in the allowlist.
-    const parentOnly = `TERM_LMCODE_TEST_PARENT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const shared = `TERM_LMCODE_TEST_SHARED_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    process.env[parentOnly] = 'from-parent';
-    process.env[shared] = 'from-parent';
+    const parentOnly = 'XDG_CACHE_HOME';
+    const shared = 'XDG_CONFIG_HOME';
+    const previousParentOnly = process.env[parentOnly];
+    const previousShared = process.env[shared];
+    process.env[parentOnly] = '/tmp/lmcode-parent-cache';
+    process.env[shared] = '/tmp/lmcode-parent-config';
     const client = new StdioMcpClient({
       transport: 'stdio',
       command: process.execPath,
       args: [fixture],
-      env: { [shared]: 'from-config' },
+      env: { [shared]: '/tmp/lmcode-configured-config' },
     });
     try {
       await client.connect();
       const inherited = await client.callTool('read_env', { name: parentOnly });
-      expect(inherited.content).toEqual([{ type: 'text', text: 'from-parent' }]);
+      expect(inherited.content).toEqual([{ type: 'text', text: '/tmp/lmcode-parent-cache' }]);
       const overridden = await client.callTool('read_env', { name: shared });
-      expect(overridden.content).toEqual([{ type: 'text', text: 'from-config' }]);
+      expect(overridden.content).toEqual([
+        { type: 'text', text: '/tmp/lmcode-configured-config' },
+      ]);
     } finally {
-      delete process.env[parentOnly];
-      delete process.env[shared];
+      if (previousParentOnly === undefined) delete process.env[parentOnly];
+      else process.env[parentOnly] = previousParentOnly;
+      if (previousShared === undefined) delete process.env[shared];
+      else process.env[shared] = previousShared;
+      await client.close();
+    }
+  }, 15000);
+
+  it('does not forward arbitrary locale, desktop, or session-bus prefixes', async () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const prefixedKeys = [
+      `LC_LMCODE_SECRET_${suffix}`,
+      `XDG_LMCODE_SECRET_${suffix}`,
+      `DBUS_LMCODE_SECRET_${suffix}`,
+      `WAYLAND_LMCODE_SECRET_${suffix}`,
+    ];
+    for (const key of prefixedKeys) process.env[key] = 'should-not-leak';
+
+    const client = new StdioMcpClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture],
+    });
+    try {
+      await client.connect();
+      for (const key of prefixedKeys) {
+        const result = await client.callTool('read_env', { name: key });
+        expect(result.content).toEqual([{ type: 'text', text: '' }]);
+      }
+    } finally {
+      for (const key of prefixedKeys) delete process.env[key];
+      await client.close();
+    }
+  }, 15000);
+
+  it('only forwards SSH agent credentials when config.env opts in explicitly', async () => {
+    const previousSocket = process.env['SSH_AUTH_SOCK'];
+    const previousPid = process.env['SSH_AGENT_PID'];
+    process.env['SSH_AUTH_SOCK'] = '/tmp/parent-ssh-agent.sock';
+    process.env['SSH_AGENT_PID'] = '4242';
+
+    const inheritedClient = new StdioMcpClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture],
+    });
+    const configuredClient = new StdioMcpClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture],
+      env: { SSH_AUTH_SOCK: '/tmp/configured-ssh-agent.sock' },
+    });
+    try {
+      await inheritedClient.connect();
+      await configuredClient.connect();
+      const inheritedSocket = await inheritedClient.callTool('read_env', {
+        name: 'SSH_AUTH_SOCK',
+      });
+      const inheritedPid = await inheritedClient.callTool('read_env', {
+        name: 'SSH_AGENT_PID',
+      });
+      const configuredSocket = await configuredClient.callTool('read_env', {
+        name: 'SSH_AUTH_SOCK',
+      });
+
+      expect(inheritedSocket.content).toEqual([{ type: 'text', text: '' }]);
+      expect(inheritedPid.content).toEqual([{ type: 'text', text: '' }]);
+      expect(configuredSocket.content).toEqual([
+        { type: 'text', text: '/tmp/configured-ssh-agent.sock' },
+      ]);
+    } finally {
+      if (previousSocket === undefined) delete process.env['SSH_AUTH_SOCK'];
+      else process.env['SSH_AUTH_SOCK'] = previousSocket;
+      if (previousPid === undefined) delete process.env['SSH_AGENT_PID'];
+      else process.env['SSH_AGENT_PID'] = previousPid;
+      await Promise.all([inheritedClient.close(), configuredClient.close()]);
+    }
+  }, 15000);
+
+  it('forwards an exact allowlisted env name', async () => {
+    const previous = process.env['TERM'];
+    process.env['TERM'] = 'lmcode-exact-term';
+    const client = new StdioMcpClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture],
+    });
+    try {
+      await client.connect();
+      const result = await client.callTool('read_env', { name: 'TERM' });
+      expect(result.content).toEqual([{ type: 'text', text: 'lmcode-exact-term' }]);
+    } finally {
+      if (previous === undefined) delete process.env['TERM'];
+      else process.env['TERM'] = previous;
+      await client.close();
+    }
+  }, 15000);
+
+  it('does not treat exact allowlisted env names as prefixes', async () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const deceptiveKeys = [`HOME_${suffix}`, `USER_${suffix}`, `PATH_${suffix}`, `TERM_${suffix}`];
+    for (const key of deceptiveKeys) process.env[key] = 'should-not-leak';
+
+    const client = new StdioMcpClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture],
+    });
+    try {
+      await client.connect();
+      for (const key of deceptiveKeys) {
+        const result = await client.callTool('read_env', { name: key });
+        expect(result.content).toEqual([{ type: 'text', text: '' }]);
+      }
+    } finally {
+      for (const key of deceptiveKeys) delete process.env[key];
       await client.close();
     }
   }, 15000);
@@ -293,3 +464,17 @@ describe('StdioMcpClient — Windows .cmd shim', () => {
     20000,
   );
 });
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}

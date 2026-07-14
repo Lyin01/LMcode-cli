@@ -2,7 +2,7 @@ import type { Agent } from '../..';
 import { isWithinDirectory } from '../../../tools/policies/path-access';
 import { findGitWorkTreeMarker } from '../../../tools/support/git-worktree';
 import type { PermissionPolicy, PermissionPolicyContext, PermissionPolicyResult } from '../types';
-import { writeFileAccesses } from './file-access-ask';
+import { resolvePermissionCwd, writeFileAccesses } from './file-access-ask';
 
 export class GitCwdWriteApprovePermissionPolicy implements PermissionPolicy {
   readonly name = 'git-cwd-write-approve';
@@ -14,11 +14,12 @@ export class GitCwdWriteApprovePermissionPolicy implements PermissionPolicy {
     if (toolName !== 'Write' && toolName !== 'Edit') return;
     if (this.agent.jian.pathClass() !== 'posix') return;
 
-    const cwd = this.agent.config.cwd;
-    if (cwd.length === 0) return;
+    const configuredCwd = this.agent.config.cwd;
+    if (configuredCwd.length === 0) return;
 
     const writeAccesses = writeFileAccesses(context);
     if (writeAccesses.length === 0) return;
+    const cwd = await resolvePermissionCwd(this.agent, configuredCwd);
     if (!writeAccesses.every((access) => isWithinDirectory(access.path, cwd, 'posix'))) {
       return;
     }

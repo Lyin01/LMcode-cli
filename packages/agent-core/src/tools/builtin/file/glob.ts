@@ -36,7 +36,7 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { resolvePathAccessPath } from '../../policies/path-access';
+import { resolveRealPathAccessPath } from '../../policies/path-access';
 import type { PathClass } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { listDirectory } from '../../support/list-directory';
@@ -114,17 +114,15 @@ export class GlobTool implements BuiltinTool<GlobInput> {
         : GLOB_DESCRIPTION;
   }
 
-  resolveExecution(args: GlobInput): ToolExecution {
-    let path: string | undefined;
-    if (args.path !== undefined) {
-      path = resolvePathAccessPath(args.path, {
-        jian: this.jian,
-        workspace: this.workspace,
-        operation: 'search',
-        policy: { guardMode: 'strict', checkSensitive: false },
-      });
-    }
-    const searchRoots = [path ?? this.workspace.workspaceDir];
+  async resolveExecution(args: GlobInput): Promise<ToolExecution> {
+    const rawPath = args.path ?? this.workspace.workspaceDir;
+    const path = await resolveRealPathAccessPath(rawPath, {
+      jian: this.jian,
+      workspace: this.workspace,
+      operation: 'search',
+      policy: { guardMode: 'strict', checkSensitive: false },
+    });
+    const searchRoots = [path];
     return {
       accesses: ToolAccesses.searchTree(searchRoots[0]!),
       description: `Searching ${args.pattern}`,
@@ -229,13 +227,11 @@ export class GlobTool implements BuiltinTool<GlobInput> {
       //   - `entries.length` caps the *unique* paths we return, so a
       //     truncation warning only fires after MAX_MATCHES real hits.
       //   - `yielded` counts every path the jian stream emits, including
-      //     duplicates. Secondary safety belt: the jian `_globWalk`
-      //     itself detects symlink cycles, so a well-formed jian layer
-      //     never re-yields the same real
-      //     file. `yielded` still terminates the stream if that primary
-      //     defense were ever absent or bypassed (e.g. a future jian
-      //     backend without inode tracking), so the tool layer doesn't
-      //     depend on the jian implementation for cycle safety.
+      //     duplicates. Secondary safety belt: the local Jian walker does
+      //     not recurse through directory symlinks, so it cannot enter a
+      //     symlink cycle. `yielded` still terminates the stream if that
+      //     primary defense were absent in a future backend, so the tool
+      //     layer does not depend on one Jian implementation for safety.
       const seen = new Set<string>();
       const entries: Array<{ path: string; mtime: number }> = [];
       const YIELD_SAFETY_CAP = MAX_MATCHES * 2;

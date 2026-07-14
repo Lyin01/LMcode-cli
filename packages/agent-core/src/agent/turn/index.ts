@@ -36,7 +36,7 @@ import CRITIC_SYSTEM_PROMPT from './critic-system.md';
 import SPEC_CRITIC_CONTINUATION_PROMPT from './spec-critic-continuation.md';
 import SPEC_CRITIC_SYSTEM_PROMPT from './spec-critic-system.md';
 import VISUAL_AUDITOR_SYSTEM_PROMPT from './visual-auditor-system.md';
-import { resolvePathAccessPath } from '../../tools/policies/path-access';
+import { resolveRealPathAccessPath } from '../../tools/policies/path-access';
 import {
   MAX_SELF_HEALING_SOURCE_BYTES,
   validateFileSyntaxWithScreenshots,
@@ -362,6 +362,8 @@ export class TurnFlow {
       await this.agent.goal.incrementTurn();
       const end = await this.runOneTurn(turnId, turnInput, turnOrigin, signal, false);
 
+      if (this.agent.isClosing) return end;
+
       if (end.event.reason === 'cancelled') {
         await this.agent.goal.pauseOnInterrupt({ reason: 'Paused after interruption' });
         return end;
@@ -622,6 +624,7 @@ export class TurnFlow {
         undefined,
         { signal },
       );
+      signal.throwIfAborted();
       if (response.usage !== null) {
         this.agent.usage.record(this.agent.config.model, response.usage, 'turn');
       }
@@ -700,7 +703,7 @@ export class TurnFlow {
           signal,
           llm: this.agent.llm,
           buildMessages: () => this.agent.context.messages,
-          dispatchEvent: this.buildDispatchEvent(turnId),
+          dispatchEvent: this.buildDispatchEvent(turnId, signal),
           tools: this.agent.tools.loopTools,
           log: this.agent.log,
           maxSteps: loopControl?.maxStepsPerTurn,
@@ -913,7 +916,7 @@ export class TurnFlow {
                       workspaceDir: this.agent.config.cwd,
                       additionalDirs: [],
                     };
-                    const resolvedPath = resolvePathAccessPath(path, {
+                    const resolvedPath = await resolveRealPathAccessPath(path, {
                       jian: this.agent.jian,
                       workspace,
                       operation: 'write',
@@ -1337,12 +1340,14 @@ Evaluate if this file meets high-quality software engineering standards and the 
     }
   }
 
-  private buildDispatchEvent(turnId: number) {
+  private buildDispatchEvent(turnId: number, signal: AbortSignal) {
     return createLoopEventDispatcher({
       appendTranscriptRecord: async (event: LoopRecordedEvent) => {
+        if (this.agent.isClosing && signal.aborted) return;
         this.agent.context.appendLoopEvent(event);
       },
       emitLiveEvent: (event: LoopEvent) => {
+        if (this.agent.isClosing && signal.aborted) return;
         this.updateCurrentStepFromLoopEvent(event, turnId);
         const mapped = mapLoopEvent(event, turnId);
         if (mapped !== undefined) this.agent.emitEvent(mapped);

@@ -36,11 +36,12 @@ export class GitControlPathAccessAskPermissionPolicy implements PermissionPolicy
 
   async evaluate(context: PermissionPolicyContext): Promise<PermissionPolicyResult | undefined> {
     if (this.agent.permission.mode === 'yolo') return;
-    const cwd = this.agent.config.cwd;
-    if (cwd.length === 0) return;
-    const pathClass = this.agent.jian.pathClass();
+    const configuredCwd = this.agent.config.cwd;
+    if (configuredCwd.length === 0) return;
     const accesses = fileAccesses(context);
     if (accesses.length === 0) return;
+    const cwd = await resolvePermissionCwd(this.agent, configuredCwd);
+    const pathClass = this.agent.jian.pathClass();
 
     const directGitAccess = accesses.find((fileAccess) => {
       return hasGitPathComponent(fileAccess.path, cwd, pathClass);
@@ -70,12 +71,15 @@ export class CwdOutsideFileWriteAskPermissionPolicy implements PermissionPolicy 
 
   constructor(private readonly agent: Agent) {}
 
-  evaluate(context: PermissionPolicyContext): PermissionPolicyResult | undefined {
+  async evaluate(context: PermissionPolicyContext): Promise<PermissionPolicyResult | undefined> {
     if (this.agent.permission.mode === 'yolo') return;
-    const cwd = this.agent.config.cwd;
-    if (cwd.length === 0) return;
+    const configuredCwd = this.agent.config.cwd;
+    if (configuredCwd.length === 0) return;
+    const writeAccesses = writeFileAccesses(context);
+    if (writeAccesses.length === 0) return;
+    const cwd = await resolvePermissionCwd(this.agent, configuredCwd);
     const pathClass = this.agent.jian.pathClass();
-    const access = writeFileAccesses(context).find((fileAccess) => {
+    const access = writeAccesses.find((fileAccess) => {
       return !isWithinDirectory(fileAccess.path, cwd, pathClass);
     });
     if (access === undefined) return;
@@ -83,6 +87,21 @@ export class CwdOutsideFileWriteAskPermissionPolicy implements PermissionPolicy 
       kind: 'ask',
       reason: fileAccessReason(access, { cwd_outside: true }),
     };
+  }
+}
+
+/**
+ * Tool access paths are physicalized before permission evaluation. Match the
+ * workspace root to that representation as well, especially when a project
+ * was opened through a symlink or Windows junction. Falling back to the
+ * configured path is conservative: an unresolved linked cwd cannot make an
+ * actually outside physical access look like an in-cwd write.
+ */
+export async function resolvePermissionCwd(agent: Agent, cwd: string): Promise<string> {
+  try {
+    return await agent.jian.realpath(cwd);
+  } catch {
+    return cwd;
   }
 }
 

@@ -18,6 +18,47 @@ import { toInputJsonSchema } from '../../support/input-schema';
 import WOLFPACK_DESCRIPTION from './wolfpack.md';
 
 const MAX_ITEMS = 20;
+export const WOLFPACK_MAX_ITEM_RESULT_CHARS = 8_000;
+export const WOLFPACK_MAX_AGGREGATE_OUTPUT_CHARS = 32_000;
+const MAX_ITEM_LABEL_CHARS = 200;
+
+interface WolfPackAggregateItem {
+  readonly item: string;
+  readonly result: string;
+  readonly success: boolean;
+  readonly agentId?: string | undefined;
+}
+
+function truncateItemLabel(item: string): string {
+  if (item.length <= MAX_ITEM_LABEL_CHARS) return item;
+  const marker = '...[item label truncated]';
+  return item.slice(0, MAX_ITEM_LABEL_CHARS - marker.length) + marker;
+}
+
+function truncateItemResult(result: string): string {
+  if (result.length <= WOLFPACK_MAX_ITEM_RESULT_CHARS) return result;
+  const marker = `\n[WolfPack item output truncated: ${String(result.length)} chars exceeds ${String(
+    WOLFPACK_MAX_ITEM_RESULT_CHARS,
+  )}-char limit]`;
+  return result.slice(0, WOLFPACK_MAX_ITEM_RESULT_CHARS - marker.length) + marker;
+}
+
+function capAggregateOutput(header: string, details: string): string {
+  const output = `${header}\n\n## Results\n${details}`;
+  if (output.length <= WOLFPACK_MAX_AGGREGATE_OUTPUT_CHARS) return output;
+
+  const marker = `\n\n[WolfPack aggregate output truncated: ${String(
+    output.length,
+  )} chars exceeds ${String(
+    WOLFPACK_MAX_AGGREGATE_OUTPUT_CHARS,
+  )}-char limit. The agent manifest above is complete.]`;
+  const detailPrefix = `${header}\n\n## Results\n`;
+  const detailBudget = Math.max(
+    0,
+    WOLFPACK_MAX_AGGREGATE_OUTPUT_CHARS - detailPrefix.length - marker.length,
+  );
+  return detailPrefix + details.slice(0, detailBudget) + marker;
+}
 
 export const WolfPackToolInputSchema = z.object({
   description: z
@@ -109,10 +150,10 @@ export class WolfPackTool implements BuiltinTool<WolfPackToolInput> {
 
     // Wait for all completions
     const completionPromises = handleResults.map(
-      async (settled): Promise<{ item: string; result: string; success: boolean; agentId?: string }> => {
+      async (settled, index): Promise<{ item: string; result: string; success: boolean; agentId?: string }> => {
         if (settled.status === 'rejected') {
           const msg = settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
-          return { item: 'unknown', result: `Spawn failed: ${msg}`, success: false };
+          return { item: args.items[index]!, result: `Spawn failed: ${msg}`, success: false };
         }
 
         const { item, handle } = settled.value;
@@ -138,41 +179,56 @@ export class WolfPackTool implements BuiltinTool<WolfPackToolInput> {
 
     const completions = await Promise.allSettled(completionPromises);
 
-    // Build aggregate output
-    let successCount = 0;
-    let failureCount = 0;
-    const lines: string[] = [];
+    const aggregateItems = completions.map((settled, index): WolfPackAggregateItem => {
+      if (settled.status === 'fulfilled') return settled.value;
+      const handleResult = handleResults[index];
+      const agentId =
+        handleResult?.status === 'fulfilled' ? handleResult.value.handle.agentId : undefined;
+      const message =
+        settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
+      return {
+        item: args.items[index]!,
+        result: `Completion failed: ${message}`,
+        success: false,
+        agentId,
+      };
+    });
 
-    for (const settled of completions) {
-      if (settled.status === 'fulfilled') {
-        const { item, result: _result, success, agentId } = settled.value;
-        if (success) {
-          successCount++;
-          lines.push(`### ${item} (OK)`);
-        } else {
-          failureCount++;
-          lines.push(`### ${item} (FAILED)`);
-        }
-        if (agentId !== undefined) {
-          lines.push(`agent_id: ${agentId}`);
-        }
-      } else {
-        failureCount++;
-        const msg = settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
-        lines.push(`### error: ${msg}`);
-      }
-      lines.push('');
+    const successCount = aggregateItems.filter((item) => item.success).length;
+    const failureCount = aggregateItems.length - successCount;
+    const summary = `Success: ${successCount}, Failed: ${failureCount}, Total: ${aggregateItems.length}`;
+    const manifestLines = ['## Agent manifest'];
+    const detailSections: string[] = [];
+
+    for (const [index, aggregateItem] of aggregateItems.entries()) {
+      const status = aggregateItem.success ? 'OK' : 'FAILED';
+      const agentId = aggregateItem.agentId ?? 'not-started';
+      const itemLabel = truncateItemLabel(aggregateItem.item);
+      manifestLines.push(
+        `${String(index + 1)}. status=${status} agent_id=${agentId} item=${JSON.stringify(itemLabel)}`,
+      );
+      detailSections.push(
+        [
+          `### ${itemLabel} (${status})`,
+          `agent_id: ${agentId}`,
+          '',
+          truncateItemResult(aggregateItem.result),
+        ].join('\n'),
+      );
     }
 
-    const summary = `Success: ${successCount}, Failed: ${failureCount}, Total: ${completions.length}`;
+    const output = capAggregateOutput(
+      [summary, '', ...manifestLines].join('\n'),
+      detailSections.join('\n\n'),
+    );
 
     if (failureCount > 0 && successCount === 0) {
       return {
-        output: [summary, '', ...lines].join('\n'),
+        output,
         isError: true,
       };
     }
 
-    return { output: [summary, '', ...lines].join('\n') };
+    return { output };
   }
 }

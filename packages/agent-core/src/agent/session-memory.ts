@@ -1,5 +1,3 @@
-import type { Agent } from './index';
-
 interface ToolExecutionEvent {
   type: 'tool_execution';
   toolName: string;
@@ -7,6 +5,7 @@ interface ToolExecutionEvent {
   isError: boolean;
   timestamp: number;
   step: number;
+  sequence: number;
 }
 
 interface ErrorEvent {
@@ -15,6 +14,7 @@ interface ErrorEvent {
   isError: true;
   timestamp: number;
   step: number;
+  sequence: number;
 }
 
 type SessionEvent = ToolExecutionEvent | ErrorEvent;
@@ -31,9 +31,8 @@ const MAX_SUMMARY_LENGTH = 1500;
  */
 export class SessionMemory {
   private events: SessionEvent[] = [];
-  private lastInjectedStep = -1;
-
-  constructor(private readonly agent: Agent) {}
+  private nextSequence = 0;
+  private lastInjectedSequence = -1;
 
   /** Record a tool execution (success or failure). */
   recordToolExecution(
@@ -49,6 +48,7 @@ export class SessionMemory {
       isError,
       timestamp: Date.now(),
       step,
+      sequence: this.nextSequence++,
     });
     // Keep bounded to prevent unbounded growth
     if (this.events.length > MAX_EVENTS) {
@@ -64,6 +64,7 @@ export class SessionMemory {
       isError: true,
       timestamp: Date.now(),
       step,
+      sequence: this.nextSequence++,
     });
     if (this.events.length > MAX_EVENTS) {
       this.events = this.events.slice(-MAX_EVENTS);
@@ -73,11 +74,12 @@ export class SessionMemory {
   /** Build a markdown summary of recent activity since the last injection. */
   getSessionSummary(): string {
     const newEvents = this.events.filter(
-      (e) => e.step > this.lastInjectedStep,
+      (event) => event.sequence > this.lastInjectedSequence,
     );
     if (newEvents.length === 0) return '';
 
-    this.lastInjectedStep = this.events[this.events.length - 1]?.step ?? this.lastInjectedStep;
+    this.lastInjectedSequence =
+      this.events[this.events.length - 1]?.sequence ?? this.lastInjectedSequence;
 
     const recent = newEvents.slice(-15);
 
@@ -116,6 +118,7 @@ export class SessionMemory {
   /** Reset for a new session. */
   clear(): void {
     this.events.length = 0;
-    this.lastInjectedStep = -1;
+    this.nextSequence = 0;
+    this.lastInjectedSequence = -1;
   }
 }

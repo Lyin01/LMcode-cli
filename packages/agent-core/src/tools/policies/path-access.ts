@@ -1,9 +1,12 @@
 /**
  * Path safety guards used by Read/Write/Edit/Grep/Glob.
  *
- * Canonicalization is **lexical** only (no `realpath` / symlink following).
- * Mirrors `JianPath.canonical()` and keeps the guard backend-aware:
- * callers should pass the active Jian path class so SSH paths stay POSIX
+ * Lexical canonicalization mirrors `JianPath.canonical()` and keeps the
+ * guard backend-aware. File tools additionally call
+ * `resolveRealPathAccessPath()` so workspace and sensitive-file decisions
+ * are made against the physical target after symbolic links are resolved.
+ *
+ * Callers should pass the active Jian path class so SSH paths stay POSIX
  * even when the host Node process is running on Windows.
  *
  * Shared-prefix escapes (a path like `/workspace-evil` passing a naive
@@ -12,7 +15,7 @@
  * `isWithinDirectory`.
  */
 
-import { isAbsolute, join, normalize, resolve } from 'pathe';
+import { basename, dirname, isAbsolute, join, normalize, resolve } from 'pathe';
 
 import type { Jian } from '@lmcode-cli/jian';
 
@@ -190,6 +193,14 @@ export interface ResolvePathAccessPathOptions {
   readonly expandHome?: boolean;
 }
 
+export interface ResolveRealPathAccessPathOptions {
+  readonly jian: Pick<Jian, 'pathClass' | 'gethome' | 'realpath' | 'stat'>;
+  readonly workspace: WorkspaceConfig;
+  readonly operation: PathAccessOperation;
+  readonly policy?: WorkspaceAccessPolicy;
+  readonly expandHome?: boolean;
+}
+
 function outsideWorkspaceMessage(
   path: string,
   canonical: string,
@@ -296,14 +307,150 @@ export function resolvePathAccessPath(
   }).path;
 }
 
+function isPathNotFoundError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === 'ENOENT' || code === 2) return true;
+  return error instanceof Error && error.name === 'JianFileNotFoundError';
+}
+
+/**
+ * Resolve the deepest existing ancestor and preserve any not-yet-existing
+ * suffix. The lstat-style probe distinguishes a genuinely missing component
+ * from a dangling symlink, which must fail closed instead of being treated as
+ * a creatable filename.
+ */
+async function resolvePhysicalPath(
+  path: string,
+  jian: Pick<Jian, 'realpath' | 'stat'>,
+): Promise<string> {
+  let candidate = path;
+  const missingSegments: string[] = [];
+
+  while (true) {
+    try {
+      const physical = normalize(await jian.realpath(candidate));
+      return missingSegments.length === 0 ? physical : join(physical, ...missingSegments);
+    } catch (realpathError) {
+      if (!isPathNotFoundError(realpathError)) throw realpathError;
+
+      try {
+        await jian.stat(candidate, { followSymlinks: false });
+      } catch (statError) {
+        if (!isPathNotFoundError(statError)) throw statError;
+
+        const parent = dirname(candidate);
+        if (parent === candidate) throw realpathError;
+        missingSegments.unshift(basename(candidate));
+        candidate = parent;
+        continue;
+      }
+
+      throw new PathSecurityError(
+        'PATH_INVALID',
+        path,
+        candidate,
+        `Cannot resolve "${path}" because "${candidate}" is a dangling symbolic link.`,
+      );
+    }
+  }
+}
+
+/**
+ * Resolve a tool path to its physical target before producing permission
+ * metadata or performing I/O. Workspace roots are physicalized as well so a
+ * repository opened through a symlink remains a valid workspace.
+ */
+export async function resolveRealPathAccessPath(
+  path: string,
+  options: ResolveRealPathAccessPathOptions,
+): Promise<string> {
+  const { jian, workspace, operation, policy, expandHome = true } = options;
+  const pathClass = jian.pathClass();
+  const homeDir = expandHome ? jian.gethome() : undefined;
+  const expandedInput = expandUserPath(normalizeUserPath(path, pathClass), homeDir, pathClass);
+  const inputIsAbsolute = isAbsolute(expandedInput);
+  const lexical = resolvePathAccess(path, workspace.workspaceDir, workspace, {
+    operation,
+    policy,
+    pathClass,
+    homeDir,
+  });
+
+  let physicalPath: string;
+  let physicalWorkspace: WorkspaceConfig;
+  try {
+    const [resolvedPath, workspaceDir, ...additionalDirs] = await Promise.all([
+      resolvePhysicalPath(lexical.path, jian),
+      resolvePhysicalPath(workspace.workspaceDir, jian),
+      ...workspace.additionalDirs.map((dir) => resolvePhysicalPath(dir, jian)),
+    ]);
+    physicalPath = resolvedPath;
+    physicalWorkspace = { workspaceDir, additionalDirs };
+  } catch (error) {
+    if (error instanceof PathSecurityError) throw error;
+    throw new PathSecurityError(
+      'PATH_INVALID',
+      path,
+      lexical.path,
+      `Cannot resolve the physical path for "${path}": ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const effectivePolicy = policy ?? DEFAULT_WORKSPACE_ACCESS_POLICY;
+  if (
+    effectivePolicy.guardMode === 'absolute-outside-allowed' &&
+    !inputIsAbsolute &&
+    !isWithinWorkspace(physicalPath, physicalWorkspace, pathClass)
+  ) {
+    throw new PathSecurityError(
+      'PATH_OUTSIDE_WORKSPACE',
+      path,
+      physicalPath,
+      relativeOutsideMessage(path, operation),
+    );
+  }
+
+  return resolvePathAccess(physicalPath, physicalWorkspace.workspaceDir, physicalWorkspace, {
+    operation,
+    policy: effectivePolicy,
+    pathClass,
+  }).path;
+}
+
+/**
+ * Ensure a physical target did not change between permission resolution and
+ * execution. A changed target has not been authorized, even when both paths
+ * would independently pass workspace policy.
+ */
+export async function revalidateRealPathAccessPath(
+  path: string,
+  approvedPath: string,
+  options: ResolveRealPathAccessPathOptions,
+): Promise<string> {
+  const currentPath = await resolveRealPathAccessPath(path, options);
+  const pathClass = options.jian.pathClass();
+  const comparableApproved = pathClass === 'win32' ? approvedPath.toLowerCase() : approvedPath;
+  const comparableCurrent = pathClass === 'win32' ? currentPath.toLowerCase() : currentPath;
+  if (comparableCurrent !== comparableApproved) {
+    throw new PathSecurityError(
+      'PATH_INVALID',
+      path,
+      currentPath,
+      `The physical target for "${path}" changed after access was approved. Retry the tool call.`,
+    );
+  }
+  return approvedPath;
+}
+
 /**
  * Throw `PathSecurityError` if `path` is outside the workspace, a known
  * sensitive file, or an empty string. Returns the canonical absolute path
  * when the check passes.
  *
- * Note: this is purely lexical. It does NOT protect against symlink
- * targets that point outside the workspace — that would require jian-layer
- * realpath support, which is not currently available.
+ * Note: this helper is purely lexical. File-system operations should use
+ * `resolveRealPathAccessPath()` so symbolic links are resolved before access.
  */
 export function assertPathAllowed(
   path: string,

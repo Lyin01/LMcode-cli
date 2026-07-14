@@ -7,7 +7,10 @@ import { ErrorCodes, LmcodeError } from '#/errors';
 import { z } from 'zod';
 
 const McpJsonFileSchema = z.object({
-  mcpServers: z.record(z.string(), McpServerConfigSchema).default({}),
+  // Parse the record entries below. z.record currently assigns keys onto a
+  // normal object, so a JSON key named "__proto__" would invoke the legacy
+  // prototype setter before the loader gets a chance to merge it safely.
+  mcpServers: z.unknown().optional(),
 });
 
 /** Maximum number of parent directories to walk when discovering mcp.json. */
@@ -71,7 +74,7 @@ export async function loadMcpServers(
   const paths = resolveMcpJsonPaths({ cwd: input.cwd, homeDir: input.homeDir });
   const allPaths = [paths.user, ...paths.parents, paths.project];
   const results = await Promise.all(allPaths.map((p) => readMcpJson(p)));
-  return Object.assign({}, ...results);
+  return Object.fromEntries(results.flatMap((servers) => Object.entries(servers)));
 }
 
 async function readMcpJson(filePath: string): Promise<Record<string, McpServerConfig>> {
@@ -97,7 +100,20 @@ async function readMcpJson(filePath: string): Promise<Record<string, McpServerCo
   }
 
   try {
-    return McpJsonFileSchema.parse(data).mcpServers;
+    const rawServers = McpJsonFileSchema.parse(data).mcpServers ?? {};
+    if (
+      typeof rawServers !== 'object' ||
+      rawServers === null ||
+      Array.isArray(rawServers)
+    ) {
+      throw new Error('mcpServers must be an object');
+    }
+    return Object.fromEntries(
+      Object.entries(rawServers).map(([name, config]) => [
+        name,
+        McpServerConfigSchema.parse(config),
+      ]),
+    );
   } catch (error: unknown) {
     throw new LmcodeError(ErrorCodes.CONFIG_INVALID, `Invalid MCP server config in ${filePath}: ${describeError(error)}`, {
       cause: error,

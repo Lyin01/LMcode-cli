@@ -36,6 +36,7 @@ export class StdioMcpClient implements MCPClient {
   private readonly stderrBuffer = new BoundedTail(STDERR_BUFFER_CAPACITY);
   private started = false;
   private closed = false;
+  private closing: Promise<void> | undefined;
   // Flips to true only after `client.connect()` resolves AND the caller has
   // not torn things down mid-startup. The `onclose` hook uses this to
   // distinguish "transport died after the handshake" (→ unexpected close)
@@ -105,10 +106,12 @@ export class StdioMcpClient implements MCPClient {
     this.ready = true;
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return;
+  close(): Promise<void> {
     this.closed = true;
-    await this.closeStartedClient();
+    if (this.closing !== undefined) return this.closing;
+    const closing = this.closeStartedClient();
+    this.closing = closing;
+    return closing;
   }
 
   /**
@@ -153,10 +156,13 @@ export class StdioMcpClient implements MCPClient {
     return toMcpToolResult(result);
   }
 
-  private async closeStartedClient(): Promise<void> {
-    if (!this.started) return;
+  private closeStartedClient(): Promise<void> {
+    if (this.closing !== undefined) return this.closing;
+    if (!this.started) return Promise.resolve();
     this.started = false;
-    await this.client.close();
+    const closing = Promise.resolve().then(() => this.client.close());
+    this.closing = closing;
+    return closing;
   }
 
   private installTransportHooks(): void {
@@ -222,18 +228,48 @@ class BoundedTail {
 // Only forward a safe subset of the parent's env to MCP child processes.
 // Passing all of process.env would leak API keys and other secrets to third-
 // party MCP servers. Explicit `config.env` entries always take precedence.
-const ALLOWED_ENV_PREFIXES = [
-  'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_',
-  'TMPDIR', 'TEMP', 'TMP',
-  'NODE_PATH', 'PYTHONPATH', 'VIRTUAL_ENV', 'CONDA_PREFIX',
-  'XDG_', 'DBUS_', 'DISPLAY', 'WAYLAND_',
-  'SYSTEMROOT', 'ProgramFiles', 'ProgramFiles(x86)', 'APPDATA', 'LOCALAPPDATA',
-  'TERM', 'COLORTERM', 'NO_COLOR', 'FORCE_COLOR',
-  'SSH_AUTH_SOCK', 'SSH_AGENT_PID',
-];
+const ALLOWED_ENV_KEYS = new Set([
+  'PATH',
+  'HOME',
+  'USER',
+  'SHELL',
+  'LANG',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'NODE_PATH',
+  'PYTHONPATH',
+  'VIRTUAL_ENV',
+  'CONDA_PREFIX',
+  'DISPLAY',
+  'SYSTEMROOT',
+  'PROGRAMFILES',
+  'PROGRAMFILES(X86)',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'TERM',
+  'COLORTERM',
+  'NO_COLOR',
+  'FORCE_COLOR',
+  'LC_ALL',
+  'LC_CTYPE',
+  'LC_MESSAGES',
+  'XDG_CONFIG_HOME',
+  'XDG_CACHE_HOME',
+  'XDG_DATA_HOME',
+  'XDG_STATE_HOME',
+  'XDG_RUNTIME_DIR',
+  'XDG_SESSION_TYPE',
+  'XDG_CURRENT_DESKTOP',
+  'XDG_CONFIG_DIRS',
+  'XDG_DATA_DIRS',
+  'DBUS_SESSION_BUS_ADDRESS',
+  'WAYLAND_DISPLAY',
+]);
 
 function isEnvAllowed(key: string): boolean {
-  return ALLOWED_ENV_PREFIXES.some((prefix) => key.startsWith(prefix));
+  const comparableKey = process.platform === 'win32' ? key.toUpperCase() : key;
+  return ALLOWED_ENV_KEYS.has(comparableKey);
 }
 
 function mergeStdioEnv(configEnv?: Record<string, string>): Record<string, string> {
@@ -241,6 +277,17 @@ function mergeStdioEnv(configEnv?: Record<string, string>): Record<string, strin
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && isEnvAllowed(key)) merged[key] = value;
   }
-  if (configEnv !== undefined) Object.assign(merged, configEnv);
+  if (configEnv !== undefined) {
+    for (const [key, value] of Object.entries(configEnv)) {
+      if (process.platform === 'win32') {
+        const comparableKey = key.toUpperCase();
+        const inheritedKey = Object.keys(merged).find(
+          (candidate) => candidate.toUpperCase() === comparableKey,
+        );
+        if (inheritedKey !== undefined) delete merged[inheritedKey];
+      }
+      merged[key] = value;
+    }
+  }
   return merged;
 }

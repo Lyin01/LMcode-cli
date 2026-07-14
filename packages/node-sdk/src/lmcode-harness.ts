@@ -37,7 +37,11 @@ export class LmcodeHarness {
   private readonly identity: LmcodeHostIdentity | undefined;
   private readonly uiMode: string;
   private readonly activeSessions = new Map<string, Session>();
+  private readonly pendingSessionStarts = new Set<Promise<Session>>();
+  private readonly pendingResumes = new Map<string, Promise<Session>>();
   private readonly rpc: SDKRpcClient;
+  private closeRequested = false;
+  private closing: Promise<void> | undefined;
 
   constructor(options: LmcodeHarnessOptions) {
     this.identity =
@@ -82,6 +86,11 @@ export class LmcodeHarness {
 
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
+    this.assertOpen();
+    return this.trackSessionStart(this.createSessionInternal(options));
+  }
+
+  private async createSessionInternal(options: CreateSessionOptions): Promise<Session> {
     const { planMode, ...coreOptions } = options;
     const summary = await this.rpc.createSession(coreOptions);
     const session = new Session({
@@ -90,21 +99,38 @@ export class LmcodeHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
+    await this.rejectStartedSessionIfClosing(session);
     if (planMode === true) {
       await session.setPlanMode(true);
+      await this.rejectStartedSessionIfClosing(session);
     }
     return session;
   }
 
   async resumeSession(input: ResumeSessionInput): Promise<Session> {
+    this.assertOpen();
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
-    if (active !== undefined) return active;
+    if (active !== undefined) return Promise.resolve(active);
+    const pending = this.pendingResumes.get(id);
+    if (pending !== undefined) return pending;
 
+    const resuming = this.trackSessionStart(this.resumeSessionInternal(id));
+    this.pendingResumes.set(id, resuming);
+    void resuming.then(
+      () => this.deletePendingResume(id, resuming),
+      () => this.deletePendingResume(id, resuming),
+    );
+    return resuming;
+  }
+
+  private async resumeSessionInternal(id: string): Promise<Session> {
     const summary = await this.rpc.resumeSession({ id });
     const session = new Session({
       id: summary.id,
@@ -112,14 +138,22 @@ export class LmcodeHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
+    await this.rejectStartedSessionIfClosing(session);
     return session;
   }
 
   async forkSession(input: ForkSessionInput): Promise<Session> {
+    this.assertOpen();
+    return this.trackSessionStart(this.forkSessionInternal(input));
+  }
+
+  private async forkSessionInternal(input: ForkSessionInput): Promise<Session> {
     const summary = await this.rpc.forkSession({
       id: normalizeSessionId(input.id),
       forkId: input.forkId,
@@ -132,10 +166,13 @@ export class LmcodeHarness {
       summary,
       rpc: this.rpc,
       onClose: () => {
-        this.activeSessions.delete(summary.id);
+        if (this.activeSessions.get(summary.id) === session) {
+          this.activeSessions.delete(summary.id);
+        }
       },
     });
     this.activeSessions.set(session.id, session);
+    await this.rejectStartedSessionIfClosing(session);
     return session;
   }
 
@@ -195,12 +232,48 @@ export class LmcodeHarness {
     return this.rpc.removeProvider(providerId);
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    if (this.closing !== undefined) return this.closing;
+    this.closeRequested = true;
+    const closing = this.closeInternal();
+    this.closing = closing;
+    return closing;
+  }
+
+  private async closeInternal(): Promise<void> {
+    await Promise.allSettled(this.pendingSessionStarts);
     await Promise.all(Array.from(this.activeSessions.values(), (session) => session.close()));
     try {
       await getRootLogger().flush();
     } catch {
       // never let logger flush block process exit
+    }
+  }
+
+  private trackSessionStart(start: Promise<Session>): Promise<Session> {
+    this.pendingSessionStarts.add(start);
+    void start.then(
+      () => this.pendingSessionStarts.delete(start),
+      () => this.pendingSessionStarts.delete(start),
+    );
+    return start;
+  }
+
+  private deletePendingResume(id: string, expected: Promise<Session>): void {
+    if (this.pendingResumes.get(id) === expected) {
+      this.pendingResumes.delete(id);
+    }
+  }
+
+  private async rejectStartedSessionIfClosing(session: Session): Promise<void> {
+    if (!this.closeRequested) return;
+    await session.close();
+    throw new LmcodeError(ErrorCodes.SESSION_CLOSED, 'LmcodeHarness is closed');
+  }
+
+  private assertOpen(): void {
+    if (this.closeRequested) {
+      throw new LmcodeError(ErrorCodes.SESSION_CLOSED, 'LmcodeHarness is closed');
     }
   }
 

@@ -65,22 +65,26 @@ export class ReadGroupTool implements BuiltinTool<ReadGroupInput> {
     private readonly workspace: WorkspaceConfig,
   ) {}
 
-  resolveExecution(args: ReadGroupInput): ToolExecution {
+  async resolveExecution(args: ReadGroupInput): Promise<ToolExecution> {
     const paths = args.paths.slice(0, MAX_READ_GROUP_FILES);
     const readTool = new ReadTool(this.jian, this.workspace);
-    const executions: ReadGroupItem[] = [];
-    for (const path of paths) {
-      const exec = readTool.resolveExecution({
-        path,
-        line_offset: args.line_offset,
-        n_lines: args.n_lines,
-      });
-      if ('isError' in exec && exec.isError === true) {
-        executions.push({ path, error: toolOutputText(exec.output) });
-      } else {
-        executions.push({ path, exec });
-      }
-    }
+    const executions = await Promise.all(
+      paths.map(async (path): Promise<ReadGroupItem> => {
+        try {
+          const exec = await readTool.resolveExecution({
+            path,
+            line_offset: args.line_offset,
+            n_lines: args.n_lines,
+          });
+          if ('isError' in exec && exec.isError === true) {
+            return { path, error: toolOutputText(exec.output) };
+          }
+          return { path, exec };
+        } catch (error) {
+          return { path, error: error instanceof Error ? error.message : String(error) };
+        }
+      }),
+    );
 
     const accesses = executions
       .filter((e): e is { path: string; exec: RunnableToolExecution } => 'exec' in e)

@@ -45,6 +45,7 @@ export function createFakeJian(overrides?: Partial<Jian>): Jian {
       cwd = next;
     },
     stat: () => notImplemented('stat'),
+    realpath: async (path: string) => path,
     iterdir: () => notImplemented('iterdir'),
     glob: () => notImplemented('glob'),
     readBytes: () => notImplemented('readBytes'),

@@ -409,17 +409,12 @@ describe('LocalJian', () => {
     });
   });
 
-  // ── Symlink cycle safety ────────────────────────────────────────────
+  // ── Symlink traversal boundaries ───────────────────────────────────
   //
-  // These tests use real filesystem symlinks. Note: macOS/Linux apply
-  // SYMLOOP_MAX (~40 components) at the kernel level, so an unfixed
-  // walker doesn't hang forever — it yields a bounded-but-large number
-  // of cyclic paths (observed ~16 for a self-loop) before ELOOP. The
-  // assertions here are therefore tight (single-digit expected counts)
-  // so they distinguish "OS-ELOOP bailout" (buggy) from "app-level
-  // cycle detection" (fixed). HARD_STOP is a final safety belt in case
-  // a future kernel allows deeper symlink chains — tests shouldn't hang.
-  describe.skipIf(!symlinkSupported)('glob symlink cycle safety', () => {
+  // These tests use real filesystem symlinks. A directory symlink is a
+  // leaf for glob traversal: the link itself may match a terminal pattern,
+  // but files below its target must never be enumerated through the link.
+  describe.skipIf(!symlinkSupported)('glob symlink traversal boundaries', () => {
     const HARD_STOP = 1000;
 
     it('T-C1 self-symlink cycle yields exactly one match', async () => {
@@ -436,16 +431,12 @@ describe('LocalJian', () => {
         matches.push(m);
         if (matches.length >= HARD_STOP) break;
       }
-      // Fixed: visited-inode detects the self-loop on the first recurse
-      // into `ring/self` (whose resolved inode matches `ring`'s), so the
-      // walker yields `ring/leaf.txt` exactly once.
-      // Unfixed: ~16 copies like `ring/self/self/.../leaf.txt` before
-      // the kernel's SYMLOOP_MAX trips.
+      // The real file is found once and the self link is not traversed.
       expect(matches).toHaveLength(1);
       expect(matches[0]!.endsWith('leaf.txt')).toBe(true);
     });
 
-    it('T-C2 mutual cycle (A/to_b→B, B/to_a→A) yields only finite real reaches', async () => {
+    it('T-C2 mutual directory links are not traversed', async () => {
       const { symlink, writeFile, mkdir } = await import('node:fs/promises');
       const a = join(tempDir, 'A');
       const b = join(tempDir, 'B');
@@ -461,21 +452,12 @@ describe('LocalJian', () => {
         matches.push(m);
         if (matches.length >= HARD_STOP) break;
       }
-      // Fixed: path-local visited allows each legitimate descent (A→to_b
-      // which hits a fresh B, and B→to_a which hits a fresh A) but
-      // blocks the close-the-loop second step. Expected exactly 4:
-      //   root/A/aleaf.txt, root/A/to_b/bleaf.txt,
-      //   root/B/bleaf.txt, root/B/to_a/aleaf.txt.
-      // Unfixed: kernel ELOOP bailout yields many more (observed ~66
-      // on macOS). A shared-visited (non-path-local) impl would yield
-      // only 2 because entering B from the walker's root already marks
-      // B as visited before A→to_b is traversed.
-      expect(matches).toHaveLength(4);
-      expect(matches.filter((p) => p.endsWith('aleaf.txt'))).toHaveLength(2);
-      expect(matches.filter((p) => p.endsWith('bleaf.txt'))).toHaveLength(2);
+      expect(matches).toHaveLength(2);
+      expect(matches.filter((p) => p.endsWith('aleaf.txt'))).toHaveLength(1);
+      expect(matches.filter((p) => p.endsWith('bleaf.txt'))).toHaveLength(1);
     });
 
-    it('T-C3 legit non-cyclic symlink to a sibling tree is followed', async () => {
+    it('T-C3 non-cyclic directory link to a sibling tree is not followed', async () => {
       const { symlink, writeFile, mkdir } = await import('node:fs/promises');
       // target/ is a sibling not under root/, reached only via root/shortcut.
       const root = join(tempDir, 'root');
@@ -489,9 +471,7 @@ describe('LocalJian', () => {
       for await (const m of jian.glob(root, '**/*.txt')) {
         matches.push(m);
       }
-      // User-created symlinks to legitimate subtrees should still be followed;
-      // cycle detection only trips on actual cycles.
-      expect(matches.some((p) => p.endsWith('reachable.txt'))).toBe(true);
+      expect(matches.some((p) => p.endsWith('reachable.txt'))).toBe(false);
     });
 
     it('T-C4 broken symlink does not crash the walk', async () => {
@@ -528,7 +508,7 @@ describe('LocalJian', () => {
       expect(names).toEqual(new Set(['r1.txt', 'r2.txt', 'r3.txt']));
     });
 
-    it('T-C6 two non-cyclic symlinks to same target both traverse (path-local visited)', async () => {
+    it('T-C6 multiple directory aliases do not expose target contents', async () => {
       const { symlink, writeFile, mkdir } = await import('node:fs/promises');
       // root/a → target, root/b → target. Both are legitimate (not
       // cycles) — the user deliberately aliased the target twice.
@@ -544,14 +524,7 @@ describe('LocalJian', () => {
       for await (const m of jian.glob(root, '**/*.txt')) {
         matches.push(m);
       }
-      // Each alias branch has its own visited set copy, so both aliased paths
-      // surface. A shared visited set would yield only one of them.
-      expect(matches.some((p) => p.endsWith(`a/shared.txt`) || p.endsWith(`a\\shared.txt`))).toBe(
-        true,
-      );
-      expect(matches.some((p) => p.endsWith(`b/shared.txt`) || p.endsWith(`b\\shared.txt`))).toBe(
-        true,
-      );
+      expect(matches).toEqual([]);
     });
   });
 

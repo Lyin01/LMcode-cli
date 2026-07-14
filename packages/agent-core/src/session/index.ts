@@ -84,6 +84,7 @@ export interface SessionMeta {
 }
 
 const BACKGROUND_KEEP_ALIVE_ON_EXIT_ENV = 'LMCODE_BACKGROUND_KEEP_ALIVE_ON_EXIT';
+const ACTIVE_TURN_CLOSE_TIMEOUT_MS = 5_000;
 
 export class Session {
   readonly rpc: SDKSessionRPC;
@@ -104,6 +105,8 @@ export class Session {
     custom: {},
   };
   private writeMetadataPromise = Promise.resolve();
+  private closing: Promise<void> | undefined;
+  private closed = false;
 
   constructor(public readonly options: SessionOptions) {
     // Attach the per-session log sink up front so the constructor's
@@ -145,14 +148,19 @@ export class Session {
   }
 
   async createMain() {
+    this.assertOpen();
     const { agent } = await this.createAgent({ type: 'main' }, DEFAULT_AGENT_PROFILES['agent']);
+    this.assertOpen();
     await this.triggerSessionStart('startup');
     return agent;
   }
 
   async resume(): Promise<{ warning?: string }> {
+    this.assertOpen();
     await this.skillsReady;
+    this.assertOpen();
     const { agents } = await this.readMetadata();
+    this.assertOpen();
     this.agents.clear();
     let warning: string | undefined;
     const resumeTasks = Object.keys(agents).map(async (id) => {
@@ -186,26 +194,45 @@ export class Session {
     return { warning: resumeWarning };
   }
 
-  async close(): Promise<void> {
-    const main = this.agents.get('main');
-    if (main !== undefined) {
-      const recap = main.sessionMemory.getSessionSummary();
-      if (recap.length > 0) {
-        this.metadata.custom = { ...this.metadata.custom, recap };
-        void this.writeMetadata();
-      }
-    }
+  close(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    if (this.closing !== undefined) return this.closing;
+    const closing = Promise.resolve()
+      .then(() => this.closeInternal())
+      .finally(() => {
+        this.closed = true;
+      });
+    this.closing = closing;
+    return closing;
+  }
+
+  private async closeInternal(): Promise<void> {
     try {
-      // Cancel any in-flight turn so the session can be resumed or have its
-      // model switched without inheriting a stuck/partial tool exchange.
-      for (const agent of this.agents.values()) {
-        if (agent.turn.hasActiveTurn) {
-          agent.turn.cancel();
-        }
-      }
+      // Stop schedulers before clearing activeTurn so no cron callback can
+      // observe an idle agent and launch fresh work during teardown.
       await Promise.allSettled(
         Array.from(this.agents.values(), async (agent) => agent.cron?.stop()),
       );
+
+      // Cancel any in-flight turn so the session can be resumed or have its
+      // model switched without inheriting a stuck/partial tool exchange.
+      const activeTurns: Promise<unknown>[] = [];
+      for (const agent of this.agents.values()) {
+        if (agent.turn.hasActiveTurn) {
+          activeTurns.push(agent.turn.waitForCurrentTurn());
+          agent.turn.cancel();
+        }
+      }
+      await this.waitForActiveTurns(activeTurns);
+
+      const main = this.agents.get('main');
+      if (main !== undefined) {
+        const recap = main.sessionMemory.getSessionSummary();
+        if (recap.length > 0) {
+          this.metadata.custom = { ...this.metadata.custom, recap };
+          void this.writeMetadata();
+        }
+      }
       await this.stopBackgroundTasksOnExit();
       await this.flushMetadata();
       await this.triggerSessionEnd('exit');
@@ -245,13 +272,22 @@ export class Session {
     profile?: ResolvedAgentProfile,
     parentAgentId?: string | undefined,
   ): Promise<{ readonly id: string; readonly agent: Agent }> {
+    this.assertOpen();
     await this.skillsReady;
+    this.assertOpen();
     const type = config.type ?? 'main';
     const id = type === 'main' ? 'main' : this.nextGeneratedAgentId();
     const homedir = config.homedir ?? join(this.options.homedir, 'agents', id);
     const agent = this.instantiateAgent(id, homedir, type, config, parentAgentId ?? null);
     if (profile) {
       await this.bootstrapAgentProfile(agent, profile);
+    }
+
+    try {
+      this.assertOpen();
+    } catch (error) {
+      await agent.close();
+      throw error;
     }
 
     this.agents.set(id, agent);
@@ -263,6 +299,38 @@ export class Session {
     void this.writeMetadata();
 
     return { id, agent };
+  }
+
+  private async waitForActiveTurns(activeTurns: readonly Promise<unknown>[]): Promise<void> {
+    if (activeTurns.length === 0) return;
+
+    let timeout: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    try {
+      await Promise.race([
+        Promise.allSettled(activeTurns),
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(() => {
+            timedOut = true;
+            resolve();
+          }, ACTIVE_TURN_CLOSE_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+    }
+    if (timedOut) {
+      this.log.warn('active turns did not settle before session close timeout', {
+        timeoutMs: ACTIVE_TURN_CLOSE_TIMEOUT_MS,
+        activeTurnCount: activeTurns.length,
+      });
+    }
+  }
+
+  assertOpen(): void {
+    if (this.closed || this.closing !== undefined) {
+      throw new LmcodeError(ErrorCodes.SESSION_CLOSED, 'Session is closed');
+    }
   }
 
   /**

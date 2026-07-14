@@ -345,6 +345,56 @@ describe('MemoryLookupTool', () => {
     expect(result.output).toContain('redis cache eviction');
   });
 
+  it('ranks semantic vector hits that are absent from the FTS candidate set', async () => {
+    const lexicalMemo = makeMemo({
+      id: 'lexical',
+      sourceSessionId: 's1',
+      userNeed: 'Authentication keyword match',
+      approach: 'Rotate credentials manually',
+      outcome: 'completed',
+      whatFailed: 'none',
+      whatWorked: 'none',
+      extractionSource: 'exit',
+    });
+    const semanticMemo = makeMemo({
+      id: 'semantic',
+      sourceSessionId: 's2',
+      userNeed: 'Prevent stale sessions after key rollover',
+      approach: 'Invalidate the distributed token cache',
+      outcome: 'completed',
+      whatFailed: 'none',
+      whatWorked: 'Versioned cache entries',
+      extractionSource: 'compaction',
+    });
+    const store = {
+      search: async () => [lexicalMemo],
+      read: async function* () {
+        yield lexicalMemo;
+        yield semanticMemo;
+      },
+      getEmbeddingEngine: () => ({
+        available: true,
+        embedBatch: async () => [new Float32Array([1, 0])],
+      }),
+      hasEmbeddings: () => true,
+      searchByVector: async () => [{ memo: semanticMemo, score: 1 }],
+    } as unknown as NonNullable<Agent['memoStore']>;
+    const agent = {
+      memoStore: store,
+      config: { cwd: '/workspace/project' },
+    } as unknown as Agent;
+
+    const result = await executeTool(new MemoryLookupTool(agent), {
+      turnId: 't1',
+      toolCallId: 'call_semantic',
+      args: { query: 'authentication', min_score: 0.3 },
+      signal,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('Prevent stale sessions after key rollover');
+  });
+
   it('respects scope parameter to filter by projectDir', async () => {
     const memos = [
       makeMemo({

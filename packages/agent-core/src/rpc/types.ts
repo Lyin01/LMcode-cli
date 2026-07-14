@@ -5,8 +5,8 @@ type Prettify<T> = {
 } & {};
 
 type WithExtraPayload<T, U> = {
-  [K in keyof T]: T[K] extends (payload: infer P) => infer R
-    ? (payload: Prettify<P & U>) => R
+  [K in keyof T]: T[K] extends (payload: infer P, ...args: infer A) => infer R
+    ? (payload: Prettify<P & U>, ...args: A) => R
     : never;
 };
 

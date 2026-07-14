@@ -10,6 +10,7 @@ import {
   APIStatusError,
   APITimeoutError,
   type ChatProvider,
+  type GenerateResult,
   type ModelCapability,
   type ToolCall,
 } from '@lmcode-cli/ltod';
@@ -1235,6 +1236,34 @@ describe('Agent turn flow', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('does not apply a provider response that arrives after agent close', async () => {
+    const response = deferred<GenerateResult>();
+    const generateStarted = deferred<void>();
+    const ctx = testAgent({
+      generate: () => {
+        generateStarted.resolve();
+        return response.promise;
+      },
+    });
+    ctx.configure();
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'wait for the late response' }] });
+    await generateStarted.promise;
+    const turn = ctx.agent.turn.waitForCurrentTurn();
+    ctx.agent.turn.cancel(0);
+    await ctx.agent.close();
+    const historyAtClose = structuredClone(ctx.agent.context.history);
+    const usageAtClose = ctx.agent.usage.stats();
+    const eventCountAtClose = ctx.allEvents.length;
+
+    response.resolve(textResult('must not be replayed after close'));
+    await turn;
+
+    expect(ctx.agent.context.history).toEqual(historyAtClose);
+    expect(ctx.agent.usage.stats()).toEqual(usageAtClose);
+    expect(ctx.allEvents).toHaveLength(eventCountAtClose);
+  });
+
   it('buffers steer input and includes it in the same turn after approval', async () => {
     const bashCall: ToolCall = {
       type: 'function',
@@ -1457,7 +1486,7 @@ function oauthAgentOptions(
   };
 }
 
-function textResult(text: string): Awaited<ReturnType<GenerateFn>> {
+function textResult(text: string): GenerateResult {
   return {
     id: 'mock-oauth-retry',
     message: {
@@ -1474,4 +1503,18 @@ function textResult(text: string): Awaited<ReturnType<GenerateFn>> {
     finishReason: 'completed',
     rawFinishReason: 'stop',
   };
+}
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

@@ -47,7 +47,10 @@ async function probeGitMarker(
     return null;
   }
 
-  if (isMode(stat.stMode, S_IFDIR)) return { dotGitPath, controlDirPath: dotGitPath };
+  if (isMode(stat.stMode, S_IFDIR)) {
+    const physicalDotGitPath = await resolveMarkerPath(jian, dotGitPath);
+    return { dotGitPath: physicalDotGitPath, controlDirPath: physicalDotGitPath };
+  }
   if (!isMode(stat.stMode, S_IFREG)) return null;
 
   let content: string;
@@ -57,7 +60,25 @@ async function probeGitMarker(
     return null;
   }
   const controlDirPath = parseGitDir(content, markerParent);
-  return controlDirPath === undefined ? null : { dotGitPath, controlDirPath };
+  if (controlDirPath === undefined) return null;
+  const [physicalDotGitPath, physicalControlDirPath] = await Promise.all([
+    resolveMarkerPath(jian, dotGitPath),
+    resolveMarkerPath(jian, controlDirPath),
+  ]);
+  return {
+    dotGitPath: physicalDotGitPath,
+    controlDirPath: physicalControlDirPath,
+  };
+}
+
+async function resolveMarkerPath(jian: Jian, path: string): Promise<string> {
+  try {
+    return normalize(await jian.realpath(path));
+  } catch {
+    // Marker probing is intentionally best-effort. Preserve the prior lexical
+    // detection behavior when a backend cannot physicalize the marker.
+    return normalize(path);
+  }
 }
 
 function isMode(stMode: number, mode: number): boolean {

@@ -117,13 +117,27 @@ describe('ReadTool', () => {
     ).toBe(false);
   });
 
-  it('matches permission args with glob path semantics', () => {
+  it('matches permission args with glob path semantics', async () => {
     const tool = toolWithContent('');
-    const execution = tool.resolveExecution({ path: '/etc/passwd' });
+    const execution = await tool.resolveExecution({ path: '/etc/passwd' });
     if (execution.isError === true) throw new TypeError('expected runnable execution');
 
     expect(execution.matchesRule?.('/etc/**')).toBe(true);
     expect(execution.matchesRule?.('/var/**')).toBe(false);
+  });
+
+  it('blocks a sensitive physical target hidden behind a symlink', async () => {
+    const tool = new ReadTool(
+      createFakeJian({
+        realpath: async (path) =>
+          path === '/workspace/notes.txt' ? '/home/test/.ssh/id_rsa' : path,
+      }),
+      { workspaceDir: '/workspace', additionalDirs: [] },
+    );
+
+    await expect(tool.resolveExecution({ path: '/workspace/notes.txt' })).rejects.toMatchObject({
+      code: 'PATH_SENSITIVE',
+    });
   });
 
   it('reads text content with stable one-based line numbers', async () => {

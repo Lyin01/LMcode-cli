@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 // Use pathe's `join` (not node:path) so expected paths use forward slashes,
 // matching jian's glob/iterdir output. jian normalizes all emitted paths via
@@ -66,4 +66,25 @@ describe('e2e: glob parity boundaries', () => {
       new Set([join(tempDir, '.hidden.txt'), join(tempDir, 'visible.txt')]),
     );
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'does not enumerate an outside tree through an in-root directory symlink',
+    async () => {
+      const workspace = join(tempDir, 'workspace');
+      const outside = join(tempDir, 'outside');
+      await jian.mkdir(workspace);
+      await jian.mkdir(outside);
+      await jian.writeText(join(workspace, 'inside.txt'), 'inside');
+      await jian.writeText(join(outside, 'outside.txt'), 'outside');
+      await symlink(outside, join(workspace, 'escape'));
+
+      const results: string[] = [];
+      for await (const entry of jian.glob(workspace, '**/*.txt')) {
+        results.push(entry);
+      }
+
+      expect(results).toEqual([join(workspace, 'inside.txt')]);
+      expect(results.some((entry) => entry.includes('outside.txt'))).toBe(false);
+    },
+  );
 });

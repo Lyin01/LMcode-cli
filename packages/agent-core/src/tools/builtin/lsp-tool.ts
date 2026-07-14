@@ -4,7 +4,10 @@ import type { Agent } from '#/agent';
 import type { BuiltinTool } from '../../agent/tool';
 import { ToolAccesses } from '../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../loop/types';
-import { resolvePathAccessPath } from '../policies/path-access';
+import {
+  resolveRealPathAccessPath,
+  revalidateRealPathAccessPath,
+} from '../policies/path-access';
 import { toInputJsonSchema } from '../support/input-schema';
 import type { WorkspaceConfig } from '../support/workspace';
 import type { LspRegistry } from '../../lsp/registry';
@@ -62,8 +65,8 @@ export class LspTool implements BuiltinTool<LspInput> {
     private readonly lspRegistry: LspRegistry,
   ) {}
 
-  resolveExecution(args: LspInput): ToolExecution {
-    const path = resolvePathAccessPath(args.path, {
+  async resolveExecution(args: LspInput): Promise<ToolExecution> {
+    const path = await resolveRealPathAccessPath(args.path, {
       jian: this.agent.jian,
       workspace: this.workspace,
       operation: 'read',
@@ -72,7 +75,15 @@ export class LspTool implements BuiltinTool<LspInput> {
       accesses: ToolAccesses.readFile(path),
       description: `LSP ${args.operation} ${args.path}`,
       approvalRule: this.name,
-      execute: () => this.execution(args, path),
+      execute: async () =>
+        this.execution(
+          args,
+          await revalidateRealPathAccessPath(args.path, path, {
+            jian: this.agent.jian,
+            workspace: this.workspace,
+            operation: 'read',
+          }),
+        ),
     };
   }
 

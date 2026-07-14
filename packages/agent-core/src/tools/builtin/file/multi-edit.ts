@@ -17,7 +17,10 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { resolvePathAccessPath } from '../../policies/path-access';
+import {
+  resolveRealPathAccessPath,
+  revalidateRealPathAccessPath,
+} from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
@@ -80,8 +83,8 @@ export class MultiEditTool implements BuiltinTool<MultiEditInput> {
     private readonly workspace: WorkspaceConfig,
   ) {}
 
-  resolveExecution(args: MultiEditInput): ToolExecution {
-    const path = resolvePathAccessPath(args.path, {
+  async resolveExecution(args: MultiEditInput): Promise<ToolExecution> {
+    const path = await resolveRealPathAccessPath(args.path, {
       jian: this.jian,
       workspace: this.workspace,
       operation: 'write',
@@ -105,7 +108,15 @@ export class MultiEditTool implements BuiltinTool<MultiEditInput> {
           pathClass: this.jian.pathClass(),
           homeDir: this.jian.gethome(),
         }),
-      execute: () => this.execution(args, path),
+      execute: async () =>
+        this.execution(
+          args,
+          await revalidateRealPathAccessPath(args.path, path, {
+            jian: this.jian,
+            workspace: this.workspace,
+            operation: 'write',
+          }),
+        ),
     };
   }
 

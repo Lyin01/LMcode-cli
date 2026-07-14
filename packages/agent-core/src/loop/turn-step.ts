@@ -114,6 +114,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     maxAttempts: maxRetryAttempts,
     log,
   });
+  signal.throwIfAborted();
   const usage = response.usage;
   recordUsage(usage);
   const stopReason = deriveStepStopReason(response);

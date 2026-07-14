@@ -13,7 +13,10 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import { resolvePathAccessPath } from '../../policies/path-access';
+import {
+  resolveRealPathAccessPath,
+  revalidateRealPathAccessPath,
+} from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
@@ -61,8 +64,8 @@ export class WriteTool implements BuiltinTool<WriteInput> {
     private readonly workspace: WorkspaceConfig,
   ) {}
 
-  resolveExecution(args: WriteInput): ToolExecution {
-    const path = resolvePathAccessPath(args.path, {
+  async resolveExecution(args: WriteInput): Promise<ToolExecution> {
+    const path = await resolveRealPathAccessPath(args.path, {
       jian: this.jian,
       workspace: this.workspace,
       operation: 'write',
@@ -78,7 +81,15 @@ export class WriteTool implements BuiltinTool<WriteInput> {
           pathClass: this.jian.pathClass(),
           homeDir: this.jian.gethome(),
         }),
-      execute: () => this.execution(args, path),
+      execute: async () =>
+        this.execution(
+          args,
+          await revalidateRealPathAccessPath(args.path, path, {
+            jian: this.jian,
+            workspace: this.workspace,
+            operation: 'write',
+          }),
+        ),
     };
   }
 

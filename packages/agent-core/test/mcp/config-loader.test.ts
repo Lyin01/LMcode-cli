@@ -85,6 +85,25 @@ describe('loadMcpServers', () => {
     });
   });
 
+  it('preserves a server named __proto__ without changing the result prototype', async () => {
+    const home = makeTempDir();
+    const cwd = makeTempDir();
+    await writeFile(
+      join(home, 'mcp.json'),
+      '{"mcpServers":{"__proto__":{"transport":"stdio","command":"safe-command"}}}',
+      'utf-8',
+    );
+
+    const servers = await loadMcpServers({ cwd, homeDir: home });
+
+    expect(Object.getPrototypeOf(servers)).toBe(Object.prototype);
+    expect(Object.hasOwn(servers, '__proto__')).toBe(true);
+    expect(servers['__proto__']).toEqual({
+      transport: 'stdio',
+      command: 'safe-command',
+    });
+  });
+
   it('throws LmcodeError(config.invalid) on invalid JSON', async () => {
     const home = makeTempDir();
     const cwd = makeTempDir();

@@ -60,6 +60,7 @@ export class LspClient {
     this.started = true;
 
     if (this.command.length === 0) {
+      this.started = false;
       throw new Error('LSP command is empty');
     }
 
@@ -72,34 +73,55 @@ export class LspClient {
       this.command.slice(1),
       platformFromOsKind(this.jian.osEnv.osKind),
     );
+    let spawnedProcess: JianProcess;
     try {
-      this.process = await this.jian.exec(adapted.command, ...adapted.args);
+      spawnedProcess = await this.jian.exec(adapted.command, ...adapted.args);
     } catch (error) {
+      this.started = false;
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to start language server ${this.command[0]}: ${message}`, {
         cause: error,
       });
     }
 
-    this.process.stdout.on('data', (chunk: Buffer) => {
+    // stop() may overtake an asynchronous spawn. Do not publish or initialize
+    // a process that was launched for a client which teardown already stopped.
+    if (!this.started) {
+      try {
+        await spawnedProcess.kill('SIGTERM');
+      } catch {
+        // The child may already have exited while startup was being cancelled.
+      }
+      throw new Error('LSP client stopped during startup');
+    }
+    this.process = spawnedProcess;
+
+    spawnedProcess.stdout.on('data', (chunk: Buffer) => {
       this.buffer += chunk.toString('utf8');
       this.processMessages();
     });
 
-    this.process.stderr.on('data', (chunk: Buffer) => {
+    spawnedProcess.stderr.on('data', (chunk: Buffer) => {
       // Ignore stderr noise from language servers.
       void chunk;
     });
 
-    await this.request('initialize', {
-      processId: process.pid,
-      rootUri: pathToUri(this.workspaceRoot),
-      capabilities: {},
-    });
+    try {
+      await this.request('initialize', {
+        processId: process.pid,
+        rootUri: pathToUri(this.workspaceRoot),
+        capabilities: {},
+      });
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
+    if (!this.started) throw new Error('LSP client stopped during startup');
     this.notify('initialized', {});
   }
 
   async stop(): Promise<void> {
+    this.started = false;
     for (const { reject, timer } of this.pending.values()) {
       clearTimeout(timer);
       reject(new Error('LSP client stopped'));

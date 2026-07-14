@@ -55,7 +55,9 @@ export function createRPC<Left extends Record<string, any>, Right extends Record
       signal?.throwIfAborted();
       let response: RpcResponse;
       try {
-        const value = await abortableRpc(Promise.resolve(fn(rpcPayload)), signal);
+        const operation =
+          options === undefined ? fn(rpcPayload) : fn(rpcPayload, options);
+        const value = await abortableRpc(Promise.resolve(operation), signal);
         response = { ok: true, value };
       } catch (error) {
         signal?.throwIfAborted();

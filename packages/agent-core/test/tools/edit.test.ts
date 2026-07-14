@@ -12,9 +12,9 @@ function context(args: EditInput) {
 }
 
 describe('EditTool', () => {
-  it('exposes before/after on the file_io display so the approval panel can render a diff', () => {
+  it('exposes before/after on the file_io display so the approval panel can render a diff', async () => {
     const tool = new EditTool(createFakeJian(), PERMISSIVE_WORKSPACE);
-    const execution = tool.resolveExecution({
+    const execution = await tool.resolveExecution({
       path: '/tmp/foo.ts',
       old_string: 'a\nb\nc',
       new_string: 'a\nB\nc',
@@ -29,6 +29,24 @@ describe('EditTool', () => {
       before: 'a\nb\nc',
       after: 'a\nB\nc',
     });
+  });
+
+  it('blocks a sensitive physical target hidden behind a symlink', async () => {
+    const tool = new EditTool(
+      createFakeJian({
+        realpath: async (path) =>
+          path === '/workspace/notes.txt' ? '/home/test/.ssh/id_rsa' : path,
+      }),
+      { workspaceDir: '/workspace', additionalDirs: [] },
+    );
+
+    await expect(
+      tool.resolveExecution({
+        path: '/workspace/notes.txt',
+        old_string: 'old',
+        new_string: 'new',
+      }),
+    ).rejects.toMatchObject({ code: 'PATH_SENSITIVE' });
   });
 
   it('exposes current metadata and schema', () => {

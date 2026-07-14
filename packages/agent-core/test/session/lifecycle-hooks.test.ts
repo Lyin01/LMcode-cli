@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
+import { SessionAPIImpl } from '../../src/session/rpc';
 
 
 const tempDirs: string[] = [];
@@ -149,6 +150,146 @@ describe('Session lifecycle hooks', () => {
     expect(killSpy).toHaveBeenCalledWith('SIGTERM');
     expect(agent.background.getTask(taskId)?.status).toBe('killed');
   });
+
+  it('waits for a cancelled active turn to settle before closing agent resources', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      jian: testJian.withCwd(workDir),
+      id: 'session-active-turn-close',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+    });
+    const agent = await session.createMain();
+    let resolveTurn!: (value: {
+      event: { type: 'turn.ended'; turnId: number; reason: 'cancelled' };
+    }) => void;
+    const activeTurn = new Promise<{
+      event: { type: 'turn.ended'; turnId: number; reason: 'cancelled' };
+    }>((resolve) => {
+      resolveTurn = resolve;
+    });
+    vi.spyOn(agent.turn, 'hasActiveTurn', 'get').mockReturnValue(true);
+    vi.spyOn(agent.turn, 'waitForCurrentTurn').mockReturnValue(activeTurn);
+    const stopCron = vi.spyOn(agent.cron!, 'stop');
+    const cancel = vi.spyOn(agent.turn, 'cancel').mockImplementation(() => {});
+    const closeAgent = vi.spyOn(agent, 'close');
+
+    const closing = session.close();
+    const concurrentClose = session.close();
+    await vi.waitFor(() => {
+      expect(cancel).toHaveBeenCalledTimes(1);
+    });
+    expect(stopCron).toHaveBeenCalledTimes(1);
+    expect(stopCron.mock.invocationCallOrder[0]).toBeLessThan(cancel.mock.invocationCallOrder[0]!);
+    expect(closeAgent).not.toHaveBeenCalled();
+
+    resolveTurn({
+      event: { type: 'turn.ended', turnId: 1, reason: 'cancelled' },
+    });
+    await Promise.all([closing, concurrentClose]);
+
+    expect(closeAgent).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues closing after an active turn ignores cancellation for five seconds', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      jian: testJian.withCwd(workDir),
+      id: 'session-active-turn-timeout',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+    });
+    const agent = await session.createMain();
+    vi.spyOn(agent.turn, 'hasActiveTurn', 'get').mockReturnValue(true);
+    vi.spyOn(agent.turn, 'waitForCurrentTurn').mockReturnValue(new Promise(() => {}));
+    const cancel = vi.spyOn(agent.turn, 'cancel').mockImplementation(() => {});
+    const closeAgent = vi.spyOn(agent, 'close');
+
+    vi.useFakeTimers();
+    try {
+      const closing = session.close();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(cancel).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(closeAgent).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await closing;
+      expect(closeAgent).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects metadata, MCP, and agent RPC operations once close starts', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      jian: testJian.withCwd(workDir),
+      id: 'session-rpc-closed',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+    });
+    await session.createMain();
+    const api = new SessionAPIImpl(session);
+
+    const closing = session.close();
+
+    expect(() => api.getSessionMetadata({})).toThrowError(
+      expect.objectContaining({ code: 'session.closed' }),
+    );
+    expect(() => api.listMcpServers({})).toThrowError(
+      expect.objectContaining({ code: 'session.closed' }),
+    );
+    expect(() => api.getModel({ agentId: 'main' })).toThrowError(
+      expect.objectContaining({ code: 'session.closed' }),
+    );
+    await expect(api.renameSession({ title: 'late rename' })).rejects.toMatchObject({
+      code: 'session.closed',
+    });
+    await closing;
+    expect(() => api.getModel({ agentId: 'main' })).toThrowError(
+      expect.objectContaining({ code: 'session.closed' }),
+    );
+  });
+
+  it('does not launch a prompt after close overtakes its metadata write', async () => {
+    const { sessionDir, workDir } = await hookFixture();
+    const session = new Session({
+      jian: testJian.withCwd(workDir),
+      id: 'session-prompt-close-race',
+      homedir: sessionDir,
+      rpc: createSessionRpc(),
+      skills: { explicitDirs: [join(workDir, 'missing-skills')] },
+    });
+    const agent = await session.createMain();
+    await session.flushMetadata();
+    const api = new SessionAPIImpl(session);
+    const metadataWrite = deferred<void>();
+    const writeMetadata = vi
+      .spyOn(session, 'writeMetadata')
+      .mockImplementationOnce(() => metadataWrite.promise);
+    const launchTurn = vi.spyOn(agent.turn, 'prompt');
+
+    const prompting = api.prompt({
+      agentId: 'main',
+      input: [{ type: 'text', text: 'must not start after close' }],
+    });
+    const rejection = expect(prompting).rejects.toMatchObject({ code: 'session.closed' });
+    await vi.waitFor(() => {
+      expect(writeMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    await session.close();
+    metadataWrite.resolve();
+    await rejection;
+
+    expect(launchTurn).not.toHaveBeenCalled();
+  });
 });
 
 async function hookFixture(): Promise<{
@@ -208,6 +349,17 @@ function createSessionRpc(): SDKSessionRPC {
       isError: true,
     })),
   } as SDKSessionRPC;
+}
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 function pendingProcess(exitOnKill = 143): {

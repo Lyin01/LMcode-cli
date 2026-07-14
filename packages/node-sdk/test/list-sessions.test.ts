@@ -325,6 +325,27 @@ describe('LmcodeHarness.listSessions', () => {
     }
   });
 
+  it('keeps a fresh session untitled when it is read back from persistence', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = new LmcodeHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_fresh_untitled', workDir });
+
+      expect(session.summary?.title).toBeUndefined();
+      const persisted = await harness.listSessions({ sessionId: session.id });
+      expect(persisted).toHaveLength(1);
+      expect(persisted[0]?.id).toBe(session.id);
+      expect(persisted[0]?.title).toBeUndefined();
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('resolves relative workDir inputs before filtering', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();

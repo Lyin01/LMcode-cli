@@ -78,6 +78,7 @@ import type {
   RemovePluginPayload,
   RenameSessionPayload,
   ResumeSessionPayload,
+  RPCOperationOptions,
   SessionSummary,
   SetActiveToolsPayload,
   SetGlobalConfigPayload,
@@ -272,16 +273,26 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
   async closeSession({ sessionId }: CloseSessionPayload): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (session) {
-      await session.close();
-      this.sessions.delete(sessionId);
+      try {
+        await session.close();
+      } finally {
+        if (this.sessions.get(sessionId) === session) {
+          this.sessions.delete(sessionId);
+        }
+      }
     }
   }
 
   async deleteSession({ sessionId }: DeleteSessionPayload): Promise<void> {
     const active = this.sessions.get(sessionId);
     if (active) {
-      await active.close();
-      this.sessions.delete(sessionId);
+      try {
+        await active.close();
+      } finally {
+        if (this.sessions.get(sessionId) === active) {
+          this.sessions.delete(sessionId);
+        }
+      }
     }
     await this.sessionStore.delete(sessionId);
   }
@@ -571,8 +582,11 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
     return this.sessionApi(sessionId).getBackground(payload);
   }
 
-  extractMemoriesOnExit({ sessionId, ...payload }: SessionAgentPayload<EmptyPayload>) {
-    return this.sessionApi(sessionId).extractMemoriesOnExit(payload);
+  extractMemoriesOnExit(
+    { sessionId, ...payload }: SessionAgentPayload<EmptyPayload>,
+    options?: RPCOperationOptions,
+  ) {
+    return this.sessionApi(sessionId).extractMemoriesOnExit(payload, options);
   }
 
   sideQuestion({ sessionId, ...payload }: SessionAgentPayload<SideQuestionPayload>) {

@@ -15,6 +15,7 @@ import {
   type QuestionResult,
   type GetGoalResult,
   type GoalSnapshotData,
+  type RPCCallOptions,
   type RPCMethods,
   type SDKAPI,
   type SessionMeta,
@@ -671,12 +672,18 @@ export class SDKRpcClient {
     this.questionHandlers.delete(sessionId);
   }
 
-  async extractMemoriesOnExit(input: SessionIdRpcInput): Promise<void> {
+  async extractMemoriesOnExit(
+    input: SessionIdRpcInput,
+    options?: RPCCallOptions,
+  ): Promise<void> {
     const rpc = await this.getRpc();
-    return rpc.extractMemoriesOnExit({
-      sessionId: input.sessionId,
-      agentId: this.interactiveAgentId,
-    });
+    return rpc.extractMemoriesOnExit(
+      {
+        sessionId: input.sessionId,
+        agentId: this.interactiveAgentId,
+      },
+      options,
+    );
   }
 
   async sideQuestion(sessionId: string, question: string): Promise<string> {

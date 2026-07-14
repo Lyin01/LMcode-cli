@@ -17,6 +17,7 @@ import type {
   StopMcpServerPayload,
   RemoveMcpServerPayload,
   RenameSessionPayload,
+  RPCOperationOptions,
   RegisterToolPayload,
   SessionAPI,
   SetActiveToolsPayload,
@@ -49,6 +50,7 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   constructor(protected readonly session: Session) {}
 
   async renameSession(payload: RenameSessionPayload): Promise<void> {
+    this.session.assertOpen();
     const title = payload.title.trim();
     if (title.length === 0) {
       throw new LmcodeError(ErrorCodes.SESSION_TITLE_EMPTY, 'Session title cannot be empty');
@@ -63,6 +65,7 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   }
 
   async updateSessionMetadata(payload: UpdateSessionMetadataPayload): Promise<void> {
+    this.session.assertOpen();
     this.session.metadata = {
       ...this.session.metadata,
       ...payload.metadata,
@@ -72,43 +75,54 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   }
 
   getSessionMetadata(_payload: EmptyPayload): SessionMeta {
+    this.session.assertOpen();
     return this.session.metadata;
   }
 
   listSkills(_payload: EmptyPayload): Promise<readonly SkillSummary[]> {
+    this.session.assertOpen();
     return this.session.listSkills();
   }
 
   listMcpServers(_payload: EmptyPayload): readonly McpServerInfo[] {
+    this.session.assertOpen();
     return this.session.mcp.list();
   }
 
   async getMcpStartupMetrics(_payload: EmptyPayload): Promise<McpStartupMetrics> {
+    this.session.assertOpen();
     await this.session.mcp.waitForInitialLoad();
+    this.session.assertOpen();
     return { durationMs: this.session.mcp.initialLoadDurationMs() };
   }
 
   async reconnectMcpServer(payload: ReconnectMcpServerPayload): Promise<void> {
+    this.session.assertOpen();
     await this.session.mcp.reconnect(payload.name);
   }
 
   async addMcpServer(payload: AddMcpServerPayload): Promise<void> {
+    this.session.assertOpen();
     await this.session.mcp.addServer(payload.name, payload.config);
   }
 
   async stopMcpServer(payload: StopMcpServerPayload): Promise<void> {
+    this.session.assertOpen();
     await this.session.mcp.stopServer(payload.name);
   }
 
   async removeMcpServer(payload: RemoveMcpServerPayload): Promise<void> {
+    this.session.assertOpen();
     await this.session.mcp.removeServer(payload.name);
   }
 
   generateAgentsMd(_payload: EmptyPayload): Promise<void> {
+    this.session.assertOpen();
     return this.session.generateAgentsMd();
   }
 
   async prompt({ agentId, ...payload }: AgentScopedPayload<PromptPayload>) {
+    this.session.assertOpen();
     if (agentId === 'main') {
       await this.updatePromptMetadata(promptMetadataTextFromPayload(payload));
     }
@@ -241,8 +255,11 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return this.getAgent(agentId).getBackground(payload);
   }
 
-  extractMemoriesOnExit({ agentId, ...payload }: AgentScopedPayload<EmptyPayload>) {
-    return this.getAgent(agentId).extractMemoriesOnExit(payload);
+  extractMemoriesOnExit(
+    { agentId, ...payload }: AgentScopedPayload<EmptyPayload>,
+    options?: RPCOperationOptions,
+  ) {
+    return this.getAgent(agentId).extractMemoriesOnExit(payload, options);
   }
 
   sideQuestion({ agentId, ...payload }: AgentScopedPayload<SideQuestionPayload>) {
@@ -270,6 +287,7 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   }
 
   private getAgent(agentId: string): PromisableMethods<AgentAPI> {
+    this.session.assertOpen();
     const agent = this.session.agents.get(agentId);
     if (agent === undefined) {
       throw new LmcodeError(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agentId}" was not found`);
@@ -285,6 +303,7 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
   private async updatePromptMetadata(lastPrompt: string | undefined): Promise<void> {
     if (lastPrompt === undefined) return;
+    this.session.assertOpen();
 
     const title = this.needUpdateEasyTitle(this.session.metadata)
       ? titleFromPromptMetadataText(lastPrompt)
@@ -302,6 +321,7 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
 
     this.session.metadata = nextMetadata;
     await this.session.writeMetadata();
+    this.session.assertOpen();
     await this.session.rpc.emitEvent({
       type: 'session.meta.updated',
       agentId: 'main',

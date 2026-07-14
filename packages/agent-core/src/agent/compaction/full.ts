@@ -39,6 +39,12 @@ export interface CompactedHistory {
   text: string;
 }
 
+interface ActiveCompaction {
+  readonly abortController: AbortController;
+  promise: Promise<void>;
+  blockedByTurn: boolean;
+}
+
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 
 /** Max consecutive compaction failures before auto-compaction is
@@ -70,11 +76,9 @@ const COMPACTION_SYSTEM_PROMPT =
 export class FullCompaction {
   protected compactionCountInTurn = 0;
   private consecutiveCompactionFailures = 0;
-  protected compacting: {
-    abortController: AbortController;
-    promise: Promise<void>;
-    blockedByTurn: boolean;
-  } | null = null;
+  protected compacting: ActiveCompaction | null = null;
+  private readonly workers = new Set<Promise<void>>();
+  private closed = false;
   protected _compactedHistory: CompactedHistory[] = [];
   protected readonly strategy: CompactionStrategy;
 
@@ -107,13 +111,15 @@ export class FullCompaction {
   }
 
   begin(data: Readonly<CompactionBeginData>): void {
+    if (this.closed) return;
     if (this.compacting) return;
     if (data.source === 'manual') {
       this.compactionCountInTurn = 0;
-    } else {
-      this.compactionCountInTurn += 1;
     }
-    if (this.compactionCountInTurn > this.strategy.maxCompactionPerTurn) return;
+    if (
+      data.source !== 'manual' &&
+      this.compactionCountInTurn >= this.strategy.maxCompactionPerTurn
+    ) return;
     if (this.agent.records.restoring) {
       return;
     }
@@ -121,6 +127,7 @@ export class FullCompaction {
     if (compactedCount === 0) {
       throw new LmcodeError(ErrorCodes.COMPACTION_UNABLE, 'No prefix that can be compacted in current history.');
     }
+    if (data.source !== 'manual') this.compactionCountInTurn += 1;
     this.agent.records.logRecord({
       type: 'full_compaction.begin',
       ...data,
@@ -144,24 +151,42 @@ export class FullCompaction {
       blockedByTurn: false,
     };
     this.compacting = active;
-    active.promise = this.compactionWorker(abortController.signal, data, compactedCount);
+    active.promise = this.compactionWorker(active, data, compactedCount);
+    this.workers.add(active.promise);
+    void active.promise.then(
+      () => {
+        this.workers.delete(active.promise);
+      },
+      () => {
+        this.workers.delete(active.promise);
+      },
+    );
   }
 
   cancel(): void {
     this.markCanceled();
   }
 
-  private markCanceled(reason?: string): void {
-    if (!this.compacting) return;
+  /** Cancel the active worker and wait until it can no longer mutate agent state. */
+  async close(): Promise<void> {
+    this.closed = true;
+    this.markCanceled();
+    await Promise.allSettled(this.workers);
+  }
+
+  private markCanceled(reason?: string, expected?: ActiveCompaction): void {
+    const active = this.compacting;
+    if (active === null || (expected !== undefined && active !== expected)) return;
     this.agent.records.logRecord({
       type: 'full_compaction.cancel',
     });
-    this.compacting.abortController.abort();
+    active.abortController.abort();
     this.compacting = null;
     this.agent.emitEvent({ type: 'compaction.cancelled', reason });
   }
 
-  markCompleted() {
+  markCompleted(expected?: ActiveCompaction): boolean {
+    if (expected !== undefined && this.compacting !== expected) return false;
     this.agent.records.logRecord({
       type: 'full_compaction.complete',
     });
@@ -170,6 +195,7 @@ export class FullCompaction {
     this._compactedHistory.push({
       text: renderMessagesToText(this.agent.context.history),
     });
+    return true;
   }
 
   private get tokenCountWithPending(): number {
@@ -200,19 +226,25 @@ export class FullCompaction {
     // Stage 2a: Proactive check — will the NEXT step overflow?
     // Estimate worst-case token growth before the API call so we can
     // compact BEFORE hitting a 413, not after.
-    const shouldCompact =
-      this.strategy.shouldCompact(effectiveTokens) ||
-      this.strategy.shouldCompactProactively(
-        effectiveTokens,
-        this.estimatedMaxOutputTokens,
-      );
+    const shouldCompact = this.strategy.shouldCompact(effectiveTokens);
+    const shouldCompactProactively = this.strategy.shouldCompactProactively(
+      effectiveTokens,
+      this.estimatedMaxOutputTokens,
+    );
+    const shouldBlock = this.strategy.shouldBlock(effectiveTokens);
 
     if (shouldCompact) {
-      this.checkAutoCompaction();
+      if (shouldBlock) {
+        this.beginAutoCompaction();
+      } else {
+        this.tryBeginAutoCompaction(true);
+      }
+    } else if (shouldCompactProactively) {
+      this.tryBeginAutoCompaction(false);
     }
 
     // Stage 3: Block if we're past the blocking threshold.
-    if (this.strategy.shouldBlock(effectiveTokens)) {
+    if (shouldBlock) {
       await this.block(signal);
     }
   }
@@ -269,6 +301,15 @@ export class FullCompaction {
     return this.compacting !== null;
   }
 
+  private tryBeginAutoCompaction(throwOnLimit: boolean): boolean {
+    try {
+      return this.beginAutoCompaction(throwOnLimit);
+    } catch (error) {
+      if (isLmcodeError(error) && error.code === ErrorCodes.COMPACTION_UNABLE) return false;
+      throw error;
+    }
+  }
+
   /** How long a blocked turn waits for compaction before giving up.
    *  `loopControl.compactionBlockTimeoutMs` wins when set; otherwise the
    *  allowance scales with how much context the summarization call has
@@ -298,6 +339,7 @@ export class FullCompaction {
       if (this.compacting === active) {
         this.markCanceled(
           `压缩超时（${String(Math.round(timeoutMs / 1000))}秒），已取消。请使用 /compact 手动重试。`,
+          active,
         );
       }
     }, timeoutMs);
@@ -324,10 +366,11 @@ export class FullCompaction {
   }
 
   private async compactionWorker(
-    signal: AbortSignal,
+    active: ActiveCompaction,
     data: Readonly<CompactionBeginData>,
     compactedCount: number,
   ): Promise<void> {
+    const signal = active.abortController.signal;
     const originalHistory = [...this.agent.context.history];
     const tokensBefore = estimateTokensForMessages(originalHistory);
     let retryCount = 0;
@@ -364,6 +407,7 @@ export class FullCompaction {
             undefined,
             { signal },
           );
+          signal.throwIfAborted();
           if (response.finishReason === 'truncated') {
             throw new TruncatedError();
           }
@@ -393,7 +437,7 @@ export class FullCompaction {
       const newHistory = this.agent.context.history;
       for (let i = 0; i < originalHistory.length; i++) {
         if (newHistory[i] !== originalHistory[i]) {
-          this.markCanceled('上下文已被更改（如 /revoke），压缩已取消');
+          this.markCanceled('上下文已被更改（如 /revoke），压缩已取消', active);
           return undefined;
         }
       }
@@ -407,7 +451,7 @@ export class FullCompaction {
         tokensBefore,
         tokensAfter,
       };
-      this.markCompleted();
+      if (!this.markCompleted(active)) return;
       this.agent.emitEvent({ type: 'compaction.completed', result });
       this.agent.context.applyCompaction(result);
       await this.extractAndStoreMemos(summary);
@@ -416,9 +460,8 @@ export class FullCompaction {
       // Compaction succeeded — reset circuit breaker
       this.consecutiveCompactionFailures = 0;
     } catch (error) {
-      if (!isAbortError(error)) {
-        const active = this.compacting;
-        const blockedByTurn = active?.blockedByTurn === true;
+      if (!signal.aborted && !isAbortError(error) && this.compacting === active) {
+        const blockedByTurn = active.blockedByTurn;
 
         // Track consecutive failures for circuit breaker
         this.consecutiveCompactionFailures += 1;
@@ -435,7 +478,7 @@ export class FullCompaction {
           code: isLmcodeError(error) ? error.code : undefined,
           error,
         });
-        this.markCanceled();
+        this.markCanceled(undefined, active);
         if (!blockedByTurn) {
           const payload =
             isLmcodeError(error) && error.code === ErrorCodes.AUTH_LOGIN_REQUIRED

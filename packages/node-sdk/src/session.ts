@@ -1,4 +1,10 @@
-import { ErrorCodes, LmcodeError, type AgentContextData, type LmcodeErrorCode } from '@lmcode-cli/agent-core';
+import {
+  ErrorCodes,
+  LmcodeError,
+  type AgentContextData,
+  type LmcodeErrorCode,
+  type RPCCallOptions,
+} from '@lmcode-cli/agent-core';
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
 import type { SDKRpcClient } from '#/rpc';
 import type {
@@ -24,6 +30,7 @@ import type {
 } from '#/types';
 
 const MAIN_AGENT_ID = 'main';
+const MEMORY_EXTRACTION_CLOSE_TIMEOUT_MS = 30_000;
 
 export interface SessionOptions {
   readonly id: string;
@@ -44,6 +51,7 @@ export class Session {
   private readonly rpc: SDKRpcClient;
   private readonly onClose?: (() => void | Promise<void>) | undefined;
   private closed = false;
+  private closing: Promise<void> | undefined;
 
   constructor(options: SessionOptions) {
     this.id = options.id;
@@ -396,9 +404,9 @@ export class Session {
   }
 
   /** Fire-and-forget: extract memory memos on session exit. */
-  async extractMemoriesOnExit(): Promise<void> {
+  async extractMemoriesOnExit(options?: RPCCallOptions): Promise<void> {
     this.ensureOpen();
-    await this.rpc.extractMemoriesOnExit({ sessionId: this.id });
+    await this.rpc.extractMemoriesOnExit({ sessionId: this.id }, options);
   }
 
   async sideQuestion(question: string): Promise<string> {
@@ -437,17 +445,43 @@ export class Session {
   }
 
   async close(options: { extractMemories?: boolean } = {}): Promise<void> {
+    if (this.closing !== undefined) return this.closing;
     if (this.closed) return;
+    const closing = this.closeInternal(options);
+    this.closing = closing;
+    void closing.then(
+      () => {
+        if (this.closing === closing) this.closing = undefined;
+      },
+      () => {
+        if (this.closing === closing) this.closing = undefined;
+      },
+    );
+    return closing;
+  }
+
+  private async closeInternal(options: { extractMemories?: boolean }): Promise<void> {
+    const extractionAbortController = new AbortController();
+    let extractionTimeout: NodeJS.Timeout | undefined;
     if (options.extractMemories !== false) {
       try {
         // Extract memories before closing — give it enough time for LLM
-        const extract = this.extractMemoriesOnExit().catch(() => {});
+        const extraction = this.extractMemoriesOnExit({
+          signal: extractionAbortController.signal,
+        }).catch(() => {});
         await Promise.race([
-          extract,
-          new Promise<void>((resolve) => setTimeout(resolve, 30_000)),
+          extraction,
+          new Promise<void>((resolve) => {
+            extractionTimeout = setTimeout(() => {
+              extractionAbortController.abort();
+              resolve();
+            }, MEMORY_EXTRACTION_CLOSE_TIMEOUT_MS);
+          }),
         ]);
       } catch {
         // Never let extraction failure block session close
+      } finally {
+        if (extractionTimeout !== undefined) clearTimeout(extractionTimeout);
       }
     }
     this.closed = true;
@@ -475,7 +509,7 @@ export class Session {
   }
 
   private ensureOpen(): void {
-    if (this.closed) {
+    if (this.closed || this.closing !== undefined) {
       throw new LmcodeError(ErrorCodes.SESSION_CLOSED, 'Session is closed');
     }
   }

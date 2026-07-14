@@ -7,6 +7,7 @@ import {
   open,
   readdir,
   readFile,
+  realpath as fsRealpath,
   stat,
   writeFile,
 } from 'node:fs/promises';
@@ -45,20 +46,6 @@ function shouldUseVerbatimArgs(command: string): boolean {
   // (Windows paths are case-insensitive and callers may pass `CMD.EXE`).
   const base = command.replace(/^.*[\\/]/, '').toLowerCase();
   return base === 'cmd.exe' || base === 'cmd';
-}
-
-/**
- * Build the `(dev, ino)` cycle-detection key used by `_globWalk`'s
- * visited set. Returns `null` when `ino` is 0, which Node returns on
- * filesystems that don't carry inodes (Windows FAT/exFAT, some SMB/NFS
- * mounts). A null key signals "no reliable identity for this dir" so
- * the caller skips visited tracking for that descent — cycle safety
- * is weakened on those filesystems, but normal walking works instead
- * of every directory colliding on the shared key `"<dev>:0"`.
- */
-function cycleKey(s: { dev: number; ino: number }): string | null {
-  if (s.ino === 0) return null;
-  return `${String(s.dev)}:${String(s.ino)}`;
 }
 
 class LocalProcess implements JianProcess {
@@ -256,6 +243,10 @@ export class LocalJian implements Jian {
     };
   }
 
+  async realpath(path: string): Promise<string> {
+    return normalize(await fsRealpath(this._resolvePath(path)));
+  }
+
   async *iterdir(path: string): AsyncGenerator<string> {
     const resolved = this._resolvePath(path);
     const entries = await readdir(resolved);
@@ -274,48 +265,17 @@ export class LocalJian implements Jian {
     const resolved = this._resolvePath(path);
     const caseSensitive = options?.caseSensitive ?? true;
     const patternParts = pattern.split('/');
-    // Seed `visited` with basePath's own inode so that a symlink inside
-    // basePath that points back at basePath is caught on its first
-    // encounter (not on the second level — the "+1 depth" off-by-one
-    // that would otherwise leak if the caller globs directly from the
-    // loop root). `stat` failure here is tolerated: `_globWalk` will
-    // hit the same error via readdir and return empty.
-    const initVisited = new Set<string>();
-    try {
-      const rootStat = await stat(resolved);
-      const rootKey = cycleKey(rootStat);
-      if (rootKey !== null) initVisited.add(rootKey);
-    } catch {
-      // base does not exist / not accessible — walker handles via its own catch
-    }
-    yield* this._globWalk(resolved, patternParts, caseSensitive, initVisited);
+    yield* this._globWalk(resolved, patternParts, caseSensitive);
   }
 
-  // `visited` holds the `(stDev, stIno)` keys of directories on the
-  // current descent path. Before recursing into a subdirectory, we
-  // check its key against `visited`; if present we skip it (cycle
-  // detected) and otherwise recurse with a fresh Set containing the
-  // additional key. The per-recurse copy gives the check path-local
-  // semantics: two legitimate symlinks to the same target in separate
-  // branches both traverse, which is more permissive than Python stdlib
-  // while still cycle-safe.
-  // Same-directory self-recursion (e.g. `**` matching zero dirs with
-  // pattern tail) passes `visited` unchanged — no descent, no cycle
-  // risk.
-  //
-  // Windows note: Node's `fs.Stats.ino` returns `0` on filesystems
-  // that don't support inodes (FAT/exFAT, some SMB/NFS mounts). If we
-  // keyed on `ino=0`, every directory on such a drive would share the
-  // key `"<dev>:0"` and the first would "visit" all others. The
-  // module-level `cycleKey` helper returns `null` in that case, which
-  // causes the call sites to skip visited tracking for that descent
-  // — cycle safety is lost on those filesystems, but normal walking
-  // works.
+  // Directory entries are probed with lstat: symbolic links are yielded
+  // when a terminal pattern matches them, but are never treated as
+  // directories to recurse into. This prevents both symlink cycles and an
+  // in-tree directory link enumerating files outside the glob root.
   private async *_globWalk(
     basePath: string,
     patternParts: string[],
     caseSensitive: boolean,
-    visited: Set<string>,
   ): AsyncGenerator<string> {
     if (patternParts.length === 0) {
       return;
@@ -340,7 +300,7 @@ export class LocalJian implements Jian {
       // because case (a) inside the child recursion already yields those
       // results.
       if (remainingParts.length > 0) {
-        yield* this._globWalk(basePath, remainingParts, caseSensitive, visited);
+        yield* this._globWalk(basePath, remainingParts, caseSensitive);
       } else {
         // Pattern ends with `**`: yield basePath itself (zero-dir match).
         yield basePath;
@@ -358,19 +318,12 @@ export class LocalJian implements Jian {
         const fullPath = join(basePath, entry);
         let entryStat;
         try {
-          entryStat = await stat(fullPath);
+          entryStat = await lstat(fullPath);
         } catch {
           continue;
         }
-        if (entryStat.isDirectory()) {
-          const key = cycleKey(entryStat);
-          if (key !== null && visited.has(key)) continue;
-          yield* this._globWalk(
-            fullPath,
-            patternParts,
-            caseSensitive,
-            key !== null ? new Set([...visited, key]) : visited,
-          );
+        if (entryStat.isDirectory() && !entryStat.isSymbolicLink()) {
+          yield* this._globWalk(fullPath, patternParts, caseSensitive);
         } else if (remainingParts.length === 0) {
           // Pattern ends with `**`: non-directory entries match too
           // (since `**` matches "anything").
@@ -400,19 +353,12 @@ export class LocalJian implements Jian {
         } else {
           let entryStat;
           try {
-            entryStat = await stat(fullPath);
+            entryStat = await lstat(fullPath);
           } catch {
             continue;
           }
-          if (entryStat.isDirectory()) {
-            const key = cycleKey(entryStat);
-            if (key !== null && visited.has(key)) continue;
-            yield* this._globWalk(
-              fullPath,
-              remainingParts,
-              caseSensitive,
-              key !== null ? new Set([...visited, key]) : visited,
-            );
+          if (entryStat.isDirectory() && !entryStat.isSymbolicLink()) {
+            yield* this._globWalk(fullPath, remainingParts, caseSensitive);
           }
         }
       }

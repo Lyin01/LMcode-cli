@@ -89,6 +89,8 @@ interface ResumeStateSnapshot {
 
 export interface TestAgentOptions {
   readonly jian?: Jian | undefined;
+  readonly homedir?: string | undefined;
+  readonly lmcodeHomeDir?: string | undefined;
   readonly runtime?: ToolServices | undefined;
   readonly compactionStrategy?: CompactionStrategy | undefined;
   readonly generate?: GenerateFn | undefined;
@@ -174,6 +176,8 @@ export class AgentTestContext {
     );
     this.agent = new Agent({
       jian,
+      homedir: options.homedir,
+      lmcodeHomeDir: options.lmcodeHomeDir,
       toolServices,
       config: this.lmcodeConfig,
       rpc: this.createRpcProxy(),
@@ -976,6 +980,7 @@ function createResumeNoSideEffectJian(initialCwd: string, pathClass: 'posix' | '
       cwd = next;
     },
     stat: () => fail('stat'),
+    realpath: () => fail('realpath'),
     iterdir: () => fail('iterdir'),
     glob: () => fail('glob'),
     readBytes: () => fail('readBytes'),

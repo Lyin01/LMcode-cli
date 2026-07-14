@@ -11,6 +11,7 @@ import {
   buildGradingFeedbackPrompt,
 } from './outcome-prompts';
 import type { BuiltinTool } from '../../../agent/tool';
+import { isAbortError } from '../../../loop/errors';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { toInputJsonSchema } from '../../support/input-schema';
 
@@ -18,6 +19,7 @@ export type GoalGraderFn = (
   objective: string,
   criterion: string | undefined,
   output: string,
+  signal: AbortSignal,
 ) => Promise<{ pass: boolean; reason: string }>;
 
 export const UpdateGoalToolInputSchema = z
@@ -65,13 +67,13 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
     return {
       description: `Setting goal status: ${args.status}`,
       approvalRule: this.name,
-      execute: async () => {
+      execute: async (ctx) => {
         if (args.status === 'active') {
           await goal.resumeGoal({}, 'model');
           return { output: 'Goal resumed.' };
         }
         if (args.status === 'complete') {
-          return this.handleComplete(goal);
+          return this.handleComplete(goal, ctx.signal);
         }
         if (args.status === 'blocked') {
           const blocked = await goal.markBlocked({}, 'model');
@@ -89,7 +91,10 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
     };
   }
 
-  private async handleComplete(goal: Agent['goal']): Promise<ExecutableToolResult> {
+  private async handleComplete(
+    goal: Agent['goal'],
+    signal: AbortSignal,
+  ): Promise<ExecutableToolResult> {
     const goalState = goal.getGoal().goal;
     if (!goalState) return { output: 'No active goal.' };
 
@@ -101,26 +106,52 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
     let pass: boolean;
     let reason: string;
     try {
-      const result = await this.grader(goalState.objective, goalState.completionCriterion, output);
+      const result = await this.grader(
+        goalState.objective,
+        goalState.completionCriterion,
+        output,
+        signal,
+      );
+      signal.throwIfAborted();
       pass = result.pass;
       reason = result.reason;
-    } catch {
-      // Grader failed — default to pass to avoid blocking the user
-      pass = true;
-      reason = 'Grader unavailable';
+    } catch (error) {
+      if (signal.aborted || isAbortError(error)) throw error;
+      this.agent.log.warn('goal completion grader failed', { error });
+      pass = false;
+      reason =
+        'Goal verification could not be completed because the grader was unavailable. Completion remains unverified.';
+    } finally {
+      const current = goal.getGoal().goal;
+      if (
+        current?.goalId === goalState.goalId &&
+        current.status === 'paused' &&
+        current.terminalReason === 'verifying'
+      ) {
+        await goal.resumeGoal({}, 'system');
+      }
     }
 
-    // Resume goal regardless of outcome
-    await goal.resumeGoal({}, 'system');
+    const current = goal.getGoal().goal;
+    if (current?.goalId !== goalState.goalId || current.status !== 'active') {
+      return {
+        isError: true,
+        output: 'Goal changed while completion verification was running. The grader verdict was discarded.',
+      };
+    }
 
     if (pass) {
       const completed = await goal.markComplete({}, 'model');
-      if (completed !== null) {
-        this.agent.context.appendSystemReminder(buildGoalCompletionSummaryPrompt(completed), {
-          kind: 'system_trigger',
-          name: GOAL_COMPLETION_REMINDER_NAME,
-        });
+      if (completed === null) {
+        return {
+          isError: true,
+          output: 'Goal changed before completion could be recorded. The grader verdict was discarded.',
+        };
       }
+      this.agent.context.appendSystemReminder(buildGoalCompletionSummaryPrompt(completed), {
+        kind: 'system_trigger',
+        name: GOAL_COMPLETION_REMINDER_NAME,
+      });
       return { output: `Goal verified and marked complete.\n${reason}`, stopTurn: true };
     }
 

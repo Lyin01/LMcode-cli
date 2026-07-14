@@ -827,7 +827,7 @@ describe('GrepTool', () => {
       ...SENSITIVE_RG_ARGS,
       '--',
       'hit',
-      'C:\\workspace',
+      'C:/workspace',
     );
     expect(toolContentString(result)).toBe(
       ['src/main.ts:hit', 'Filtered 1 sensitive file(s): .aws/credentials'].join('\n'),
@@ -926,7 +926,7 @@ describe('GrepTool', () => {
       ...SENSITIVE_RG_ARGS,
       '--',
       'hit',
-      'C:\\workspace',
+      'C:/workspace',
     );
     expect(toolContentString(result)).toBe(
       [
@@ -1371,8 +1371,10 @@ describe('GrepTool', () => {
   it('aborts while resolving the ripgrep path without spawning', async () => {
     const controller = new AbortController();
     const exec = vi.fn();
+    const locatorStarted = vi.fn();
     vi.mocked(ensureRgPath).mockImplementationOnce(({ signal: locatorSignal } = {}) => {
       expect(locatorSignal).toBe(controller.signal);
+      locatorStarted();
       return new Promise((_resolve, reject) => {
         const rejectAbort = (): void => {
           const error = new Error('Aborted');
@@ -1389,6 +1391,7 @@ describe('GrepTool', () => {
     const tool = new GrepTool(createFakeJian({ exec }), workspace);
 
     const resultPromise = executeTool(tool, context({ pattern: 'hit' }, controller.signal));
+    await vi.waitFor(() => expect(locatorStarted).toHaveBeenCalledOnce());
     controller.abort();
     const result = await Promise.race([
       resultPromise,
