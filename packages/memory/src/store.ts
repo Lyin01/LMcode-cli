@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { mkdir, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
+import type { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'pathe';
 
 import type { MemoryMemo, MemoryMemoListResult } from './models.js';
@@ -10,17 +11,29 @@ const FILE_NAME = 'entries.jsonl';
 const MIGRATION_MARKER = '.migrated';
 const SQLITE_MIGRATION_MARKER = '.migrated-to-sqlite';
 
+type DatabaseSyncConstructor = new (path: string) => DatabaseSync;
+type EmbeddingTimer = NodeJS.Timeout;
+
+interface EmbeddingJob {
+  readonly id: string;
+  readonly text: string;
+  state: 'queued' | 'running';
+}
+
 export class MemoryMemoStore {
   private readonly projectDir: string;
   private readonly jsonlPath: string;
   private readonly dbPath: string;
-  private db: any | undefined;
+  private db: DatabaseSync | undefined;
   private initialized = false;
+  private initialization: Promise<void> | undefined;
   private writeLock: Promise<unknown> = Promise.resolve();
   private embeddingEngine: EmbeddingEngine | undefined;
-  private embeddingQueue = new Set<string>();
-  private embeddingTimer: ReturnType<typeof setTimeout> | undefined;
-  private embeddingFlushing = false;
+  private readonly embeddingJobs = new Map<string, EmbeddingJob>();
+  private embeddingTimer: EmbeddingTimer | undefined;
+  private embeddingFlush: Promise<void> | undefined;
+  private embeddingBackgroundError: unknown;
+  private closing: Promise<void> | undefined;
 
   constructor(projectDir: string) {
     this.projectDir = projectDir;
@@ -34,31 +47,44 @@ export class MemoryMemoStore {
    */
   async init(): Promise<void> {
     if (this.initialized) return;
+    if (this.initialization !== undefined) return this.initialization;
+
+    const initialization = this.initialize();
+    this.initialization = initialization;
+    try {
+      await initialization;
+    } finally {
+      if (this.initialization === initialization) this.initialization = undefined;
+    }
+  }
+
+  private async initialize(): Promise<void> {
     await this.ensureDir();
 
-    let dbSyncClass: any = undefined;
+    let dbSyncClass: DatabaseSyncConstructor;
     try {
       const sqliteModule = await import('node:sqlite');
       dbSyncClass = sqliteModule.DatabaseSync;
-    } catch {
-      // node:sqlite is not supported in this environment
-    }
-
-    if (dbSyncClass === undefined) {
-      this.db = undefined;
-      this.initialized = true;
-      return;
+    } catch (error) {
+      throw new Error('Memory storage requires node:sqlite support', { cause: error });
     }
 
     try {
       this.db = new dbSyncClass(this.dbPath);
+      this.db.exec('PRAGMA foreign_keys = ON;');
       this.db.exec('PRAGMA journal_mode = WAL;');
       this.createSchema();
       await this.migrateFromJsonl();
-    } catch {
+      this.initialized = true;
+    } catch (error) {
+      try {
+        this.db?.close();
+      } catch {
+        // Preserve the initialization failure below.
+      }
       this.db = undefined;
+      throw new Error(`Failed to initialize memory store at ${this.dbPath}`, { cause: error });
     }
-    this.initialized = true;
   }
 
   /** Iterate all memos from the database, newest first. Optionally filter by project directory. */
@@ -186,85 +212,78 @@ export class MemoryMemoStore {
    * Deletes the legacy per-session memory files afterwards and writes a marker
    * file so the migration only runs once.
    */
-  static async migrateLegacyStores(lmcodeHomeDir: string): Promise<void> {
-    const target = new MemoryMemoStore(lmcodeHomeDir);
+  static async migrateLegacyStores(
+    lmcodeHomeDir: string,
+    existingTarget?: MemoryMemoStore,
+  ): Promise<void> {
+    const target = existingTarget ?? new MemoryMemoStore(lmcodeHomeDir);
+    const ownsTarget = existingTarget === undefined;
     const markerPath = join(lmcodeHomeDir, 'memory', MIGRATION_MARKER);
 
     try {
       await stat(markerPath);
       return; // already migrated
-    } catch {
-      // continue with migration
+    } catch (error) {
+      if (!isFileNotFound(error)) throw error;
     }
 
-    const sessionsDir = join(lmcodeHomeDir, 'sessions');
-    let sessionEntries: string[];
     try {
-      sessionEntries = await readdir(sessionsDir, { withFileTypes: true })
-        .then((entries) => entries.filter((e) => e.isDirectory()).map((e) => e.name));
-    } catch {
-      await writeFile(markerPath, '', 'utf8').catch(() => {});
-      return;
-    }
-
-    const migratedIds = new Set<string>();
-    for await (const memo of target.read()) {
-      migratedIds.add(memo.id);
-    }
-
-    let migratedCount = 0;
-    const legacyPaths: string[] = [];
-    for (const sessionKey of sessionEntries) {
-      const legacyPath = join(sessionsDir, sessionKey, 'memory', FILE_NAME);
-      let stream;
+      const sessionsDir = join(lmcodeHomeDir, 'sessions');
+      let sessionEntries: string[];
       try {
-        stream = createReadStream(legacyPath, { encoding: 'utf8' });
-      } catch {
-        continue;
+        sessionEntries = await readdir(sessionsDir, { withFileTypes: true })
+          .then((entries) => entries.filter((e) => e.isDirectory()).map((e) => e.name));
+      } catch (error) {
+        if (!isFileNotFound(error)) throw error;
+        await target.init();
+        await writeFile(markerPath, '', 'utf8');
+        return;
       }
 
-      // Swallow async ENOENT errors when the legacy file does not exist.
-      stream.on('error', () => {});
+      const migratedIds = new Set<string>();
+      for await (const memo of target.read()) {
+        migratedIds.add(memo.id);
+      }
 
-      let line = '';
-      try {
-        for await (const chunk of stream) {
-          line += chunk;
-          let newlineIndex = line.indexOf('\n');
-          while (newlineIndex !== -1) {
-            const rawLine = line.slice(0, newlineIndex).replace(/\r$/, '');
-            line = line.slice(newlineIndex + 1);
-            newlineIndex = line.indexOf('\n');
-
-            const memo = target.parseLine(rawLine, 0);
-            if (memo === undefined || migratedIds.has(memo.id)) continue;
+      let migratedCount = 0;
+      const legacyPaths: string[] = [];
+      for (const sessionKey of sessionEntries) {
+        const legacyPath = join(sessionsDir, sessionKey, 'memory', FILE_NAME);
+        const didRead = await readJsonlLines(legacyPath, async (rawLine) => {
+          const memo = target.parseLine(rawLine, 0);
+          if (memo === undefined || migratedIds.has(memo.id)) return;
+          try {
             await target.append(memo);
-            migratedIds.add(memo.id);
             migratedCount++;
+          } catch (error) {
+            // A concurrent migration may have inserted the same id after this
+            // run built migratedIds. Only suppress the conflict when the row is
+            // now durably visible; all other persistence failures still abort.
+            if ((await target.get(memo.id)) === undefined) throw error;
           }
-        }
-      } catch {
-        continue;
+          migratedIds.add(memo.id);
+        });
+        if (didRead) legacyPaths.push(legacyPath);
       }
 
-      // Track the file for deletion only if we successfully read its stream.
-      // We delete regardless of whether any new entries were migrated; the
-      // global store is now the source of truth.
-      legacyPaths.push(legacyPath);
-    }
+      // Delete sources only after every readable file has been fully persisted.
+      for (const legacyPath of legacyPaths) {
+        await unlink(legacyPath).catch((error: unknown) => {
+          if (!isFileNotFound(error)) throw error;
+        });
+        await rmdir(dirname(legacyPath)).catch((error: unknown) => {
+          if (!isDirectoryNotEmpty(error) && !isFileNotFound(error)) throw error;
+        });
+      }
 
-    // Delete legacy per-session memory files and empty memory directories.
-    for (const legacyPath of legacyPaths) {
-      await unlink(legacyPath).catch(() => {});
-      await rmdir(dirname(legacyPath)).catch(() => {});
+      await writeFile(markerPath, `${migratedCount}\n`, 'utf8');
+    } finally {
+      // Close the temporary store's SQLite connection to avoid leaking a
+      // DatabaseSync handle. On Windows, an unclosed connection keeps the
+      // WAL/SHM files locked, causing EBUSY when the caller removes the
+      // parent directory.
+      if (ownsTarget) await target.close();
     }
-
-    await writeFile(markerPath, `${migratedCount}\n`, 'utf8').catch(() => {});
-    // Close the temporary store's SQLite connection to avoid leaking a
-    // DatabaseSync handle. On Windows, an unclosed connection keeps the
-    // WAL/SHM files locked, causing EBUSY when the caller removes the
-    // parent directory.
-    await target.close();
   }
 
   /** @internal */
@@ -318,8 +337,6 @@ export class MemoryMemoStore {
         tags TEXT NOT NULL DEFAULT '[]'
       );
 
-      CREATE INDEX IF NOT EXISTS idx_memos_project_dir ON memos(project_dir);
-
       CREATE VIRTUAL TABLE IF NOT EXISTS memos_fts USING fts5(
         user_need,
         approach,
@@ -366,48 +383,28 @@ export class MemoryMemoStore {
     try {
       await stat(markerPath);
       return;
-    } catch {
-      // continue with migration
+    } catch (error) {
+      if (!isFileNotFound(error)) throw error;
     }
 
     const memos: MemoryMemo[] = [];
-    let stream;
-    try {
-      stream = createReadStream(this.jsonlPath, { encoding: 'utf8' });
-    } catch {
-      // No legacy file — nothing to migrate.
-      await writeFile(markerPath, '', 'utf8').catch(() => {});
+    const didRead = await readJsonlLines(this.jsonlPath, (rawLine) => {
+      const memo = this.parseLine(rawLine, 0);
+      if (memo !== undefined) memos.push(memo);
+    });
+    if (!didRead) {
+      await writeFile(markerPath, '', 'utf8');
       return;
-    }
-
-    // Swallow async ENOENT errors when the legacy file does not exist.
-    stream.on('error', () => {});
-
-    let line = '';
-    try {
-      for await (const chunk of stream) {
-        line += chunk;
-        let newlineIndex = line.indexOf('\n');
-        while (newlineIndex !== -1) {
-          const rawLine = line.slice(0, newlineIndex).replace(/\r$/, '');
-          line = line.slice(newlineIndex + 1);
-          newlineIndex = line.indexOf('\n');
-          const memo = this.parseLine(rawLine, 0);
-          if (memo !== undefined) memos.push(memo);
-        }
-      }
-    } catch {
-      // Ignore read errors and migrate whatever we have.
     }
 
     if (memos.length > 0) {
       this.insertMany(memos);
     }
 
-    await writeFile(markerPath, '', 'utf8').catch(() => {});
     // Keep the legacy file as a backup; remove the old in-memory index.
-    await rename(this.jsonlPath, `${this.jsonlPath}.bak`).catch(() => {});
+    await archiveMigratedJsonl(this.jsonlPath);
     await unlink(join(this.projectDir, 'memory', 'index.json')).catch(() => {});
+    await writeFile(markerPath, '', 'utf8');
   }
 
   private insertMany(memos: readonly MemoryMemo[]): void {
@@ -417,6 +414,7 @@ export class MemoryMemoStore {
         id, source_session_id, source_session_title, user_need, approach,
         outcome, what_failed, what_worked, extraction_source, recorded_at, project_dir, tags
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO NOTHING
       RETURNING rowid`,
     );
     const insertFts = this.db.prepare(
@@ -439,7 +437,8 @@ export class MemoryMemoStore {
           memo.recordedAt,
           memo.projectDir ?? '',
           JSON.stringify(memo.tags ?? []),
-        ) as { rowid: number };
+        ) as { rowid: number } | undefined;
+        if (row === undefined) continue;
         insertFts.run(
           row.rowid,
           toFtsText(memo.userNeed),
@@ -578,7 +577,9 @@ export class MemoryMemoStore {
         toFtsText(updated.whatWorked),
         toFtsText(updated.sourceSessionTitle ?? ''),
       );
+      this.db.prepare('DELETE FROM memory_embeddings WHERE memory_id = ?').run(id);
       this.db.exec('COMMIT');
+      this.scheduleEmbedding(updated);
       return true;
     } catch {
       this.db.exec('ROLLBACK');
@@ -601,6 +602,7 @@ export class MemoryMemoStore {
       deleteFts.run(row.rowid);
       deleteMemo.run(id);
       this.db.exec('COMMIT');
+      this.embeddingJobs.delete(id);
       return true;
     } catch {
       this.db.exec('ROLLBACK');
@@ -656,50 +658,57 @@ export class MemoryMemoStore {
         ? Date.now() - recencyCutoffDays * 24 * 60 * 60 * 1000
         : undefined;
 
-    let rows: Array<{ memory_id: string; embedding: Buffer | null; embedding_json?: string }>;
+    let rows: Array<{ memory_id: string; embedding_json: string }>;
     if (projectDir !== undefined) {
       const stmt =
         cutoffMs === undefined
           ? this.db.prepare(`
-              SELECT e.memory_id, e.embedding
+              SELECT e.memory_id, e.embedding_json
               FROM memory_embeddings e
               JOIN memos m ON m.id = e.memory_id
               WHERE (m.project_dir = ? OR m.project_dir = '')
-              ORDER BY e.created_at DESC
+              ORDER BY m.recorded_at DESC
               LIMIT ?
             `)
           : this.db.prepare(`
-              SELECT e.memory_id, e.embedding
+              SELECT e.memory_id, e.embedding_json
               FROM memory_embeddings e
               JOIN memos m ON m.id = e.memory_id
               WHERE (m.project_dir = ? OR m.project_dir = '')
-                AND e.created_at > ?
-              ORDER BY e.created_at DESC
+                AND m.recorded_at > ?
+              ORDER BY m.recorded_at DESC
               LIMIT ?
             `);
       rows = (cutoffMs === undefined
         ? stmt.all(projectDir, limit)
         : stmt.all(projectDir, cutoffMs, limit)) as Array<{
-        memory_id: string;
-        embedding: Buffer | null;
-        embedding_json?: string;
-      }>;
+          memory_id: string;
+          embedding_json: string;
+        }>;
     } else {
       const stmt =
         cutoffMs === undefined
-          ? this.db.prepare(
-              'SELECT memory_id, embedding FROM memory_embeddings ORDER BY created_at DESC LIMIT ?',
-            )
-          : this.db.prepare(
-              'SELECT memory_id, embedding FROM memory_embeddings WHERE created_at > ? ORDER BY created_at DESC LIMIT ?',
-            );
+          ? this.db.prepare(`
+              SELECT e.memory_id, e.embedding_json
+              FROM memory_embeddings e
+              JOIN memos m ON m.id = e.memory_id
+              ORDER BY m.recorded_at DESC
+              LIMIT ?
+            `)
+          : this.db.prepare(`
+              SELECT e.memory_id, e.embedding_json
+              FROM memory_embeddings e
+              JOIN memos m ON m.id = e.memory_id
+              WHERE m.recorded_at > ?
+              ORDER BY m.recorded_at DESC
+              LIMIT ?
+            `);
       rows = (cutoffMs === undefined
         ? stmt.all(limit)
         : stmt.all(cutoffMs, limit)) as Array<{
-        memory_id: string;
-        embedding: Buffer | null;
-        embedding_json?: string;
-      }>;
+          memory_id: string;
+          embedding_json: string;
+        }>;
     }
 
     if (rows.length === 0) return [];
@@ -707,13 +716,15 @@ export class MemoryMemoStore {
     const scored: Array<{ id: string; score: number }> = [];
     for (const row of rows) {
       try {
-        let vec: Float32Array;
-        if (row.embedding !== null && row.embedding instanceof Buffer && row.embedding.byteLength > 0) {
-          vec = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / Float32Array.BYTES_PER_ELEMENT);
-        } else {
-          // Fallback for rows still storing JSON text (pre-migration)
-          vec = new Float32Array(JSON.parse(row.embedding_json ?? '[]') as number[]);
+        const parsed = JSON.parse(row.embedding_json) as unknown;
+        if (
+          !Array.isArray(parsed) ||
+          parsed.length === 0 ||
+          !parsed.every((value): value is number => typeof value === 'number' && Number.isFinite(value))
+        ) {
+          continue;
         }
+        const vec = new Float32Array(parsed);
         const similarity = this.embeddingEngine?.cosineSimilarity(queryEmbedding, vec) ?? 0;
         if (similarity > 0) {
           scored.push({ id: row.memory_id, score: similarity });
@@ -745,78 +756,183 @@ export class MemoryMemoStore {
    */
   scheduleEmbedding(memo: MemoryMemo): void {
     if (this.embeddingEngine === undefined || !this.embeddingEngine.available) return;
-    this.embeddingQueue.add(memo.id);
+    this.embeddingJobs.set(memo.id, {
+      id: memo.id,
+      text: buildEmbeddingText(memo),
+      state: 'queued',
+    });
+    if (this.closing !== undefined) return;
     if (this.embeddingTimer !== undefined) {
       clearTimeout(this.embeddingTimer);
     }
     // Debounce 2s — wait for a batch of writes to settle before flushing.
     this.embeddingTimer = setTimeout(() => {
-      void this.flushEmbeddings();
+      this.embeddingTimer = undefined;
+      void this.flushEmbeddings().catch((error: unknown) => {
+        // Keep the failure available for teardown diagnostics. Background
+        // generation is optional, while explicit flushes still reject.
+        this.embeddingBackgroundError = error;
+      });
     }, 2000);
   }
 
-  private async flushEmbeddings(): Promise<void> {
-    if (
-      this.embeddingFlushing ||
-      this.embeddingEngine === undefined ||
-      !this.embeddingEngine.available
-    ) {
+  /** Flush all queued embeddings. Persistence failures are reported to the caller. */
+  async flushEmbeddings(): Promise<void> {
+    this.clearEmbeddingTimer();
+
+    while (true) {
+      let flush = this.embeddingFlush;
+      if (flush === undefined) {
+        const engine = this.embeddingEngine;
+        if (engine === undefined || !engine.available || !this.hasQueuedEmbeddingJobs()) return;
+        flush = this.startEmbeddingFlush(engine);
+      }
+
+      await flush;
+      if (!this.hasQueuedEmbeddingJobs()) {
+        this.embeddingBackgroundError = undefined;
+        return;
+      }
+    }
+  }
+
+  private startEmbeddingFlush(engine: EmbeddingEngine): Promise<void> {
+    const flush = this.drainEmbeddingJobs(engine);
+    this.embeddingFlush = flush;
+    void flush.then(
+      () => {
+        if (this.embeddingFlush === flush) this.embeddingFlush = undefined;
+      },
+      () => {
+        if (this.embeddingFlush === flush) this.embeddingFlush = undefined;
+      },
+    );
+    return flush;
+  }
+
+  private async drainEmbeddingJobs(engine: EmbeddingEngine): Promise<void> {
+    while (engine.available && this.hasQueuedEmbeddingJobs()) {
+      await this.flushEmbeddingBatch(engine);
+    }
+  }
+
+  private async flushEmbeddingBatch(engine: EmbeddingEngine): Promise<void> {
+    await this.init();
+    const db = this.db;
+    if (db === undefined) return;
+
+    const jobs = [...this.embeddingJobs.values()].filter((job) => job.state === 'queued');
+    if (jobs.length === 0) return;
+    for (const job of jobs) job.state = 'running';
+
+    try {
+      await this.processEmbeddingJobs(engine, db, jobs);
+    } catch (error) {
+      this.requeueEmbeddingJobs(jobs);
+      throw error;
+    }
+  }
+
+  private async processEmbeddingJobs(
+    engine: EmbeddingEngine,
+    db: DatabaseSync,
+    jobs: readonly EmbeddingJob[],
+  ): Promise<void> {
+    // Collect memos that still need embeddings.
+    const pending: EmbeddingJob[] = [];
+    for (const job of jobs) {
+      if (this.embeddingJobs.get(job.id) !== job) continue;
+      const row = db
+        .prepare('SELECT memory_id FROM memory_embeddings WHERE memory_id = ?')
+        .get(job.id);
+      if (row !== undefined) {
+        this.embeddingJobs.delete(job.id);
+        continue;
+      }
+
+      const memo = this.getMemoFromDatabase(job.id, db);
+      if (memo === undefined) {
+        this.embeddingJobs.delete(job.id);
+      } else if (buildEmbeddingText(memo) !== job.text) {
+        this.scheduleEmbedding(memo);
+      } else {
+        pending.push(job);
+      }
+    }
+
+    if (pending.length === 0) return;
+
+    const vectors = await engine.embedBatch(pending.map((item) => item.text));
+    if (vectors === null) {
+      for (const job of pending) {
+        if (this.embeddingJobs.get(job.id) === job) this.embeddingJobs.delete(job.id);
+      }
       return;
     }
-
-    const ids = [...this.embeddingQueue];
-    this.embeddingQueue.clear();
-    if (ids.length === 0) return;
-
-    this.embeddingFlushing = true;
-    try {
-      await this.init();
-      if (this.db === undefined) return;
-
-      // Collect memos that still need embeddings.
-      const pending: Array<{ id: string; text: string }> = [];
-      for (const id of ids) {
-        const row = this.db
-          .prepare('SELECT id FROM memory_embeddings WHERE memory_id = ?')
-          .get(id);
-        if (row !== undefined) continue; // Already has embedding
-
-        const memo = await this.get(id);
-        if (memo !== undefined) {
-          pending.push({ id, text: buildEmbeddingText(memo) });
-        }
-      }
-
-      if (pending.length === 0) return;
-
-      const vectors = await this.embeddingEngine.embedBatch(
-        pending.map((p) => p.text),
+    if (vectors.length !== pending.length) {
+      throw new Error(
+        `Embedding engine returned ${vectors.length} vectors for ${pending.length} memos`,
       );
-      if (vectors === null || vectors.length !== pending.length) return;
-
-      const insert = this.db.prepare(
-        'INSERT OR REPLACE INTO memory_embeddings (memory_id, embedding, model, created_at) VALUES (?, ?, ?, ?)',
-      );
-      const now = Date.now();
-      this.db.exec('BEGIN TRANSACTION');
-      try {
-        for (let i = 0; i < pending.length; i++) {
-          insert.run(
-            pending[i]!.id,
-            JSON.stringify([...vectors[i]!]),
-            'bge-small-zh-v1.5',
-            now,
-          );
-        }
-        this.db.exec('COMMIT');
-      } catch {
-        this.db.exec('ROLLBACK');
-      }
-    } catch {
-      // Non-critical — embeddings are best-effort.
-    } finally {
-      this.embeddingFlushing = false;
     }
+
+    const insert = db.prepare(
+      'INSERT OR REPLACE INTO memory_embeddings (memory_id, embedding_json, model, created_at) VALUES (?, ?, ?, ?)',
+    );
+    const now = Date.now();
+    const ready: Array<{ job: EmbeddingJob; vector: Float32Array }> = [];
+    for (let index = 0; index < pending.length; index += 1) {
+      const job = pending[index]!;
+      if (this.embeddingJobs.get(job.id) !== job) continue;
+      const memo = this.getMemoFromDatabase(job.id, db);
+      if (memo === undefined) {
+        this.embeddingJobs.delete(job.id);
+      } else if (buildEmbeddingText(memo) !== job.text) {
+        this.scheduleEmbedding(memo);
+      } else {
+        ready.push({ job, vector: vectors[index]! });
+      }
+    }
+    if (ready.length === 0) return;
+
+    db.exec('BEGIN TRANSACTION');
+    try {
+      for (const { job, vector } of ready) {
+        insert.run(
+          job.id,
+          JSON.stringify([...vector]),
+          'bge-small-zh-v1.5',
+          now,
+        );
+      }
+      db.exec('COMMIT');
+      for (const { job } of ready) {
+        if (this.embeddingJobs.get(job.id) === job) this.embeddingJobs.delete(job.id);
+      }
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw new Error('Failed to persist memory embeddings', { cause: error });
+    }
+  }
+
+  private hasQueuedEmbeddingJobs(): boolean {
+    for (const job of this.embeddingJobs.values()) {
+      if (job.state === 'queued') return true;
+    }
+    return false;
+  }
+
+  private requeueEmbeddingJobs(jobs: readonly EmbeddingJob[]): void {
+    for (const job of jobs) {
+      if (this.embeddingJobs.get(job.id) === job) job.state = 'queued';
+    }
+  }
+
+  private getMemoFromDatabase(id: string, db = this.db): MemoryMemo | undefined {
+    if (db === undefined) return undefined;
+    const row = db.prepare('SELECT * FROM memos WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : rowToMemo(row);
   }
 
   private listAll(limit: number, offset: number, projectDir?: string): { rows: MemoryMemo[]; total: number } {
@@ -846,15 +962,49 @@ export class MemoryMemoStore {
    * Call this when the store is no longer needed (e.g., during session teardown)
    * to prevent EBUSY errors on Windows from lingering WAL/SHM files.
    *
-   * After calling `close()` the store must not be used for further reads/writes
+   * After awaiting `close()` the store must not be used for further reads/writes
    * without calling `init()` again.
    */
-  close(): void {
-    this.initialized = false;
-    if (this.embeddingTimer !== undefined) {
-      clearTimeout(this.embeddingTimer);
-      this.embeddingTimer = undefined;
+  close(): Promise<void> {
+    if (this.closing !== undefined) return this.closing;
+    const closing = this.closeInternal();
+    this.closing = closing;
+    void closing.then(
+      () => {
+        if (this.closing === closing) this.closing = undefined;
+      },
+      () => {
+        if (this.closing === closing) this.closing = undefined;
+      },
+    );
+    return closing;
+  }
+
+  private async closeInternal(): Promise<void> {
+    this.clearEmbeddingTimer();
+    if (this.initialization !== undefined) {
+      await this.initialization.catch(() => {
+        // The initialization caller owns its failure; close still releases any handle.
+      });
     }
+    await this.writeLock.catch(() => {
+      // A failed write has already rejected to its caller. It is still settled here.
+    });
+
+    let flushError: unknown;
+    try {
+      await this.flushEmbeddings();
+    } catch (error) {
+      flushError =
+        this.embeddingBackgroundError !== undefined && this.embeddingBackgroundError !== error
+          ? new AggregateError(
+              [this.embeddingBackgroundError, error],
+              'Failed to drain memory embeddings during close',
+            )
+          : error;
+    }
+
+    let closeError: unknown;
     if (this.db !== undefined) {
       try {
         // Checkpoint and switch to DELETE mode before closing so the WAL and
@@ -866,9 +1016,27 @@ export class MemoryMemoStore {
       } catch {
         // Best-effort — the close below still releases the connection.
       }
-      this.db.close();
-      this.db = undefined;
+      try {
+        this.db.close();
+      } catch (error) {
+        closeError = error;
+      } finally {
+        this.db = undefined;
+      }
     }
+    this.initialized = false;
+
+    if (flushError !== undefined && closeError !== undefined) {
+      throw new AggregateError([flushError, closeError], 'Failed to close memory store');
+    }
+    if (flushError !== undefined) throw flushError;
+    if (closeError !== undefined) throw closeError;
+  }
+
+  private clearEmbeddingTimer(): void {
+    if (this.embeddingTimer === undefined) return;
+    clearTimeout(this.embeddingTimer);
+    this.embeddingTimer = undefined;
   }
 
   private async ensureDir(): Promise<void> {
@@ -876,11 +1044,78 @@ export class MemoryMemoStore {
   }
 
   private async withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.closing !== undefined) {
+      throw new Error('Memory store is closing');
+    }
     const previous = this.writeLock;
     const next = previous.then(fn, fn);
     this.writeLock = next;
     return next;
   }
+}
+
+async function readJsonlLines(
+  filePath: string,
+  visit: (line: string) => void | Promise<void>,
+): Promise<boolean> {
+  const stream = createReadStream(filePath, { encoding: 'utf8' });
+  let pending = '';
+  try {
+    for await (const chunk of stream) {
+      pending += String(chunk);
+      let newlineIndex = pending.indexOf('\n');
+      while (newlineIndex !== -1) {
+        await visit(pending.slice(0, newlineIndex).replace(/\r$/, ''));
+        pending = pending.slice(newlineIndex + 1);
+        newlineIndex = pending.indexOf('\n');
+      }
+    }
+    if (pending.length > 0) {
+      await visit(pending.replace(/\r$/, ''));
+    }
+    return true;
+  } catch (error) {
+    if (isFileNotFound(error)) return false;
+    throw error;
+  } finally {
+    stream.destroy();
+  }
+}
+
+async function archiveMigratedJsonl(filePath: string): Promise<void> {
+  const backupPath = `${filePath}.bak`;
+  try {
+    await rename(filePath, backupPath);
+  } catch (error) {
+    if (!isFileNotFound(error)) throw error;
+
+    // Another store can finish the same idempotent migration between our
+    // JSONL read and rename. Accept that race only when its backup is present;
+    // a missing source with no backup still signals data loss or I/O failure.
+    try {
+      await stat(backupPath);
+    } catch (backupError) {
+      if (isFileNotFound(backupError)) throw error;
+      throw backupError;
+    }
+  }
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return hasErrorCode(error, 'ENOENT');
+}
+
+function isDirectoryNotEmpty(error: unknown): boolean {
+  return hasErrorCode(error, 'ENOTEMPTY') || hasErrorCode(error, 'EEXIST');
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { readonly code?: unknown }).code === code
+  );
 }
 
 function rowToMemo(row: Record<string, unknown>): MemoryMemo {

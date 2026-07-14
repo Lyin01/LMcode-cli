@@ -158,6 +158,35 @@ describe('rankMemos', () => {
     expect(ranked[0]!.memo.id).toBe('overlap');
     expect(ranked[1]!.memo.id).toBe('none');
   });
+
+  it('keeps keyword scoring intact when a memo has no vector candidate score', () => {
+    const recordedAt = Date.now();
+    const withoutVector = makeMemo({
+      id: 'without-vector',
+      userNeed: 'Deploy with docker',
+      recordedAt,
+    });
+    const withVector = makeMemo({
+      id: 'with-vector',
+      userNeed: 'Deploy with docker',
+      recordedAt,
+    });
+    const baseline = rankMemos([withoutVector], 'deploy docker', {
+      minScore: 0,
+      maxResults: 1,
+    })[0]!.score;
+
+    const ranked = rankMemos([withoutVector, withVector], 'deploy docker', {
+      minScore: 0,
+      maxResults: 2,
+      vectorScores: new Map([[withVector.id, 0]]),
+    });
+
+    expect(ranked.find(({ memo }) => memo.id === withoutVector.id)!.score).toBeCloseTo(baseline);
+    expect(ranked.find(({ memo }) => memo.id === withVector.id)!.score).toBeCloseTo(
+      baseline * 0.6,
+    );
+  });
 });
 
 describe('buildProjectTagCloud', () => {

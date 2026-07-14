@@ -55,7 +55,7 @@ describe('SQLite-backed MemoryMemoStore FTS', () => {
   afterEach(async () => {
     // Close the SQLite connection so Windows releases the db/WAL/SHM file
     // handles before we delete the temp dir, avoiding EBUSY on unlink.
-    store.close();
+    await store.close();
     await removeTempDir(tmpDir);
   });
 
@@ -108,7 +108,7 @@ describe('SQLite-backed MemoryMemoStore FTS', () => {
     await mkdir(memoryDir, { recursive: true });
     await writeFile(
       join(memoryDir, 'entries.jsonl'),
-      JSON.stringify({ type: 'memory_memo', version: 2, entry: legacy }) + '\n',
+      JSON.stringify({ type: 'memory_memo', version: 2, entry: legacy }),
       'utf8',
     );
 
@@ -119,7 +119,54 @@ describe('SQLite-backed MemoryMemoStore FTS', () => {
 
     const result = await fresh.list({ search: 'legacy' });
     expect(result.total).toBe(1);
-    fresh.close();
+    await fresh.close();
+  });
+
+  it('retries a partially persisted JSONL migration without duplicating FTS rows', async () => {
+    const legacy = makeMemo({ userNeed: 'Retryable legacy migration' });
+    const memoryDir = join(tmpDir, 'memory');
+    const legacyPath = join(memoryDir, 'entries.jsonl');
+    const backupPath = `${legacyPath}.bak`;
+    await mkdir(backupPath, { recursive: true });
+    await writeFile(
+      legacyPath,
+      JSON.stringify({ type: 'memory_memo', version: 2, entry: legacy }),
+      'utf8',
+    );
+
+    await expect(store.init()).rejects.toThrow('Failed to initialize memory store');
+    await rm(backupPath, { recursive: true, force: true });
+
+    await expect(store.init()).resolves.toBeUndefined();
+    const result = await store.search('retryable legacy');
+    expect(result.map((memo) => memo.id)).toEqual([legacy.id]);
+    await expect(store.list()).resolves.toMatchObject({ total: 1 });
+  });
+
+  it('lets concurrent stores complete the same JSONL migration idempotently', async () => {
+    const legacy = makeMemo({ userNeed: 'Concurrent legacy migration' });
+    const memoryDir = join(tmpDir, 'memory');
+    await mkdir(memoryDir, { recursive: true });
+    await writeFile(
+      join(memoryDir, 'entries.jsonl'),
+      JSON.stringify({ type: 'memory_memo', version: 2, entry: legacy }),
+      'utf8',
+    );
+
+    const first = new MemoryMemoStore(tmpDir);
+    const second = new MemoryMemoStore(tmpDir);
+    try {
+      await expect(Promise.all([first.init(), second.init()])).resolves.toEqual([
+        undefined,
+        undefined,
+      ]);
+
+      const result = await first.search('concurrent legacy migration');
+      expect(result.map((memo) => memo.id)).toEqual([legacy.id]);
+      await expect(first.list()).resolves.toMatchObject({ total: 1 });
+    } finally {
+      await Promise.all([first.close(), second.close()]);
+    }
   });
 
   it('handles concurrent appends without data loss', async () => {

@@ -123,16 +123,14 @@ export function rankMemos(
   const { minScore = 0.3, maxResults = 3, currentProjectDir, projectTagCloud, vectorScores } =
     options;
   const intent = detectQueryIntent(query);
-  const hasVectorScores = vectorScores !== undefined && vectorScores.size > 0;
-
   return memos
     .map((memo) => {
       const keywordScore = computeRelevanceScore(
         memo, query, 0, currentProjectDir, projectTagCloud, intent,
       );
-      const vectorScore = vectorScores?.get(memo.id) ?? 0;
+      const vectorScore = vectorScores?.get(memo.id);
       // Blend: 60% keyword + 40% vector when both are available.
-      const score = hasVectorScores
+      const score = vectorScore !== undefined
         ? keywordScore * 0.6 + vectorScore * 0.4
         : keywordScore;
       return { memo, score };

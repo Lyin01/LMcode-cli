@@ -3,10 +3,12 @@ import { mkdir, mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 
 import { MemoryMemoStore } from '../src/store.js';
 import { createMemoryMemo } from '../src/models.js';
 import { buildExitExtractionPrompt, parseMemoryMemos } from '../src/extractor.js';
+import type { EmbeddingEngine } from '../src/embeddings.js';
 import type { MemoryMemo } from '../src/models.js';
 
 /**
@@ -44,6 +46,37 @@ function makeMemo(overrides: Partial<MemoryMemo> = {}): MemoryMemo {
   });
 }
 
+const fakeEmbeddingEngine: EmbeddingEngine = {
+  available: true,
+  async embedBatch(texts): Promise<Float32Array[]> {
+    return texts.map((text) => {
+      if (text.includes('closest')) return new Float32Array([1, 0]);
+      if (text.includes('legacy')) return new Float32Array([0.8, 0.2]);
+      return new Float32Array([0, 1]);
+    });
+  },
+  cosineSimilarity(a, b): number {
+    let dot = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let index = 0; index < a.length; index += 1) {
+      dot += a[index]! * b[index]!;
+      normA += a[index]! * a[index]!;
+      normB += b[index]! * b[index]!;
+    }
+    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+    return denominator === 0 ? 0 : dot / denominator;
+  },
+};
+
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => undefined;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe('MemoryMemoStore', () => {
   let tmpDir: string;
   let store: MemoryMemoStore;
@@ -56,7 +89,7 @@ describe('MemoryMemoStore', () => {
   afterEach(async () => {
     // Close the SQLite connection so Windows releases the db/WAL/SHM file
     // handles before we delete the temp dir, avoiding EBUSY on unlink.
-    store.close();
+    await store.close();
     await removeTempDir(tmpDir);
   });
 
@@ -119,13 +152,237 @@ describe('MemoryMemoStore', () => {
   });
 
   describe('init', () => {
+    it('shares one initialization across concurrent first operations', async () => {
+      const memo = makeMemo();
+
+      const [, beforeAppend] = await Promise.all([
+        store.init(),
+        store.get(memo.id),
+        store.list(),
+      ]);
+      expect(beforeAppend).toBeUndefined();
+
+      await store.append(memo);
+      await expect(store.get(memo.id)).resolves.toMatchObject({ id: memo.id });
+    });
+
     it('throws when init fails and does not mark initialized', async () => {
       const badPath = join(tmpDir, 'existing-file');
       await writeFile(badPath, 'x', 'utf8');
       const badStore = new MemoryMemoStore(badPath);
       await expect(badStore.init()).rejects.toThrow();
       await expect(badStore.init()).rejects.toThrow();
-      badStore.close();
+      await badStore.close();
+    });
+
+    it('rejects operations when the SQLite file is corrupted', async () => {
+      const corruptDir = join(tmpDir, 'corrupt', 'memory');
+      await mkdir(corruptDir, { recursive: true });
+      await writeFile(join(corruptDir, 'memos.sqlite'), 'not a sqlite database', 'utf8');
+      const corruptStore = new MemoryMemoStore(join(tmpDir, 'corrupt'));
+
+      await expect(corruptStore.init()).rejects.toThrow('Failed to initialize memory store');
+      await expect(corruptStore.append(makeMemo())).rejects.toThrow(
+        'Failed to initialize memory store',
+      );
+      await corruptStore.close();
+    });
+
+    it('adds legacy memo columns before creating indexes that depend on them', async () => {
+      const legacyDir = join(tmpDir, 'legacy-schema', 'memory');
+      await mkdir(legacyDir, { recursive: true });
+      const db = new DatabaseSync(join(legacyDir, 'memos.sqlite'));
+      db.exec(`
+        CREATE TABLE memos (
+          id TEXT PRIMARY KEY,
+          source_session_id TEXT NOT NULL,
+          source_session_title TEXT,
+          user_need TEXT NOT NULL,
+          approach TEXT NOT NULL,
+          outcome TEXT NOT NULL,
+          what_failed TEXT NOT NULL DEFAULT 'none',
+          what_worked TEXT NOT NULL DEFAULT 'none',
+          extraction_source TEXT NOT NULL,
+          recorded_at INTEGER NOT NULL
+        );
+      `);
+      db.close();
+
+      const legacyStore = new MemoryMemoStore(join(tmpDir, 'legacy-schema'));
+      const memo = makeMemo({ projectDir: '/workspace/legacy', tags: ['sqlite'] });
+      try {
+        await expect(legacyStore.init()).resolves.toBeUndefined();
+        await legacyStore.append(memo);
+        await expect(legacyStore.get(memo.id)).resolves.toMatchObject({
+          projectDir: '/workspace/legacy',
+          tags: ['sqlite'],
+        });
+      } finally {
+        await legacyStore.close();
+      }
+    });
+  });
+
+  describe('embeddings', () => {
+    it('persists vectors and returns project-scoped results by similarity', async () => {
+      const closest = makeMemo({ userNeed: 'closest match', projectDir: '/workspace/a' });
+      const excluded = makeMemo({ userNeed: 'closest other project', projectDir: '/workspace/b' });
+      const legacy = makeMemo({ userNeed: 'legacy shared match', projectDir: '' });
+      store.setEmbeddingEngine(fakeEmbeddingEngine);
+
+      await store.append(closest);
+      await store.append(excluded);
+      await store.append(legacy);
+      await store.flushEmbeddings();
+
+      expect(store.hasEmbeddings()).toBe(true);
+      const results = await store.searchByVector(new Float32Array([1, 0]), {
+        projectDir: '/workspace/a',
+      });
+      expect(results.map((result) => result.memo.id)).toEqual([closest.id, legacy.id]);
+      expect(results[0]!.score).toBeGreaterThan(results[1]!.score);
+    });
+
+    it('applies vector recency cutoffs to the memo timestamp, not embedding creation time', async () => {
+      const dayMs = 24 * 60 * 60 * 1000;
+      const old = makeMemo({
+        userNeed: 'closest old experience',
+        recordedAt: Date.now() - 120 * dayMs,
+      });
+      const recent = makeMemo({
+        userNeed: 'legacy recent experience',
+        recordedAt: Date.now() - 5 * dayMs,
+      });
+      store.setEmbeddingEngine(fakeEmbeddingEngine);
+      await store.append(old);
+      await store.append(recent);
+      await store.flushEmbeddings();
+
+      const all = await store.searchByVector(new Float32Array([1, 0]));
+      expect(all.map(({ memo }) => memo.id)).toEqual([old.id, recent.id]);
+
+      const recentOnly = await store.searchByVector(new Float32Array([1, 0]), {
+        recencyCutoffDays: 90,
+      });
+      expect(recentOnly.map(({ memo }) => memo.id)).toEqual([recent.id]);
+    });
+
+    it('reports SQLite failures from an explicit embedding flush', async () => {
+      store.setEmbeddingEngine(fakeEmbeddingEngine);
+      await store.append(makeMemo({ userNeed: 'closest match' }));
+
+      const db = new DatabaseSync(join(tmpDir, 'memory', 'memos.sqlite'));
+      db.exec('DROP TABLE memory_embeddings');
+      db.close();
+
+      await expect(store.flushEmbeddings()).rejects.toThrow();
+      await expect(store.close()).rejects.toThrow();
+    });
+
+    it('waits for an active embedding flush before closing the database', async () => {
+      const started = createDeferred();
+      const release = createDeferred();
+      const engine: EmbeddingEngine = {
+        available: true,
+        async embedBatch(texts): Promise<Float32Array[]> {
+          started.resolve();
+          await release.promise;
+          return texts.map(() => new Float32Array([1, 0]));
+        },
+        cosineSimilarity(a, b): number {
+          return fakeEmbeddingEngine.cosineSimilarity(a, b);
+        },
+      };
+      store.setEmbeddingEngine(engine);
+      const runningMemo = makeMemo({ userNeed: 'close during flush' });
+      const queuedMemo = makeMemo({ userNeed: 'queued before close' });
+      await store.append(runningMemo);
+
+      const flushing = store.flushEmbeddings();
+      await started.promise;
+      await store.append(queuedMemo);
+      let closeSettled = false;
+      const closing = store.close().finally(() => {
+        closeSettled = true;
+      });
+      await Promise.resolve();
+      expect(closeSettled).toBe(false);
+
+      release.resolve();
+      await Promise.all([flushing, closing]);
+
+      const reopened = new MemoryMemoStore(tmpDir);
+      reopened.setEmbeddingEngine(fakeEmbeddingEngine);
+      await reopened.init();
+      expect(reopened.hasEmbeddings()).toBe(true);
+      const results = await reopened.searchByVector(new Float32Array([1, 0]));
+      expect(new Set(results.map(({ memo }) => memo.id))).toEqual(
+        new Set([runningMemo.id, queuedMemo.id]),
+      );
+      await reopened.close();
+    });
+
+    it('does not let an old in-flight vector overwrite an updated memo', async () => {
+      const firstStarted = createDeferred();
+      const releaseFirst = createDeferred();
+      const calls: string[][] = [];
+      const engine: EmbeddingEngine = {
+        available: true,
+        async embedBatch(texts): Promise<Float32Array[]> {
+          calls.push(texts);
+          if (calls.length === 1) {
+            firstStarted.resolve();
+            await releaseFirst.promise;
+          }
+          return texts.map((text) =>
+            text.includes('updated content')
+              ? new Float32Array([0, 1])
+              : new Float32Array([1, 0]),
+          );
+        },
+        cosineSimilarity(a, b): number {
+          return fakeEmbeddingEngine.cosineSimilarity(a, b);
+        },
+      };
+      store.setEmbeddingEngine(engine);
+      const memo = makeMemo({ userNeed: 'original content' });
+      await store.append(memo);
+
+      const flushing = store.flushEmbeddings();
+      await firstStarted.promise;
+      await store.update(memo.id, { userNeed: 'updated content' });
+      releaseFirst.resolve();
+      await flushing;
+
+      expect(calls).toHaveLength(2);
+      expect(calls[0]![0]).toContain('original content');
+      expect(calls[1]![0]).toContain('updated content');
+      await expect(store.searchByVector(new Float32Array([1, 0]))).resolves.toEqual([]);
+      const updatedResults = await store.searchByVector(new Float32Array([0, 1]));
+      expect(updatedResults.map(({ memo: result }) => result.id)).toEqual([memo.id]);
+    });
+
+    it('requeues a failed batch so an explicit retry drains it without loss', async () => {
+      let attempt = 0;
+      const engine: EmbeddingEngine = {
+        available: true,
+        async embedBatch(texts): Promise<Float32Array[]> {
+          attempt += 1;
+          if (attempt === 1) throw new Error('temporary embedding failure');
+          return texts.map(() => new Float32Array([1, 0]));
+        },
+        cosineSimilarity(a, b): number {
+          return fakeEmbeddingEngine.cosineSimilarity(a, b);
+        },
+      };
+      store.setEmbeddingEngine(engine);
+      await store.append(makeMemo({ userNeed: 'retry this embedding' }));
+
+      await expect(store.flushEmbeddings()).rejects.toThrow('temporary embedding failure');
+      await expect(store.flushEmbeddings()).resolves.toBeUndefined();
+
+      expect(attempt).toBe(2);
+      expect(store.hasEmbeddings()).toBe(true);
     });
   });
 
@@ -303,7 +560,7 @@ describe('migrateLegacyStores', () => {
     const legacyPath = join(legacyDir, 'entries.jsonl');
     await writeFile(
       legacyPath,
-      JSON.stringify({ type: 'memory_memo', version: 2, entry: legacyMemo }) + '\n',
+      JSON.stringify({ type: 'memory_memo', version: 2, entry: legacyMemo }),
       'utf8',
     );
 
@@ -318,7 +575,7 @@ describe('migrateLegacyStores', () => {
     expect(memos[0]!.userNeed).toBe('Legacy need');
 
     await expect(stat(legacyPath)).rejects.toThrow();
-    globalStore.close();
+    await globalStore.close();
   });
 
   it('skips entries whose ids already exist in the global store', async () => {
@@ -351,7 +608,45 @@ describe('migrateLegacyStores', () => {
       memos.push(memo);
     }
     expect(memos.length).toBe(1);
-    globalStore.close();
+    await globalStore.close();
+  });
+
+  it('allows concurrent legacy migrations without duplicate rows or cleanup failures', async () => {
+    const legacyMemo = createMemoryMemo({
+      userNeed: 'Concurrent legacy need',
+      approach: 'Concurrent legacy approach',
+      outcome: '完成',
+      whatFailed: 'none',
+      whatWorked: 'none',
+      extractionSource: 'exit',
+      sourceSessionId: 'concurrent-legacy-session',
+      sourceSessionTitle: 'Concurrent Legacy Session',
+    });
+    const legacyDir = join(tmpDir, 'sessions', 'wd_concurrent', 'memory');
+    const legacyPath = join(legacyDir, 'entries.jsonl');
+    await mkdir(legacyDir, { recursive: true });
+    await writeFile(
+      legacyPath,
+      JSON.stringify({ type: 'memory_memo', version: 2, entry: legacyMemo }),
+      'utf8',
+    );
+
+    await expect(
+      Promise.all([
+        MemoryMemoStore.migrateLegacyStores(tmpDir),
+        MemoryMemoStore.migrateLegacyStores(tmpDir),
+      ]),
+    ).resolves.toEqual([undefined, undefined]);
+
+    const globalStore = new MemoryMemoStore(tmpDir);
+    try {
+      const memos: MemoryMemo[] = [];
+      for await (const memo of globalStore.read()) memos.push(memo);
+      expect(memos.map((memo) => memo.id)).toEqual([legacyMemo.id]);
+      await expect(stat(legacyPath)).rejects.toThrow();
+    } finally {
+      await globalStore.close();
+    }
   });
 });
 

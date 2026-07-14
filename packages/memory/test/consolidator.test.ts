@@ -61,7 +61,7 @@ describe('buildConsolidationPlan', () => {
   afterEach(async () => {
     // Close the SQLite connection so Windows releases the db/WAL/SHM file
     // handles before we delete the temp dir, avoiding EBUSY on unlink.
-    store.close();
+    await store.close();
     await removeTempDir(tmpDir);
   });
 
@@ -173,7 +173,7 @@ describe('applyConsolidation', () => {
   afterEach(async () => {
     // Close the SQLite connection so Windows releases the db/WAL/SHM file
     // handles before we delete the temp dir, avoiding EBUSY on unlink.
-    store.close();
+    await store.close();
     await removeTempDir(tmpDir);
   });
 

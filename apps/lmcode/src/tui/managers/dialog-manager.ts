@@ -47,6 +47,7 @@ export interface DialogManagerHost {
  */
 export class DialogManager {
   private activeApprovalPanel: ApprovalPanelComponent | undefined;
+  private readonly memoryStore = new MemoryMemoStore(getDataDir());
   private approvalPreview:
     | {
         component: ApprovalPreviewViewer;
@@ -56,6 +57,10 @@ export class DialogManager {
     | undefined;
 
   constructor(private readonly host: DialogManagerHost) {}
+
+  async dispose(): Promise<void> {
+    await this.memoryStore.close();
+  }
 
   // =========================================================================
   // Editor replacement primitives
@@ -174,27 +179,31 @@ export class DialogManager {
     preloadedMemos?: MemoryMemoSummary[],
     preloadedTotal?: number,
   ): void {
-    const store = new MemoryMemoStore(getDataDir());
-
     const hasData = preloadedMemos !== undefined;
     const memos = preloadedMemos ?? [];
     const total = preloadedTotal ?? 0;
 
     if (!hasData) {
-      void store.init().then(async () => {
+      void (async () => {
         try {
-          const result = await store.list({ limit: 50 });
+          await this.memoryStore.init();
+          const result = await this.memoryStore.list({ limit: 50 });
           if (this.host.state.activeDialog === 'memory-picker') {
             this.showMemoryPicker(result.memos, result.total);
           }
-        } catch { /* ignore */ }
-      });
+        } catch {
+          if (this.host.state.activeDialog === 'memory-picker') {
+            this.showMemoryPicker([], 0);
+            this.host.showError('加载记忆失败。');
+          }
+        }
+      })();
     }
 
     this.host.state.activeDialog = 'memory-picker';
     this.mountEditorReplacement(
       new MemoryPickerComponent({
-        store,
+        store: this.memoryStore,
         memos,
         total,
         loading: !hasData,

@@ -362,6 +362,7 @@ export class LmcodeTUI implements TranscriptControllerHost, LifecycleControllerH
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
+    await this.dialogManager.dispose();
     await this.closeSession();
     await this.harness.close();
     this.sessionEventHandler.stopAllMcpServerStatusSpinners();
