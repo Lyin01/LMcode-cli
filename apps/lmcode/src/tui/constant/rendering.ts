@@ -16,6 +16,15 @@ export const COMMAND_PREVIEW_LINES = 10;
 // result from hanging the renderer.
 export const MAX_SHELL_OUTPUT_BYTES = 128 * 1024;
 
+// Myers diff is output-sensitive, but completely unrelated files can still
+// have a very large edit distance. Cap the search before falling back to a
+// linear delete/add projection so rendering remains responsive.
+export const MAX_DIFF_EDIT_DISTANCE = 2_000;
+
+// Update subprocess errors can contain entire package-manager traces. Keep the
+// transcript useful without letting one failure dominate terminal rendering.
+export const UPDATE_ERROR_PREVIEW_LENGTH = 1_000;
+
 // Animation frames are shared by update loaders and live thinking.
 export const BRAILLE_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 export const BRAILLE_SPINNER_INTERVAL_MS = 80;

@@ -3,8 +3,7 @@
  *
  * 查看已安装的 MCP 服务器状态，一键安装推荐服务器。 */
 
-import { writeFile, readFile, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import * as path from 'node:path';
 
 import {
   Container,
@@ -14,11 +13,22 @@ import {
   visibleWidth,
   type Focusable,
 } from '@earendil-works/pi-tui';
+import type { McpServerInfo, Session } from '@lmcode-cli/lmcode-sdk';
 import chalk from 'chalk';
 
 import { getDataDir } from '#/utils/paths';
 import type { ColorPalette } from '#/tui/theme/colors';
+import {
+  McpConfigFileError,
+  type EffectiveMcpServerConfig,
+  type RemoveEffectiveMcpServerResult,
+  loadEffectiveMcpServers,
+  removeEffectiveMcpServer,
+  upsertUserMcpServer,
+} from '#/tui/utils/mcp-config';
 import { printableChar } from '#/tui/utils/printable-key';
+import { replaceTabs } from '#/tui/utils/render-text';
+import { MCP_RECOMMENDED_STARTUP_TIMEOUT_MS } from '../constant/lmcode-tui';
 import { SELECT_POINTER } from '../constant/symbols';
 import type { SlashCommandHost } from './dispatch';
 
@@ -86,18 +96,40 @@ interface McpRow {
   error?: string;
   description?: string;
   alreadyInstalled?: boolean;
+  source?: McpRowSource;
+}
+
+interface ConfigMcpRowSource {
+  readonly kind: 'config';
+  readonly effective: EffectiveMcpServerConfig;
+}
+
+interface PluginMcpRowSource {
+  readonly kind: 'plugin';
+  readonly pluginId: string;
+  readonly serverName: string;
+}
+
+type McpRowSource = ConfigMcpRowSource | PluginMcpRowSource;
+
+interface McpServerView {
+  readonly name: string;
+  readonly status: string;
+  readonly toolCount: number;
+  readonly error?: string;
+  readonly source?: McpRowSource;
 }
 
 async function openMcpPanel(host: SlashCommandHost): Promise<void> {
   const servers = await loadServers(host);
-  const rows = buildRows(servers);
+  const rows = buildRows(servers, host.session?.workDir ?? host.state.appState.workDir);
   const connectedCount = servers.filter((s) => s.status === 'connected').length;
 
   let picker: McpPickerComponent;
 
   const refreshPanel = async () => {
     const s = await loadServers(host);
-    const r = buildRows(s);
+    const r = buildRows(s, host.session?.workDir ?? host.state.appState.workDir);
     const cc = s.filter((x) => x.status === 'connected').length;
     picker.refresh(r, `MCP 管理（${cc}/${s.length} 已连接）`);
     host.mountEditorReplacement(picker);
@@ -133,46 +165,120 @@ async function openMcpPanel(host: SlashCommandHost): Promise<void> {
 
 async function loadServers(
   host: SlashCommandHost,
-): Promise<readonly { name: string; status: string; toolCount: number; error?: string }[]> {
-  if (!host.session) return [];
+): Promise<readonly McpServerView[]> {
+  const session = host.session;
+  if (!session) return [];
+  let servers: readonly McpServerInfo[];
   try {
-    return await host.session.listMcpServers();
+    servers = await session.listMcpServers();
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = sanitizeDesc(error instanceof Error ? error.message : String(error));
     host.showError(`加载 MCP 服务器失败：${msg}`);
     return [];
   }
+
+  const sources = new Map<string, McpRowSource>();
+  try {
+    const effective = await loadEffectiveMcpServers({
+      dataDir: getDataDir(),
+      workDir: session.workDir,
+    });
+    for (const [name, config] of effective) {
+      sources.set(name, { kind: 'config', effective: config });
+    }
+  } catch (error) {
+    host.showError(`读取 MCP 配置来源失败：${formatMcpConfigError(error, session.workDir)}`);
+  }
+
+  const pluginSources = await loadPluginMcpSources(host, session);
+  for (const [name, source] of pluginSources) {
+    sources.set(name, source);
+  }
+  return servers.map((server) => ({
+    ...server,
+    source: sources.get(server.name),
+  }));
+}
+
+async function loadPluginMcpSources(
+  host: SlashCommandHost,
+  session: Session,
+): Promise<ReadonlyMap<string, PluginMcpRowSource>> {
+  const sources = new Map<string, PluginMcpRowSource>();
+  try {
+    const plugins = await session.listPlugins();
+    const infos = await Promise.all(
+      plugins
+        .filter((plugin) => plugin.mcpServerCount > 0)
+        .map((plugin) => session.getPluginInfo(plugin.id)),
+    );
+    for (const info of infos) {
+      for (const server of info.mcpServers) {
+        if (!server.enabled) continue;
+        sources.set(server.runtimeName, {
+          kind: 'plugin',
+          pluginId: info.id,
+          serverName: server.name,
+        });
+      }
+    }
+  } catch (error) {
+    const msg = sanitizeDesc(error instanceof Error ? error.message : String(error));
+    host.showError(`读取 MCP 插件来源失败：${msg}`);
+  }
+  return sources;
 }
 
 /** Replace newlines so error messages don't break single-line terminal rendering. */
 function sanitizeDesc(s: string): string {
-  return s.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+  return replaceTabs(s).replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function describeMcpSource(source: McpRowSource | undefined, workDir: string): string {
+  if (source === undefined) return '运行时来源';
+  if (source.kind === 'plugin') return `插件 ${source.pluginId}`;
+  if (source.effective.source.scope === 'user') return '用户配置';
+  const relativePath = path.relative(workDir, source.effective.source.filePath);
+  const displayPath = sanitizeDesc(relativePath.replaceAll('\\', '/'));
+  return `项目配置 ${displayPath.length > 0 ? displayPath : '.lmcode/mcp.json'}`;
+}
+
+function formatMcpConfigError(error: unknown, workDir: string): string {
+  if (error instanceof McpConfigFileError) {
+    const relativePath = path.relative(workDir, error.filePath).replaceAll('\\', '/');
+    const displayPath = relativePath.startsWith('..')
+      ? path.resolve(error.filePath) === path.resolve(getDataDir(), 'mcp.json')
+        ? '用户 mcp.json'
+        : relativePath
+      : relativePath;
+    return sanitizeDesc(`${displayPath}: ${error.message}`);
+  }
+  return sanitizeDesc(error instanceof Error ? error.message : String(error));
 }
 
 function buildRows(
-  servers: readonly { name: string; status: string; toolCount: number; error?: string }[],
+  servers: readonly McpServerView[],
+  workDir: string,
 ): McpRow[] {
   const rows: McpRow[] = [];
-  // A server that's installed but in a failed state should still be
-  // retryable — don't mark it "already installed" in recommendations.
-  const installedNames = new Set(
-    servers.filter((s) => s.status !== 'failed').map((s) => s.name),
-  );
+  const installedNames = new Set(servers.map((server) => server.name));
 
   if (servers.length > 0) {
     rows.push({ kind: 'installed', name: '', label: '── 已安装 ──', status: '__section' });
     for (const s of servers) {
       const statusLabel = STATUS_LABELS[s.status] ?? s.status;
       const toolInfo = s.status === 'connected' ? `${s.toolCount} tools` : '';
+      const sourceInfo = describeMcpSource(s.source, workDir);
       const errorInfo = s.error ? ` — ${sanitizeDesc(s.error)}` : '';
       rows.push({
         kind: 'installed',
         name: s.name,
-        label: s.name,
+        label: sanitizeDesc(s.name) || '（未命名）',
         status: s.status,
         toolCount: s.toolCount,
         error: s.error,
-        description: [statusLabel, toolInfo, errorInfo].filter(Boolean).join('  '),
+        description: [statusLabel, toolInfo, sourceInfo, errorInfo].filter(Boolean).join('  '),
+        source: s.source,
       });
     }
   } else {
@@ -231,9 +337,14 @@ async function handleDelete(
   if (row.kind !== 'installed' || !row.status || row.status === '__section' || row.status === '__empty') {
     return;
   }
-  const confirmed = await confirmAction(host, `确认卸载 "${row.label}"？`);
+  if (row.source === undefined) {
+    host.showError(`无法卸载 ${row.label}：该服务器不来自 MCP 配置或插件。`);
+    return;
+  }
+  const source = describeMcpSource(row.source, host.session?.workDir ?? host.state.appState.workDir);
+  const confirmed = await confirmAction(host, `确认从 ${source} 中移除 "${row.label}"？`);
   if (!confirmed) return;
-  await uninstallMcp(host, row.name);
+  await uninstallMcp(host, row);
 }
 
 async function confirmAction(host: SlashCommandHost, title: string): Promise<boolean> {
@@ -272,20 +383,30 @@ async function installMcp(host: SlashCommandHost, rec: McpRecommendation): Promi
 
   spinner.setLabel(`正在配置 ${rec.displayName}...`);
   try {
-    await writeMcpConfig(host, rec.name, rec.command, rec.args);
+    await upsertUserMcpServer(
+      { dataDir: getDataDir(), workDir: session.workDir },
+      rec.name,
+      {
+        transport: 'stdio',
+        command: rec.command,
+        args: rec.args,
+        startupTimeoutMs: MCP_RECOMMENDED_STARTUP_TIMEOUT_MS,
+      },
+    );
     await session.addMcpServer(rec.name, {
       transport: 'stdio',
       command: rec.command,
       args: rec.args,
+      startupTimeoutMs: MCP_RECOMMENDED_STARTUP_TIMEOUT_MS,
     });
     spinner.stop({ ok: true, label: `${rec.displayName} 安装成功并已启动。` });
   } catch (error) {
     spinner.stop({ ok: false, label: `${rec.displayName} 安装失败。` });
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = formatMcpConfigError(error, session.workDir);
     const hint = msg.includes('Timed out') || msg.includes('ETIMEDOUT') || msg.includes('ENOTFOUND')
       ? '网络超时，建议检查网络或开启加速后重试。'
       : '';
-    host.showError(hint ? `安装失败：${msg}\n${hint}` : `安装失败：${msg}`);
+    host.showError(hint ? `安装失败：${msg} ${hint}` : `安装失败：${msg}`);
   }
 }
 
@@ -294,10 +415,10 @@ async function disableMcp(host: SlashCommandHost, name: string): Promise<void> {
   if (!session) return;
   try {
     await session.stopMcpServer(name);
-    host.showStatus(`${name} 已停用。`);
+    host.showStatus(`${sanitizeDesc(name)} 已停用。`);
   } catch (error) {
     host.showError(
-      `停用失败: ${error instanceof Error ? error.message : String(error)}`,
+      `停用失败: ${sanitizeDesc(error instanceof Error ? error.message : String(error))}`,
     );
   }
 }
@@ -307,69 +428,67 @@ async function enableMcp(host: SlashCommandHost, name: string): Promise<void> {
   if (!session) return;
   try {
     await session.reconnectMcpServer(name);
-    host.showStatus(`${name} 已检测到安装，正在启动...`);
+    host.showStatus(`${sanitizeDesc(name)} 已检测到安装，正在启动...`);
   } catch (error) {
     host.showError(
-      `启动失败: ${error instanceof Error ? error.message : String(error)}`,
+      `启动失败: ${sanitizeDesc(error instanceof Error ? error.message : String(error))}`,
     );
   }
 }
 
-async function uninstallMcp(host: SlashCommandHost, name: string): Promise<void> {
+async function uninstallMcp(host: SlashCommandHost, row: McpRow): Promise<void> {
   const session = host.session;
   if (!session) return;
-  try {
-    await session.removeMcpServer(name);
-    await removeMcpConfig(host, name);
-    host.showStatus(`${name} 已卸载。`);
-  } catch (error) {
-    host.showError(
-      `卸载失败: ${error instanceof Error ? error.message : String(error)}`,
-    );
+  const source = row.source;
+  if (source === undefined) return;
+
+  if (source.kind === 'plugin') {
+    try {
+      await session.setPluginMcpServerEnabled(source.pluginId, source.serverName, false);
+      await session.removeMcpServer(row.name);
+      host.showStatus(`${row.label} 已在插件 ${source.pluginId} 中停用。`);
+    } catch (error) {
+      host.showError(
+        `停用失败: ${sanitizeDesc(error instanceof Error ? error.message : String(error))}`,
+      );
+    }
+    return;
   }
-}
 
-// ─── mcp.json 读写 ───────────────────────────────────────────────────
-
-async function writeMcpConfig(
-  host: SlashCommandHost,
-  name: string,
-  command: string,
-  args: string[],
-): Promise<void> {
-  const homeDir = getDataDir();
-  const configPath = join(homeDir, 'mcp.json');
-
-  let data: Record<string, unknown> = {};
+  let result: RemoveEffectiveMcpServerResult;
   try {
-    const text = await readFile(configPath, 'utf-8');
-    data = JSON.parse(text);
-  } catch { /* file doesn't exist yet */ }
+    result = await removeEffectiveMcpServer(
+      { dataDir: getDataDir(), workDir: session.workDir },
+      row.name,
+      {
+        filePath: source.effective.source.filePath,
+        config: source.effective.config,
+      },
+    );
+  } catch (error) {
+    host.showError(`卸载失败: ${formatMcpConfigError(error, session.workDir)}`);
+    return;
+  }
+  if (result.removed === undefined) {
+    host.showError(`卸载失败: ${row.label} 的配置来源已发生变化。`);
+    return;
+  }
 
-  const servers: Record<string, unknown> =
-    (data['mcpServers'] as Record<string, unknown>) ?? {};
-  servers[name] = { transport: 'stdio', command, args, startupTimeoutMs: 300_000 };
-  data['mcpServers'] = servers;
-
-  await mkdir(dirname(configPath), { recursive: true });
-  await writeFile(configPath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-async function removeMcpConfig(host: SlashCommandHost, name: string): Promise<void> {
-  const homeDir = getDataDir();
-  const configPath = join(homeDir, 'mcp.json');
-
-  let data: Record<string, unknown> = {};
   try {
-    const text = await readFile(configPath, 'utf-8');
-    data = JSON.parse(text);
-  } catch { return; }
-
-  const servers = (data['mcpServers'] as Record<string, unknown>) ?? {};
-  delete servers[name];
-  data['mcpServers'] = servers;
-
-  await writeFile(configPath, JSON.stringify(data, null, 2), 'utf-8');
+    if (result.next === undefined) {
+      await session.removeMcpServer(row.name);
+      host.showStatus(`${row.label} 已从 ${describeMcpSource(source, session.workDir)} 中移除。`);
+      return;
+    }
+    await session.addMcpServer(row.name, { ...result.next.config });
+    const nextSource: ConfigMcpRowSource = { kind: 'config', effective: result.next };
+    host.showStatus(
+      `${row.label} 的覆盖已移除，现使用${describeMcpSource(nextSource, session.workDir)}。`,
+    );
+  } catch (error) {
+    const message = sanitizeDesc(error instanceof Error ? error.message : String(error));
+    host.showError(`配置已更新，但刷新 ${row.label} 运行时失败: ${message}`);
+  }
 }
 
 // ─── 自定义选择组件 ──────────────────────────────────────────────────

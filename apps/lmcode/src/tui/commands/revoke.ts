@@ -1,18 +1,9 @@
-import type { Component } from '@earendil-works/pi-tui';
+import type { ContextMessage } from '@lmcode-cli/lmcode-sdk';
 
-import { WelcomeComponent } from '../components/chrome/welcome';
-import { AgentGroupComponent } from '../components/messages/agent-group';
-import { AssistantMessageComponent } from '../components/messages/assistant-message';
-import { BackgroundAgentStatusComponent } from '../components/messages/background-agent-status';
-import { ReadGroupComponent } from '../components/messages/read-group';
-import { SkillActivationComponent } from '../components/messages/skill-activation';
-import { ThinkingComponent } from '../components/messages/thinking';
-import { ToolCallComponent } from '../components/messages/tool-call';
-import { UserMessageComponent } from '../components/messages/user-message';
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/lmcode-tui';
 import type { TranscriptEntry } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
-import { getTranscriptComponentEntry } from '../utils/transcript-component-metadata';
+import { replaceTabs } from '../utils/render-text';
 import type { SlashCommandHost } from './dispatch';
 
 // ── Revoke command ────────────────────────────────────────────────────────
@@ -38,40 +29,49 @@ export async function handleRevokeCommand(
     return;
   }
 
+  let availableCount: number;
+  try {
+    const context = await session.getContext();
+    availableCount = countUndoableUserPrompts(context.history);
+  } catch (error) {
+    const message = replaceTabs(formatErrorMessage(error));
+    host.showError(`撤回失败：${message}`);
+    return;
+  }
+  if (availableCount === 0) {
+    host.showError('没有可以撤回的内容。');
+    return;
+  }
+  const undoCount = Math.min(count, availableCount);
+
   const entries = host.state.transcriptEntries;
-  const lastUserIndex = findRevokeAnchorEntryIndex(entries, count);
+  const lastUserIndex = findRevokeAnchorEntryIndex(entries, undoCount);
   if (lastUserIndex === undefined) {
     host.showError('没有可以撤回的内容。');
     return;
   }
 
   try {
-    await session.undoHistory(count);
+    await session.undoHistory(undoCount);
   } catch (error) {
-    const message = formatErrorMessage(error);
+    const message = replaceTabs(formatErrorMessage(error));
     host.showError(`撤回失败：${message}`);
     return;
-  }
-
-  const children = host.state.transcriptContainer.children;
-  const lastUserComponentIndex = findRevokeAnchorComponentIndex(children, count);
-  if (lastUserComponentIndex !== undefined) {
-    removeRevokeContextComponents(children, lastUserComponentIndex);
-    host.state.transcriptContainer.invalidate();
   }
 
   const preservedEntries = entries.slice(lastUserIndex).filter(
     (entry) => !isRevokeContextEntry(entry),
   );
-  entries.splice(lastUserIndex, entries.length - lastUserIndex, ...preservedEntries);
+  const remainingEntries = [
+    ...entries.slice(0, lastUserIndex),
+    ...preservedEntries,
+  ];
+  host.transcriptController.replaceEntriesAndRebuild(remainingEntries);
 
-  if (entries.length === 0) {
-    renderWelcome(host);
+  if (remainingEntries.length === 0 && availableCount === undoCount) {
+    host.transcriptController.renderWelcome();
   }
-
-  host.state.ui.requestRender();
 }
-
 // ── Parsing ─────────────────────────────────────────────────────────────
 
 function parseRevokeCount(args: string): number | undefined {
@@ -85,10 +85,32 @@ function parseRevokeCount(args: string): number | undefined {
 // ── Transcript entry helpers ─────────────────────────────────────────────
 
 function isRevokeAnchorEntry(entry: TranscriptEntry): boolean {
-  // User messages and user-triggered skill activations are turn boundaries.
-  // LMcode doesn't distinguish trigger types on TranscriptEntry, but all
-  // skill_activation transcript entries originate from user slash commands.
-  return entry.kind === 'user' || entry.kind === 'skill_activation';
+  return (
+    entry.kind === 'user' ||
+    (entry.kind === 'skill_activation' &&
+      (entry.skillTrigger === undefined || entry.skillTrigger === 'user-slash'))
+  );
+}
+
+function countUndoableUserPrompts(history: readonly ContextMessage[]): number {
+  let count = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const message = history[i];
+    if (message === undefined) continue;
+    if (message.origin?.kind === 'compaction_summary') break;
+    if (message.role !== 'user') continue;
+    if (message.origin === undefined || message.origin.kind === 'user') {
+      count++;
+      continue;
+    }
+    if (
+      message.origin.kind === 'skill_activation' &&
+      message.origin.trigger === 'user-slash'
+    ) {
+      count++;
+    }
+  }
+  return count;
 }
 
 function findRevokeAnchorEntryIndex(
@@ -120,76 +142,4 @@ function isRevokeContextEntry(entry: TranscriptEntry): boolean {
     case 'cron':
       return false;
   }
-}
-
-// ── UI component helpers ─────────────────────────────────────────────────
-
-function findRevokeAnchorComponentIndex(
-  children: readonly Component[],
-  count: number,
-): number | undefined {
-  let found = 0;
-  for (let i = children.length - 1; i >= 0; i--) {
-    const child = children[i];
-    if (child !== undefined && isRevokeAnchorComponent(child)) {
-      found++;
-      if (found === count) return i;
-    }
-  }
-  return undefined;
-}
-
-function removeRevokeContextComponents(
-  children: Component[],
-  startIndex: number,
-): void {
-  for (let i = children.length - 1; i >= startIndex; i--) {
-    const child = children[i];
-    if (child !== undefined && isRevokeContextComponent(child)) {
-      children.splice(i, 1);
-    }
-  }
-}
-
-function isRevokeAnchorComponent(child: Component): boolean {
-  // Use the transcript entry metadata path first — it covers both
-  // UserMessageComponent and SkillActivationComponent reliably.
-  const entry = getTranscriptComponentEntry(child);
-  if (entry !== undefined) {
-    return isRevokeAnchorEntry(entry);
-  }
-  // Fallback: SkillActivationComponent without entry metadata is still
-  // an anchor (it was triggered by the user typing /skillname).
-  return child instanceof UserMessageComponent || child instanceof SkillActivationComponent;
-}
-
-function isRevokeContextComponent(child: Component): boolean {
-  const entry = getTranscriptComponentEntry(child);
-  if (entry !== undefined) {
-    return isRevokeContextEntry(entry);
-  }
-
-  return (
-    child instanceof UserMessageComponent ||
-    child instanceof AssistantMessageComponent ||
-    child instanceof ThinkingComponent ||
-    child instanceof ToolCallComponent ||
-    child instanceof AgentGroupComponent ||
-    child instanceof ReadGroupComponent ||
-    child instanceof SkillActivationComponent ||
-    child instanceof BackgroundAgentStatusComponent
-  );
-}
-
-function renderWelcome(host: SlashCommandHost): void {
-  if (
-    host.state.transcriptContainer.children.some(
-      (child) => child instanceof WelcomeComponent,
-    )
-  ) {
-    return;
-  }
-  host.state.transcriptContainer.addChild(
-    new WelcomeComponent(host.state.appState, host.state.theme.colors, host.state.ui),
-  );
 }

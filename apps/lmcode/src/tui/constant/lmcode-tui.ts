@@ -8,6 +8,9 @@ export const CTRL_D_HINT = '再次按 Ctrl+D 退出';
 export const CTRL_C_HINT = '再次按 Ctrl+C 退出';
 export const MAIN_AGENT_ID = 'main';
 export const EXIT_CONFIRM_WINDOW_MS = 1500;
+export const MCP_CONFIG_FILE_NAME = 'mcp.json';
+export const MCP_CONFIG_MAX_PARENT_WALK = 20;
+export const MCP_RECOMMENDED_STARTUP_TIMEOUT_MS = 300_000;
 
 export function isManagedUsageProvider(
   providerKey: string | undefined,

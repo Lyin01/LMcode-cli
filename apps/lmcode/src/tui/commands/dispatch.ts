@@ -17,6 +17,7 @@ import type { BuiltinSlashCommandName } from './registry';
 import type { AuthFlowController } from '../controllers/auth-flow';
 import type { StreamingUIController } from '../controllers/streaming-ui';
 import type { TasksBrowserController } from '../controllers/tasks-browser';
+import type { TranscriptController } from '../controllers/transcript-controller';
 import type { AppState, LoginProgressSpinnerHandle, QueuedMessage } from '../types';
 import type { TUIState } from '../tui-state';
 
@@ -143,6 +144,7 @@ export interface SlashCommandHost {
 
   // Controller refs
   readonly streamingUI: StreamingUIController;
+  readonly transcriptController: TranscriptController;
   readonly tasksBrowserController: TasksBrowserController;
   readonly authFlow: AuthFlowController;
 }

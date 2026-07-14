@@ -6,8 +6,12 @@
  */
 
 import chalk from 'chalk';
+import { diffArrays, type ArrayChange } from 'diff';
 
+import { MAX_DIFF_EDIT_DISTANCE } from '#/tui/constant/rendering';
 import type { ColorPalette } from '#/tui/theme/colors';
+import { aliasHome } from '#/tui/utils/path-display';
+import { replaceTabs } from '#/tui/utils/render-text';
 
 export type DiffLineKind = 'context' | 'add' | 'delete';
 
@@ -37,6 +41,65 @@ export interface DiffLine {
   code: string;
 }
 
+function splitDiffLines(text: string): string[] {
+  if (text.length === 0) return [];
+  return text.split('\n').map((line) => line.replace(/\r$/, ''));
+}
+
+function projectChanges(
+  changes: readonly ArrayChange<string>[],
+  oldStart: number,
+  newStart: number,
+): DiffLine[] {
+  const result: DiffLine[] = [];
+  let oldLineNum = oldStart;
+  let newLineNum = newStart;
+
+  for (const change of changes) {
+    if (change.added) {
+      for (const code of change.value) {
+        result.push({ kind: 'add', lineNum: newLineNum, code });
+        newLineNum++;
+      }
+      continue;
+    }
+    if (change.removed) {
+      for (const code of change.value) {
+        result.push({ kind: 'delete', lineNum: oldLineNum, code });
+        oldLineNum++;
+      }
+      continue;
+    }
+    for (const code of change.value) {
+      result.push({ kind: 'context', lineNum: newLineNum, code });
+      oldLineNum++;
+      newLineNum++;
+    }
+  }
+
+  return result;
+}
+
+function projectReplacement(
+  oldLines: readonly string[],
+  newLines: readonly string[],
+  oldStart: number,
+  newStart: number,
+): DiffLine[] {
+  return [
+    ...oldLines.map((code, index) => ({
+      kind: 'delete' as const,
+      lineNum: oldStart + index,
+      code,
+    })),
+    ...newLines.map((code, index) => ({
+      kind: 'add' as const,
+      lineNum: newStart + index,
+      code,
+    })),
+  ];
+}
+
 export function computeDiffLines(
   oldText: string,
   newText: string,
@@ -44,45 +107,15 @@ export function computeDiffLines(
   newStart: number = 1,
   isIncomplete: boolean = false,
 ): DiffLine[] {
-  const oldLines = oldText ? oldText.split('\n') : [];
-  const newLines = newText ? newText.split('\n') : [];
-  const m = oldLines.length;
-  const n = newLines.length;
-
-  const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    Array.from({ length: n + 1 }, () => 0),
-  );
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i]![j] = dp[i - 1]![j - 1]! + 1;
-      } else {
-        dp[i]![j] = Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!);
-      }
-    }
-  }
-
-  const reversed: DiffLine[] = [];
-  let i = m;
-  let j = n;
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-      reversed.push({ kind: 'context', lineNum: newStart + j - 1, code: newLines[j - 1]! });
-      i--;
-      j--;
-    } else if (j > 0 && (i === 0 || dp[i]![j - 1]! >= dp[i - 1]![j]!)) {
-      reversed.push({ kind: 'add', lineNum: newStart + j - 1, code: newLines[j - 1]! });
-      j--;
-    } else {
-      reversed.push({ kind: 'delete', lineNum: oldStart + i - 1, code: oldLines[i - 1]! });
-      i--;
-    }
-  }
-
-  const result: DiffLine[] = [];
-  for (let k = reversed.length - 1; k >= 0; k--) {
-    result.push(reversed[k]!);
-  }
+  const oldLines = splitDiffLines(oldText);
+  const newLines = splitDiffLines(newText);
+  const changes = diffArrays(oldLines, newLines, {
+    maxEditLength: MAX_DIFF_EDIT_DISTANCE,
+  });
+  const result =
+    changes === undefined
+      ? projectReplacement(oldLines, newLines, oldStart, newStart)
+      : projectChanges(changes, oldStart, newStart);
 
   // While the text is still streaming, suppress trailing delete lines.
   // They are likely artefacts of newText not having arrived yet rather
@@ -125,7 +158,7 @@ export function renderDiffLines(
   let header = '';
   if (added > 0) header += s.addBold(`+${String(added)} `);
   if (removed > 0) header += s.delBold(`-${String(removed)} `);
-  header += path;
+  header += aliasHome(replaceTabs(path)).replace(/\r?\n/g, ' ');
   output.push(header);
 
   const shown =
@@ -136,7 +169,10 @@ export function renderDiffLines(
   for (const line of shown) {
     const marker = line.kind === 'add' ? '+' : '-';
     const color = line.kind === 'add' ? s.add : s.del;
-    output.push(s.gutter(String(line.lineNum).padStart(4) + ' ') + color(marker + ' ' + line.code));
+    output.push(
+      s.gutter(String(line.lineNum).padStart(4) + ' ') +
+        color(marker + ' ' + replaceTabs(line.code)),
+    );
   }
 
   const hidden = changedLines.length - shown.length;
@@ -216,9 +252,10 @@ function buildClusters(
 
 function formatDiffRow(line: DiffLine, s: DiffStyles): string {
   const gutter = s.gutter(String(line.lineNum).padStart(4) + ' ');
-  if (line.kind === 'add') return gutter + s.add('+ ' + line.code);
-  if (line.kind === 'delete') return gutter + s.del('- ' + line.code);
-  return gutter + '  ' + line.code;
+  const code = replaceTabs(line.code);
+  if (line.kind === 'add') return gutter + s.add('+ ' + code);
+  if (line.kind === 'delete') return gutter + s.del('- ' + code);
+  return gutter + '  ' + code;
 }
 
 /**
@@ -250,7 +287,7 @@ export function renderDiffLinesClustered(
   let header = '';
   if (addedCount > 0) header += s.addBold(`+${String(addedCount)} `);
   if (removedCount > 0) header += s.delBold(`-${String(removedCount)} `);
-  header += path;
+  header += aliasHome(replaceTabs(path)).replace(/\r?\n/g, ' ');
   output.push(header);
 
   if (clusters.length === 0) return output;

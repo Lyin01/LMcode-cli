@@ -42,6 +42,39 @@ describe('computeDiffLines', () => {
     const kinds = lines.map((l) => l.kind);
     expect(kinds).toEqual(['context', 'delete', 'context']);
   });
+
+  it('keeps line numbers aligned for hunks with non-default starts', () => {
+    const lines = computeDiffLines('A\nB\nC', 'A\nX\nC', 20, 40);
+    expect(lines).toEqual([
+      { kind: 'context', lineNum: 40, code: 'A' },
+      { kind: 'delete', lineNum: 21, code: 'B' },
+      { kind: 'add', lineNum: 41, code: 'X' },
+      { kind: 'context', lineNum: 42, code: 'C' },
+    ]);
+  });
+
+  it('normalizes CRLF line endings before diffing', () => {
+    const lines = computeDiffLines('A\r\nB\r\nC', 'A\r\nX\r\nC');
+    expect(lines).toEqual([
+      { kind: 'context', lineNum: 1, code: 'A' },
+      { kind: 'delete', lineNum: 2, code: 'B' },
+      { kind: 'add', lineNum: 2, code: 'X' },
+      { kind: 'context', lineNum: 3, code: 'C' },
+    ]);
+  });
+
+  it('renders a large full replacement without allocating a line-count product matrix', () => {
+    const oldText = Array.from({ length: 5_000 }, (_, index) => `old-${String(index)}`).join('\n');
+    const newText = Array.from({ length: 5_000 }, (_, index) => `new-${String(index)}`).join('\n');
+
+    const lines = computeDiffLines(oldText, newText);
+
+    expect(lines).toHaveLength(10_000);
+    expect(lines[0]).toEqual({ kind: 'delete', lineNum: 1, code: 'old-0' });
+    expect(lines[4_999]).toEqual({ kind: 'delete', lineNum: 5_000, code: 'old-4999' });
+    expect(lines[5_000]).toEqual({ kind: 'add', lineNum: 1, code: 'new-0' });
+    expect(lines[9_999]).toEqual({ kind: 'add', lineNum: 5_000, code: 'new-4999' });
+  });
 });
 
 describe('renderDiffLines', () => {
@@ -65,6 +98,19 @@ describe('renderDiffLines', () => {
     expect(text).toContain('C');
     expect(text).toContain('D');
   });
+
+  it('replaces tabs before rendering diff content', () => {
+    const output = renderDiffLines('old\tvalue', 'new\tvalue', 'test.ts', COLORS);
+    const text = stripAnsi(output.join('\n'));
+    expect(text).not.toContain('\t');
+    expect(text).toContain('old    value');
+    expect(text).toContain('new    value');
+  });
+
+  it('does not emit carriage returns for CRLF content', () => {
+    const output = renderDiffLines('old\r\nkeep', 'new\r\nkeep', 'test.ts', COLORS);
+    expect(output.join('\n')).not.toContain('\r');
+  });
 });
 
 describe('renderDiffLinesClustered', () => {
@@ -80,6 +126,17 @@ describe('renderDiffLinesClustered', () => {
     const out = renderDiffLinesClustered('A\nB', 'A\nB', 'foo.ts', COLORS);
     expect(out).toHaveLength(1);
     expect(stripAnsi(out[0]!)).toContain('foo.ts');
+  });
+
+  it('does not emit carriage returns for clustered CRLF content', () => {
+    const output = renderDiffLinesClustered(
+      'before\r\nold\r\nafter',
+      'before\r\nnew\r\nafter',
+      'foo.ts',
+      COLORS,
+      { contextLines: 1 },
+    );
+    expect(output.join('\n')).not.toContain('\r');
   });
 
   it('shows context lines around a single change cluster', () => {

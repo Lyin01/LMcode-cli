@@ -27,6 +27,7 @@ import type { TUIState } from '../tui-state';
 import { ImageAttachmentStore, type ImageAttachment } from '../utils/image-attachment-store';
 import { nextTranscriptId } from '../utils/transcript-id';
 import { isExpandable, isPlanExpandable } from '../utils/component-capabilities';
+import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import { CommittedTranscriptComponent } from '../components/transcript/committed-transcript';
 import { ReadGroupComponent, parseReadGroupOutput } from '../components/messages/read-group';
 
@@ -58,6 +59,7 @@ export class TranscriptController {
 
   registerLiveComponent(component: Component, entry: TranscriptEntry): void {
     this.liveComponentToEntry.set(component, entry);
+    markTranscriptComponent(component, entry);
   }
 
   markPending(component: Component): void {
@@ -216,9 +218,48 @@ export class TranscriptController {
     const component = this.createComponent(entry);
     if (component) {
       this.liveComponentToEntry.set(component, entry);
+      markTranscriptComponent(component, entry);
       this.host.state.transcriptContainer.addChild(component);
       this.host.state.ui.requestRender();
     }
+  }
+
+  /** Replace transcript history and rebuild both committed and live views. */
+  replaceEntriesAndRebuild(entries: readonly TranscriptEntry[]): void {
+    const { state } = this.host;
+    const nextEntries = [...entries];
+
+    this.welcomeComponent?.stopBreathing();
+    this.welcomeComponent = undefined;
+    this.committedComponent = undefined;
+    this.liveComponentToEntry.clear();
+    this.pendingComponents.clear();
+    for (const child of state.transcriptContainer.children) {
+      const disposable = child as Component & { dispose?: () => void };
+      disposable.dispose?.();
+    }
+    state.transcriptContainer.clear();
+    this.clearTerminalInlineImages();
+
+    state.transcriptEntries.length = 0;
+    for (const entry of nextEntries) {
+      state.transcriptEntries.push(entry);
+      const component = this.createComponent(entry);
+      if (component === null) continue;
+      this.registerLiveComponent(component, entry);
+      state.transcriptContainer.addChild(component);
+    }
+
+    let previousCount = -1;
+    while (
+      state.transcriptContainer.children.length > TranscriptController.LIVE_LIMIT &&
+      state.transcriptContainer.children.length !== previousCount
+    ) {
+      previousCount = state.transcriptContainer.children.length;
+      this.commit();
+    }
+    state.transcriptContainer.invalidate();
+    state.ui.requestRender();
   }
 
   appendApprovalEntry(request: ApprovalRequest, response: ApprovalResponse): void {
