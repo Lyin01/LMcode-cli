@@ -7,6 +7,10 @@ import {
 } from '#/errors';
 import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import {
+  FinishReason as GoogleFinishReason,
+  type UsageMetadata as GoogleUsageMetadata,
+} from '@google/genai';
+import {
   convertGoogleGenAIError,
   GoogleGenAIChatProvider,
   GoogleGenAIStreamedMessage,
@@ -26,9 +30,23 @@ function makeGenerateContentResponse() {
     usageMetadata: {
       promptTokenCount: 10,
       candidatesTokenCount: 5,
-      totalTokenCount: 15,
+      cachedContentTokenCount: 2,
+      toolUsePromptTokenCount: 3,
+      thoughtsTokenCount: 4,
+      totalTokenCount: 22,
     },
     modelVersion: 'gemini-2.5-flash',
+  };
+}
+
+function makeCurrentSdkUsageMetadata(): GoogleUsageMetadata {
+  return {
+    promptTokenCount: 20,
+    responseTokenCount: 10,
+    cachedContentTokenCount: 5,
+    toolUsePromptTokenCount: 3,
+    thoughtsTokenCount: 4,
+    totalTokenCount: 37,
   };
 }
 
@@ -127,7 +145,7 @@ describe('GoogleGenAIChatProvider', () => {
 
       expect(body['contents']).toEqual([{ parts: [{ text: 'Hello!' }], role: 'user' }]);
       const config = body['config'] as Record<string, unknown>;
-      expect(config['system_instruction']).toBe('You are helpful.');
+      expect(config['systemInstruction']).toBe('You are helpful.');
     });
 
     it('system messages in history are wrapped and emitted as user content', () => {
@@ -211,7 +229,7 @@ describe('GoogleGenAIChatProvider', () => {
       ]);
     });
 
-    it('multi-turn conversation with system prompt sets system_instruction', async () => {
+    it('multi-turn conversation with system prompt sets systemInstruction', async () => {
       const provider = createProvider();
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'What is 2+2?' }], toolCalls: [] },
@@ -227,10 +245,10 @@ describe('GoogleGenAIChatProvider', () => {
       ]);
 
       const config = body['config'] as Record<string, unknown>;
-      expect(config['system_instruction']).toBe('You are a math tutor.');
+      expect(config['systemInstruction']).toBe('You are a math tutor.');
     });
 
-    it('tool definitions use parameters_json_schema', async () => {
+    it('tool definitions use parametersJsonSchema', async () => {
       const provider = createProvider();
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] },
@@ -240,11 +258,11 @@ describe('GoogleGenAIChatProvider', () => {
       const config = body['config'] as Record<string, unknown>;
       expect(config['tools']).toEqual([
         {
-          function_declarations: [
+          functionDeclarations: [
             {
               name: 'add',
               description: 'Add two integers.',
-              parameters_json_schema: {
+              parametersJsonSchema: {
                 type: 'object',
                 properties: {
                   a: { type: 'integer', description: 'First number' },
@@ -256,11 +274,11 @@ describe('GoogleGenAIChatProvider', () => {
           ],
         },
         {
-          function_declarations: [
+          functionDeclarations: [
             {
               name: 'multiply',
               description: 'Multiply two integers.',
-              parameters_json_schema: {
+              parametersJsonSchema: {
                 type: 'object',
                 properties: {
                   a: { type: 'integer', description: 'First number' },
@@ -302,14 +320,14 @@ describe('GoogleGenAIChatProvider', () => {
         {
           parts: [
             { text: "I'll add those numbers for you." },
-            { function_call: { name: 'add', args: { a: 2, b: 3 } } },
+            { functionCall: { name: 'add', args: { a: 2, b: 3 } } },
           ],
           role: 'model',
         },
         {
           parts: [
             {
-              function_response: {
+              functionResponse: {
                 name: 'add',
                 response: { output: '5' },
                 parts: [],
@@ -321,11 +339,11 @@ describe('GoogleGenAIChatProvider', () => {
       ]);
     });
 
-    it('tool call with thought_signature_b64 emits thoughtSignature on outbound function_call', async () => {
+    it('replays provider call id and thought signature on the outbound functionCall', async () => {
       // Round-trip: a previous turn returned a tool call with thoughtSignature
       // (decoded into ToolCall.extras.thought_signature_b64). When we send
       // the assistant message back, the converter must put the original
-      // signature back into the function_call part so Gemini can resume the
+      // signature back into the functionCall part so Gemini can resume the
       // reasoning chain.
       const provider = createProvider();
       const history: Message[] = [
@@ -338,7 +356,10 @@ describe('GoogleGenAIChatProvider', () => {
               type: 'function',
               id: 'add_call_sig',
               name: 'add', arguments: '{"a": 2, "b": 3}',
-              extras: { thought_signature_b64: 'dGhvdWdodF9zaWduYXR1cmVfZGF0YQ==' },
+              extras: {
+                google_function_call_id: 'provider-call-sig',
+                thought_signature_b64: 'dGhvdWdodF9zaWduYXR1cmVfZGF0YQ==',
+              },
             },
           ],
         },
@@ -348,15 +369,15 @@ describe('GoogleGenAIChatProvider', () => {
       const contents = body['contents'] as Array<{ parts: unknown[]; role: string }>;
       const assistantParts = contents.find((c) => c.role === 'model')!.parts;
       const fnCallPart = assistantParts.find(
-        (p) => (p as Record<string, unknown>)['function_call'] !== undefined,
-      ) as { function_call: Record<string, unknown>; thought_signature?: unknown } | undefined;
+        (p) => (p as Record<string, unknown>)['functionCall'] !== undefined,
+      ) as { functionCall: Record<string, unknown>; thoughtSignature?: unknown } | undefined;
       expect(fnCallPart).toMatchObject({
-        function_call: { name: 'add', args: { a: 2, b: 3 } },
-        thought_signature: 'dGhvdWdodF9zaWduYXR1cmVfZGF0YQ==',
+        functionCall: { id: 'provider-call-sig', name: 'add', args: { a: 2, b: 3 } },
+        thoughtSignature: 'dGhvdWdodF9zaWduYXR1cmVfZGF0YQ==',
       });
     });
 
-    it('tool message with image_url result yields function_response + inline data part', () => {
+    it('embeds an image tool result inside functionResponse.parts', () => {
       const messages: Message[] = [
         {
           role: 'assistant',
@@ -366,6 +387,7 @@ describe('GoogleGenAIChatProvider', () => {
               type: 'function',
               id: 'tc_001',
               name: 'fetch_image', arguments: '{}',
+              extras: { google_function_call_id: 'provider-image-1' },
             },
           ],
         },
@@ -382,34 +404,37 @@ describe('GoogleGenAIChatProvider', () => {
 
       const contents = messagesToGoogleGenAIContents(messages);
 
-      // Should have assistant Content + one user Content with 2 parts
+      // The media remains associated with the function response rather than
+      // becoming an unrelated top-level user part.
       expect(contents).toHaveLength(2);
       const userContent = contents[1] as unknown as {
         role: string;
         parts: Array<Record<string, unknown>>;
       };
       expect(userContent.role).toBe('user');
-      expect(userContent.parts.length).toBeGreaterThanOrEqual(2);
+      expect(userContent.parts).toHaveLength(1);
 
-      const fnResp = userContent.parts.find((p) => 'function_response' in p) as
-        | { function_response: { name: string; response: { output: string } } }
+      const fnResp = userContent.parts.find((p) => 'functionResponse' in p) as
+        | {
+            functionResponse: {
+              id?: string;
+              name: string;
+              response: { output: string };
+              parts: Array<{ inlineData?: { mimeType: string; data: string } }>;
+            };
+          }
         | undefined;
-      expect(fnResp).toMatchObject({
-        function_response: {
+      expect(fnResp).toEqual({
+        functionResponse: {
+          id: 'provider-image-1',
           name: 'fetch_image',
           response: { output: 'Found image:' },
+          parts: [{ inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } }],
         },
-      });
-
-      const inlineData = userContent.parts.find((p) => 'inlineData' in p) as
-        | { inlineData: { mimeType: string; data: string } }
-        | undefined;
-      expect(inlineData).toMatchObject({
-        inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' },
       });
     });
 
-    it('tool message with audio_url and video_url results yields independent parts', () => {
+    it('embeds audio and video tool results inside functionResponse.parts', () => {
       const messages: Message[] = [
         {
           role: 'assistant',
@@ -419,6 +444,7 @@ describe('GoogleGenAIChatProvider', () => {
               type: 'function',
               id: 'tc_002',
               name: 'fetch_media', arguments: '{}',
+              extras: { google_function_call_id: 'provider-media-2' },
             },
           ],
         },
@@ -442,21 +468,30 @@ describe('GoogleGenAIChatProvider', () => {
         parts: Array<Record<string, unknown>>;
       };
       expect(userContent.role).toBe('user');
-      // function_response + audio + video
-      expect(userContent.parts).toHaveLength(3);
+      expect(userContent.parts).toHaveLength(1);
 
-      const fnResp = userContent.parts.find((p) => 'function_response' in p) as
-        | { function_response: { response: { output: string } } }
+      const fnResp = userContent.parts.find((p) => 'functionResponse' in p) as
+        | {
+            functionResponse: {
+              id?: string;
+              response: { output: string };
+              parts: Array<{ fileData?: { fileUri: string; mimeType: string } }>;
+            };
+          }
         | undefined;
       expect(fnResp).toMatchObject({
-        function_response: { response: { output: 'Got audio and video:' } },
+        functionResponse: {
+          id: 'provider-media-2',
+          response: { output: 'Got audio and video:' },
+        },
       });
 
-      const fileDataParts = userContent.parts.filter((p) => 'fileData' in p) as Array<{
-        fileData: { fileUri: string; mimeType: string };
-      }>;
+      const fileDataParts = fnResp?.functionResponse.parts ?? [];
       expect(fileDataParts).toHaveLength(2);
-      const mimeTypes = fileDataParts.map((p) => p.fileData.mimeType).toSorted();
+      const mimeTypes = fileDataParts
+        .map((part) => part.fileData?.mimeType)
+        .filter((mimeType): mimeType is string => mimeType !== undefined)
+        .toSorted();
       expect(mimeTypes).toEqual(['audio/mpeg', 'video/mp4']);
     });
 
@@ -499,11 +534,13 @@ describe('GoogleGenAIChatProvider', () => {
               type: 'function',
               id: 'call_add',
               name: 'add', arguments: '{"a": 2, "b": 3}',
+              extras: { google_function_call_id: 'provider-add' },
             },
             {
               type: 'function',
               id: 'call_mul',
               name: 'multiply', arguments: '{"a": 4, "b": 5}',
+              extras: { google_function_call_id: 'provider-multiply' },
             },
           ],
         },
@@ -535,24 +572,31 @@ describe('GoogleGenAIChatProvider', () => {
       const body = await captureRequestBody(provider, '', [ADD_TOOL, MUL_TOOL], history);
 
       // Snapshot of the expected wire format:
-      // - exactly 3 contents in order (user, model with 2 function_calls, user with 2 function_responses bundled)
+      // - exactly 3 contents in order (user, model with 2 functionCalls, user with 2 functionResponses bundled)
       // - both tool results are N:1 packed into ONE user Content
       // - text parts are concatenated into `response.output` (system-reminder + result)
-      // - functionCall / functionResponse never include an `id` field
+      // - provider function-call ids are replayed on both sides of the exchange
       expect(body['contents']).toEqual([
         { parts: [{ text: 'Calculate 2+3 and 4*5' }], role: 'user' },
         {
           parts: [
             { text: "I'll calculate both." },
-            { function_call: { name: 'add', args: { a: 2, b: 3 } } },
-            { function_call: { name: 'multiply', args: { a: 4, b: 5 } } },
+            { functionCall: { id: 'provider-add', name: 'add', args: { a: 2, b: 3 } } },
+            {
+              functionCall: {
+                id: 'provider-multiply',
+                name: 'multiply',
+                args: { a: 4, b: 5 },
+              },
+            },
           ],
           role: 'model',
         },
         {
           parts: [
             {
-              function_response: {
+              functionResponse: {
+                id: 'provider-add',
                 name: 'add',
                 response: {
                   output: '<system-reminder>This is a system reminder</system-reminder>5',
@@ -561,7 +605,8 @@ describe('GoogleGenAIChatProvider', () => {
               },
             },
             {
-              function_response: {
+              functionResponse: {
+                id: 'provider-multiply',
                 name: 'multiply',
                 response: {
                   output: '<system-reminder>This is a system reminder</system-reminder>20',
@@ -586,15 +631,15 @@ describe('GoogleGenAIChatProvider', () => {
 
       expect(body['contents']).toEqual([{ parts: [{ text: 'Hello!' }], role: 'user' }]);
       const config = body['config'] as Record<string, unknown>;
-      expect(config['system_instruction']).toBe('You are helpful.');
+      expect(config['systemInstruction']).toBe('You are helpful.');
     });
   });
 
   describe('generation kwargs', () => {
-    it('applies temperature and max_output_tokens', async () => {
+    it('applies temperature and maxOutputTokens', async () => {
       const provider = createProvider().withGenerationKwargs({
         temperature: 0.7,
-        max_output_tokens: 2048,
+        maxOutputTokens: 2048,
       });
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
@@ -603,7 +648,7 @@ describe('GoogleGenAIChatProvider', () => {
 
       const config = body['config'] as Record<string, unknown>;
       expect(config['temperature']).toBe(0.7);
-      expect(config['max_output_tokens']).toBe(2048);
+      expect(config['maxOutputTokens']).toBe(2048);
     });
   });
 
@@ -619,7 +664,7 @@ describe('GoogleGenAIChatProvider', () => {
       const contents = messagesToGoogleGenAIContents(history);
       for (const content of contents) {
         for (const part of content.parts) {
-          if (part.function_response) return part.function_response.name;
+          if (part.functionResponse) return part.functionResponse.name;
         }
       }
       return undefined;
@@ -674,46 +719,8 @@ describe('GoogleGenAIChatProvider', () => {
     });
   });
 
-  describe('no id in function_call or function_response', () => {
-    it('does not include id in function_call or function_response parts', () => {
-      const history: Message[] = [
-        { role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] },
-        {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Sure.' }],
-          toolCalls: [
-            {
-              type: 'function',
-              id: 'call_xyz',
-              name: 'add', arguments: '{"a": 2, "b": 3}',
-            },
-          ],
-        },
-        {
-          role: 'tool',
-          content: [{ type: 'text', text: '5' }],
-          toolCallId: 'call_xyz',
-          toolCalls: [],
-        },
-      ];
-
-      const contents = messagesToGoogleGenAIContents(history);
-
-      for (const content of contents) {
-        for (const part of content.parts) {
-          if (part.function_call) {
-            expect(part.function_call).not.toHaveProperty('id');
-          }
-          if (part.function_response) {
-            expect(part.function_response).not.toHaveProperty('id');
-          }
-        }
-      }
-    });
-  });
-
   describe('with thinking', () => {
-    it('non-gemini-3 model uses thinking_budget', async () => {
+    it('non-gemini-3 model uses thinkingBudget', async () => {
       const provider = createProvider({ model: 'gemini-2.5-flash' }).withThinking('high');
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
@@ -721,13 +728,13 @@ describe('GoogleGenAIChatProvider', () => {
       const body = await captureRequestBody(provider, '', [], history);
 
       const config = body['config'] as Record<string, unknown>;
-      expect(config['thinking_config']).toEqual({
-        include_thoughts: true,
-        thinking_budget: 32_000,
+      expect(config['thinkingConfig']).toEqual({
+        includeThoughts: true,
+        thinkingBudget: 32_000,
       });
     });
 
-    it('gemini-3 model uses thinking_level', async () => {
+    it('gemini-3 model uses thinkingLevel', async () => {
       const provider = createProvider({ model: 'gemini-3-pro-preview' }).withThinking('high');
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Think' }], toolCalls: [] },
@@ -735,9 +742,9 @@ describe('GoogleGenAIChatProvider', () => {
       const body = await captureRequestBody(provider, '', [], history);
 
       const config = body['config'] as Record<string, unknown>;
-      expect(config['thinking_config']).toEqual({
-        include_thoughts: true,
-        thinking_level: 'HIGH',
+      expect(config['thinkingConfig']).toEqual({
+        includeThoughts: true,
+        thinkingLevel: 'HIGH',
       });
     });
 
@@ -749,9 +756,9 @@ describe('GoogleGenAIChatProvider', () => {
       const body = await captureRequestBody(provider, '', [], history);
 
       const config = body['config'] as Record<string, unknown>;
-      expect(config['thinking_config']).toEqual({
-        include_thoughts: false,
-        thinking_budget: 0,
+      expect(config['thinkingConfig']).toEqual({
+        includeThoughts: false,
+        thinkingBudget: 0,
       });
     });
 
@@ -765,7 +772,7 @@ describe('GoogleGenAIChatProvider', () => {
         ];
         const body = await captureRequestBody(provider, '', [], history);
         const config = body['config'] as Record<string, unknown>;
-        return config['thinking_config'] as Record<string, unknown> | undefined;
+        return config['thinkingConfig'] as Record<string, unknown> | undefined;
       }
 
       it('off minimizes thinking and hides thoughts (not just default config)', async () => {
@@ -773,32 +780,32 @@ describe('GoogleGenAIChatProvider', () => {
         // Gemini 3 cannot be fully disabled, but we should request the lowest
         // available level (MINIMAL) and suppress thought output.
         expect(thinkingConfig).toEqual({
-          include_thoughts: false,
-          thinking_level: 'MINIMAL',
+          includeThoughts: false,
+          thinkingLevel: 'MINIMAL',
         });
       });
 
       it('low maps to LOW', async () => {
         const thinkingConfig = await captureThinkingConfig('low');
         expect(thinkingConfig).toEqual({
-          include_thoughts: true,
-          thinking_level: 'LOW',
+          includeThoughts: true,
+          thinkingLevel: 'LOW',
         });
       });
 
       it('medium maps to MEDIUM (not HIGH)', async () => {
         const thinkingConfig = await captureThinkingConfig('medium');
         expect(thinkingConfig).toEqual({
-          include_thoughts: true,
-          thinking_level: 'MEDIUM',
+          includeThoughts: true,
+          thinkingLevel: 'MEDIUM',
         });
       });
 
       it('high maps to HIGH', async () => {
         const thinkingConfig = await captureThinkingConfig('high');
         expect(thinkingConfig).toEqual({
-          include_thoughts: true,
-          thinking_level: 'HIGH',
+          includeThoughts: true,
+          thinkingLevel: 'HIGH',
         });
       });
     });
@@ -846,11 +853,52 @@ describe('GoogleGenAIChatProvider', () => {
 
       expect(parts).toEqual([{ type: 'text', text: 'Hello' }]);
       expect(stream.usage).toEqual({
-        inputOther: 10,
-        output: 5,
-        inputCacheRead: 0,
+        inputOther: 11,
+        output: 9,
+        inputCacheRead: 2,
         inputCacheCreation: 0,
       });
+    });
+
+    it('maps the current SDK responseTokenCount usage field', async () => {
+      const msg = new GoogleGenAIStreamedMessage(
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'Hello' }], role: 'model' },
+              finishReason: GoogleFinishReason.STOP,
+            },
+          ],
+          usageMetadata: makeCurrentSdkUsageMetadata(),
+        },
+        false,
+      );
+
+      await collectParts(msg);
+
+      expect(msg.usage).toEqual({
+        inputOther: 18,
+        output: 14,
+        inputCacheRead: 5,
+        inputCacheCreation: 0,
+      });
+    });
+
+    it.each([
+      GoogleFinishReason.IMAGE_PROHIBITED_CONTENT,
+      GoogleFinishReason.IMAGE_RECITATION,
+    ])('maps %s to a filtered finish reason', async (finishReason) => {
+      const msg = new GoogleGenAIStreamedMessage(
+        {
+          candidates: [{ content: { parts: [] }, finishReason }],
+        },
+        false,
+      );
+
+      await collectParts(msg);
+
+      expect(msg.finishReason).toBe('filtered');
+      expect(msg.rawFinishReason).toBe(finishReason);
     });
   });
 
@@ -974,6 +1022,7 @@ describe('GoogleGenAIChatProvider', () => {
           type: 'function',
           id: 'add_call_1',
           name: 'add', arguments: '{"a":2,"b":3}',
+          extras: { google_function_call_id: 'call_1' },
         },
       ]);
     });
@@ -1004,21 +1053,20 @@ describe('GoogleGenAIChatProvider', () => {
           type: 'function',
           id: 'search_fc_1',
           name: 'search', arguments: '{"q":"test"}',
-          extras: { thought_signature_b64: 'sig_abc123' },
+          extras: {
+            google_function_call_id: 'fc_1',
+            thought_signature_b64: 'sig_abc123',
+          },
         },
       ]);
     });
 
-    it('accumulates usage from last chunk', async () => {
+    it('maps the current SDK responseTokenCount field from the last stream chunk', async () => {
       async function* mockStream() {
         yield { candidates: [{ content: { parts: [{ text: 'chunk1' }] } }] };
         yield {
           candidates: [{ content: { parts: [{ text: 'chunk2' }] } }],
-          usageMetadata: {
-            promptTokenCount: 20,
-            candidatesTokenCount: 10,
-            cachedContentTokenCount: 5,
-          },
+          usageMetadata: makeCurrentSdkUsageMetadata(),
         };
       }
 
@@ -1026,8 +1074,8 @@ describe('GoogleGenAIChatProvider', () => {
       await collectParts(msg);
 
       expect(msg.usage).toEqual({
-        inputOther: 15,
-        output: 10,
+        inputOther: 18,
+        output: 14,
         inputCacheRead: 5,
         inputCacheCreation: 0,
       });

@@ -16,10 +16,24 @@ import type {
 } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
+import {
+  ApiError as GoogleApiError,
+  GoogleGenAI as GenAIClient,
+  ThinkingLevel as GoogleThinkingLevel,
+  type Content as GoogleSdkContent,
+  type FunctionResponsePart as GoogleFunctionResponsePart,
+  type GenerateContentConfig as GoogleGenerateContentConfig,
+  type GenerateContentParameters as GoogleGenerateContentParameters,
+  type Part as GooglePart,
+  type ThinkingConfig as GoogleThinkingConfig,
+  type Tool as GoogleTool,
+} from '@google/genai';
 
 import { getGoogleGenAIModelCapability } from './capability-registry';
 import { requireProviderApiKey, resolveAuthBackedClient } from './request-auth';
+
+const GOOGLE_FUNCTION_CALL_ID_EXTRA = 'google_function_call_id';
+const GOOGLE_THOUGHT_SIGNATURE_EXTRA = 'thought_signature_b64';
 
 /**
  * Normalize a Google GenAI (Gemini) `finishReason` value to the unified
@@ -64,6 +78,8 @@ function normalizeGoogleGenAIFinishReason(raw: unknown): {
     case 'PROHIBITED_CONTENT':
     case 'SPII':
     case 'IMAGE_SAFETY':
+    case 'IMAGE_PROHIBITED_CONTENT':
+    case 'IMAGE_RECITATION':
       return { finishReason: 'filtered', rawFinishReason: rawString };
     case 'MALFORMED_FUNCTION_CALL':
     case 'OTHER':
@@ -83,61 +99,44 @@ export interface GoogleGenAIOptions {
   clientFactory?: (auth: ProviderRequestAuth) => GenAIClient;
 }
 
-export interface GoogleGenAIGenerationKwargs {
-  max_output_tokens?: number | undefined;
-  temperature?: number | undefined;
-  top_k?: number | undefined;
-  top_p?: number | undefined;
-  thinking_config?: ThinkingConfig | undefined;
-  [key: string]: unknown;
-}
+export type GoogleGenAIGenerationKwargs = Omit<
+  GoogleGenerateContentConfig,
+  'abortSignal' | 'systemInstruction' | 'tools'
+>;
 
-interface ThinkingConfig {
-  include_thoughts?: boolean;
-  thinking_budget?: number;
-  thinking_level?: string;
-}
-interface GoogleFunctionDeclaration {
-  name: string;
-  description: string;
-  parameters_json_schema: Record<string, unknown>;
-}
-
-interface GoogleTool {
-  function_declarations: GoogleFunctionDeclaration[];
+interface GoogleContent extends GoogleSdkContent {
+  role: 'model' | 'user';
+  parts: GooglePart[];
 }
 
 function toolToGoogleGenAI(tool: Tool): GoogleTool {
   return {
-    function_declarations: [
+    functionDeclarations: [
       {
         name: tool.name,
         description: tool.description,
-        parameters_json_schema: tool.parameters,
+        parametersJsonSchema: tool.parameters,
       },
     ],
   };
 }
-interface GoogleContent {
-  role: string;
-  parts: GooglePart[];
+
+interface GoogleToolCallMetadata {
+  readonly name: string;
+  readonly functionCallId?: string | undefined;
 }
 
-interface GooglePart {
-  text?: string;
-  function_call?: { name: string; args: Record<string, unknown> };
-  function_response?: {
-    name: string;
-    response: Record<string, string>;
-    parts: unknown[];
-  };
-  thought_signature?: string;
-  [key: string]: unknown;
+function providerFunctionCallId(toolCall: ToolCall): string | undefined {
+  const value = toolCall.extras?.[GOOGLE_FUNCTION_CALL_ID_EXTRA];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-function toolCallIdToName(toolCallId: string, toolNameById: Map<string, string>): string {
-  const name = toolNameById.get(toolCallId);
-  if (name !== undefined) return name;
+function toolCallIdToName(
+  toolCallId: string,
+  toolMetadataById: Map<string, GoogleToolCallMetadata>,
+): string {
+  const metadata = toolMetadataById.get(toolCallId);
+  if (metadata !== undefined) return metadata.name;
   // Fallback: ids produced by this provider follow the format
   // "{tool_name}_{id_suffix}" where `tool_name` may itself contain
   // underscores (e.g. `fetch_image`) and `id_suffix` is a single trailing
@@ -222,9 +221,14 @@ function messageToGoogleGenAI(message: Message): GoogleContent {
       'Tool messages must be converted via messagesToGoogleGenAIContents.',
     );
   }
+  if (message.role === 'system') {
+    throw new ChatProviderError(
+      'System messages must be converted via messagesToGoogleGenAIContents.',
+    );
+  }
 
   // GoogleGenAI uses "model" instead of "assistant"
-  const role = message.role === 'assistant' ? 'model' : message.role;
+  const role = message.role === 'assistant' ? 'model' : 'user';
   const parts: GooglePart[] = [];
 
   // Handle content parts
@@ -266,15 +270,17 @@ function messageToGoogleGenAI(message: Message): GoogleContent {
     }
 
     const functionCallPart: GooglePart = {
-      function_call: {
+      functionCall: {
+        id: providerFunctionCallId(toolCall),
         name: toolCall.name,
         args,
       },
     };
 
-    // Restore thought_signature if available
-    if (toolCall.extras && 'thought_signature_b64' in toolCall.extras) {
-      functionCallPart['thought_signature'] = toolCall.extras['thought_signature_b64'] as string;
+    // Restore the SDK thoughtSignature if the normalized tool call retained it.
+    const thoughtSignature = toolCall.extras?.[GOOGLE_THOUGHT_SIGNATURE_EXTRA];
+    if (typeof thoughtSignature === 'string' && thoughtSignature.length > 0) {
+      functionCallPart.thoughtSignature = thoughtSignature;
     }
 
     parts.push(functionCallPart);
@@ -286,15 +292,13 @@ function messageToGoogleGenAI(message: Message): GoogleContent {
 /**
  * Convert a tool message into a list of Google GenAI parts.
  *
- * Returns a `functionResponse` part carrying the text output, followed by
- * independent media parts (`inlineData` / `fileData`) for any image/audio/video
- * content in the tool result. This preserves multimodal tool outputs so the
- * next Gemini/Vertex turn can see them — returning only the text would silently
- * drop media and break tool chains that rely on images or audio.
+ * Returns one `functionResponse` part carrying both the text output and any
+ * image/audio/video response parts. Keeping media inside `functionResponse.parts`
+ * preserves its association with the function call in the Google SDK protocol.
  */
 function toolMessageToFunctionResponseParts(
   message: Message,
-  toolNameById: Map<string, string>,
+  toolMetadataById: Map<string, GoogleToolCallMetadata>,
 ): GooglePart[] {
   if (message.role !== 'tool') {
     throw new ChatProviderError('Expected a tool message.');
@@ -305,7 +309,7 @@ function toolMessageToFunctionResponseParts(
 
   // Separate text output from media parts
   let textOutput = '';
-  const mediaParts: GooglePart[] = [];
+  const mediaParts: GoogleFunctionResponsePart[] = [];
   for (const part of message.content) {
     switch (part.type) {
       case 'text':
@@ -327,19 +331,20 @@ function toolMessageToFunctionResponseParts(
   }
 
   const functionResponsePart: GooglePart = {
-    function_response: {
-      name: toolCallIdToName(message.toolCallId, toolNameById),
+    functionResponse: {
+      id: toolMetadataById.get(message.toolCallId)?.functionCallId,
+      name: toolCallIdToName(message.toolCallId, toolMetadataById),
       response: { output: textOutput },
-      parts: [],
+      parts: mediaParts,
     },
   };
 
-  return [functionResponsePart, ...mediaParts];
+  return [functionResponsePart];
 }
 
 export function messagesToGoogleGenAIContents(messages: Message[]): GoogleContent[] {
   const contents: GoogleContent[] = [];
-  const toolNameById = new Map<string, string>();
+  const toolMetadataById = new Map<string, GoogleToolCallMetadata>();
 
   let i = 0;
   while (i < messages.length) {
@@ -353,7 +358,7 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
       // the content by wrapping it in a `<system>` tag and attaching it as
       // a user turn — mirrors the Anthropic provider's behavior. The
       // dedicated top-level `systemPrompt` still flows into
-      // `system_instruction` separately; only historical system messages
+      // `systemInstruction` separately; only historical system messages
       // come through here.
       const text = message.content
         .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
@@ -373,7 +378,10 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
       contents.push(messageToGoogleGenAI(message));
       const expectedToolCallIds: string[] = [];
       for (const toolCall of message.toolCalls) {
-        toolNameById.set(toolCall.id, toolCall.name);
+        toolMetadataById.set(toolCall.id, {
+          name: toolCall.name,
+          functionCallId: providerFunctionCallId(toolCall),
+        });
         expectedToolCallIds.push(toolCall.id);
       }
 
@@ -420,12 +428,11 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
           );
         }
 
-        // Pack all tool results into a single user Content.
-        // Each tool result may expand to multiple parts (functionResponse +
-        // media parts for image/audio/video outputs).
+        // Pack all tool results into a single user Content. Media outputs stay
+        // nested in each functionResponse so their call association is retained.
         const parts: GooglePart[] = [];
         for (const toolMsg of sortedToolMessages) {
-          parts.push(...toolMessageToFunctionResponseParts(toolMsg, toolNameById));
+          parts.push(...toolMessageToFunctionResponseParts(toolMsg, toolMetadataById));
         }
         contents.push({ role: 'user', parts });
         i = j;
@@ -438,7 +445,7 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
 
     if (message.role === 'tool') {
       // Tool message without preceding assistant message
-      const parts: GooglePart[] = toolMessageToFunctionResponseParts(message, toolNameById);
+      const parts: GooglePart[] = toolMessageToFunctionResponseParts(message, toolMetadataById);
       contents.push({ role: 'user', parts });
       i += 1;
       continue;
@@ -536,17 +543,25 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
           const fc = (p['functionCall'] ?? p['function_call']) as Record<string, unknown>;
           const name = fc['name'] as string;
           if (!name) continue;
-          const id_ = (fc['id'] as string) ?? crypto.randomUUID();
+          const providerCallId = typeof fc['id'] === 'string' && fc['id'].length > 0
+            ? fc['id']
+            : undefined;
+          const id_ = providerCallId ?? crypto.randomUUID();
           const toolCallId = `${name}_${id_}`;
           const thoughtSigB64 = p['thoughtSignature'] ?? p['thought_signature'];
+          const extras: Record<string, unknown> = {};
+          if (providerCallId !== undefined) {
+            extras[GOOGLE_FUNCTION_CALL_ID_EXTRA] = providerCallId;
+          }
+          if (typeof thoughtSigB64 === 'string' && thoughtSigB64.length > 0) {
+            extras[GOOGLE_THOUGHT_SIGNATURE_EXTRA] = thoughtSigB64;
+          }
           parts.push({
             type: 'function',
             id: toolCallId,
             name,
             arguments: fc['args'] ? JSON.stringify(fc['args']) : '{}',
-            ...(thoughtSigB64
-              ? { extras: { thought_signature_b64: thoughtSigB64 as string } }
-              : {}),
+            ...(Object.keys(extras).length > 0 ? { extras } : {}),
           } satisfies ToolCall);
         }
       }
@@ -567,9 +582,24 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
         typeof usageMetadata['cachedContentTokenCount'] === 'number'
           ? usageMetadata['cachedContentTokenCount']
           : 0;
+      const toolUsePromptTokenCount =
+        typeof usageMetadata['toolUsePromptTokenCount'] === 'number'
+          ? usageMetadata['toolUsePromptTokenCount']
+          : 0;
+      const responseTokenCount =
+        typeof usageMetadata['responseTokenCount'] === 'number'
+          ? usageMetadata['responseTokenCount']
+          : typeof usageMetadata['candidatesTokenCount'] === 'number'
+            ? usageMetadata['candidatesTokenCount']
+            : 0;
+      const thoughtsTokenCount =
+        typeof usageMetadata['thoughtsTokenCount'] === 'number'
+          ? usageMetadata['thoughtsTokenCount']
+          : 0;
       this._usage = {
-        inputOther: Math.max(promptTokenCount - cachedContentTokenCount, 0),
-        output: (usageMetadata['candidatesTokenCount'] as number) ?? 0,
+        inputOther:
+          Math.max(promptTokenCount - cachedContentTokenCount, 0) + toolUsePromptTokenCount,
+        output: responseTokenCount + thoughtsTokenCount,
         inputCacheRead: cachedContentTokenCount,
         inputCacheCreation: 0,
       };
@@ -612,9 +642,8 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
   ): AsyncGenerator<StreamedMessagePart> {
     try {
       for await (const chunk of response) {
-        // Check abort at each chunk boundary so users who pass an
-        // AbortSignal see cancellation honored promptly even though the
-        // Google GenAI SDK does not forward it to the underlying fetch.
+        // Check at each chunk boundary as a backstop for custom clients that
+        // do not honor the config abortSignal while an iterator is active.
         this._throwIfAborted(signal);
         this._extractUsage(chunk);
         this._extractId(chunk);
@@ -710,32 +739,32 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    const thinkingConfig = this._generationKwargs.thinking_config;
+    const thinkingConfig = this._generationKwargs.thinkingConfig;
     if (thinkingConfig === undefined) return null;
 
-    // For gemini-3 models that use thinking_level
-    if (thinkingConfig.thinking_level !== undefined) {
-      switch (thinkingConfig.thinking_level) {
-        case 'MINIMAL':
+    // For gemini-3 models that use thinkingLevel
+    if (thinkingConfig.thinkingLevel !== undefined) {
+      switch (thinkingConfig.thinkingLevel) {
+        case GoogleThinkingLevel.MINIMAL:
           // MINIMAL + suppressed thoughts is how 'off' is encoded for Gemini 3,
           // which has no true "disabled" level.
-          return thinkingConfig.include_thoughts === false ? 'off' : 'low';
-        case 'LOW':
+          return thinkingConfig.includeThoughts === false ? 'off' : 'low';
+        case GoogleThinkingLevel.LOW:
           return 'low';
-        case 'MEDIUM':
+        case GoogleThinkingLevel.MEDIUM:
           return 'medium';
-        case 'HIGH':
+        case GoogleThinkingLevel.HIGH:
           return 'high';
         default:
           return null;
       }
     }
 
-    // For other models that use thinking_budget
-    if (thinkingConfig.thinking_budget !== undefined) {
-      if (thinkingConfig.thinking_budget === 0) return 'off';
-      if (thinkingConfig.thinking_budget <= 1024) return 'low';
-      if (thinkingConfig.thinking_budget <= 4096) return 'medium';
+    // For other models that use thinkingBudget
+    if (thinkingConfig.thinkingBudget !== undefined) {
+      if (thinkingConfig.thinkingBudget === 0) return 'off';
+      if (thinkingConfig.thinkingBudget <= 1024) return 'low';
+      if (thinkingConfig.thinkingBudget <= 4096) return 'medium';
       return 'high';
     }
 
@@ -767,28 +796,23 @@ export class GoogleGenAIChatProvider implements ChatProvider {
 
     const contents = messagesToGoogleGenAIContents(history);
 
-    const config: Record<string, unknown> = {
+    const config: GoogleGenerateContentConfig = {
       ...this._generationKwargs,
-      system_instruction: systemPrompt,
+      abortSignal: options?.signal,
+      systemInstruction: systemPrompt,
       ...(tools.length > 0 ? { tools: tools.map((t) => toolToGoogleGenAI(t)) } : {}),
     };
 
     try {
       const client = this._createClient(options?.auth);
-      const models = client.models as unknown as {
-        generateContent(params: Record<string, unknown>): Promise<unknown>;
-        generateContentStream(params: Record<string, unknown>): Promise<AsyncGenerator>;
-      };
+      const params: GoogleGenerateContentParameters = { model: this._model, contents, config };
 
-      const params = { model: this._model, contents, config };
-
-      // The Google GenAI SDK does not accept an AbortSignal, so we must race
-      // the initial SDK request against the caller's abort signal ourselves.
-      // Once we have a response/stream object, the wrapper below continues to
-      // check the signal at each chunk boundary.
+      // Keep the explicit race in addition to the SDK's abortSignal support so
+      // custom client implementations cannot delay cancellation while creating
+      // the response/stream. The wrapper also checks at each chunk boundary.
       if (this._stream) {
         const stream = await Promise.race([
-          models.generateContentStream(params),
+          client.models.generateContentStream(params),
           abortPromise(options?.signal),
         ]);
         return new GoogleGenAIStreamedMessage(
@@ -799,11 +823,11 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       }
 
       const response = await Promise.race([
-        models.generateContent(params),
+        client.models.generateContent(params),
         abortPromise(options?.signal),
       ]);
       return new GoogleGenAIStreamedMessage(
-        response as Record<string, unknown>,
+        response as unknown as Record<string, unknown>,
         false,
         options?.signal,
       );
@@ -833,61 +857,61 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): GoogleGenAIChatProvider {
-    const thinkingConfig: ThinkingConfig = { include_thoughts: true };
+    const thinkingConfig: GoogleThinkingConfig = { includeThoughts: true };
 
     if (this._model.includes('gemini-3')) {
-      // Gemini 3 models use thinking_level (MINIMAL/LOW/MEDIUM/HIGH). The SDK
+      // Gemini 3 models use thinkingLevel (MINIMAL/LOW/MEDIUM/HIGH). The SDK
       // does not expose a "disabled" level, so 'off' maps to MINIMAL with
       // thought output suppressed — the lowest thinking intensity available.
       switch (effort) {
         case 'off':
-          thinkingConfig.thinking_level = 'MINIMAL';
-          thinkingConfig.include_thoughts = false;
+          thinkingConfig.thinkingLevel = GoogleThinkingLevel.MINIMAL;
+          thinkingConfig.includeThoughts = false;
           break;
         case 'low':
-          thinkingConfig.thinking_level = 'LOW';
+          thinkingConfig.thinkingLevel = GoogleThinkingLevel.LOW;
           break;
         case 'medium':
-          thinkingConfig.thinking_level = 'MEDIUM';
+          thinkingConfig.thinkingLevel = GoogleThinkingLevel.MEDIUM;
           break;
         case 'high':
         case 'xhigh':
         case 'max':
-          thinkingConfig.thinking_level = 'HIGH';
+          thinkingConfig.thinkingLevel = GoogleThinkingLevel.HIGH;
           break;
       }
     } else {
       switch (effort) {
         case 'off':
-          thinkingConfig.thinking_budget = 0;
-          thinkingConfig.include_thoughts = false;
+          thinkingConfig.thinkingBudget = 0;
+          thinkingConfig.includeThoughts = false;
           break;
         case 'low':
-          thinkingConfig.thinking_budget = 1024;
-          thinkingConfig.include_thoughts = true;
+          thinkingConfig.thinkingBudget = 1024;
+          thinkingConfig.includeThoughts = true;
           break;
         case 'medium':
-          thinkingConfig.thinking_budget = 4096;
-          thinkingConfig.include_thoughts = true;
+          thinkingConfig.thinkingBudget = 4096;
+          thinkingConfig.includeThoughts = true;
           break;
         case 'high':
         case 'xhigh':
         case 'max':
-          thinkingConfig.thinking_budget = 32_000;
-          thinkingConfig.include_thoughts = true;
+          thinkingConfig.thinkingBudget = 32_000;
+          thinkingConfig.includeThoughts = true;
           break;
       }
     }
 
-    return this.withGenerationKwargs({ thinking_config: thinkingConfig });
+    return this.withGenerationKwargs({ thinkingConfig });
   }
 
   withMaxCompletionTokens(maxCompletionTokens: number): GoogleGenAIChatProvider {
-    const currentMax = this._generationKwargs.max_output_tokens;
+    const currentMax = this._generationKwargs.maxOutputTokens;
     const clamped = currentMax !== undefined
       ? Math.min(maxCompletionTokens, currentMax)
       : Math.min(maxCompletionTokens, 8192);
-    return this.withGenerationKwargs({ max_output_tokens: clamped });
+    return this.withGenerationKwargs({ maxOutputTokens: clamped });
   }
 
   withGenerationKwargs(kwargs: GoogleGenAIGenerationKwargs): GoogleGenAIChatProvider {
