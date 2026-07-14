@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -23,7 +24,7 @@ let fakeBin: string;
 let commandLog: string;
 
 beforeEach(() => {
-  testRoot = mkdtempSync(join(tmpdir(), 'lmcode-source-installer-'));
+  testRoot = realpathSync.native(mkdtempSync(join(tmpdir(), 'lmcode-source-installer-')));
   installDir = join(testRoot, 'install with spaces');
   fakeBin = join(testRoot, 'fake bin');
   commandLog = join(testRoot, 'commands.log');
