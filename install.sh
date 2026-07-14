@@ -1,198 +1,290 @@
 #!/usr/bin/env bash
-# LMcode 一键安装 (TypeScript 版)
-# 前置: Node.js >= 22.0.0, Git
-# 国内用户建议科学上网，如遇网络错误请多尝试几次
+# LMcode source installer for macOS/Linux.
+# Prerequisites: Node.js >= 22.19.0 and Git.
 
 set -euo pipefail
 
-# 参数解析
 UPGRADE_MODE=false
 FORCE_MODE=false
+REQUIRED_PNPM_VERSION="11.7.0"
+
+usage() {
+    cat <<'EOF'
+Usage: ./install.sh [--upgrade] [--force]
+
+  --upgrade  Update an existing LMcode source checkout with a fast-forward pull.
+  --force    Reset tracked files in an existing LMcode checkout to origin/main.
+
+INSTALL_DIR may be used to choose the source checkout directory.
+EOF
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --upgrade) UPGRADE_MODE=true; shift ;;
-        --force)   FORCE_MODE=true;   shift ;;
-        *)         shift ;;
+        --upgrade) UPGRADE_MODE=true ;;
+        --force) FORCE_MODE=true ;;
+        --help|-h) usage; exit 0 ;;
+        *) echo "[ERROR] Unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
+    shift
 done
 
 REPO="Lyin01/LMcode-cli"
-DEFAULT_DIR="${HOME}/.lmcode"
-INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
-BIN_DIR="$INSTALL_DIR/bin"
-LMCODE_HOME="$INSTALL_DIR"
 
 info()  { echo "[INFO]  $*"; }
 warn()  { echo "[WARN]  $*" >&2; }
 error() { echo "[ERROR] $*" >&2; }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 0. 彻底清理所有旧版本 lmcode（Python / pip / uv），确保全新安装不冲突
-# ══════════════════════════════════════════════════════════════════════════════
-info "清理旧 lmcode 版本..."
-
-# ── 删除所有已知位置的旧 lmcode 命令 ──
-for dir in \
-    "$HOME/.lmcode/bin" \
-    "$HOME/.local/bin" \
-    "/usr/local/bin" \
-    "/opt/homebrew/bin"; do
-    if [ -f "$dir/lmcode" ]; then
-        rm -f "$dir/lmcode"
-        info "已删除旧命令: $dir/lmcode"
-    fi
-done
-
-# ── 卸载 pip / pipx / uv 全局安装的旧 lmcode 包 ──
-for pip_cmd in pip3 pip; do
-    if command -v "$pip_cmd" >/dev/null 2>&1; then
-        "$pip_cmd" uninstall -y lmcode 2>/dev/null || true
-    fi
-done
-if command -v pipx >/dev/null 2>&1; then
-    pipx uninstall lmcode 2>/dev/null || true
-fi
-if command -v uv >/dev/null 2>&1; then
-    uv tool uninstall lmcode 2>/dev/null || true
-fi
-# 清理 uv 可能残留的 trampoline 脚本
-rm -f "$HOME/.local/bin/lmcode" 2>/dev/null || true
-
-# ── 彻底删除旧 lmcode 目录（Python .venv / node_modules 等） ──
-if [ -d "$INSTALL_DIR" ]; then
-    info "删除旧安装目录: $INSTALL_DIR"
-    rm -rf "$INSTALL_DIR"
-fi
-
-# ── 清理 shell 配置中的所有旧 lmcode PATH 条目 ──
-for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile"; do
-    if [ -f "$rc" ]; then
-        sed -i.bak '/\.lmcode\/bin/d' "$rc" 2>/dev/null || true
-        sed -i.bak '/lmcode.*PATH/d' "$rc" 2>/dev/null || true
-        rm -f "${rc}.bak" 2>/dev/null || true
-    fi
-done
-info "旧版本清理完毕"
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. 检测 Node.js >= 22.0.0
-# ══════════════════════════════════════════════════════════════════════════════
 find_node() {
+    local cmd ver_output major minor patch
     for cmd in node nodejs node22 node24 node25; do
-        if command -v "$cmd" >/dev/null 2>&1; then
-            ver_output=$($cmd --version 2>&1 | sed 's/^v//')
-            if [[ "$ver_output" =~ ^([0-9]+)\.([0-9]+)\. ]]; then
-                major="${BASH_REMATCH[1]}"
-                minor="${BASH_REMATCH[2]}"
-                if [[ "$major" -gt 22 ]] || { [[ "$major" -eq 22 ]] && [[ "$minor" -ge 0 ]]; }; then
-                    echo "$cmd"
-                    return 0
-                fi
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            continue
+        fi
+        ver_output=$($cmd --version 2>&1 | sed 's/^v//')
+        if [[ "$ver_output" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            if [[ "$major" -gt 22 ]] || {
+                [[ "$major" -eq 22 ]] &&
+                { [[ "$minor" -gt 19 ]] || { [[ "$minor" -eq 19 ]] && [[ "$patch" -ge 0 ]]; }; }
+            }; then
+                command -v "$cmd"
+                return 0
             fi
         fi
     done
     return 1
 }
 
-info "检测 Node.js >= 22.0.0..."
-NODE_CMD=$(find_node) || {
-    error "未找到 Node.js 22.0.0 或更高版本"
-    echo ""
-    echo "安装方式："
-    echo "  macOS:    brew install node"
-    echo "  通用:     https://nodejs.org/ 下载 LTS 版"
-    echo ""
+info "Checking Node.js >= 22.19.0..."
+NODE_PATH=$(find_node) || {
+    error "Node.js 22.19.0 or newer was not found"
+    echo "Install it from https://nodejs.org/ and retry."
     exit 1
 }
-info "Node.js: $($NODE_CMD --version)"
+info "Node.js: $("$NODE_PATH" --version) ($NODE_PATH)"
 
-# ── 2. 检测 Git ────────────────────────────────────────────────────────────
-info "检测 Git..."
+canonicalize_path() {
+    "$NODE_PATH" -e '
+const fs = require("node:fs");
+const path = require("node:path");
+let current = path.resolve(process.argv[1]);
+const suffix = [];
+while (!fs.existsSync(current)) {
+  const parent = path.dirname(current);
+  if (parent === current) process.exit(1);
+  suffix.unshift(path.basename(current));
+  current = parent;
+}
+process.stdout.write(path.join(fs.realpathSync.native(current), ...suffix));
+' "$1"
+}
+
+manifest_has_name() {
+    "$NODE_PATH" -e '
+const fs = require("node:fs");
+try {
+  const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  process.exit(
+    manifest !== null &&
+    typeof manifest === "object" &&
+    !Array.isArray(manifest) &&
+    manifest.name === process.argv[2]
+      ? 0
+      : 1,
+  );
+} catch {
+  process.exit(1);
+}
+' "$1" "$2"
+}
+
+is_lmcode_checkout_at() {
+    local checkout_dir="$1"
+    [[ -d "$checkout_dir/.git" ]] &&
+        [[ -f "$checkout_dir/package.json" ]] &&
+        [[ -f "$checkout_dir/apps/lmcode/package.json" ]] &&
+        manifest_has_name "$checkout_dir/package.json" "@lmcode-cli/monorepo" &&
+        manifest_has_name "$checkout_dir/apps/lmcode/package.json" "@liumir/lmcode"
+}
+
+CANONICAL_HOME=$(canonicalize_path "$HOME") || {
+    error "Unable to resolve HOME: $HOME"
+    exit 1
+}
+LEGACY_DIR="$CANONICAL_HOME/.lmcode"
+if is_lmcode_checkout_at "$LEGACY_DIR"; then
+    DEFAULT_DIR="$LEGACY_DIR"
+else
+    DEFAULT_DIR="$CANONICAL_HOME/lmcode"
+fi
+INSTALL_DIR=$(canonicalize_path "${INSTALL_DIR:-$DEFAULT_DIR}") || {
+    error "Unable to resolve INSTALL_DIR: ${INSTALL_DIR:-$DEFAULT_DIR}"
+    exit 1
+}
+BIN_DIR="$INSTALL_DIR/bin"
+
+if [[ "$INSTALL_DIR" == "/" || "$INSTALL_DIR" == "$CANONICAL_HOME" ]]; then
+    error "Refusing unsafe INSTALL_DIR: $INSTALL_DIR"
+    exit 1
+fi
+
+is_lmcode_checkout() {
+    is_lmcode_checkout_at "$INSTALL_DIR"
+}
+
+has_legacy_user_data() {
+    [[ -f "$INSTALL_DIR/config.toml" ]] ||
+        [[ -f "$INSTALL_DIR/mcp.json" ]] ||
+        [[ -d "$INSTALL_DIR/sessions" ]] ||
+        [[ -d "$INSTALL_DIR/memory" ]] ||
+        [[ -d "$INSTALL_DIR/user-history" ]] ||
+        [[ -d "$INSTALL_DIR/logs" ]]
+}
+
+pnpm_version_is_compatible() {
+    local ver_output major minor patch
+    ver_output=$("$@" --version 2>/dev/null) || return 1
+    if [[ ! "$ver_output" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        return 1
+    fi
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    patch="${BASH_REMATCH[3]}"
+    [[ "$major" -eq 11 ]] && {
+        [[ "$minor" -gt 7 ]] || { [[ "$minor" -eq 7 ]] && [[ "$patch" -ge 0 ]]; }
+    }
+}
+
+run_checked() {
+    local label="$1"
+    shift
+    if ! "$@"; then
+        error "$label failed"
+        exit 1
+    fi
+}
+
+if ! is_lmcode_checkout && [[ -e "$INSTALL_DIR" ]]; then
+    error "Refusing to overwrite existing non-LMcode directory: $INSTALL_DIR"
+    error "Choose an empty path with INSTALL_DIR. Existing files were not changed."
+    exit 1
+fi
+if ! is_lmcode_checkout && { $UPGRADE_MODE || $FORCE_MODE; }; then
+    error "No LMcode source checkout exists at $INSTALL_DIR"
+    exit 1
+fi
+
+USE_LEGACY_DATA_HOME=false
+if is_lmcode_checkout && has_legacy_user_data; then
+    USE_LEGACY_DATA_HOME=true
+fi
+
+info "Checking Git..."
 if ! command -v git >/dev/null 2>&1; then
-    error "未找到 Git"
-    echo ""
-    echo "安装方式："
-    echo "  macOS:    brew install git"
-    echo "  Ubuntu:   sudo apt install git"
-    echo "  其他:     https://git-scm.com/downloads"
-    echo ""
+    error "Git was not found. Install it from https://git-scm.com/downloads and retry."
     exit 1
 fi
 info "Git: $(git --version)"
 
-# ── 3. 检测 / 安装 pnpm ────────────────────────────────────────────────────
-info "检测 pnpm..."
-if ! command -v pnpm >/dev/null 2>&1; then
-    info "pnpm 未安装，正在自动安装..."
-    if $NODE_CMD -e "process.exit(require('module').createRequire(import.meta.url)('child_process').execSync('corepack --version', {encoding:'utf8'}).trim() ? 0 : 1)" 2>/dev/null || command -v corepack >/dev/null 2>&1; then
-        corepack enable 2>/dev/null || true
+info "Checking pnpm >= 11.7.0 and < 12..."
+PNPM_COMMAND=()
+if command -v pnpm >/dev/null 2>&1 && pnpm_version_is_compatible "$(command -v pnpm)"; then
+    PNPM_COMMAND=("$(command -v pnpm)")
+else
+    warn "A compatible pnpm was not found; activating pnpm $REQUIRED_PNPM_VERSION."
+    if command -v corepack >/dev/null 2>&1; then
+        corepack prepare "pnpm@$REQUIRED_PNPM_VERSION" --activate >/dev/null 2>&1 || true
+        if pnpm_version_is_compatible corepack pnpm; then
+            PNPM_COMMAND=(corepack pnpm)
+        fi
     fi
-    if ! command -v pnpm >/dev/null 2>&1; then
-        curl -fsSL https://get.pnpm.io/install.sh | sh - || {
-            error "pnpm 安装失败"
-            echo "请手动安装: https://pnpm.io/installation"
-            exit 1
-        }
-        export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if [[ ${#PNPM_COMMAND[@]} -eq 0 ]]; then
+        PNPM_INSTALL_SCRIPT=$(mktemp "${TMPDIR:-/tmp}/lmcode-pnpm-install.XXXXXX")
+        trap 'rm -f "$PNPM_INSTALL_SCRIPT"' EXIT
+        run_checked "Downloading pnpm installer" \
+            curl -fsSL https://get.pnpm.io/install.sh -o "$PNPM_INSTALL_SCRIPT"
+        run_checked "Installing pnpm $REQUIRED_PNPM_VERSION" \
+            env PNPM_VERSION="$REQUIRED_PNPM_VERSION" sh "$PNPM_INSTALL_SCRIPT"
+        export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+        export PATH="$PNPM_HOME:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+        hash -r
+        if command -v pnpm >/dev/null 2>&1 && pnpm_version_is_compatible "$(command -v pnpm)"; then
+            PNPM_COMMAND=("$(command -v pnpm)")
+        fi
     fi
 fi
-info "pnpm: $(pnpm --version)"
-
-# ── 4. 下载项目 ─────────────────────────────────────────────────────────────
-info "安装路径: $INSTALL_DIR"
-info "下载 lmcode..."
-git clone --depth 1 "https://github.com/$REPO.git" "$INSTALL_DIR" || {
-    error "下载失败"
-    echo "请检查网络连接（国内用户建议科学上网，或稍后重试）"
+if [[ ${#PNPM_COMMAND[@]} -eq 0 ]]; then
+    error "pnpm $REQUIRED_PNPM_VERSION could not be activated"
     exit 1
-}
-cd "$INSTALL_DIR"
+fi
+info "pnpm: $("${PNPM_COMMAND[@]}" --version)"
 
-# ── 5. 安装依赖并构建 ──────────────────────────────────────────────────────
-info "安装依赖并构建..."
-pnpm install || {
-    error "依赖安装失败"
-    exit 1
-}
-pnpm -r build || {
-    error "构建失败"
-    exit 1
-}
+if is_lmcode_checkout; then
+    if ! $UPGRADE_MODE && ! $FORCE_MODE; then
+        error "LMcode is already installed at $INSTALL_DIR"
+        echo "Run this installer with --upgrade to update it."
+        exit 1
+    fi
 
-# ── 6. 创建 lm 命令 ───────────────────────────────────────────────────────
+    info "Updating verified LMcode checkout: $INSTALL_DIR"
+    if $FORCE_MODE; then
+        warn "--force resets tracked files to origin/main and never runs git clean; back up local code changes first."
+        run_checked "Fetching LMcode" git -C "$INSTALL_DIR" fetch --depth 1 origin main
+        run_checked "Resetting LMcode tracked files" git -C "$INSTALL_DIR" reset --hard origin/main
+    else
+        run_checked "Updating LMcode" git -C "$INSTALL_DIR" pull --ff-only origin main
+    fi
+else
+    info "Cloning LMcode into $INSTALL_DIR..."
+    run_checked "Cloning LMcode" git clone --depth 1 "https://github.com/$REPO.git" "$INSTALL_DIR"
+fi
+
+info "Installing dependencies and building..."
+run_checked "Installing dependencies" "${PNPM_COMMAND[@]}" --dir "$INSTALL_DIR" install --frozen-lockfile
+run_checked "Building LMcode" "${PNPM_COMMAND[@]}" --dir "$INSTALL_DIR" -r build
+
+info "Creating lm command..."
 mkdir -p "$BIN_DIR"
-cat > "$BIN_DIR/lm" <<'EOF'
+ESCAPED_INSTALL_DIR=$(printf '%q' "$INSTALL_DIR")
+ESCAPED_NODE_PATH=$(printf '%q' "$NODE_PATH")
+LEGACY_HOME_LINE=""
+if $USE_LEGACY_DATA_HOME; then
+    LEGACY_HOME_LINE='export LMCODE_HOME="${LMCODE_HOME:-$LMCODE_SOURCE_DIR}"'
+fi
+cat > "$BIN_DIR/lm" <<EOF
 #!/usr/bin/env bash
-LMCODE_HOME="${LMCODE_HOME:-$HOME/.lmcode}"
-cd "$LMCODE_HOME"
-exec node "$LMCODE_HOME/apps/lmcode/dist/main.mjs" "$@"
+LMCODE_SOURCE_DIR=$ESCAPED_INSTALL_DIR
+export LMCODE_INSTALL_DIR="\$LMCODE_SOURCE_DIR"
+$LEGACY_HOME_LINE
+exec $ESCAPED_NODE_PATH "\$LMCODE_SOURCE_DIR/apps/lmcode/dist/main.mjs" "\$@"
 EOF
 chmod +x "$BIN_DIR/lm"
 
-# ── 7. 添加到 PATH ─────────────────────────────────────────────────────────
-if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+if [[ "${LMCODE_SKIP_PATH_UPDATE:-0}" != "1" && ":$PATH:" != *":$BIN_DIR:"* ]]; then
     SHELL_RC=""
-    if [ -n "${ZSH_VERSION:-}" ] || [ "$(basename "$SHELL")" = "zsh" ]; then
+    if [[ -n "${ZSH_VERSION:-}" || "$(basename "${SHELL:-}")" == "zsh" ]]; then
         SHELL_RC="$HOME/.zshrc"
-    elif [ -n "${BASH_VERSION:-}" ] || [ "$(basename "$SHELL")" = "bash" ]; then
+    elif [[ -n "${BASH_VERSION:-}" || "$(basename "${SHELL:-}")" == "bash" ]]; then
         SHELL_RC="$HOME/.bashrc"
     fi
 
-    if [ -n "$SHELL_RC" ] && [ -f "$SHELL_RC" ]; then
-        echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$SHELL_RC"
-        info "已自动将 $BIN_DIR 加入 PATH ($SHELL_RC)"
+    printf -v PATH_LINE 'export PATH=%q:$PATH # lmcode' "$BIN_DIR"
+    if [[ -n "$SHELL_RC" && -f "$SHELL_RC" ]]; then
+        if ! grep -Fqx "$PATH_LINE" "$SHELL_RC"; then
+            printf '\n%s\n' "$PATH_LINE" >> "$SHELL_RC"
+        fi
+        info "Added $BIN_DIR to PATH in $SHELL_RC"
     else
-        echo ""
-        echo "请手动添加以下到 shell 配置文件 (~/.bashrc 或 ~/.zshrc):"
-        echo "  export PATH=\"$BIN_DIR:\$PATH\""
+        echo "Add this directory to PATH: $BIN_DIR"
     fi
 fi
 
 export PATH="$BIN_DIR:$PATH"
 
-info "安装完成！"
+info "Installation complete"
 echo ""
-echo "安装位置: $INSTALL_DIR"
-echo "运行:     lm --version"
-echo ""
-echo "如果命令找不到，请重新打开终端或执行: source ~/.bashrc (或 ~/.zshrc)"
+echo "Install location: $INSTALL_DIR"
+echo "Run:              lm --version"

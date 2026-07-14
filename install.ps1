@@ -1,261 +1,314 @@
-# LMcode 一键安装 (TypeScript 版 / Windows)
-# 前置: Node.js >= 22.0.0 + Git
-# 国内用户建议科学上网，如遇网络错误请多尝试几次
+# LMcode source installer for Windows.
+# Prerequisites: Node.js >= 22.19.0 and Git.
 
 $ErrorActionPreference = "Stop"
 
 $Repo       = "Lyin01/LMcode-cli"
 $DefaultDir = "$env:USERPROFILE\lmcode"
-$InstallDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { $DefaultDir }
-$BinDir     = "$InstallDir\bin"
+$InstallDir = [IO.Path]::GetFullPath($(if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { $DefaultDir }))
+$BinDir     = Join-Path $InstallDir "bin"
 
 $UpgradeMode = $false
 $ForceMode   = $false
+$RequiredPnpmVersion = "11.7.0"
+
+function Show-Usage {
+    Write-Host "Usage: .\install.ps1 [--upgrade] [--force]"
+    Write-Host ""
+    Write-Host "  --upgrade  Update an existing LMcode checkout with a fast-forward pull."
+    Write-Host "  --force    Reset tracked files in an existing LMcode checkout to origin/main."
+    Write-Host ""
+    Write-Host "INSTALL_DIR may be used to choose the source checkout directory."
+}
+
 foreach ($arg in $args) {
-    if ($arg -eq "--upgrade") { $UpgradeMode = $true }
-    if ($arg -eq "--force")   { $ForceMode   = $true }
+    switch ($arg) {
+        "--upgrade" { $UpgradeMode = $true }
+        "--force"   { $ForceMode = $true }
+        "--help"    { Show-Usage; exit 0 }
+        "-h"        { Show-Usage; exit 0 }
+        default      { Write-Host "[ERROR] Unknown option: $arg" -ForegroundColor Red; Show-Usage; exit 2 }
+    }
 }
 
 function Info($msg)  { Write-Host "[INFO]  $msg" -ForegroundColor Green }
 function Warn($msg)  { Write-Host "[WARN]  $msg" -ForegroundColor Yellow }
-function Error($msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red }
+function Fail($msg)  { Write-Host "[ERROR] $msg" -ForegroundColor Red }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 0. 彻底清理所有旧版本 lmcode（Python / pip），确保全新安装不冲突
-# ══════════════════════════════════════════════════════════════════════════════
-Info "清理旧 lmcode 版本..."
+function Invoke-Checked {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][string]$Command,
+        [Parameter()][string[]]$Arguments = @()
+    )
 
-# ── 删除所有已知位置的旧 lmcode 命令 ──
-$oldPaths = @(
-    "$env:USERPROFILE\lmcode\bin\lmcode.cmd",
-    "$env:USERPROFILE\lmcode\bin\lmcode.bat",
-    "$env:USERPROFILE\lmcode\bin\lmcode",
-    "$env:USERPROFILE\.local\bin\lmcode.cmd",
-    "$env:USERPROFILE\.local\bin\lmcode",
-    "$env:LOCALAPPDATA\Microsoft\WindowsApps\lmcode.cmd"
-)
-foreach ($old in $oldPaths) {
-    if (Test-Path $old) {
-        Remove-Item -Force $old -ErrorAction SilentlyContinue
-        Info "已删除旧命令: $old"
+    & $Command @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Label failed (exit code $LASTEXITCODE)"
     }
 }
 
-# ── 卸载 pip / uv 安装的旧 lmcode 包 ──
-$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-if ($pythonCmd) {
-    try { $null = & python -m pip uninstall -y lmcode 2>&1 } catch { }
-}
-$uvCmd = Get-Command uv -ErrorAction SilentlyContinue
-if ($uvCmd) {
-    try { $null = & uv tool uninstall lmcode 2>&1 } catch { }
-}
+function Test-LmcodeCheckout {
+    $gitDir = Join-Path $InstallDir ".git"
+    $rootPackageJson = Join-Path $InstallDir "package.json"
+    $appPackageJson = Join-Path $InstallDir "apps\lmcode\package.json"
+    if (-not (Test-Path -LiteralPath $gitDir -PathType Container)) { return $false }
+    if (-not (Test-Path -LiteralPath $rootPackageJson -PathType Leaf)) { return $false }
+    if (-not (Test-Path -LiteralPath $appPackageJson -PathType Leaf)) { return $false }
 
-# ── 彻底删除旧安装目录 ──
-if (Test-Path $InstallDir) {
-    Info "删除旧安装目录: $InstallDir"
-    Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
-}
-
-# ── 清理 PowerShell Profile 中的旧 lmcode PATH 引用 ──
-if (Test-Path $PROFILE) {
-    $content = Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue
-    if ($content -match 'lmcode') {
-        $cleaned = $content -replace '(?m)^.*lmcode.*\r?\n?', ''
-        Set-Content $PROFILE $cleaned.TrimEnd() -Encoding UTF8
-        Info "已清理 PowerShell Profile 中的旧 lmcode 引用"
+    try {
+        $rootManifest = Get-Content -LiteralPath $rootPackageJson -Raw | ConvertFrom-Json
+        $appManifest = Get-Content -LiteralPath $appPackageJson -Raw | ConvertFrom-Json
+        return $rootManifest.name -eq "@lmcode-cli/monorepo" -and
+            $appManifest.name -eq "@liumir/lmcode"
+    } catch {
+        return $false
     }
 }
-Info "旧版本清理完毕"
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. 检测 Node.js >= 22.0.0
-# ══════════════════════════════════════════════════════════════════════════════
+function Test-LegacyUserData {
+    foreach ($relativePath in @("config.toml", "mcp.json", "sessions", "memory", "user-history", "logs")) {
+        if (Test-Path -LiteralPath (Join-Path $InstallDir $relativePath)) { return $true }
+    }
+    return $false
+}
+
+function Test-CompatiblePnpm {
+    param(
+        [Parameter(Mandatory = $true)][string]$Command,
+        [Parameter()][string[]]$Prefix = @()
+    )
+
+    try {
+        $versionOutput = & $Command @Prefix --version 2>$null
+        if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch "^(\d+)\.(\d+)\.(\d+)$") {
+            return $false
+        }
+        $major = [int]$matches[1]
+        $minor = [int]$matches[2]
+        $patch = [int]$matches[3]
+        return $major -eq 11 -and ($minor -gt 7 -or ($minor -eq 7 -and $patch -ge 0))
+    } catch {
+        return $false
+    }
+}
+
+$homeFullPath = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\')
+$installFullPath = $InstallDir.TrimEnd('\')
+if ([string]::IsNullOrWhiteSpace($installFullPath) -or
+    $installFullPath -eq [IO.Path]::GetPathRoot($installFullPath).TrimEnd('\') -or
+    $installFullPath -eq $homeFullPath) {
+    Fail "Refusing unsafe INSTALL_DIR: $InstallDir"
+    exit 1
+}
+
+$isExistingCheckout = Test-LmcodeCheckout
+$UseLegacyDataHome = $isExistingCheckout -and (Test-LegacyUserData)
+if (-not $isExistingCheckout -and (Test-Path -LiteralPath $InstallDir)) {
+    Fail "Refusing to overwrite existing non-LMcode directory: $InstallDir"
+    Fail "Choose an empty path with INSTALL_DIR. Existing files were not changed."
+    exit 1
+}
+if (-not $isExistingCheckout -and ($UpgradeMode -or $ForceMode)) {
+    Fail "No LMcode source checkout exists at $InstallDir"
+    exit 1
+}
+
 function Find-Node {
     foreach ($cmd in @("node", "nodejs", "node22", "node24", "node25")) {
         $found = Get-Command $cmd -ErrorAction SilentlyContinue
         if (-not $found) { continue }
         $verOutput = & $found.Source --version 2>&1
-        if ($verOutput -match "v?(\d+)\.(\d+)\.(\d+)") {
+        if ($verOutput -match "^v?(\d+)\.(\d+)\.(\d+)$") {
             $major = [int]$matches[1]
             $minor = [int]$matches[2]
-            if ($major -gt 22) {
-                return @{ Path = $found.Source; Version = "$major.$minor" }
-            }
-            if ($major -eq 22) {
-                if ($minor -ge 0) {
-                    return @{ Path = $found.Source; Version = "$major.$minor" }
-                }
+            $patch = [int]$matches[3]
+            if ($major -gt 22 -or
+                ($major -eq 22 -and ($minor -gt 19 -or ($minor -eq 19 -and $patch -ge 0)))) {
+                return @{ Path = $found.Source; Version = "$major.$minor.$patch" }
             }
         }
     }
     return $null
 }
 
-Info "检测 Node.js >= 22.0.0..."
+Info "Checking Node.js >= 22.19.0..."
 $nodeInfo = Find-Node
 if (-not $nodeInfo) {
-    Error "未找到 Node.js 22.0.0 或更高版本"
-    Write-Host ""
-    Write-Host "请按以下步骤安装："
-    Write-Host "  1. 访问 https://nodejs.org/"
-    Write-Host "  2. 下载 Node.js LTS 版 (64-bit)"
-    Write-Host "  3. 安装时勾选 'Add to PATH'"
-    Write-Host ""
+    Fail "Node.js 22.19.0 or newer was not found"
+    Write-Host "Install it from https://nodejs.org/ and retry."
     exit 1
 }
 $node = $nodeInfo.Path
-Info "Node.js: $( & $node --version )  (路径: $node)"
+Info "Node.js: $( & $node --version ) ($node)"
 
-# ── 2. 检测 Git ────────────────────────────────────────────────────────────
-Info "检测 Git..."
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Error "未找到 Git"
-    Write-Host ""
-    Write-Host "请下载安装 Git for Windows："
-    Write-Host "  https://git-scm.com/download/win"
-    Write-Host ""
+Info "Checking Git..."
+$git = Get-Command git -ErrorAction SilentlyContinue
+if (-not $git) {
+    Fail "Git was not found. Install it from https://git-scm.com/download/win and retry."
     exit 1
 }
-Info "Git: $(git --version)"
+Info "Git: $(& $git.Source --version)"
 
-# ── 3. 检测 / 安装 pnpm ────────────────────────────────────────────────────
-Info "检测 pnpm..."
+Info "Checking pnpm >= 11.7.0 and < 12..."
 $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
-if (-not $pnpm) {
-    Info "pnpm 未安装，正在自动安装..."
-    try {
-        & $node -e "require('child_process').execSync('corepack enable', {stdio:'inherit'})" 2>$null
-        $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
-    } catch { }
-
-    if (-not $pnpm) {
+$PnpmCommand = $null
+$PnpmPrefix = @()
+if ($pnpm -and (Test-CompatiblePnpm -Command $pnpm.Source)) {
+    $PnpmCommand = $pnpm.Source
+} else {
+    Warn "A compatible pnpm was not found; activating pnpm $RequiredPnpmVersion."
+    $corepack = Get-Command corepack -ErrorAction SilentlyContinue
+    if ($corepack) {
         try {
-            $tmpPnpmInstall = "$env:TEMP\pnpm-install-$(Get-Random).ps1"
-            irm https://get.pnpm.io/install.ps1 -OutFile $tmpPnpmInstall
+            & $corepack.Source prepare "pnpm@$RequiredPnpmVersion" --activate 2>$null | Out-Null
+        } catch { }
+        if (Test-CompatiblePnpm -Command $corepack.Source -Prefix @("pnpm")) {
+            $PnpmCommand = $corepack.Source
+            $PnpmPrefix = @("pnpm")
+        }
+    }
+
+    if (-not $PnpmCommand) {
+        $tmpPnpmInstall = Join-Path $env:TEMP "pnpm-install-$([guid]::NewGuid().ToString('N')).ps1"
+        $previousPnpmVersion = $env:PNPM_VERSION
+        try {
+            Invoke-WebRequest https://get.pnpm.io/install.ps1 -OutFile $tmpPnpmInstall
+            $env:PNPM_VERSION = $RequiredPnpmVersion
             & $tmpPnpmInstall
-            Remove-Item $tmpPnpmInstall -ErrorAction SilentlyContinue
         } catch {
-            Error "pnpm 安装失败: $_"
-            Write-Host "请手动安装: https://pnpm.io/installation"
+            Fail "pnpm installation failed: $_"
+            Write-Host "Install pnpm manually from https://pnpm.io/installation and retry."
+            exit 1
+        } finally {
+            $env:PNPM_VERSION = $previousPnpmVersion
+            Remove-Item -LiteralPath $tmpPnpmInstall -Force -ErrorAction SilentlyContinue
+        }
+        $pnpmHome = if ($env:PNPM_HOME) { $env:PNPM_HOME } else { "$env:LOCALAPPDATA\pnpm" }
+        $env:PATH = "$pnpmHome;$env:USERPROFILE\.local\bin;$env:PATH"
+        $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
+        if ($pnpm -and (Test-CompatiblePnpm -Command $pnpm.Source)) {
+            $PnpmCommand = $pnpm.Source
+        }
+    }
+}
+if (-not $PnpmCommand) {
+    Fail "pnpm $RequiredPnpmVersion could not be activated"
+    exit 1
+}
+$pnpmVersion = & $PnpmCommand @PnpmPrefix --version
+Info "pnpm: $pnpmVersion"
+
+try {
+    if ($isExistingCheckout) {
+        if (-not $UpgradeMode -and -not $ForceMode) {
+            Fail "LMcode is already installed at $InstallDir"
+            Write-Host "Run this installer with --upgrade to update it."
             exit 1
         }
-        $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
-        if (-not $pnpm) {
-            foreach ($p in @(
-                "$env:LOCALAPPDATA\pnpm\pnpm.exe",
-                "$env:USERPROFILE\.local\bin\pnpm.exe",
-                "$env:USERPROFILE\.cargo\bin\pnpm.exe"
-            )) {
-                if (Test-Path $p) {
-                    $env:PATH = "$(Split-Path $p);$env:PATH"
-                    $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
-                    if ($pnpm) { break }
-                }
-            }
+
+        Info "Updating verified LMcode checkout: $InstallDir"
+        if ($ForceMode) {
+            Warn "--force resets tracked files to origin/main and never runs git clean; back up local code changes first."
+            Invoke-Checked "Fetching LMcode" $git.Source @("-C", $InstallDir, "fetch", "--depth", "1", "origin", "main")
+            Invoke-Checked "Resetting LMcode tracked files" $git.Source @("-C", $InstallDir, "reset", "--hard", "origin/main")
+        } else {
+            Invoke-Checked "Updating LMcode" $git.Source @("-C", $InstallDir, "pull", "--ff-only", "origin", "main")
         }
+    } else {
+        Info "Cloning LMcode into $InstallDir..."
+        Invoke-Checked "Cloning LMcode" $git.Source @("clone", "--depth", "1", "https://github.com/$Repo.git", $InstallDir)
     }
-    if (-not $pnpm) {
-        Error "pnpm 安装后未找到，请重新打开 PowerShell 后重试"
-        exit 1
-    }
-}
-Info "pnpm: $(pnpm --version)"
 
-# ── 4. 下载项目 ─────────────────────────────────────────────────────────────
-Info "安装路径: $InstallDir"
-Info "下载 lmcode..."
-git clone --depth 1 "https://github.com/$Repo.git" $InstallDir
-if ($LASTEXITCODE -ne 0) {
-    Error "git clone 失败（退出码: $LASTEXITCODE）"
-    Write-Host "请检查网络连接（国内用户建议科学上网，或稍后重试）"
-    exit 1
-}
-Set-Location $InstallDir
-
-# ── 5. 安装依赖并构建 ──────────────────────────────────────────────────────
-Info "安装依赖并构建..."
-pnpm install
-if ($LASTEXITCODE -ne 0) {
-    Error "依赖安装失败（退出码: $LASTEXITCODE）"
-    exit 1
-}
-pnpm -r build
-if ($LASTEXITCODE -ne 0) {
-    Error "构建失败（退出码: $LASTEXITCODE）"
+    Info "Installing dependencies and building..."
+    Invoke-Checked "Installing dependencies" $PnpmCommand @($PnpmPrefix + @("--dir", $InstallDir, "install", "--frozen-lockfile"))
+    Invoke-Checked "Building LMcode" $PnpmCommand @($PnpmPrefix + @("--dir", $InstallDir, "-r", "build"))
+} catch {
+    Fail $_.Exception.Message
     exit 1
 }
 
-# ── 6. 创建 lm 命令 ───────────────────────────────────────────────────────
-Info "创建 lm 命令..."
+Info "Creating lm command..."
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 
-$NodeExe = if (Test-Path "$InstallDir\node.exe") { "$InstallDir\node.exe" } else { $node }
+$EscapedInstallDirForBatch = $InstallDir.Replace('%', '%%')
+$EscapedNodeForBatch = $node.Replace('%', '%%')
+$LegacyHomeLine = if ($UseLegacyDataHome) {
+    "if not defined LMCODE_HOME set `"LMCODE_HOME=$EscapedInstallDirForBatch`""
+} else {
+    ""
+}
 $LmCmd = @"
 @echo off
-set "LMCODE_HOME=$InstallDir"
-cd /d "$InstallDir"
-"$NodeExe" "$InstallDir\apps\lmcode\dist\main.mjs" %*
+setlocal
+$LegacyHomeLine
+set "LMCODE_INSTALL_DIR=$EscapedInstallDirForBatch"
+"$EscapedNodeForBatch" "$EscapedInstallDirForBatch\apps\lmcode\dist\main.mjs" %*
+exit /b %ERRORLEVEL%
 "@
-Set-Content -Path "$BinDir\lm.cmd" -Value $LmCmd -Encoding Default
+Set-Content -LiteralPath (Join-Path $BinDir "lm.cmd") -Value $LmCmd -Encoding Default
 
-# ── 7. 创建桌面快捷方式 ───────────────────────────────────────────────────
-Info "创建桌面快捷方式..."
-try {
-    $DesktopPath = [Environment]::GetFolderPath("Desktop")
-    $ShortcutPath = "$DesktopPath\LMcode.lnk"
-    $WshShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
+if ($env:LMCODE_SKIP_SHORTCUT -ne "1") {
+    Info "Creating desktop shortcut..."
+    try {
+        $DesktopPath = [Environment]::GetFolderPath("Desktop")
+        $ShortcutPath = Join-Path $DesktopPath "LMcode.lnk"
+        $LauncherPath = Join-Path $BinDir "lm.cmd"
+        $EscapedLauncherForPowerShell = $LauncherPath.Replace("'", "''")
+        $WshShell = New-Object -ComObject WScript.Shell
+        $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
 
-    # 按优先级选择终端：Windows Terminal > pwsh 7 > powershell 5
-    $wt    = Get-Command wt.exe           -ErrorAction SilentlyContinue
-    $pwsh7 = Get-Command pwsh.exe         -ErrorAction SilentlyContinue
-    $ps5   = Get-Command powershell.exe   -ErrorAction SilentlyContinue
+        $wt    = Get-Command wt.exe -ErrorAction SilentlyContinue
+        $pwsh7 = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+        $ps5   = Get-Command powershell.exe -ErrorAction SilentlyContinue
 
-    if ($wt) {
-        # Windows Terminal — 现代、美观
-        $Shortcut.TargetPath = $wt.Source
-        $Shortcut.Arguments  = "--title `"LMcode`" cmd /k `"chcp 65001 > nul && lm`""
-    }
-    elseif ($pwsh7) {
-        # PowerShell 7+
-        $Shortcut.TargetPath = $pwsh7.Source
-        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; lm`""
-    }
-    elseif ($ps5) {
-        # Windows PowerShell 5.x（旧版 conhost，加 UTF-8 补丁）
-        $Shortcut.TargetPath = $ps5.Source
-        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle = 'LMcode'; lm`""
-    }
-    else {
-        $Shortcut.TargetPath = "powershell.exe"
-        $Shortcut.Arguments  = "-NoExit -Command `"chcp 65001 > `$null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; `$Host.UI.RawUI.WindowTitle = 'LMcode'; lm`""
-    }
+        if ($wt) {
+            $Shortcut.TargetPath = $wt.Source
+            $Shortcut.Arguments  = '--title "LMcode" cmd /k "chcp 65001 > nul && call ""{0}"""' -f $LauncherPath
+        } elseif ($pwsh7) {
+            $Shortcut.TargetPath = $pwsh7.Source
+            $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; & ''{0}''"' -f $EscapedLauncherForPowerShell
+        } elseif ($ps5) {
+            $Shortcut.TargetPath = $ps5.Source
+            $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; $Host.UI.RawUI.WindowTitle = ''LMcode''; & ''{0}''"' -f $EscapedLauncherForPowerShell
+        } else {
+            $Shortcut.TargetPath = "powershell.exe"
+            $Shortcut.Arguments  = '-NoExit -Command "chcp 65001 > $null; [Console]::OutputEncoding = [Console]::InputEncoding = [Text.Encoding]::UTF8; $Host.UI.RawUI.WindowTitle = ''LMcode''; & ''{0}''"' -f $EscapedLauncherForPowerShell
+        }
 
-    $Shortcut.WorkingDirectory = $env:USERPROFILE
-    $Shortcut.Description      = "LMcode - AI 命令行助手"
-    $IconPath = "$InstallDir\icon.ico"
-    if (Test-Path $IconPath) {
-        $Shortcut.IconLocation = $IconPath
+        $Shortcut.WorkingDirectory = $env:USERPROFILE
+        $Shortcut.Description = "LMcode - AI terminal agent"
+        $IconPath = Join-Path $InstallDir "icon.ico"
+        if (Test-Path -LiteralPath $IconPath) {
+            $Shortcut.IconLocation = $IconPath
+        }
+        $Shortcut.Save()
+        Info "Desktop shortcut created: $ShortcutPath"
+    } catch {
+        Warn "Desktop shortcut creation failed: $_"
     }
-    $Shortcut.Save()
-    Info "桌面快捷方式已创建: $ShortcutPath"
-} catch {
-    Warn "快捷方式创建失败: $_"
 }
 
-# ── 8. 添加到用户 PATH ─────────────────────────────────────────────────────
-$UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-if ($UserPath -notlike "*$BinDir*") {
-    Info "添加 $BinDir 到用户 PATH..."
-    [Environment]::SetEnvironmentVariable("PATH", "$UserPath;$BinDir", "User")
-    $env:PATH = "$env:PATH;$BinDir"
+if ($env:LMCODE_SKIP_PATH_UPDATE -ne "1") {
+    $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    $NormalizedBinDir = $BinDir.TrimEnd('\')
+    $PathEntries = @($UserPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $FilteredPathEntries = @($PathEntries | Where-Object {
+        -not [string]::Equals($_.TrimEnd('\'), $NormalizedBinDir, [StringComparison]::OrdinalIgnoreCase)
+    })
+    $NewUserPath = (@($BinDir) + $FilteredPathEntries) -join ';'
+    if ($NewUserPath -ne $UserPath) {
+        Info "Putting $BinDir first in the user PATH..."
+        [Environment]::SetEnvironmentVariable("PATH", $NewUserPath, "User")
+    }
 }
+$CurrentPathEntries = @($env:PATH -split ';' | Where-Object {
+    -not [string]::IsNullOrWhiteSpace($_) -and
+    -not [string]::Equals($_.TrimEnd('\'), $BinDir.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
+})
+$env:PATH = (@($BinDir) + $CurrentPathEntries) -join ';'
 
-# ── 完成 ───────────────────────────────────────────────────────────────────
-Info "安装完成！"
+Info "Installation complete"
 Write-Host ""
-Write-Host "安装位置: $InstallDir"
-Write-Host "运行:     lm --version"
-Write-Host ""
-Write-Host "提示: 如果命令找不到，请重新打开 PowerShell 或 CMD"
+Write-Host "Install location: $InstallDir"
+Write-Host "Run:              lm --version"

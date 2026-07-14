@@ -24,4 +24,4 @@ Resolve #(issue_number)
 - [ ] I have read the [CONTRIBUTING](https://github.com/Lyin01/LMcode-cli/blob/main/CONTRIBUTING.md) document.
 - [ ] I have linked a related issue, or explained the problem above.
 - [ ] I have added tests that prove my feature works.
-- [ ] Added a changeset if this PR affects a published package, or this PR needs no changeset.
+- [ ] I have described any user-visible release impact above, or this change has none.

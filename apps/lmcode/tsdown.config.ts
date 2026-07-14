@@ -23,11 +23,12 @@ export default defineConfig({
     ].join('\n'),
   },
   plugins: [rawTextPlugin()],
-  // fastembed pulls in onnxruntime-node and platform-specific native
-  // tokenizer packages that cannot be bundled. It ships as an
-  // optionalDependency instead; the memory package degrades to
-  // tag-only retrieval when the runtime import fails.
-  external: ['fastembed'],
+  // Bundle the patched fastembed JS graph (including tar@7) so npm installs
+  // cannot resolve fastembed's vulnerable tar@6 declaration. Only the native,
+  // platform-specific runtimes remain external optional dependencies.
+  deps: {
+    neverBundle: ['@anush008/tokenizers', 'onnxruntime-node'],
+  },
   alias: {
     '@': resolve(appRoot, 'src'),
     '@lmcode/memory': resolve(repoRoot, 'packages/memory/src/index.ts'),

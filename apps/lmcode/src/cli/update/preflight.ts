@@ -1,12 +1,16 @@
-import { spawn } from 'node:child_process';
-
-import { spawnTargetForWindows } from '#/utils/process/spawn-command';
-
 import { readUpdateCache } from './cache';
 import { promptForInstallConfirmation, type InstallPromptOptions } from './prompt';
 import { refreshUpdateCache } from './refresh';
 import { selectUpdateTarget } from './select';
 import { detectInstallSource, resolveSourceInstallDir } from './source';
+import {
+  manualUpdateCommand,
+  resolveSourceUpdateCommands,
+  runSourceProcess,
+  sourceUpdateCommands,
+  type SourceProcessRunner,
+  type SourceUpdateCommand,
+} from './source-update';
 import {
   type InstallSource,
   type UpdateDecision,
@@ -15,6 +19,7 @@ import {
 } from './types';
 
 export type { UpdatePreflightResult } from './types';
+export { manualUpdateCommand } from './source-update';
 
 export interface RunUpdatePreflightOptions {
   readonly stdout?: { write(chunk: string): boolean };
@@ -24,17 +29,6 @@ export interface RunUpdatePreflightOptions {
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * The one-liner a user can paste to upgrade a source install by hand.
- * install.sh is a no-op pointer on Windows — the clone layout there is
- * produced and upgraded by install.ps1 (same --upgrade flag).
- */
-export function manualUpdateCommand(platform: NodeJS.Platform = process.platform): string {
-  return platform === 'win32'
-    ? 'cd ~/.lmcode; powershell -ExecutionPolicy Bypass -File install.ps1 --upgrade'
-    : 'cd ~/.lmcode && ./install.sh --upgrade';
 }
 
 function renderManualUpdateMessage(currentVersion: string, target: UpdateTarget): string {
@@ -69,31 +63,22 @@ async function promptInstall(
   return promptForInstallConfirmation(options);
 }
 
-async function installUpdate(installDir: string): Promise<void> {
-  const commands: readonly { readonly cmd: string; readonly args: readonly string[]; readonly cwd?: string }[] = [
-    { cmd: 'git', args: ['pull', 'origin', 'main'], cwd: installDir },
-    { cmd: 'pnpm', args: ['install'], cwd: installDir },
-    { cmd: 'pnpm', args: ['-r', 'build'], cwd: installDir },
-  ];
-
-  for (const { cmd, args, cwd } of commands) {
-    let resolve!: () => void;
-    let reject!: (error: Error) => void;
-    const promise = new Promise<void>((res, rej) => {
-      resolve = res;
-      reject = rej;
-    });
-    const target = spawnTargetForWindows(cmd, args);
-    const child = spawn(target.cmd, target.args, { cwd, stdio: 'inherit' });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`${cmd} 失败（exit ${code ?? signal}）`));
-    });
-    await promise;
+export async function installSourceUpdate(
+  installDir: string,
+  commands: readonly SourceUpdateCommand[],
+  runProcess: SourceProcessRunner = runSourceProcess,
+): Promise<void> {
+  for (const command of commands) {
+    const result = await runProcess(command, installDir, { stdio: 'inherit' });
+    if (result.outcome === 'success') continue;
+    if (result.outcome === 'timed-out') {
+      throw new Error(`${command.cmd} 超时（${String(command.timeoutMs)}ms）`);
+    }
+    const detail = result.errorMessage ?? result.stderr.trim();
+    const exit = result.exitCode ?? result.signal ?? 'unknown';
+    throw new Error(
+      `${command.cmd} 失败（exit ${String(exit)}）${detail.length > 0 ? `：${detail}` : ''}`,
+    );
   }
 }
 
@@ -139,13 +124,17 @@ export async function runUpdatePreflight(
       stdout.write(renderManualUpdateMessage(currentVersion, target));
       return 'continue';
     }
-    const installCommand = `cd ${installDir} && git pull && pnpm install && pnpm -r build`;
+    const previewCommands = sourceUpdateCommands({ cmd: 'pnpm', argsPrefix: [] });
+    const installCommand =
+      `cd ${JSON.stringify(installDir)} && ` +
+      previewCommands.map(({ cmd, args }) => [cmd, ...args].join(' ')).join(' && ');
 
     const confirmed = await promptInstall(currentVersion, target, source, installCommand);
     if (!confirmed) return 'continue';
 
     try {
-      await installUpdate(installDir);
+      const commands = await resolveSourceUpdateCommands(installDir);
+      await installSourceUpdate(installDir, commands);
       stdout.write(renderInstallSuccessMessage(target));
       return 'exit';
     } catch (error) {

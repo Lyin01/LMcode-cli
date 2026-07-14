@@ -1,17 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { manualUpdateCommand } from '#/cli/update/preflight';
+import { installSourceUpdate, manualUpdateCommand } from '#/cli/update/preflight';
+import type { SourceProcessRunner, SourceUpdateCommand } from '#/cli/update/source-update';
 
 describe('manualUpdateCommand', () => {
-  it('points Windows users at install.ps1 (install.sh cannot run there)', () => {
-    const cmd = manualUpdateCommand('win32');
-    expect(cmd).toContain('install.ps1');
-    expect(cmd).toContain('--upgrade');
-    expect(cmd).not.toContain('install.sh');
+  it('uses the published package name for unsupported install layouts', () => {
+    expect(manualUpdateCommand()).toBe('npm install -g @liumir/lmcode@latest');
   });
+});
 
-  it('points POSIX users at install.sh', () => {
-    expect(manualUpdateCommand('linux')).toBe('cd ~/.lmcode && ./install.sh --upgrade');
-    expect(manualUpdateCommand('darwin')).toBe('cd ~/.lmcode && ./install.sh --upgrade');
+describe('installSourceUpdate', () => {
+  it('surfaces a timed-out shared update step instead of blocking startup forever', async () => {
+    const command: SourceUpdateCommand = {
+      id: 'install',
+      cmd: 'pnpm',
+      args: ['install', '--frozen-lockfile'],
+      timeoutMs: 25,
+    };
+    const runProcess = vi.fn(async () => ({
+      outcome: 'timed-out' as const,
+      exitCode: null,
+      signal: null,
+      stdout: '',
+      stderr: '',
+    })) as SourceProcessRunner;
+
+    await expect(installSourceUpdate('/repo', [command], runProcess)).rejects.toThrow(
+      'pnpm 超时（25ms）',
+    );
+    expect(runProcess).toHaveBeenCalledWith(command, '/repo', { stdio: 'inherit' });
   });
 });

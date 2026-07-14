@@ -6,24 +6,25 @@
  * error detection with user-friendly Chinese prompts.
  */
 
-import { spawn } from 'node:child_process';
-
 import { readUpdateCache } from '#/cli/update/cache';
 import { refreshUpdateCache } from '#/cli/update/refresh';
 import { selectUpdateTarget } from '#/cli/update/select';
 import { resolveSourceInstallDir } from '#/cli/update/source';
 import {
-  spawnTargetForWindows,
-  terminateProcessTree,
-} from '#/utils/process/spawn-command';
+  manualUpdateCommand,
+  resolveSourceUpdateCommands,
+  runSourceProcess,
+  type SourceUpdateCommand,
+} from '#/cli/update/source-update';
+import { UPDATE_ERROR_PREVIEW_LENGTH } from '#/tui/constant/rendering';
+import { replaceTabs } from '#/tui/utils/render-text';
 
 import type { SlashCommandHost } from './dispatch';
 
-// Per-step timeouts (ms).  The default Node.js spawn timeout is infinite.
-const TIMEOUTS: Record<string, number> = {
-  'git pull': 120_000,
-  'pnpm install': 180_000,
-  'pnpm -r build': 180_000,
+const UPDATE_STEP_LABELS: Record<SourceUpdateCommand['id'], string> = {
+  pull: '拉取最新代码',
+  install: '安装依赖',
+  build: '编译',
 };
 
 const NETWORK_ERROR_PATTERNS = [
@@ -53,81 +54,51 @@ interface StepResult {
   message: string;
 }
 
+function sanitizeUpdateError(message: string): string {
+  const normalized = replaceTabs(message).replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+  return normalized.length <= UPDATE_ERROR_PREVIEW_LENGTH
+    ? normalized
+    : `${normalized.slice(0, UPDATE_ERROR_PREVIEW_LENGTH)}…`;
+}
+
 async function runInstallStep(
   cmd: string,
   args: string[],
   cwd: string,
   label: string,
+  timeoutMs: number,
 ): Promise<StepResult> {
-  const timeoutMs = TIMEOUTS[`${cmd} ${args[0]}`] ?? 120_000;
-
-  return new Promise<StepResult>((resolve) => {
-    const target = spawnTargetForWindows(cmd, args);
-    const child = spawn(target.cmd, target.args, {
-      cwd,
-      stdio: 'pipe',
-      detached: process.platform !== 'win32',
-    });
-    let stderr = '';
-    let settled = false;
-    child.stdout?.resume();
-    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      settled = true;
-      void terminateProcessTree(child).then(() => {
-        resolve({
-          ok: false,
-          message:
-            `${label}超时，可能因网络原因卡住。\n` +
-            '请检查网络后重试（国内用户建议科学上网）。',
-        });
-      });
-    }, timeoutMs);
-
-    const finalize = (result: StepResult): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
+  const result = await runSourceProcess({ cmd, args, timeoutMs }, cwd);
+  if (result.outcome === 'success') return { ok: true, message: '' };
+  if (result.outcome === 'timed-out') {
+    const terminationError = result.errorMessage === undefined
+      ? ''
+      : ` 进程清理失败：${sanitizeUpdateError(result.errorMessage)}`;
+    return {
+      ok: false,
+      message:
+        `${label}超时，可能因网络原因卡住。${terminationError}\n` +
+        '请检查网络后重试（国内用户建议科学上网）。',
     };
+  }
 
-    child.once('error', (err: NodeJS.ErrnoException) => {
-      const msg = stderr.trim() || err.message;
-      if (isNetworkError(msg)) {
-        finalize({
-          ok: false,
-          message:
-            `${label}失败：网络连接异常，请检查网络后重试。\n` +
-            '（国内用户建议科学上网，如遇网络错误请多尝试几次）',
-        });
-      } else {
-        finalize({ ok: false, message: `${label}失败：${msg}` });
-      }
-    });
+  const msg = sanitizeUpdateError(result.errorMessage ?? result.stderr);
+  if (isNetworkError(msg)) {
+    return {
+      ok: false,
+      message:
+        `${label}失败：网络连接异常，请检查网络后重试。\n` +
+        '（国内用户建议科学上网，如遇网络错误请多尝试几次）',
+    };
+  }
 
-    child.once('close', (code, signal) => {
-      if (code === 0) {
-        finalize({ ok: true, message: '' });
-        return;
-      }
-      const msg = stderr.trim();
-      const detail = signal !== null ? `信号 ${signal}` : `退出码 ${String(code)}`;
-
-      if (isNetworkError(msg)) {
-        finalize({
-          ok: false,
-          message:
-            `${label}失败：网络连接异常，请检查网络后重试。\n` +
-            '（国内用户建议科学上网，如遇网络错误请多尝试几次）',
-        });
-      } else {
-        finalize({ ok: false, message: `${label}以 ${detail} 退出：${msg}` });
-      }
-    });
-  });
+  const detail = result.signal !== null
+    ? `信号 ${result.signal}`
+    : `退出码 ${String(result.exitCode)}`;
+  return {
+    ok: false,
+    message: `${label}以 ${detail} 退出${msg.length > 0 ? `：${msg}` : ''}`,
+  };
 }
 
 export async function handleUpdateCommand(host: SlashCommandHost): Promise<void> {
@@ -154,19 +125,32 @@ export async function handleUpdateCommand(host: SlashCommandHost): Promise<void>
 
   const installDir = resolveSourceInstallDir();
   if (installDir === null) {
-    host.showError('当前安装不是可自动更新的源码克隆，请按原安装方式手动更新。');
+    host.showError(
+      `当前安装不是可自动更新的源码克隆，请手动执行：${manualUpdateCommand()}`,
+    );
     return;
   }
 
-  const steps: Array<{ label: string; cmd: string; args: string[] }> = [
-    { label: '拉取最新代码', cmd: 'git', args: ['pull', 'origin', 'main'] },
-    { label: '安装依赖', cmd: 'pnpm', args: ['install'] },
-    { label: '编译', cmd: 'pnpm', args: ['-r', 'build'] },
-  ];
+  host.showStatus('正在检查 pnpm 运行环境...');
+  let commands: readonly SourceUpdateCommand[];
+  try {
+    commands = await resolveSourceUpdateCommands(installDir);
+  } catch (error) {
+    const message = sanitizeUpdateError(error instanceof Error ? error.message : String(error));
+    host.showError(`无法准备更新环境：${message}`);
+    return;
+  }
 
-  for (const step of steps) {
-    host.showStatus(`正在${step.label}...`);
-    const result = await runInstallStep(step.cmd, step.args, installDir, step.label);
+  for (const step of commands) {
+    const label = UPDATE_STEP_LABELS[step.id];
+    host.showStatus(`正在${label}...`);
+    const result = await runInstallStep(
+      step.cmd,
+      [...step.args],
+      installDir,
+      label,
+      step.timeoutMs,
+    );
     if (!result.ok) {
       host.showError(`❌ ${result.message}`);
       return;

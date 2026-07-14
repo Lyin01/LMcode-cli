@@ -16,5 +16,13 @@ catalog:
 overrides:
   "ssh2@1.17.0>cpu-features": "-"
   "ssh2@1.17.0>nan": "-"
+  "fastembed@2.1.0>tar": "7.5.20"
+  "esbuild@0.28.0": "0.28.1"
+  "hono": "4.12.30"
+  "js-yaml@4": "4.3.0"
+  "protobufjs@7": "7.6.5"
+  "tar@7": "7.5.20"
+  "vite@6": "6.4.3"
 patchedDependencies:
   '@earendil-works/pi-tui@0.78.1': patches/@earendil-works__pi-tui@0.78.1.patch
+  fastembed@2.1.0: patches/fastembed@2.1.0.patch

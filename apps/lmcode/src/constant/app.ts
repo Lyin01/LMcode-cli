@@ -11,6 +11,7 @@ export const CLI_SHUTDOWN_TIMEOUT_MS = 3000;
 // App-owned data paths. SDK/core runtime config is intentionally not routed here.
 
 export const LMCODE_HOME_ENV = 'LMCODE_HOME';
+export const LMCODE_INSTALL_DIR_ENV = 'LMCODE_INSTALL_DIR';
 export const LMCODE_DATA_DIR_NAME = '.lmcode';
 export const LMCODE_LOG_DIR_NAME = 'logs';
 export const LMCODE_UPDATE_DIR_NAME = 'updates';

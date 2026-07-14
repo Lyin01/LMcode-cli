@@ -2,14 +2,24 @@ name: PR Title Checker
 
 on:
   pull_request:
-    types: [opened, edited, labeled]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions: {}
 
 jobs:
   check:
     runs-on: ubuntu-latest
     name: pr-title-checker
     steps:
-      - uses: thehanimo/pr-title-checker@v1.4.3
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          configuration_path: ".github/pr-title-checker-config.json"
+      - name: Validate conventional commit title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          node <<'NODE'
+          const title = process.env.PR_TITLE ?? ''
+          const conventional = /^(feat|fix|test|refactor|chore|style|docs|perf|build|ci|revert)(\(.*\))?:.*/
+          if (!conventional.test(title)) {
+            console.error('::error::Invalid PR title. Use the Conventional Commits format.')
+            process.exit(1)
+          }
+          NODE

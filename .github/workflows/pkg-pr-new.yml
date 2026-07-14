@@ -51,7 +51,7 @@ jobs:
           echo "LMCODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
 
       - name: Build LMcode package
-        run: pnpm --filter @lmcode-cli/lmcode run build
+        run: pnpm --filter @liumir/lmcode run build
 
       - name: Publish pkg.pr.new preview
         run: pnpm exec pkg-pr-new publish --bin --commentWithSha --packageManager=pnpm,npm --no-template './apps/lmcode'

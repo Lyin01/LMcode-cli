@@ -54,7 +54,7 @@ describe('promptForInstallConfirmation', () => {
     const promptPromise = promptForInstallConfirmation({
       currentVersion: '0.4.0',
       target: { version: '0.5.0' },
-      installCommand: 'npm install -g @lmcode-cli/lmcode@0.5.0',
+      installCommand: 'npm install -g @liumir/lmcode@0.5.0',
       installSource: 'unsupported',
       input,
       output,

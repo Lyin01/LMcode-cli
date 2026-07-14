@@ -18,7 +18,7 @@ pnpm test
 1. Open an issue before sending a feature PR.
 2. Follow the pull request template.
 3. Add tests for new functionality.
-4. Generate a changeset if your change affects a published package.
+4. Call out user-visible release notes in the pull request description.
 
 ## Project Structure
 
