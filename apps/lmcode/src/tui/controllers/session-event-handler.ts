@@ -55,6 +55,7 @@ import { McpOAuthAuthorizationUrlOpener } from '../utils/mcp-oauth';
 import { setProcessTitle } from '../utils/proctitle';
 
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
+import { promptCacheHitRatio } from '#/utils/usage/usage-format';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { StreamingUIController } from './streaming-ui';
 import type { TasksBrowserController } from './tasks-browser';
@@ -530,6 +531,9 @@ export class SessionEventHandler {
     if (event.contextUsage !== undefined) patch.contextUsage = event.contextUsage;
     if (event.contextTokens !== undefined) patch.contextTokens = event.contextTokens;
     if (event.maxContextTokens !== undefined) patch.maxContextTokens = event.maxContextTokens;
+    if (event.usage !== undefined) {
+      patch.promptCacheHitRatio = promptCacheHitRatio(event.usage.total);
+    }
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.permission !== undefined) {
       patch.permissionMode = event.permission;

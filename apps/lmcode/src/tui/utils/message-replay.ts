@@ -14,6 +14,7 @@ import type {
   ToolCallBlockData,
   TranscriptEntry,
 } from '#/tui/types';
+import { promptCacheHitRatio } from '#/utils/usage/usage-format';
 
 import { mediaUrlPartToText } from './media-url';
 import { nextTranscriptId } from './transcript-id';
@@ -54,6 +55,7 @@ export function appStateFromResumeAgent(agent: ResumedAgentState): Partial<AppSt
     contextTokens,
     maxContextTokens,
     contextUsage,
+    promptCacheHitRatio: promptCacheHitRatio(agent.usage.total),
     planMode: agent.plan !== null,
     permissionMode: agent.permission.mode,
   };

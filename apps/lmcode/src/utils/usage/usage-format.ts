@@ -1,9 +1,29 @@
 /**
- * Formatting helpers for the `/usage` slash command.
+ * Usage formatting and ratio helpers shared by `/usage` and the footer.
  *
  * Kept pure + ANSI-free so they're trivial to unit-test; the slash
- * command itself chalks the colour afterwards.
+ * Renderers apply colour afterwards.
  */
+
+import type { TokenUsage } from '@lmcode-cli/lmcode-sdk';
+
+function tokenCount(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * Return the share of input tokens served from the provider prompt cache.
+ * `null` means that no input usage has been recorded yet; a real cache miss
+ * remains distinguishable as `0`.
+ */
+export function promptCacheHitRatio(usage: TokenUsage | undefined): number | null {
+  if (usage === undefined) return null;
+  const cacheRead = tokenCount(usage.inputCacheRead);
+  const totalInput =
+    tokenCount(usage.inputOther) + cacheRead + tokenCount(usage.inputCacheCreation);
+  if (totalInput === 0) return null;
+  return cacheRead / totalInput;
+}
 
 export function formatTokenCount(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '0';

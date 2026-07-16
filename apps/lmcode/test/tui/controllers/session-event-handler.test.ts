@@ -134,6 +134,56 @@ describe('SessionEventHandler', () => {
     expect(host.showStatus).toHaveBeenCalledWith('警告： Heads up', 'yellow');
   });
 
+  it('tracks the cumulative prompt cache hit ratio from status usage', () => {
+    const host = createMockHost();
+    const handler = new SessionEventHandler(host);
+
+    handler.handleEvent(
+      {
+        ...baseEvent('agent.status.updated'),
+        usage: {
+          total: {
+            inputOther: 20,
+            output: 5,
+            inputCacheRead: 60,
+            inputCacheCreation: 20,
+          },
+        },
+      } as unknown as Event,
+      vi.fn(),
+    );
+
+    expect(host.state.appState.promptCacheHitRatio).toBeCloseTo(0.6);
+
+    handler.handleEvent(
+      {
+        ...baseEvent('agent.status.updated'),
+        model: 'next-model',
+      } as unknown as Event,
+      vi.fn(),
+    );
+
+    expect(host.state.appState.model).toBe('next-model');
+    expect(host.state.appState.promptCacheHitRatio).toBeCloseTo(0.6);
+
+    handler.handleEvent(
+      {
+        ...baseEvent('agent.status.updated'),
+        usage: {
+          currentTurn: {
+            inputOther: 0,
+            output: 1,
+            inputCacheRead: 10,
+            inputCacheCreation: 0,
+          },
+        },
+      } as unknown as Event,
+      vi.fn(),
+    );
+
+    expect(host.state.appState.promptCacheHitRatio).toBeNull();
+  });
+
   it('transitions through a simple assistant turn', () => {
     const host = createMockHost();
     const handler = new SessionEventHandler(host);

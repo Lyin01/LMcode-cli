@@ -20,6 +20,7 @@ import type { SessionEventHandler } from '../controllers/session-event-handler';
 import type { SessionReplayRenderer } from '../controllers/session-replay';
 import type { StreamingUIController } from '../controllers/streaming-ui';
 import type { TasksBrowserController } from '../controllers/tasks-browser';
+import { promptCacheHitRatio } from '#/utils/usage/usage-format';
 
 /**
  * Interface exposing only the LmcodeTUI surface that SessionManager needs.
@@ -154,6 +155,7 @@ export class SessionManager {
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
+      promptCacheHitRatio: promptCacheHitRatio(status.usage?.total),
       sessionTitle: session.summary?.title ?? null,
       goal: goal?.objective ?? null,
       goalActive: goal?.status === 'active',
@@ -340,6 +342,7 @@ export class SessionManager {
   // Reset
   // ---------------------------------------------------------------------------
   resetSessionRuntime(): void {
+    this.host.setAppState({ promptCacheHitRatio: null });
     this.host.state.queuedMessages = [];
     this.host.harness.interactiveAgentId = MAIN_AGENT_ID;
     this.host.streamingUI.discardPending();

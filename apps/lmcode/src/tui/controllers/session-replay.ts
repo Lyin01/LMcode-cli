@@ -49,6 +49,7 @@ export interface SessionReplayHost {
   readonly sessionEventHandler: SessionEventHandler;
   setAppState(patch: Partial<AppState>): void;
   showError(msg: string): void;
+  stopWelcomeBreathing(): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
 }
 
@@ -62,6 +63,13 @@ export class SessionReplayRenderer {
       if (main === undefined) {
         this.host.showError('此会话的历史记录不可用。');
         return false;
+      }
+
+      // Replay can append more than a viewport of history before the editor ever
+      // receives input. Freeze the welcome panel first so its timer cannot mutate
+      // an off-screen top line and force pi-tui to clear back to the first page.
+      if (main.replay.length > 0) {
+        this.host.stopWelcomeBreathing();
       }
 
       this.hydrateSnapshot(main);

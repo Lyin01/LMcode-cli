@@ -77,6 +77,7 @@ export class AuthFlowController {
       sessionId: '',
       model: '',
       sessionTitle: null,
+      promptCacheHitRatio: null,
     });
     await this.host.refreshSkillCommands();
   }
@@ -117,6 +118,7 @@ export class AuthFlowController {
       maxContextTokens: 0,
       contextUsage: 0,
       contextTokens: 0,
+      promptCacheHitRatio: null,
     });
   }
 }

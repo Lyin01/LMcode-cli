@@ -15,6 +15,7 @@ function fakeInitialAppState(): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
+    promptCacheHitRatio: null,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -69,6 +70,7 @@ describe('createTUIState', () => {
     expect(state.appState).not.toBe(opts.initialAppState);
     expect(state.appState.model).toBe('test-model');
     expect(state.appState.sessionId).toBe('sess-1');
+    expect(state.appState.promptCacheHitRatio).toBeNull();
     expect(state.startupState).toBe('pending');
 
     // LivePane defaults.

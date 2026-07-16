@@ -23,6 +23,7 @@ interface ReplayDriver {
   readonly streamingUI: StreamingUIController;
   readonly sessionEventHandler: SessionEventHandler;
   init(): Promise<boolean>;
+  refreshSkillCommands(session?: Session): Promise<void>;
   switchToSession(session: Session, statusMessage: string): Promise<void>;
 }
 
@@ -118,6 +119,7 @@ function baseAgentState(
 function makeSession(
   replay: readonly AgentReplayRecord[],
   overrides: Partial<ResumedAgentState> = {},
+  statusUsage?: ResumedAgentState['usage'],
 ): Session {
   const agent = baseAgentState(replay, overrides);
   return {
@@ -132,6 +134,7 @@ function makeSession(
       contextTokens: 0,
       maxContextTokens: 100,
       contextUsage: 0,
+      usage: statusUsage,
     })),
     setApprovalHandler: vi.fn(),
     setQuestionHandler: vi.fn(),
@@ -189,9 +192,10 @@ async function makeDriver(initialSession: Session): Promise<ReplayDriver> {
 async function replayIntoDriver(
   replay: readonly AgentReplayRecord[],
   overrides: Partial<ResumedAgentState> = {},
+  statusUsage?: ResumedAgentState['usage'],
 ): Promise<ReplayDriver> {
   const initial = makeSession([]);
-  const resumed = makeSession(replay, overrides);
+  const resumed = makeSession(replay, overrides, statusUsage);
   const driver = await makeDriver(initial);
   await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
   return driver;
@@ -215,6 +219,91 @@ function backgroundTask(
 }
 
 describe('LmcodeTUI resume message replay', () => {
+  it('syncs the cumulative prompt cache hit ratio from runtime status', async () => {
+    const session = makeSession([], {}, {
+      total: {
+        inputOther: 20,
+        output: 5,
+        inputCacheRead: 60,
+        inputCacheCreation: 20,
+      },
+    });
+
+    const driver = await makeDriver(session);
+
+    expect(driver.state.appState.promptCacheHitRatio).toBeCloseTo(0.6);
+  });
+
+  it('hydrates the prompt cache hit ratio from the resumed main agent snapshot', async () => {
+    const driver = await replayIntoDriver(
+      [],
+      {
+        usage: {
+          total: {
+            inputOther: 10,
+            output: 5,
+            inputCacheRead: 80,
+            inputCacheCreation: 10,
+          },
+        },
+      },
+      {
+        total: {
+          inputOther: 80,
+          output: 5,
+          inputCacheRead: 20,
+          inputCacheCreation: 0,
+        },
+      },
+    );
+
+    expect(driver.state.appState.promptCacheHitRatio).toBeCloseTo(0.8);
+  });
+
+  it('keeps a long replayed transcript visually stable while idle', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T12:00:00.000Z'));
+    try {
+      const replay: AgentReplayRecord[] = [];
+      for (let turn = 1; turn <= 12; turn += 1) {
+        replay.push(message('user', [{ type: 'text', text: `question ${String(turn)}` }]));
+        replay.push(message('assistant', [{ type: 'text', text: `answer ${String(turn)}` }]));
+      }
+
+      const initial = makeSession([]);
+      const resumed = makeSession(replay);
+      const driver = await makeDriver(initial);
+      // Silence the editor's independent idle border animation so render
+      // requests below only observe the replay-created welcome component.
+      await driver.refreshSkillCommands(initial);
+      driver.state.editor.onFirstInput?.();
+      driver.state.appState.recentSessions = [
+        {
+          id: 'ses-recent',
+          title: 'Recent session',
+          updatedAt: Date.now() - 59_000,
+        },
+      ];
+
+      await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
+      const before = driver.state.transcriptContainer.render(100);
+      expect(before.length).toBeGreaterThan(24);
+      const requestRender = vi.spyOn(driver.state.ui, 'requestRender');
+      requestRender.mockClear();
+
+      vi.advanceTimersByTime(2_000);
+      const after = driver.state.transcriptContainer.render(100);
+
+      // Exact render stability matters here: pi-tui treats any changed ANSI byte
+      // above the viewport as a reason to clear the screen and scrollback.
+      expect(after).toEqual(before);
+      expect(requestRender).not.toHaveBeenCalled();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('groups replayed Agent calls from one assistant message using live grouping', async () => {
     const replay: AgentReplayRecord[] = [
       message('user', [{ type: 'text', text: 'run two agents' }]),

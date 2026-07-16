@@ -20,6 +20,7 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 200_000,
+    promptCacheHitRatio: null,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',

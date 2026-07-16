@@ -2,10 +2,55 @@ import { describe, it, expect } from 'vitest';
 
 import {
   formatTokenCount,
+  promptCacheHitRatio,
   renderProgressBar,
   ratioSeverity,
   safeUsageRatio,
 } from '#/utils/usage/usage-format';
+
+describe('promptCacheHitRatio', () => {
+  it('uses all input-token categories as the denominator', () => {
+    expect(
+      promptCacheHitRatio({
+        inputOther: 100,
+        inputCacheRead: 800,
+        inputCacheCreation: 100,
+        output: 50,
+      }),
+    ).toBe(0.8);
+  });
+
+  it('distinguishes no usage from a measured 0% hit rate', () => {
+    expect(promptCacheHitRatio(undefined)).toBeNull();
+    expect(
+      promptCacheHitRatio({
+        inputOther: 0,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+        output: 50,
+      }),
+    ).toBeNull();
+    expect(
+      promptCacheHitRatio({
+        inputOther: 100,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+        output: 50,
+      }),
+    ).toBe(0);
+  });
+
+  it('ignores invalid token counts instead of producing NaN', () => {
+    expect(
+      promptCacheHitRatio({
+        inputOther: Number.NaN,
+        inputCacheRead: 50,
+        inputCacheCreation: -10,
+        output: 0,
+      }),
+    ).toBe(1);
+  });
+});
 
 describe('formatTokenCount', () => {
   it('passes small values through unchanged', () => {

@@ -13,6 +13,7 @@ interface StartupDriver {
   state: TUIState;
   init(): Promise<boolean>;
   initMainTui(): Promise<void>;
+  deleteSession(sessionId: string): Promise<void>;
 }
 
 interface ThemeTrackingDriver extends StartupDriver {
@@ -88,6 +89,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     })),
     createSession: vi.fn(async () => session),
     resumeSession: vi.fn(async () => session),
+    deleteSession: vi.fn(async () => {}),
     listSessions: vi.fn(async () => []),
     close: vi.fn(async () => {}),
     getExperimentalFlags: vi.fn(async () => ({})),
@@ -176,6 +178,41 @@ describe("LmcodeTUI startup", () => {
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.startupState).toBe("ready");
     expect(driver.state.appState.sessionId).toBe("ses-latest");
+  });
+
+  it("clears prompt cache usage when deleting the active session", async () => {
+    const close = vi.fn(async () => {});
+    const session = makeSession({
+      close,
+      getStatus: vi.fn(async () => ({
+        model: "k2",
+        thinkingLevel: "off",
+        permission: "manual",
+        planMode: false,
+        contextTokens: 10,
+        maxContextTokens: 100,
+        contextUsage: 0.1,
+        usage: {
+          total: {
+            inputOther: 20,
+            output: 5,
+            inputCacheRead: 60,
+            inputCacheCreation: 20,
+          },
+        },
+      })),
+    });
+    const deleteSession = vi.fn(async () => {});
+    const harness = makeHarness(session, { deleteSession });
+    const driver = makeDriver(harness, makeStartupInput());
+    await driver.init();
+    expect(driver.state.appState.promptCacheHitRatio).toBeCloseTo(0.6);
+
+    await driver.deleteSession("ses-1");
+
+    expect(driver.state.appState.promptCacheHitRatio).toBeNull();
+    expect(close).toHaveBeenCalledOnce();
+    expect(deleteSession).toHaveBeenCalledWith("ses-1");
   });
 
   it("passes the CLI model override when creating a fresh startup session", async () => {

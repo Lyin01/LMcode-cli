@@ -11,6 +11,7 @@ import chalk from 'chalk';
 
 import {
   formatTokenCount,
+  promptCacheHitRatio,
   ratioSeverity,
   renderProgressBar,
   safeUsageRatio,
@@ -81,12 +82,16 @@ function buildSessionUsageSection(
   let totalInput = 0;
   let totalOutput = 0;
   let totalCacheRead = 0;
+  let totalInputOther = 0;
+  let totalCacheCreation = 0;
   for (const [model, row] of entries) {
     const input = usageInputTotal(row);
     const output = usageNumber(row.output);
     totalInput += input;
     totalOutput += output;
     totalCacheRead += usageNumber(row.inputCacheRead);
+    totalInputOther += usageNumber(row.inputOther);
+    totalCacheCreation += usageNumber(row.inputCacheCreation);
     lines.push(
       `  ${muted(model)}  输入 ${value(formatTokenCount(input))}  输出 ${value(
         formatTokenCount(output),
@@ -102,8 +107,14 @@ function buildSessionUsageSection(
   }
   // Prompt-cache efficiency: how much of the input was served from the
   // provider's prefix cache (DeepSeek cache hits cost ~98% less than misses).
-  if (totalInput > 0) {
-    const hitPct = ((totalCacheRead / totalInput) * 100).toFixed(1);
+  const cacheHitRatio = promptCacheHitRatio({
+    inputOther: totalInputOther,
+    output: totalOutput,
+    inputCacheRead: totalCacheRead,
+    inputCacheCreation: totalCacheCreation,
+  });
+  if (cacheHitRatio !== null) {
+    const hitPct = (cacheHitRatio * 100).toFixed(1);
     lines.push(
       `  ${muted('缓存命中')}  ${value(`${hitPct}%`)}  ${muted(
         `(${formatTokenCount(totalCacheRead)} / ${formatTokenCount(totalInput)} 输入)`,

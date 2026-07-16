@@ -101,6 +101,7 @@ function createInitialAppState(input: LmcodeTUIStartupInput): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
+    promptCacheHitRatio: null,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -543,6 +544,7 @@ export class LmcodeTUI implements TranscriptControllerHost, LifecycleControllerH
   async deleteSession(sessionId: string): Promise<void> {
     if (sessionId === this.session?.id) {
       await this.sessionManager.closeSession('session deleted');
+      this.sessionManager.resetSessionRuntime();
     }
     await this.harness.deleteSession(sessionId);
   }

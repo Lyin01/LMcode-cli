@@ -1,9 +1,8 @@
 /**
- * Footer/status bar — multi-line status display at the bottom of the TUI.
+ * Footer/status bar — single-line status display at the bottom of the TUI.
  *
  * Layout:
- *   Line 1: [yolo] [plan] <model> <cwd>  <git-badge>  <shortcut hints>
- *   Line 2: context: XX.X% (tokens/max)
+ *   [yolo] [plan] <model> <cwd> <git-badge>  context/cache/activity
  */
 
 import type { Component, TUI } from '@earendil-works/pi-tui';
@@ -158,7 +157,12 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
   return `上下文：${pct}`;
 }
 
-// ── Gradient status line for footer line 2 ───────────────────────────
+function formatPromptCacheStatus(ratio: number | null): string | null {
+  if (ratio === null) return null;
+  return `缓存：${(safeUsageRatio(ratio) * 100).toFixed(1)}%`;
+}
+
+// ── Gradient activity status ─────────────────────────────────────────
 
 const BRAND_COLORS = ['#72A4E9', '#A78BFA', '#34D399'];
 const GRADIENT_CYCLE_MS = 4000;
@@ -377,9 +381,11 @@ export class FooterComponent implements Component {
     const leftWidth = visibleWidth(leftLine);
 
     // ── Right side: transient hint (when active) or status info ─────
-    let rightText: string;
+    // The cache segment is the first detail dropped when space is tight, so
+    // adding it cannot hide context/activity on terminals that fitted before.
+    let rightCandidates: readonly string[];
     if (this.transientHint) {
-      rightText = chalk.hex(colors.warning).bold(this.transientHint);
+      rightCandidates = [chalk.hex(colors.warning).bold(this.transientHint)];
     } else {
       const statusLine = buildStatusLine(
         state.streamingPhase,
@@ -389,17 +395,28 @@ export class FooterComponent implements Component {
       const ccDot = state.ccConnectActive
         ? chalk.hex(colors.success)('●')
         : chalk.hex(colors.textDim)('●');
-      rightText = chalk.hex(colors.textDim)(ccDot + ' ' + formatContextStatus(
+      const contextStatus = ccDot + ' ' + formatContextStatus(
         state.contextUsage,
         state.contextTokens,
         state.maxContextTokens,
-      ) + '  ' + statusLine);
+      );
+      const cacheStatus = formatPromptCacheStatus(state.promptCacheHitRatio);
+      const baseStatus = chalk.hex(colors.textDim)(contextStatus + '  ' + statusLine);
+      rightCandidates = cacheStatus === null
+        ? [baseStatus]
+        : [
+            chalk.hex(colors.textDim)(contextStatus + '  ' + cacheStatus + '  ' + statusLine),
+            baseStatus,
+          ];
     }
-    const rightWidth = visibleWidth(rightText);
     const gap = 3;
+    const rightText = rightCandidates.find(
+      (candidate) => leftWidth + gap + visibleWidth(candidate) <= width,
+    );
 
     let line1: string;
-    if (leftWidth + gap + rightWidth <= width) {
+    if (rightText !== undefined) {
+      const rightWidth = visibleWidth(rightText);
       const pad = width - leftWidth - rightWidth;
       line1 = leftLine + ' '.repeat(pad) + rightText;
     } else if (leftWidth <= width) {

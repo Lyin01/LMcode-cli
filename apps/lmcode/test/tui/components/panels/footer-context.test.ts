@@ -29,6 +29,7 @@ function baseState(overrides: Partial<AppState> = {}): AppState {
     contextUsage: 0,
     contextTokens: 0,
     maxContextTokens: 0,
+    promptCacheHitRatio: null,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -119,6 +120,37 @@ describe('FooterComponent — context NaN resilience', () => {
 
     const [line1] = footer.render(120);
     expect(strip(line1 ?? '')).toContain('上下文：0.0%');
+  });
+
+  it('renders the cumulative prompt-cache hit rate when usage is available', () => {
+    const footer = makeFooter(baseState({ promptCacheHitRatio: 0.8 }));
+
+    expect(strip(footer.render(200)[0] ?? '')).toContain('缓存：80.0%');
+
+    footer.setState(baseState({ promptCacheHitRatio: 0 }));
+
+    expect(strip(footer.render(200)[0] ?? '')).toContain('缓存：0.0%');
+  });
+
+  it('hides the prompt-cache segment until input usage is available', () => {
+    const footer = makeFooter(baseState({ promptCacheHitRatio: null }));
+
+    const [line1] = footer.render(200);
+
+    expect(strip(line1 ?? '')).not.toContain('缓存：');
+  });
+
+  it('drops cache details before context and activity on narrow terminals', () => {
+    const footer = makeFooter(
+      baseState({ model: '', workDir: 'C:/x', promptCacheHitRatio: 0.8 }),
+    );
+
+    const [line1] = footer.render(30);
+    const output = strip(line1 ?? '');
+
+    expect(output).toContain('上下文：0.0%');
+    expect(output).toContain('空闲');
+    expect(output).not.toContain('缓存：');
   });
 
   it('highlights the pull request badge separately from git status text', () => {

@@ -33,6 +33,11 @@ const WELCOME_SESSION_SLOTS = 3;
 const LEFT_COLUMN_WIDTH = 22;
 const MIN_BOX_WIDTH = 50;
 
+interface WelcomeRenderCache {
+  readonly width: number;
+  readonly lines: string[];
+}
+
 // ── Logo: block-art "lm" with a blinking terminal cursor ────────────
 const LOGO_FRAMES: [string, string, string][] = [
   ['█ █▀█▀█  ██', '█ █ █ █  ██', '█ █ █ █  ██'], // 光标亮
@@ -132,9 +137,11 @@ export class WelcomeComponent implements Component {
   private colors: ColorPalette;
   private ui: TUI;
   private breatheFrame = 0;
-  private breatheTimer: ReturnType<typeof setInterval> | null = null;
+  private breatheTimer: NodeJS.Timeout | undefined;
   private breathePalette: string[];
   private recentSessions: readonly RecentSession[];
+  private renderFrozen = false;
+  private renderCache: WelcomeRenderCache | undefined;
   borderTitle: string | null = null;
 
   constructor(state: AppState, colors: ColorPalette, ui: TUI, recentSessions: readonly RecentSession[] = []) {
@@ -147,13 +154,14 @@ export class WelcomeComponent implements Component {
   }
 
   stopBreathing(): void {
-    if (this.breatheTimer !== null) {
+    // Once a conversation or replay begins, the welcome panel becomes a
+    // historical snapshot. Any later change above the terminal viewport makes
+    // pi-tui perform a full clear, so preserve the last rendered bytes instead
+    // of resetting to frame zero or refreshing model/session metadata.
+    this.renderFrozen = true;
+    if (this.breatheTimer !== undefined) {
       clearInterval(this.breatheTimer);
-      this.breatheTimer = null;
-    }
-    if (this.breatheFrame !== 0) {
-      this.breatheFrame = 0;
-      this.ui.requestRender();
+      this.breatheTimer = undefined;
     }
   }
 
@@ -164,9 +172,16 @@ export class WelcomeComponent implements Component {
     }, BREATHE_INTERVAL_MS);
   }
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.breathePalette = buildBreathingPalette(this.colors.primary, HUE_STOPS, SUB_STEPS);
+    this.renderCache = undefined;
+  }
 
   render(width: number): string[] {
+    if (this.renderFrozen && this.renderCache?.width === width) {
+      return this.renderCache.lines;
+    }
+
     const breatheColor = this.breathePalette[this.breatheFrame] ?? this.colors.primary;
     const boxColor = chalk.hex(breatheColor);
     const dim = chalk.hex(this.colors.textDim);
@@ -195,7 +210,7 @@ export class WelcomeComponent implements Component {
       versionValue = this.state.version;
     }
 
-    const frameIdx = this.breatheTimer !== null ? Math.floor(this.breatheFrame / 24) % LOGO_FRAMES.length : 0;
+    const frameIdx = this.breatheTimer !== undefined ? Math.floor(this.breatheFrame / 24) % LOGO_FRAMES.length : 0;
     const frame = LOGO_FRAMES[frameIdx]!;
     const logo = [boxColor(frame[0]), boxColor(frame[1]), boxColor(frame[2])];
 
@@ -301,6 +316,7 @@ export class WelcomeComponent implements Component {
     }
     lines.push('');
 
+    this.renderCache = { width, lines };
     return lines;
   }
 
