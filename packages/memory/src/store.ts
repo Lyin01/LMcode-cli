@@ -540,9 +540,6 @@ export class MemoryMemoStore {
       `INSERT INTO memos_fts(rowid, user_need, approach, what_failed, what_worked, source_session_title)
        VALUES (?, ?, ?, ?, ?, ?)`,
     );
-    const deleteFts = this.db.prepare(
-      "INSERT INTO memos_fts(memos_fts, rowid) VALUES ('delete', ?)",
-    );
     this.db.exec('BEGIN TRANSACTION');
     try {
       const oldRow = selectRow.get(id) as { rowid: number } | undefined;
@@ -568,7 +565,7 @@ export class MemoryMemoStore {
         this.db.exec('ROLLBACK');
         return false;
       }
-      deleteFts.run(oldRow.rowid);
+      this.deleteFtsEntry(oldRow.rowid, existing);
       updateFts.run(
         row.rowid,
         toFtsText(updated.userNeed),
@@ -590,16 +587,15 @@ export class MemoryMemoStore {
   private async deleteInternal(id: string): Promise<boolean> {
     await this.init();
     if (this.db === undefined) return false;
+    const existing = await this.get(id);
+    if (existing === undefined) return true;
     const selectRow = this.db.prepare('SELECT rowid FROM memos WHERE id = ?');
     const row = selectRow.get(id) as { rowid: number } | undefined;
     if (row === undefined) return true;
-    const deleteFts = this.db.prepare(
-      "INSERT INTO memos_fts(memos_fts, rowid) VALUES ('delete', ?)",
-    );
     const deleteMemo = this.db.prepare('DELETE FROM memos WHERE id = ?');
     this.db.exec('BEGIN TRANSACTION');
     try {
-      deleteFts.run(row.rowid);
+      this.deleteFtsEntry(row.rowid, existing);
       deleteMemo.run(id);
       this.db.exec('COMMIT');
       this.embeddingJobs.delete(id);
@@ -608,6 +604,28 @@ export class MemoryMemoStore {
       this.db.exec('ROLLBACK');
       throw new Error('Failed to delete memo');
     }
+  }
+
+  /**
+   * Remove a memo's terms from the contentless FTS index. A 'delete' command
+   * on a contentless FTS5 table is a silent no-op unless it carries the exact
+   * column values that were inserted, so always pass the memo being removed.
+   */
+  private deleteFtsEntry(rowid: number, memo: MemoryMemo): void {
+    if (this.db === undefined) return;
+    this.db
+      .prepare(
+        `INSERT INTO memos_fts(memos_fts, rowid, user_need, approach, what_failed, what_worked, source_session_title)
+         VALUES ('delete', ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        rowid,
+        toFtsText(memo.userNeed),
+        toFtsText(memo.approach),
+        toFtsText(memo.whatFailed),
+        toFtsText(memo.whatWorked),
+        toFtsText(memo.sourceSessionTitle ?? ''),
+      );
   }
 
   /** Set the embedding engine. Call once after construction, before any writes. */

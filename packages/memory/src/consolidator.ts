@@ -121,6 +121,14 @@ export async function applyConsolidation(
     const mergedTags = normalizeTags(
       group.memos.flatMap((m) => m.tags ?? []),
     );
+    // Inherit the project scope only when every original shares it — a
+    // mixed group stays global rather than being misfiled into one project.
+    const firstProjectDir = group.memos[0]?.projectDir ?? '';
+    const sharedProjectDir = group.memos.every(
+      (memo) => memo.projectDir === firstProjectDir,
+    )
+      ? firstProjectDir
+      : '';
     const merged = createMemoryMemo({
       sourceSessionId: newest.sourceSessionId,
       sourceSessionTitle: newest.sourceSessionTitle,
@@ -129,6 +137,7 @@ export async function applyConsolidation(
       outcome: group.merged.outcome,
       whatFailed: group.merged.whatFailed,
       whatWorked: group.merged.whatWorked,
+      projectDir: sharedProjectDir,
       tags: group.merged.tags ?? mergedTags,
       extractionSource: 'compaction', // merged memos are post-hoc
     });

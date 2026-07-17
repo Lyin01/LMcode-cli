@@ -92,6 +92,35 @@ describe('SQLite-backed MemoryMemoStore FTS', () => {
     expect(result.total).toBe(0);
   });
 
+  it('does not leak a deleted memo’s keywords into the next memo via rowid reuse', async () => {
+    await store.append(makeMemo({ userNeed: 'normal entry' }));
+    const ghost = makeMemo({ userNeed: 'zebra 即将删除' });
+    await store.append(ghost); // holds MAX(rowid)
+
+    await store.delete(ghost.id); // frees the max rowid
+    await store.append(makeMemo({ userNeed: 'completely unrelated content' })); // reuses it
+
+    // Raw search() returns FTS candidates without list()'s substring
+    // re-filter — this is where stale index entries surface as ghosts.
+    const ghosts = await store.search('zebra');
+    expect(ghosts.length).toBe(0);
+  });
+
+  it('removes pre-update keywords so a later memo cannot inherit them', async () => {
+    const a = makeMemo({ userNeed: 'krypton 更新前关键词' });
+    const b = makeMemo({ userNeed: 'ordinary' });
+    await store.append(a); // rowid 1
+    await store.append(b); // rowid 2
+
+    await store.update(a.id, { userNeed: '更新后的需求' }); // A moves to MAX(rowid), freeing rowid 1
+    await store.delete(a.id);
+    await store.delete(b.id);
+    await store.append(makeMemo({ userNeed: '全新无关内容' })); // reuses rowid 1
+
+    expect(await store.search('krypton')).toHaveLength(0);
+    expect(await store.search('更新后')).toHaveLength(0);
+  });
+
   it('migrates existing entries.jsonl into SQLite on first init', async () => {
     const legacy = createMemoryMemo({
       userNeed: 'Legacy need',

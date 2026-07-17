@@ -206,4 +206,60 @@ describe('applyConsolidation', () => {
     }
     expect(remaining.length).toBe(2);
   });
+
+  it('keeps the merged memo in the project all originals shared', async () => {
+    await store.append(
+      makeMemo('p1', {
+        userNeed: 'Fix login token refresh',
+        approach: 'Add axios interceptor',
+        projectDir: '/proj/alpha',
+      }),
+    );
+    await store.append(
+      makeMemo('p2', {
+        userNeed: 'Fix login token refresh bug',
+        approach: 'Use axios interceptor for refresh',
+        projectDir: '/proj/alpha',
+      }),
+    );
+
+    const plan = await buildConsolidationPlan(store);
+    expect(plan.duplicateGroups.length).toBeGreaterThan(0);
+    await applyConsolidation(store, plan);
+
+    const remaining: MemoryMemo[] = [];
+    for await (const memo of store.read()) {
+      remaining.push(memo);
+    }
+    expect(remaining.length).toBe(1);
+    expect(remaining[0]?.projectDir).toBe('/proj/alpha');
+  });
+
+  it('keeps the merged memo global when originals span multiple projects', async () => {
+    await store.append(
+      makeMemo('x1', {
+        userNeed: 'Fix login token refresh',
+        approach: 'Add axios interceptor',
+        projectDir: '/proj/alpha',
+      }),
+    );
+    await store.append(
+      makeMemo('x2', {
+        userNeed: 'Fix login token refresh bug',
+        approach: 'Use axios interceptor for refresh',
+        projectDir: '/proj/beta',
+      }),
+    );
+
+    const plan = await buildConsolidationPlan(store);
+    expect(plan.duplicateGroups.length).toBeGreaterThan(0);
+    await applyConsolidation(store, plan);
+
+    const remaining: MemoryMemo[] = [];
+    for await (const memo of store.read()) {
+      remaining.push(memo);
+    }
+    expect(remaining.length).toBe(1);
+    expect(remaining[0]?.projectDir).toBe('');
+  });
 });
