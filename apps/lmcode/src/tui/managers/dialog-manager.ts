@@ -40,6 +40,7 @@ export interface DialogManagerHost {
   toggleToolOutputExpansion(): void;
   togglePlanExpansion(): void;
   patchLivePane(patch: Partial<LivePaneState>): void;
+  readonly tasksBrowserController: { close(): void };
 }
 
 /**
@@ -53,6 +54,12 @@ export class DialogManager {
         component: ApprovalPreviewViewer;
         savedChildren: readonly Component[];
         panel: ApprovalPanelComponent;
+      }
+    | undefined;
+  private suspendedDialog:
+    | {
+        activeDialog: TUIState['activeDialog'];
+        children: readonly Component[];
       }
     | undefined;
 
@@ -76,6 +83,42 @@ export class DialogManager {
     this.host.state.editorContainer.clear();
     this.host.state.editorContainer.addChild(this.host.state.editor);
     this.host.state.ui.setFocus(this.host.state.editor);
+    this.host.state.ui.requestRender();
+  }
+
+  /**
+   * Capture the dialog currently occupying the editor container so a modal
+   * approval/question panel can restore it afterwards. A fullscreen overlay
+   * (tasks browser) owns the UI tree outright — mounting into the detached
+   * editor container would leave the panel invisible and the agent waiting
+   * forever, so it is closed first.
+   */
+  private suspendCurrentDialog(): void {
+    if (this.suspendedDialog !== undefined) return;
+    if (this.host.state.tasksBrowser !== undefined) {
+      this.host.tasksBrowserController.close();
+    }
+    this.suspendedDialog = {
+      activeDialog: this.host.state.activeDialog,
+      children: [...this.host.state.editorContainer.children],
+    };
+  }
+
+  private resumeSuspendedDialog(): void {
+    const suspended = this.suspendedDialog;
+    this.suspendedDialog = undefined;
+    if (suspended === undefined) {
+      this.restoreEditor();
+      return;
+    }
+    this.host.state.activeDialog = suspended.activeDialog;
+    this.host.state.editorContainer.clear();
+    for (const child of suspended.children) {
+      this.host.state.editorContainer.addChild(child);
+    }
+    const focusTarget = (suspended.children[0] ??
+      this.host.state.editor) as Component & Focusable;
+    this.host.state.ui.setFocus(focusTarget);
     this.host.state.ui.requestRender();
   }
 
@@ -232,6 +275,7 @@ export class DialogManager {
   // Approval panel
   // =========================================================================
   showApprovalPanel(payload: ApprovalPanelData): void {
+    this.suspendCurrentDialog();
     this.host.patchLivePane({ pendingApproval: { data: payload } });
     notifyTerminalOnce(this.host.state, `approval:${payload.id}`, {
       title: 'LMcode 需要审批',
@@ -263,7 +307,7 @@ export class DialogManager {
     }
     this.activeApprovalPanel = undefined;
     this.host.patchLivePane({ pendingApproval: null });
-    this.restoreEditor();
+    this.resumeSuspendedDialog();
   }
 
   private openApprovalPreview(panel: ApprovalPanelComponent, block: ApprovalPreviewBlock): void {
@@ -302,6 +346,7 @@ export class DialogManager {
   // Question dialog
   // =========================================================================
   showQuestionDialog(payload: QuestionPanelData): void {
+    this.suspendCurrentDialog();
     this.host.patchLivePane({ pendingQuestion: { data: payload } });
     notifyTerminalOnce(this.host.state, `question:${payload.id}`, {
       title: 'LMcode 需要您的回答',
@@ -326,7 +371,7 @@ export class DialogManager {
 
   hideQuestionDialog(): void {
     this.host.patchLivePane({ pendingQuestion: null });
-    this.restoreEditor();
+    this.resumeSuspendedDialog();
   }
 
 }
