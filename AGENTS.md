@@ -93,7 +93,7 @@
 - **绝不要在 TUI 组件或渲染路径中使用 `console.log` / `console.warn` / `console.error`** —— 这会破坏终端渲染。
 - `console.log` 仅在纯 CLI、非交互式流程中允许（例如 `channel-setup.ts`）。
 - 运行时错误应通过记录器（logger）处理或写入应用日志文件，而不是打印到 stdout/stderr。
-- `apps/lmcode/src/tui/tui-state.ts` 中现有的 `console.error` 应视为遗留逃生口，不应作为模式复制。
+- `apps/lmcode/src/tui/tui-state.ts` 曾有 `console.error` 遗留逃生口（已移除）；请勿重新引入。
 
 ### 生成的文件
 
@@ -309,7 +309,7 @@ LMcode 内置了 MCP 客户端。Agent 可以通过模型上下文协议（Model
   ├─ 已安装的服务器（状态 + 工具数量）
   ├─ 回车 → 安装+启动（推荐）/ 切换启用/禁用（已安装）
   ├─ d → 卸载（从 mcp.json 移除 + 断开连接）
-  └─ 内置推荐：Playwright（浏览器自动化）
+  └─ 内置推荐：Peekaboo（macOS 桌面自动化）、Chrome DevTools（浏览器自动化）
 ```
 
 ### 添加推荐
@@ -318,7 +318,7 @@ LMcode 内置了 MCP 客户端。Agent 可以通过模型上下文协议（Model
 
 ### 超时设置
 
-- Playwright 推荐：`startupTimeoutMs: 300_000`（5 分钟——首次启动会下载 Chromium）。
+- 内置推荐：`startupTimeoutMs` 统一为 `MCP_RECOMMENDED_STARTUP_TIMEOUT_MS = 300_000`（5 分钟——首次启动可能下载浏览器二进制）。
 - 全局默认：`DEFAULT_STARTUP_TIMEOUT_MS = 60_000`。
 
 ---
@@ -363,7 +363,7 @@ LMcode 内置了 MCP 客户端。Agent 可以通过模型上下文协议（Model
 
 - **TUI**：`src/tui/commands/cc.ts` —— 带启动/停止/重启的面板。
 - **平台**：macOS 使用 `launchd`、Linux 使用 `systemd`、Windows 使用 `pm2`。
-- **页脚圆点**：cc-connect 激活时显示 `●` 绿色，否则变暗。每 3 秒通过 `refreshCcStatus()` 刷新。
+- **页脚圆点**：cc-connect 激活时显示 `●` 绿色，否则变暗。每 30 秒轮询刷新（`LifecycleController.startCcConnectPolling()`）；`refreshCcStatus()` 仅在 /cc 操作后做一次 3 秒延迟复查。
 - **配置**：`src/tui/commands/cc-connect.ts` —— 频道设置向导。
 
 ### 更新（`/update`）
@@ -417,7 +417,7 @@ Agent 拥有由 `@lmcode-cli/memory` 包提供的记忆系统。定位为"任务
 - **提取触发器**：
   - 压缩：`packages/agent-core/src/agent/compaction/full.ts` 中的 `extractAndStoreMemos()` —— 扫描压缩摘要中的 `memory-memo` 块。
   - 会话退出：`packages/agent-core/src/agent/index.ts` 中的 `extractMemoriesOnExit()` —— 取最近 30 条消息 × 300 字符，调用 LLM。
-  - 空闲定时器：用户无输入 10 分钟后，`LmcodeTUI.performIdleMemoryExtraction()` 调用 `session.extractMemoriesOnExit()`。冷却时间：10 分钟。压缩提取会更新冷却时间戳以避免重复。
+  - 空闲定时器：用户无输入 15 分钟后，`LifecycleController.performIdleMemoryExtraction()` 调用 `session.extractMemoriesOnExit()`。冷却时间：15 分钟。压缩提取会更新冷却时间戳以避免重复。
   - 手动写入：`packages/agent-core/src/tools/builtin/memory/memory-write.ts` 中的 `MemoryWrite` 工具——当用户明确要求时，模型可以立即保存结构化备忘录，例如"保存到记忆"、"保存到备忘录"或"总结并保存"。这些条目被标记为 `extractionSource: 'manual'`。
 - **评分**：关键词 Jaccard 相似度（45%）+ 90 天衰减（25%）+ 使用提升（15%）+ 项目亲和度（10%）+ 与当前项目标签云的标签重叠（5%）。纯规则实现，零 LLM 开销。
 
@@ -454,14 +454,14 @@ Agent 拥有由 `@lmcode-cli/memory` 包提供的记忆系统。定位为"任务
 1. **定向（Orient）** —— `MemoryConsolidatePlan` 扫描所有记忆并报告概览统计（数量、结果分布、时间范围）。
 2. **收集（Gather）** —— 模型审查程序化计划，语义检查误报、矛盾以及额外的过期条目。
 3. **合并（Consolidate）** —— 模型向用户展示合并计划。
-4. **修剪（Prune）** —— 用户确认后，`MemoryConsolidateApply` 删除原始条目，追加合并后的记录（带正确的 JSONL 信封），并重置 dream 跟踪器。
+4. **修剪（Prune）** —— 用户确认后，`MemoryConsolidateApply` 删除原始条目，追加合并后的记录，并重置 dream 跟踪器。
 
 包含自动提醒：自上次 dream 以来 >= 24 小时且 >= 5 个会话时，在轮次的第一步注入一条建议。
 
 `/dream` 全局操作，跨越所有项目的记忆。没有 `projectDir` 的旧条目仍被考虑，因此现有数据不会丢失。合并后的记录继承原始标签的并集。
 
 - **跟踪器**：`packages/memory/src/dream.ts` —— `DreamTracker`，持久化到 `<lmcodeHomeDir>/dream-lock.json`（默认 `~/.lmcode/dream-lock.json`）。
-- **存储**：`packages/memory/src/store.ts` —— `MemoryMemoStore`，持久化到 `<lmcodeHomeDir>/memory/entries.jsonl`。
+- **存储**：`packages/memory/src/store.ts` —— `MemoryMemoStore`，持久化到 `<lmcodeHomeDir>/memory/memos.sqlite`（旧版 `entries.jsonl` 已迁移并保留为 `.bak`）。
 - **合并器**：`packages/memory/src/consolidator.ts` —— `buildConsolidationPlan` / `applyConsolidation`。
 - **工具**：`packages/agent-core/src/tools/builtin/memory/memory-consolidate.ts` —— `MemoryConsolidatePlan` / `MemoryConsolidateApply`。
 - **技能**：`packages/agent-core/src/skill/builtin/dream.ts` + `dream.md`。
