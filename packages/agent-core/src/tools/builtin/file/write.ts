@@ -14,6 +14,7 @@ import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import {
+  pinPhysicalParentDirectory,
   resolveRealPathAccessPath,
   revalidateRealPathAccessPath,
 } from '../../policies/path-access';
@@ -100,6 +101,7 @@ export class WriteTool implements BuiltinTool<WriteInput> {
     }
 
     try {
+      await pinPhysicalParentDirectory(safePath, { jian: this.jian });
       const mode = args.mode ?? 'overwrite';
       if (mode === 'append') {
         await this.jian.writeText(safePath, args.content, { mode: 'a' });

@@ -11,15 +11,13 @@ export class PlanModeGuardDenyPermissionPolicy implements PermissionPolicy {
     if (!this.agent.planMode.isActive) return;
 
     const toolName = context.toolCall.name;
-    if (toolName === 'Write' || toolName === 'Edit') {
+
+    // Gate on declared file write accesses instead of a tool-name list so
+    // MultiEdit (and any future write tool) cannot slip past the guard.
+    const writeAccesses = writeFileAccesses(context);
+    if (writeAccesses.length > 0) {
       const planFilePath = this.agent.planMode.planFilePath;
-      if (planFilePath === null) {
-        return {
-          kind: 'deny',
-          message: planModeWriteDeniedMessage(planFilePath),
-        };
-      }
-      if (writesOnlyPlanFile(context, planFilePath)) {
+      if (planFilePath !== null && writeAccesses.every((access) => access.path === planFilePath)) {
         return;
       }
       return {
@@ -46,15 +44,6 @@ export class PlanModeGuardDenyPermissionPolicy implements PermissionPolicy {
 
     return;
   }
-}
-
-function writesOnlyPlanFile(
-  context: PermissionPolicyContext,
-  planFilePath: string,
-): boolean {
-  const writeAccesses = writeFileAccesses(context);
-  if (writeAccesses.length === 0) return false;
-  return writeAccesses.every((access) => access.path === planFilePath);
 }
 
 function planModeWriteDeniedMessage(planFilePath: string | null): string {

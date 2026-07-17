@@ -177,7 +177,7 @@ describe('AskUserQuestionTool', () => {
     expect(result.output).toContain('answers');
   });
 
-  it('resolves question rpc error responses as dismissed answers', async () => {
+  it('surfaces question rpc error responses as errors', async () => {
     const { tool } = makeTool({
       requestQuestion: async () => {
         throw new LmcodeError(ErrorCodes.INTERNAL, 'JSON-RPC question error response');
@@ -191,15 +191,9 @@ describe('AskUserQuestionTool', () => {
       signal,
     });
 
-    expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('dismissed');
-    expect(typeof result.output).toBe('string');
-    const output = typeof result.output === 'string' ? result.output : '';
-    expect(JSON.parse(output)).toEqual({
-      answers: {},
-      note: 'User dismissed the question without answering.',
-    });
-    expect(result.output).not.toContain('Do NOT call this tool again');
+    expect(result).toMatchObject({ isError: true });
+    expect(result.output).toContain('Failed to ask the user');
+    expect(result.output).toContain('JSON-RPC question error response');
   });
 
   it('propagates aborts while waiting for question rpc', async () => {

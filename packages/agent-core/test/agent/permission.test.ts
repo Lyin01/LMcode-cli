@@ -1115,6 +1115,42 @@ describe('User-configured permission policies', () => {
     expect(allowed.requestApproval).toHaveBeenCalledTimes(1);
   });
 
+  it('applies argument-bearing deny rules to matcher-less tools by tool name', async () => {
+    // MCP/user tools have no matchesRule matcher; an argument-bearing
+    // deny rule must still fire on the tool name instead of silently
+    // never matching.
+    const { manager, requestApproval } = makePermissionManager(async () => ({
+      decision: 'approved',
+    }));
+    manager.rules.push({
+      decision: 'deny',
+      scope: 'user',
+      pattern: 'mcp__fs__write_file(/etc/**)',
+      reason: 'filesystem writes are blocked',
+    });
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_mcp_deny',
+          toolName: 'mcp__fs__write_file',
+          args: { path: '/etc/cron.d/x', content: 'x' },
+          execution: {
+            description: 'MCP tool mcp__fs__write_file',
+            accesses: ToolAccesses.none(),
+            approvalRule: 'mcp__fs__write_file',
+            execute: async () => ({ output: '' }),
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({
+      block: true,
+      reason:
+        'Tool "mcp__fs__write_file" was denied by permission rule. Reason: filesystem writes are blocked',
+    });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
   it.each([
     [{ reason: undefined }, 'Tool "Bash" was denied by permission rule.'],
     [{ reason: '' }, 'Tool "Bash" was denied by permission rule.'],
@@ -1347,7 +1383,7 @@ describe('Plan mode tool approve policy', () => {
     },
   );
 
-  it('denies active plan-mode writes that have no file write access', async () => {
+  it('lets active plan-mode writes with no declared file write access fall through', async () => {
     const planFilePath = '/workspace/.lmcode/plans/current.md';
     const args = { path: planFilePath, content: '# Plan' };
     const { manager, requestApproval } = makePermissionManager(
@@ -1355,6 +1391,9 @@ describe('Plan mode tool approve policy', () => {
       { planModeActive: true, planFilePath },
     );
 
+    // The guard keys on declared write accesses rather than tool names: a
+    // Write execution without write accesses is not a file write, so it
+    // falls through to the ordinary default tool policy.
     await expect(
       manager.beforeToolCall(
         hookContext({
@@ -1367,13 +1406,74 @@ describe('Plan mode tool approve policy', () => {
           },
         }),
       ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).not.toHaveBeenCalled();
+
+  });
+
+  it('denies MultiEdit on a non-plan file while plan mode is active', async () => {
+    const planFilePath = '/workspace/.lmcode/plans/current.md';
+    const args = {
+      path: '/workspace/src/app.ts',
+      edits: [{ old_string: 'a', new_string: 'b' }],
+    };
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { planModeActive: true, planFilePath },
+    );
+
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_multiedit_plan_deny',
+          toolName: 'MultiEdit',
+          args,
+          execution: {
+            ...testExecution('MultiEdit', args),
+            accesses: ToolAccesses.readWriteFile('/workspace/src/app.ts'),
+          },
+        }),
+      ),
     ).resolves.toMatchObject({
       block: true,
       reason: expect.stringContaining('Plan mode is active'),
     });
 
     expect(requestApproval).not.toHaveBeenCalled();
-    
+
+  });
+
+  it('lets MultiEdit on only the plan file fall through to ordinary approval', async () => {
+    const planFilePath = '/workspace/.lmcode/plans/current.md';
+    const args = {
+      path: planFilePath,
+      edits: [{ old_string: '# Draft', new_string: '# Plan' }],
+    };
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { planModeActive: true, planFilePath },
+    );
+
+    // The guard does not block a plan-file-only MultiEdit. Unlike
+    // Write/Edit it is not auto-approved by plan-mode-tool-approve, so it
+    // reaches the ordinary fallback approval.
+    await expect(
+      manager.beforeToolCall(
+        hookContext({
+          id: 'call_multiedit_plan_approve',
+          toolName: 'MultiEdit',
+          args,
+          execution: {
+            ...testExecution('MultiEdit', args),
+            accesses: ToolAccesses.readWriteFile(planFilePath),
+          },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+
   });
 
   it('approves ExitPlanMode directly when plan mode is inactive', async () => {
@@ -2161,6 +2261,24 @@ describe('Approval cancellation', () => {
 
     
     
+  });
+});
+
+describe('Approval without an RPC handler', () => {
+  it('rejects asks fail-closed when no approval handler is connected', async () => {
+    // Embedders using agent-core without wiring agent.rpc.requestApproval
+    // must not get a silent approve: with nobody to answer the prompt, an
+    // ask blocks instead.
+    const { manager } = makePermissionManager(async () => ({ decision: 'approved' }), {
+      withoutRpc: true,
+    });
+    manager.setMode('manual');
+
+    await expect(manager.beforeToolCall(hookContext({ id: 'call_no_rpc' }))).resolves
+      .toMatchObject({
+        block: true,
+        reason: expect.stringContaining('No approval handler is connected'),
+      });
   });
 });
 
@@ -3288,28 +3406,37 @@ describe('Permission rule helpers', () => {
     expect(ruleMatches(permissionRule('Bad(unclosed'), 'Bad', {})).toBe(false);
   });
 
-  it('does not match rule arguments without an execution matcher', () => {
+  it('matches argument-bearing rules by tool name when the tool has no execution matcher', () => {
+    // MCP/user/custom tools provide no matchesRule matcher; per the
+    // PermissionRule contract their rules match by name only, so a
+    // rule with arguments still takes effect instead of silently missing.
+    expect(
+      ruleMatches(
+        permissionRule('mcp__fs__write_file(/etc/**)', 'deny'),
+        'mcp__fs__write_file',
+        {},
+      ),
+    ).toBe(true);
     expect(
       ruleMatches(permissionRule('Custom("query":"a.b")'), 'Custom', {
         nested: { value: 1 },
         query: 'a.b',
       }),
-    ).toBe(false);
-    expect(
-      ruleMatches(permissionRule('Bash("command":"git status")'), 'Bash', {
-        command: 'git status',
-      }),
-    ).toBe(false);
-    expect(
-      ruleMatches(permissionRule('Bash(^git status$)'), 'Bash', {
-        command: 'git status',
-      }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       ruleMatches(permissionRule('Bash(^git status$)'), 'Bash', {
         command: 'npm test',
       }),
+    ).toBe(true);
+    // The tool-name half of the pattern still gates the match.
+    expect(
+      ruleMatches(
+        permissionRule('mcp__fs__write_file(/etc/**)', 'deny'),
+        'mcp__fs__read_file',
+        {},
+      ),
     ).toBe(false);
+    // Malformed patterns still never match.
     expect(
       ruleMatches(permissionRule('Read([invalid'), 'Read', {
         path: '/workspace/a.ts',
@@ -3323,7 +3450,9 @@ describe('Permission rule helpers', () => {
     expect(ruleMatches(permissionRule('Read()'), 'Write', { path: '/workspace/a.ts' })).toBe(false);
   });
 
-  it('matches paths case-insensitively so case-only variants cannot bypass rules', () => {
+  it('derives path case sensitivity from the path class', () => {
+    // POSIX filesystems are case-sensitive: /repo/Sub and /repo/sub are
+    // different files, so a case-only variant must NOT match the rule.
     expect(
       ruleMatches(permissionRule('Edit(/repo/secrets.env)'), 'Edit', { path: '/repo/Secrets.env' }, {
         matchesRule: (ruleArgs) =>
@@ -3332,13 +3461,35 @@ describe('Permission rule helpers', () => {
             pathClass: 'posix',
           }),
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       ruleMatches(permissionRule('Edit(/repo/Sub/**)'), 'Edit', { path: '/repo/sub/a.ts' }, {
         matchesRule: (ruleArgs) =>
           matchesPathRuleSubject(ruleArgs, '/repo/sub/a.ts', {
             cwd: '/repo',
             pathClass: 'posix',
+          }),
+      }),
+    ).toBe(false);
+    // Win32 filesystems are case-insensitive: case-only variants refer to
+    // the same file and must not bypass the rule.
+    expect(
+      ruleMatches(permissionRule('Edit(C:/repo/Sub/**)'), 'Edit', { path: 'C:\\repo\\sub\\a.ts' }, {
+        matchesRule: (ruleArgs) =>
+          matchesPathRuleSubject(ruleArgs, 'C:\\repo\\sub\\a.ts', {
+            cwd: 'C:\\repo',
+            pathClass: 'win32',
+          }),
+      }),
+    ).toBe(true);
+    // An explicit caseInsensitivePaths option still wins over the derived default.
+    expect(
+      ruleMatches(permissionRule('Edit(/repo/Sub/**)'), 'Edit', { path: '/repo/sub/a.ts' }, {
+        matchesRule: (ruleArgs) =>
+          matchesPathRuleSubject(ruleArgs, '/repo/sub/a.ts', {
+            cwd: '/repo',
+            pathClass: 'posix',
+            caseInsensitivePaths: true,
           }),
       }),
     ).toBe(true);
@@ -3381,6 +3532,7 @@ function makePermissionManager(
     readonly hooks?: Agent['hooks'];
     readonly mode?: PermissionMode | undefined;
     readonly wolfpackActive?: boolean | undefined;
+    readonly withoutRpc?: boolean | undefined;
   } = {},
 ): {
   manager: PermissionManager;
@@ -3397,7 +3549,7 @@ function makePermissionManager(
     emitStatusUpdated: vi.fn(),
     records: { logRecord: record },
     replayBuilder: { push: vi.fn() },
-    rpc: { requestApproval },
+    rpc: options.withoutRpc === true ? undefined : { requestApproval },
     hooks: options.hooks,
     planMode: {
       get isActive() {

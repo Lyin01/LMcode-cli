@@ -445,6 +445,41 @@ export async function revalidateRealPathAccessPath(
 }
 
 /**
+ * Best-effort TOCTOU pin for file writes: immediately before writing to an
+ * approved physical path, re-resolve the parent directory and confirm it is
+ * still the directory the approval covered. A local adversary could
+ * otherwise swap an intermediate directory for a symlink between
+ * `revalidateRealPathAccessPath()` and the final write, redirecting the
+ * write outside the approved target. Fails closed on drift; a failed
+ * re-resolution (e.g. an environment without `realpath`) keeps the prior
+ * behavior and lets the write surface any real I/O error.
+ */
+export async function pinPhysicalParentDirectory(
+  safePath: string,
+  options: { readonly jian: Pick<Jian, 'realpath' | 'pathClass'> },
+): Promise<void> {
+  const { jian } = options;
+  const parent = dirname(safePath);
+  let physicalParent: string;
+  try {
+    physicalParent = normalize(await jian.realpath(parent));
+  } catch {
+    return;
+  }
+  const pathClass = jian.pathClass();
+  const expected = pathClass === 'win32' ? parent.toLowerCase() : parent;
+  const actual = pathClass === 'win32' ? physicalParent.toLowerCase() : physicalParent;
+  if (actual !== expected) {
+    throw new PathSecurityError(
+      'PATH_INVALID',
+      safePath,
+      physicalParent,
+      `The parent directory for "${safePath}" changed after access was approved. Retry the tool call.`,
+    );
+  }
+}
+
+/**
  * Throw `PathSecurityError` if `path` is outside the workspace, a known
  * sensitive file, or an empty string. Returns the canonical absolute path
  * when the check passes.

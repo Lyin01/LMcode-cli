@@ -21,6 +21,7 @@ import {
   type LmcodeSlashCommand,
   type SkillListSession,
 } from './commands';
+import { resetGoalPanelState } from './commands/goal';
 
 import type { HelpPanelCommand } from './components/dialogs/help-panel';
 import { AuthFlowController } from './controllers/auth-flow';
@@ -86,11 +87,14 @@ export interface LmcodeTUIStartupInput {
 }
 
 function createInitialAppState(input: LmcodeTUIStartupInput): AppState {
+  // Default to 'manual' (no footer badge) rather than 'yolo' (which paints a
+  // misleading YES badge on the picker startup path). The real permission is
+  // synced from the session via syncRuntimeState right after creation.
   const startupPermission: PermissionMode = input.cliOptions.auto
     ? 'auto'
     : input.cliOptions.yolo
       ? 'yolo'
-      : 'yolo';
+      : 'manual';
   return {
     model: '',
     workDir: input.workDir,
@@ -688,6 +692,9 @@ export class LmcodeTUI implements TranscriptControllerHost, LifecycleControllerH
 
   clearTranscriptAndRedraw(): void {
     this.sessionEventHandler.stopAllMcpServerStatusSpinners();
+    // The /goal status panel's dismiss timer targets this transcript — drop
+    // its stale references before the tree is rebuilt.
+    resetGoalPanelState();
     this.transcriptController.clearAndRedraw();
   }
 
@@ -737,6 +744,13 @@ export class LmcodeTUI implements TranscriptControllerHost, LifecycleControllerH
   // =========================================================================
 
   mountEditorReplacement(panel: Component & Focusable): void {
+    // Let the outgoing overlay release timers/listeners before detaching it
+    // (e.g. the /btw spinner interval), otherwise it keeps firing renders
+    // while no longer in the tree.
+    const outgoing = this.state.editorContainer.children[0] as
+      | (Component & { cleanup?: () => void })
+      | undefined;
+    if (outgoing !== undefined && outgoing !== panel) outgoing.cleanup?.();
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(panel);
     this.state.ui.setFocus(panel);

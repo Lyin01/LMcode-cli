@@ -221,11 +221,7 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
       ) {
         return {
           isError: true,
-          output: `One-shot cron ${JSON.stringify(
-            normalizedCron,
-          )} would not fire until ${new Date(
-            firstFire,
-          ).toISOString()} (more than a year out). If you meant "today" or a near date, the pinned day/month has already passed this year — pick a future date or use wildcards.`,
+          output: oneShotTooFarOutput(normalizedCron, firstFire),
         };
       }
     }
@@ -256,6 +252,25 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
         // one-shot as already overdue and fire it on the next tick
         // with a phantom `coalescedCount > 1`.
         const nowMs = this.manager.clocks.wallNow();
+
+        // Re-run the one-shot "rolled to next year" guard against the
+        // execution-time clock. Manual-approval mode can leave
+        // resolveExecution() and execute() minutes apart; if the wait
+        // crossed the pinned minute, the prepare-time guard's verdict is
+        // stale and inserting now would silently schedule the reminder a
+        // year out — the exact footgun the guard exists to prevent.
+        if (!recurring) {
+          const firstFire = computeNextCronRun(parsed, nowMs);
+          if (
+            firstFire !== null &&
+            firstFire - nowMs > ONE_SHOT_MAX_FUTURE_MS
+          ) {
+            return {
+              isError: true,
+              output: oneShotTooFarOutput(normalizedCron, firstFire),
+            };
+          }
+        }
 
         // Re-check the session cap against the live store size so two
         // concurrently-prepared CronCreate calls cannot collectively
@@ -305,6 +320,14 @@ export class CronCreateTool implements BuiltinTool<CronCreateInput> {
       },
     };
   }
+}
+
+function oneShotTooFarOutput(cron: string, firstFire: number): string {
+  return `One-shot cron ${JSON.stringify(
+    cron,
+  )} would not fire until ${new Date(
+    firstFire,
+  ).toISOString()} (more than a year out). If you meant "today" or a near date, the pinned day/month has already passed this year — pick a future date or use wildcards.`;
 }
 
 function formatOutput(o: CronCreateOutput): string {

@@ -68,8 +68,15 @@ export async function buildConsolidationPlan(
   const summaries = allMemos.map(toSummary);
   const duplicateGroups = findDuplicateGroups(summaries);
   const relatedGroups = findRelatedGroups(summaries, duplicateGroups);
-  const resolved = findResolved(summaries);
-  const stale = findStale(summaries, STALE_DAYS);
+  // A memo in a duplicate group is already handled by that group's merge —
+  // counting it again as resolved/stale would double-delete and could push
+  // memosAfterConsolidation negative.
+  const groupedIds = new Set(
+    duplicateGroups.flatMap((group) => group.memos.map((memo) => memo.id)),
+  );
+  const ungrouped = summaries.filter((memo) => !groupedIds.has(memo.id));
+  const resolved = findResolved(ungrouped);
+  const stale = findStale(ungrouped, STALE_DAYS);
 
   const dedupedCount = duplicateGroups.reduce((acc, g) => acc + g.memos.length - 1, 0);
 
@@ -97,23 +104,24 @@ export async function buildConsolidationPlan(
 export async function applyConsolidation(
   store: MemoryMemoStore,
   plan: ConsolidationPlan,
-): Promise<{ deleted: number; created: number }> {
+): Promise<{ deleted: number; created: number; skipped: number }> {
   let deleted = 0;
   let created = 0;
+  let skipped = 0;
 
   // Delete resolved memos
   for (const memo of plan.resolved) {
-    await store.delete(memo.id);
-    deleted++;
+    if (await deleteVerified(store, memo)) deleted++;
+    else skipped++;
   }
 
   // Delete stale memos (just remove, they're outdated)
   for (const memo of plan.stale) {
-    await store.delete(memo.id);
-    deleted++;
+    if (await deleteVerified(store, memo)) deleted++;
+    else skipped++;
   }
 
-  // Handle duplicates: delete originals, append merged
+  // Handle duplicates: append merged first, then delete originals
   for (const group of plan.duplicateGroups) {
     const newest = group.memos.reduce((a, b) =>
       a.recordedAt > b.recordedAt ? a : b,
@@ -142,18 +150,35 @@ export async function applyConsolidation(
       extractionSource: 'compaction', // merged memos are post-hoc
     });
 
-    // Delete all originals
-    for (const memo of group.memos) {
-      await store.delete(memo.id);
-      deleted++;
-    }
-
-    // Append merged
+    // Append the merged record BEFORE deleting originals: if this append
+    // fails, the group is left untouched instead of losing the originals.
     await store.append(merged);
     created++;
+
+    // Delete all originals
+    for (const memo of group.memos) {
+      if (await deleteVerified(store, memo)) deleted++;
+      else skipped++;
+    }
   }
 
-  return { deleted, created };
+  return { deleted, created, skipped };
+}
+
+/**
+ * Delete only when the plan entry still matches the stored memo. The plan
+ * round-trips through the LLM, so an id may be hallucinated, stale, or point
+ * at a memo that changed since the plan was shown to the user. `delete()`
+ * returns true for missing ids by design, so without this check phantom ids
+ * would silently inflate the deleted count.
+ */
+async function deleteVerified(
+  store: MemoryMemoStore,
+  memo: MemoryMemoSummary,
+): Promise<boolean> {
+  const existing = await store.get(memo.id);
+  if (existing === undefined || existing.recordedAt !== memo.recordedAt) return false;
+  return store.delete(memo.id);
 }
 
 function findDuplicateGroups(memos: MemoryMemoSummary[]): DuplicateGroup[] {

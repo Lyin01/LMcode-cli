@@ -546,6 +546,10 @@ export class StreamingUIController {
     const { state } = this.host;
     this._pendingAgentGroup = null;
     this._pendingReadGroup = null;
+    // A new assistant block begins — reset the dedup baseline so a message
+    // that is byte-identical to the previous one (across steps or across
+    // goal/cron turns) still renders instead of being swallowed as a dup.
+    this.lastAssistantText = '';
     const entry = {
       id: nextTranscriptId(),
       kind: 'assistant' as const,
@@ -630,6 +634,9 @@ export class StreamingUIController {
     this.host.transcriptController.commit();
     this._activeThinkingComponent = undefined;
     this._thinkingEntry = undefined;
+    // Reset the dedup baseline for the next thinking block (same-step or a
+    // later turn) — an identical text must not be skipped as a duplicate.
+    this.lastThinkingText = '';
     this.host.state.ui.requestRender();
   }
 
@@ -743,6 +750,7 @@ export class StreamingUIController {
     }
 
     if (matchedCall?.name === 'AskUserQuestion') {
+      matchedCall.result = result;
       const completed = new ToolCallComponent(
         matchedCall,
         result,
@@ -753,7 +761,21 @@ export class StreamingUIController {
       );
       if (state.toolOutputExpanded) completed.setExpanded(true);
       if (state.planExpanded) completed.setPlanExpanded(true);
+      // The completed card needs a transcript entry too — without one a
+      // /revoke rebuild (`replaceEntriesAndRebuild`) silently drops the
+      // question card, and commit() folding skips it as well.
+      const entry: TranscriptEntry = {
+        id: nextTranscriptId(),
+        kind: 'tool_call',
+        turnId: matchedCall.turnId ?? this._currentTurnId,
+        renderMode: 'plain',
+        content: matchedCall.name,
+        toolCallData: matchedCall,
+      };
+      this.host.pushTranscriptEntry(entry);
+      this.host.transcriptController.registerLiveComponent(completed, entry);
       state.transcriptContainer.addChild(completed);
+      this.host.transcriptController.commit();
       state.ui.requestRender();
     }
   }

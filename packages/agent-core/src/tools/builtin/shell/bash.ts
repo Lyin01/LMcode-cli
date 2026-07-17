@@ -582,7 +582,10 @@ export class BashTool implements BuiltinTool<BashInput> {
     }
 
     if (timeoutMs !== undefined) {
-      setTimeout(() => {
+      // unref so a completed background task does not keep the CLI
+      // process alive until this timer fires (default 10 min, max 24 h).
+      // The callback is idempotent: it no-ops once the process exited.
+      const timeoutHandle = setTimeout(() => {
         void (async (): Promise<void> => {
           if (proc.exitCode !== null) {
             await backgroundManager.settlePendingExits();
@@ -594,6 +597,7 @@ export class BashTool implements BuiltinTool<BashInput> {
           }
         })();
       }, timeoutMs);
+      timeoutHandle.unref();
     }
 
     // register() synchronously inserts taskId into the manager's Map, so
@@ -678,6 +682,34 @@ function windowsPathToPosixPath(path: string): string {
 
 const WINDOWS_NUL_REDIRECT = /(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])/g;
 
-function rewriteWindowsNullRedirect(command: string): string {
-  return command.replace(WINDOWS_NUL_REDIRECT, '$1/dev/null');
+export function rewriteWindowsNullRedirect(command: string): string {
+  // Rewrite only outside quoted strings: inside quotes, `NUL` is literal
+  // text the user expects to keep verbatim. Track quote state and
+  // apply the rewrite per segment.
+  let result = '';
+  let segmentStart = 0;
+  let quote: '"' | "'" | null = null;
+  const flush = (end: number): void => {
+    const segment = command.slice(segmentStart, end);
+    result +=
+      quote === null ? segment.replace(WINDOWS_NUL_REDIRECT, '$1/dev/null') : segment;
+  };
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i];
+    if (quote === null) {
+      if (ch === '"' || ch === "'") {
+        flush(i);
+        quote = ch;
+        segmentStart = i;
+      }
+    } else if (ch === quote) {
+      // A backslash escapes a double quote; single quotes have no escapes.
+      if (quote === '"' && command[i - 1] === '\\') continue;
+      flush(i + 1);
+      quote = null;
+      segmentStart = i + 1;
+    }
+  }
+  flush(command.length);
+  return result;
 }

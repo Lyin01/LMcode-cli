@@ -237,7 +237,11 @@ export class FullCompaction {
       if (shouldBlock) {
         this.beginAutoCompaction();
       } else {
-        this.tryBeginAutoCompaction(true);
+        // Non-blocking branch: an exhausted per-turn compaction budget must
+        // not throw CONTEXT_OVERFLOW and fail a turn that still has ~25%
+        // headroom. Failure protection stays with the shouldBlock branch
+        // above and the real 413 overflow path (handleOverflowError).
+        this.tryBeginAutoCompaction(false);
       }
     } else if (shouldCompactProactively) {
       this.tryBeginAutoCompaction(false);
@@ -454,7 +458,15 @@ export class FullCompaction {
       if (!this.markCompleted(active)) return;
       this.agent.emitEvent({ type: 'compaction.completed', result });
       this.agent.context.applyCompaction(result);
-      await this.extractAndStoreMemos(summary);
+      // Memo extraction must never sink the completed compaction. At this
+      // point `compacting` is already null, so a throw here would miss the
+      // catch below (its `this.compacting === active` guard no longer
+      // matches) and vanish without even a log line.
+      try {
+        await this.extractAndStoreMemos(summary);
+      } catch (error) {
+        this.agent.log.warn('Failed to extract memory memos from compaction', { error });
+      }
       this.triggerPostCompactHook(data, result);
 
       // Compaction succeeded — reset circuit breaker

@@ -205,23 +205,35 @@ async function downloadAndInstallRg(shareDir: string): Promise<string> {
     const timeoutHandle = setTimeout(() => {
       controller.abort();
     }, DOWNLOAD_TIMEOUT_MS);
-    let resp: Response;
     try {
-      resp = await fetch(url, { signal: controller.signal });
+      // The timeout must cover the whole body stream, not just the
+      // response headers: a stalled CDN connection would otherwise hang
+      // until the TCP layer gives up (minutes).
+      const resp = await fetch(url, { signal: controller.signal });
+      if (!resp.ok || resp.body === null) {
+        throw new Error(`Failed to download ripgrep: HTTP ${String(resp.status)} ${resp.statusText}`);
+      }
+      const write = createWriteStream(archivePath);
+      // Readable.fromWeb is typed as accepting a web ReadableStream; the
+      // undici/fetch body matches that shape at runtime.
+      await pipeline(Readable.fromWeb(resp.body as never), write);
     } finally {
       clearTimeout(timeoutHandle);
     }
-    if (!resp.ok || resp.body === null) {
-      throw new Error(`Failed to download ripgrep: HTTP ${String(resp.status)} ${resp.statusText}`);
-    }
-    const write = createWriteStream(archivePath);
-    // Readable.fromWeb is typed as accepting a web ReadableStream; the
-    // undici/fetch body matches that shape at runtime.
-    await pipeline(Readable.fromWeb(resp.body as never), write);
     await verifyArchiveChecksum(archivePath, archiveName, expectedSha256);
 
     if (isWindows) {
-      await extractRgFromZip(archivePath, destination);
+      // Stage then rename so an interrupted extraction (or a concurrent
+      // bootstrap) never leaves a partial rg.exe at the final path;
+      // isExecutableFile would accept the truncated binary.
+      const installDir = await mkdtemp(join(binDir, '.rg-install-'));
+      const staged = join(installDir, rgBinaryName());
+      try {
+        await extractRgFromZip(archivePath, staged);
+        await rename(staged, destination);
+      } finally {
+        await rm(installDir, { recursive: true, force: true });
+      }
       // Windows does not need `chmod +x`: execution is gated by the
       // `.exe` extension + NTFS ACLs, which are already correct.
     } else {

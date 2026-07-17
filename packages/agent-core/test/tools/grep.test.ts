@@ -327,13 +327,13 @@ describe('GrepTool', () => {
     );
   });
 
-  it('returns an explicit non-sensitive message when ripgrep finds no matches', async () => {
+  it('returns an explicit message when ripgrep finds no matches', async () => {
     const exec = vi.fn().mockResolvedValue(processWithOutput('', '', 1));
     const tool = new GrepTool(createFakeJian({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'missing' }));
 
-    expect(result.output).toBe('No non-sensitive matches found');
+    expect(result.output).toBe('No matches found');
   });
 
   it('sorts files_with_matches by mtime before pagination after sensitive filtering', async () => {

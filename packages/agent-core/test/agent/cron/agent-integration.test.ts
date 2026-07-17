@@ -36,6 +36,17 @@ describe('Agent + Cron integration (P1.7)', () => {
     expect(ctx.agent.cron!.store.list()).toEqual([]);
   });
 
+  it('stops its own CronManager when the agent is closed', async () => {
+    const stopSpy = vi.spyOn(ctx.agent.cron!, 'stop');
+
+    await ctx.agent.close();
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    // close() caches its promise — a second close must not re-stop.
+    await ctx.agent.close();
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('registers CronCreate / CronList / CronDelete in the tool manager', () => {
     const toolNames = ctx.agent.tools.data().map((info) => info.name);
     expect(toolNames).toContain('CronCreate');

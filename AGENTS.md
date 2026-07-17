@@ -402,7 +402,7 @@ LMcode 拥有三级压缩管道，在 `packages/agent-core/src/agent/turn/index.
 
 - **预测性触发**：预估下一步的 token 增长，在溢出之前主动压缩，而不是等待溢出发生。
 - **断路器**：连续 3 次压缩失败 → 在当前轮次禁用自动压缩，下轮自动重置。
-- **超时**：`block()` 最多等待 60 秒进行压缩，超时时取消并通知用户。
+- **超时**：`block()` 从 60 秒基数开始，按待处理上下文每 1K tokens 增加 0.5 秒，最多等待 300 秒；超时时取消并通知用户。
 - **溢出快速失败**：当 API 返回上下文溢出错误时，`chatWithRetry` 不再重试 3 次——它立即暴露错误，以便上层触发紧急压缩。
 
 关键文件：`packages/agent-core/src/agent/compaction/{micro,full,strategy}.ts`、
@@ -419,7 +419,7 @@ Agent 拥有由 `@lmcode-cli/memory` 包提供的记忆系统。定位为"任务
   - 会话退出：`packages/agent-core/src/agent/index.ts` 中的 `extractMemoriesOnExit()` —— 取最近 30 条消息 × 300 字符，调用 LLM。
   - 空闲定时器：用户无输入 15 分钟后，`LifecycleController.performIdleMemoryExtraction()` 调用 `session.extractMemoriesOnExit()`。冷却时间：15 分钟。压缩提取会更新冷却时间戳以避免重复。
   - 手动写入：`packages/agent-core/src/tools/builtin/memory/memory-write.ts` 中的 `MemoryWrite` 工具——当用户明确要求时，模型可以立即保存结构化备忘录，例如"保存到记忆"、"保存到备忘录"或"总结并保存"。这些条目被标记为 `extractionSource: 'manual'`。
-- **评分**：关键词 Jaccard 相似度（45%）+ 90 天衰减（25%）+ 使用提升（15%）+ 项目亲和度（10%）+ 与当前项目标签云的标签重叠（5%）。纯规则实现，零 LLM 开销。
+- **评分**：关键词 Jaccard 相似度（45%）+ 90 天衰减（25%）+ 项目亲和度（10%）+ 与当前项目标签云的标签重叠（5%），归一化后计分，并根据查询意图调整关键词与时间权重。存在 `vectorScores` 时，最终得分按 60% 规则分 + 40% 向量分混合；无向量时为纯规则实现，零 LLM 开销。
 
 #### 主动查询
 

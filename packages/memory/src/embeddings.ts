@@ -13,6 +13,13 @@ export interface EmbeddingEngine {
   readonly available: boolean;
 
   /**
+   * Model identifier persisted alongside each stored vector. Vector search
+   * filters on it so embeddings from a previous model are never compared
+   * against (cosine across models yields meaningless scores).
+   */
+  readonly model?: string;
+
+  /**
    * Generate embeddings for a batch of texts.
    * Returns null if the engine failed to load or the model is unavailable.
    */
@@ -33,21 +40,42 @@ interface FastembedModel {
 }
 
 /**
+ * After a load failure the engine stays unavailable for this long, then one
+ * retry is allowed. A permanent disable would silently turn off vector recall
+ * for the rest of the process on any transient failure (download hiccup,
+ * OOM during first load).
+ */
+const LOAD_FAILURE_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+
+/**
  * Create an embedding engine backed by fastembed.
  * Lazily loads the model on first use so startup is not blocked.
  */
 export function createFastEmbedEngine(): EmbeddingEngine {
   let embedder: FastembedModel | null = null;
   let initPromise: Promise<FastembedModel | null> | null = null;
-  let loadFailed = false;
+  let loadFailedAt: number | undefined;
+
+  const markLoadFailed = (): void => {
+    loadFailedAt = Date.now();
+    // Drop the resolved-null init promise so the next retry after the
+    // cooldown actually re-runs loadEmbedder instead of re-awaiting the
+    // previous failure.
+    initPromise = null;
+  };
 
   return {
+    model: 'bge-small-zh-v1.5',
+
     get available(): boolean {
-      return !loadFailed;
+      return (
+        loadFailedAt === undefined ||
+        Date.now() - loadFailedAt >= LOAD_FAILURE_RETRY_COOLDOWN_MS
+      );
     },
 
     async embedBatch(texts: string[]): Promise<Float32Array[] | null> {
-      if (loadFailed) return null;
+      if (!this.available) return null;
       if (texts.length === 0) return [];
 
       try {
@@ -57,7 +85,7 @@ export function createFastEmbedEngine(): EmbeddingEngine {
           }
           embedder = await initPromise;
           if (embedder === null) {
-            loadFailed = true;
+            markLoadFailed();
             return null;
           }
         }
@@ -70,9 +98,14 @@ export function createFastEmbedEngine(): EmbeddingEngine {
             vectors.push(new Float32Array(vec));
           }
         }
-        return vectors.length > 0 ? vectors : null;
+        if (vectors.length === 0) {
+          markLoadFailed();
+          return null;
+        }
+        loadFailedAt = undefined;
+        return vectors;
       } catch {
-        loadFailed = true;
+        markLoadFailed();
         return null;
       }
     },

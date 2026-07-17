@@ -24,102 +24,6 @@ import { safeUsageRatio } from '#/utils/usage/usage-format';
 
 const MAX_CWD_SEGMENTS = 3;
 
-// Toolbar tips — rotates every 10s. Most tips are short and pair up (two
-// joined by " | ") when space allows; tips flagged `solo` are long or
-// important enough to take the whole slot on their own. A `priority` weight
-// makes a tip recur more often in the rotation (default 1). Width is always
-// the final arbiter (a pair that doesn't fit falls back to its first tip).
-//
-// This is deliberately code-level configuration: edit the interval and the
-// TOOLBAR_TIPS array below to change what the footer advertises.
-export const TIP_ROTATE_INTERVAL_MS = 10_000;
-export const TIP_SEPARATOR = ' | ';
-
-export interface ToolbarTip {
-  readonly text: string;
-  /**
-   * Long/important tips render on their own. They never pair with a
-   * neighbour and never appear as the second half of someone else's pair.
-   */
-  readonly solo?: boolean;
-  /**
-   * Rotation weight: a higher value makes the tip recur more often. Defaults
-   * to 1. Used to give newer/important features more airtime.
-   */
-  readonly priority?: number;
-}
-
-export const TOOLBAR_TIPS: readonly ToolbarTip[] = [
-  { text: 'shift+tab: 计划模式' },
-  { text: '/model: 切换模型' },
-  { text: 'ctrl+s: 中途干预', priority: 2 },
-  { text: '/compact: 压缩上下文', priority: 2 },
-  { text: 'ctrl+o: 展开工具输出' },
-  { text: '/tasks: 后台任务' },
-  { text: 'shift+enter: 换行' },
-  { text: '/init: 生成 AGENTS.md', priority: 2 },
-  { text: '@: 提及文件' },
-  { text: 'ctrl+c: 取消' },
-  { text: '/theme: 切换主题' },
-  { text: '/auto: 自动权限模式' },
-  { text: '/yes: 自动批准' },
-  { text: '/help: 显示命令' },
-  { text: '/config: 选择并配置你常用的模型商', solo: true, priority: 3 },
-  { text: '让 LMcode 安排任务，例如 "2个小时后提醒我去拿快递"', solo: true, priority: 3 },
-];
-
-/**
- * Expand tips into a rotation sequence using smooth weighted round-robin
- * (the nginx SWRR algorithm). Higher-`priority` tips appear more often while
- * staying evenly spread, so a tip generally does not land next to its own
- * duplicate. Deterministic and computed once at module load. Exported for
- * unit testing.
- */
-export function buildWeightedTips(tips: readonly ToolbarTip[]): readonly ToolbarTip[] {
-  const items = tips.map((t) => ({
-    tip: t,
-    weight: Math.max(1, Math.trunc(t.priority ?? 1)),
-    current: 0,
-  }));
-  const total = items.reduce((sum, it) => sum + it.weight, 0);
-  const seq: ToolbarTip[] = [];
-  for (let n = 0; n < total; n++) {
-    let best = items[0]!;
-    for (const it of items) {
-      it.current += it.weight;
-      if (it.current > best.current) best = it;
-    }
-    best.current -= total;
-    seq.push(best.tip);
-  }
-  return seq;
-}
-
-export const ROTATION: readonly ToolbarTip[] = buildWeightedTips(TOOLBAR_TIPS);
-
-export function currentTipIndex(): number {
-  return Math.floor(Date.now() / TIP_ROTATE_INTERVAL_MS);
-}
-
-/**
- * Pick the tip(s) for a rotation index over the weighted ROTATION sequence.
- * `primary` is always shown when it fits; `pair` (primary + next tip joined
- * by the separator) is offered for wide terminals. Pairing is skipped when
- * the current/next tip is `solo` or when the neighbour is a duplicate of the
- * current tip (which can happen at the wrap boundary), keeping long/important
- * tips on their own and avoiding "X | X".
- */
-export function tipsForIndex(index: number): { primary: string; pair: string | null } {
-  const n = ROTATION.length;
-  if (n === 0) return { primary: '', pair: null };
-  const offset = ((index % n) + n) % n;
-  const current = ROTATION[offset]!;
-  if (n === 1 || current.solo) return { primary: current.text, pair: null };
-  const next = ROTATION[(offset + 1) % n]!;
-  if (next.solo || next.text === current.text) return { primary: current.text, pair: null };
-  return { primary: current.text, pair: current.text + TIP_SEPARATOR + next.text };
-}
-
 function shortenModel(model: string): string {
   if (!model) return model;
   const slash = model.lastIndexOf('/');
@@ -262,16 +166,18 @@ export class FooterComponent implements Component {
   }
 
   setState(state: AppState): void {
-    const wasThinking = this.state?.streamingPhase === 'thinking';
     if (state.workDir !== this.gitCacheWorkDir) {
       this.gitCacheWorkDir = state.workDir;
       this.gitCache = createGitStatusCache(state.workDir, { onChange: this.onGitStatusChange });
     }
     this.state = state;
-    const isThinking = state.streamingPhase === 'thinking';
-    if (isThinking && !wasThinking) {
+    // `appState` is Object.assign-patched before setState is called with the
+    // same object, so a previous-vs-current edge comparison can never observe
+    // a transition. Drive the timer off the current phase instead — both
+    // helpers are idempotent.
+    if (state.streamingPhase === 'thinking') {
       this.#startShimmer();
-    } else if (!isThinking && wasThinking) {
+    } else {
       this.#stopShimmer();
     }
   }
@@ -281,7 +187,7 @@ export class FooterComponent implements Component {
   }
 
   /**
-   * Short-lived hint that replaces the rotating toolbar tips on line 1.
+   * Short-lived hint that replaces the status area on line 1.
    * Used by the exit-confirmation double-tap flow to show "Press Ctrl+C
    * again to exit" without requiring a toast/overlay subsystem.
    * Pass `null` to clear.

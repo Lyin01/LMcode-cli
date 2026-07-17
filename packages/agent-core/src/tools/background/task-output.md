@@ -8,5 +8,5 @@ Guidelines:
 - Use block=true only when you intentionally want to wait for completion or timeout.
 - This tool returns structured task metadata, a fixed-size output preview, and an output_path for the full log.
 - For a terminal task, the metadata also explains why it ended: `timed_out` when an agent task was aborted by its deadline, and `stop_reason` when the task was explicitly stopped. `terminal_reason` is a categorical label for the same event — its value is `timed_out` or `stopped` — and is emitted alongside the matching `timed_out` / `stop_reason` field. A task that ended on its own emits none of these three fields.
-- The full, never-truncated log is always available at output_path; use the `Read` tool with that path to page through it, whether or not the preview was truncated.
+- The full, never-truncated log is available at output_path when the task's output was persisted; otherwise no output_path is emitted and the tool reports `full_output_available: false`. When an output_path is present, use the `Read` tool with that path to page through it, whether or not the preview was truncated.
 - This tool works with the generic background task system and should remain the primary read path for future task types, not just bash.

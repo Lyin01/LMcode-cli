@@ -18,6 +18,8 @@ import chalk from 'chalk';
 
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
+import { aliasHome } from '#/tui/utils/path-display';
+import { replaceTabs } from '#/tui/utils/render-text';
 import type {
   ApprovalPanelChoice,
   DiffDisplayBlock,
@@ -92,7 +94,7 @@ function renderDisplayBlock(
     case 'shell': {
       const lines: string[] = [];
       if (block.cwd !== undefined && block.cwd.length > 0) {
-        lines.push(s.dim(`cwd: ${block.cwd}`));
+        lines.push(s.dim(`cwd: ${aliasHome(replaceTabs(block.cwd))}`));
       }
       if (block.danger !== undefined) {
         lines.push(s.errorBold(`Dangerous: ${block.danger}`));
@@ -100,16 +102,16 @@ function renderDisplayBlock(
       const cmdLines = block.command.length > 0 ? block.command.split('\n') : [''];
       cmdLines.forEach((cmdLine, idx) => {
         const prefix = idx === 0 ? s.accent('$') : s.dim('·');
-        lines.push(`${prefix} ${s.strong(cmdLine)}`);
+        lines.push(`${prefix} ${s.strong(replaceTabs(cmdLine))}`);
       });
       if (block.description !== undefined && block.description.length > 0) {
-        lines.push(`  ${s.dim(block.description)}`);
+        lines.push(`  ${s.dim(replaceTabs(block.description))}`);
       }
       return lines;
     }
     case 'file_op': {
       const op = s.accent(block.operation.padEnd(5));
-      const lines = [`${op} ${s.strong(block.path)}`];
+      const lines = [`${op} ${s.strong(aliasHome(replaceTabs(block.path)))}`];
       if (block.detail !== undefined && block.detail.length > 0) {
         lines.push(s.dim(block.detail));
       }
@@ -245,7 +247,10 @@ export class ApprovalPanelComponent extends Container implements Focusable {
       matchesKey(data, Key.ctrl('c')) ||
       matchesKey(data, Key.ctrl('d'))
     ) {
-      this.onResponse({ response: 'rejected' });
+      // Bailing out of the dialog is a cancellation, not a rejection: the
+      // user did not evaluate the request, so the model must not read a
+      // "rejected" verdict (and the replay must not paint one) from it.
+      this.onResponse({ response: 'cancelled' });
       return;
     }
 

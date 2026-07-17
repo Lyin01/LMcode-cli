@@ -66,7 +66,7 @@ export function createProgram(
     .addOption(
       new Option(
         '-p, --prompt [prompt]',
-        '非交互式运行一条提示并打印响应。提示文本也可作为末尾位置参数给出。',
+        '非交互式运行一条提示并打印响应。提示文本也可作为末尾位置参数给出。无头模式会以 auto 权限运行并自动批准所有询问（包括已配置 manual 的会话，结束后恢复原模式）。',
       ),
     )
     .addOption(

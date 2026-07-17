@@ -13,7 +13,7 @@ import { renderPrompt } from '../../../utils/render-prompt';
 import { literalRulePattern } from '../../support/rule-match';
 import { toInputJsonSchema } from '../../support/input-schema';
 import type { WorkspaceConfig } from '../../support/workspace';
-import { ReadTool } from './read';
+import { MAX_LINES, ReadTool } from './read';
 import readGroupDescriptionTemplate from './read-group.md';
 
 function toolOutputText(output: ExecutableToolResult['output']): string {
@@ -30,13 +30,18 @@ export const MAX_READ_GROUP_FILES = 10;
 
 const NonEmptyStringArraySchema = z.array(z.string().min(1)).min(1).max(MAX_READ_GROUP_FILES);
 
+// Mirror the Read tool's offset contract (positive from line 1, or a
+// [-MAX_LINES, -1] tail offset) -- ReadGroup constructs ReadTool directly and
+// would otherwise accept line_offset 0 or < -MAX_LINES, which Read rejects.
+const PositiveLineOffsetSchema = z.number().int().min(1);
+const TailLineOffsetSchema = z.number().int().min(-MAX_LINES).max(-1);
+
 export const ReadGroupInputSchema = z.object({
   paths: NonEmptyStringArraySchema.describe(
     `Array of file paths to read in parallel (1-${String(MAX_READ_GROUP_FILES)} files).`,
   ),
   line_offset: z
-    .number()
-    .int()
+    .union([PositiveLineOffsetSchema, TailLineOffsetSchema])
     .optional()
     .describe('Starting line number applied to every file.'),
   n_lines: z

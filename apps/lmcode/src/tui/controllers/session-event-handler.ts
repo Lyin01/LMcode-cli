@@ -766,9 +766,12 @@ export class SessionEventHandler {
     const { streamingUI } = this.host;
     const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
     if (backgroundMeta !== undefined) {
+      // Resolve the task id BEFORE deleting the metadata — findAgentTaskId
+      // reads this very table, so looking it up afterwards always yields
+      // undefined and the terminal-dedup branch below never fires.
+      const taskId = this.findAgentTaskId(event.subagentId);
       this.backgroundAgentMetadata.delete(event.subagentId);
       this.syncBackgroundAgentBadge();
-      const taskId = this.findAgentTaskId(event.subagentId);
       if (taskId !== undefined && this.backgroundTaskTranscriptedTerminal.has(taskId)) {
         return;
       }
@@ -794,6 +797,9 @@ export class SessionEventHandler {
     const { streamingUI } = this.host;
     const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
     if (backgroundMeta !== undefined) {
+      // Resolve the task id BEFORE deleting the metadata (same reason as in
+      // handleSubagentCompleted above).
+      const taskId = this.findAgentTaskId(event.subagentId);
       this.backgroundAgentMetadata.delete(event.subagentId);
       this.syncBackgroundAgentBadge();
       // Push the real subagent error onto the parent Agent card too —
@@ -807,7 +813,6 @@ export class SessionEventHandler {
         status: 'failed',
         errorText: event.error,
       });
-      const taskId = this.findAgentTaskId(event.subagentId);
       if (taskId !== undefined && this.backgroundTaskTranscriptedTerminal.has(taskId)) {
         return;
       }

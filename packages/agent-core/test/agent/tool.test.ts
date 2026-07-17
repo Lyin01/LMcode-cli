@@ -249,6 +249,9 @@ describe('Agent tools', () => {
     const managedBash = ctx.agent.tools.loopTools.find((tool) => tool.name === 'Bash');
     expect(managedBash).toBeDefined();
     expect(managedBash!.description).toContain('run_in_background=true');
+    // Regression: the re-run initializer must re-bake allowBackground;
+    // the disabled marker from the earlier ['Bash']-only state must be gone.
+    expect(managedBash!.description).not.toContain('Do not set `run_in_background=true`');
   });
 
   it('routes registered user tools through tool.call request/response', async () => {

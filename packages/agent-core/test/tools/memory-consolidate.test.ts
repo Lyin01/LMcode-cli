@@ -69,6 +69,10 @@ function makeStore(memos: MemoryMemo[]) {
         deletedIds.add(id);
         return true;
       },
+      get: async (id: string) => {
+        if (deletedIds.has(id)) return undefined;
+        return stored.find((m) => m.id === id);
+      },
       append: async (memo: MemoryMemo) => {
         appended.push(memo);
         return;
@@ -124,6 +128,15 @@ describe('MemoryConsolidatePlanTool', () => {
         outcome: '失败',
         recordedAt: Date.now() - 60 * 24 * 60 * 60 * 1000,
       }),
+      // Completed and old, but NOT similar to m1/m2 — resolved must only
+      // count memos that are not already in a duplicate group (no double
+      // counting).
+      makeMemo('m4', {
+        userNeed: 'Migrate database schema to v2',
+        approach: 'Write migration scripts',
+        outcome: '完成',
+        recordedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+      }),
     ];
     const { agent } = makeAgent(memos);
     const tool = new MemoryConsolidatePlanTool(agent);
@@ -137,10 +150,14 @@ describe('MemoryConsolidatePlanTool', () => {
 
     expect(result.isError).toBeFalsy();
     const plan = JSON.parse(getOutputText(result));
-    expect(plan.summary.totalMemos).toBe(3);
+    expect(plan.summary.totalMemos).toBe(4);
     expect(plan.duplicateGroups.length).toBeGreaterThan(0);
     expect(plan.resolved.length).toBeGreaterThan(0);
     expect(plan.stale.length).toBeGreaterThan(0);
+    // m1 is completed+old but sits in the duplicate group — it must not be
+    // double-counted as resolved, and the after-count must stay non-negative.
+    expect(plan.resolved.map((m: { id: string }) => m.id)).toEqual(['m4']);
+    expect(plan.summary.memosAfterConsolidation).toBeGreaterThanOrEqual(0);
   });
 
   it('identifies related memos sharing a compound topic without treating them as duplicates', async () => {

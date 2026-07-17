@@ -38,7 +38,7 @@ export class WriteGoalNoteTool implements BuiltinTool<WriteGoalNoteInput> {
       execute: async () => {
         const snapshot = await goal.addNote(args.content);
         if (snapshot === null) {
-          return { output: JSON.stringify({ error: 'No active goal' }) };
+          return { isError: true, output: JSON.stringify({ error: 'No active goal' }) };
         }
         return {
           output: JSON.stringify({

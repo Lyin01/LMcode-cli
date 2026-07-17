@@ -14,11 +14,11 @@ export const MemoryEditInputSchema = z.object({
     .describe("'update' modifies the memo; 'delete' removes it permanently."),
   updates: z
     .object({
-      userNeed: z.string().optional().describe('Updated user need or goal.'),
-      approach: z.string().optional().describe('Updated approach taken.'),
-      outcome: z.string().optional().describe('Updated outcome.'),
-      whatFailed: z.string().optional().describe('Updated dead-ends notes.'),
-      whatWorked: z.string().optional().describe('Updated successful actions.'),
+      userNeed: z.string().min(1).optional().describe('Updated user need or goal.'),
+      approach: z.string().min(1).optional().describe('Updated approach taken.'),
+      outcome: z.string().min(1).optional().describe('Updated outcome.'),
+      whatFailed: z.string().min(1).optional().describe('Updated dead-ends notes.'),
+      whatWorked: z.string().min(1).optional().describe('Updated successful actions.'),
       tags: z
         .array(z.string())
         .optional()
@@ -79,7 +79,13 @@ export class MemoryEditTool implements BuiltinTool<MemoryEditInput> {
           return { isError: true, output: 'No updates provided.' };
         }
 
-        await store.update(args.id, patch);
+        // update() returns false when the memo vanished between the unlocked
+        // get() above and the write lock — report that instead of a phantom
+        // success.
+        const updated = await store.update(args.id, patch);
+        if (!updated) {
+          return { isError: true, output: `Memory memo "${args.id}" not found.` };
+        }
         return {
           isError: false,
           output: `Updated memory memo "${args.id}".`,

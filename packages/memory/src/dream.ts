@@ -26,6 +26,7 @@ export class DreamTracker {
   private readonly lockPath: string;
   private readonly lmcodeHomeDir: string;
   private initialized = false;
+  private initPromise: Promise<void> | undefined;
 
   constructor(lmcodeHomeDir: string) {
     this.lmcodeHomeDir = lmcodeHomeDir;
@@ -36,8 +37,19 @@ export class DreamTracker {
     };
   }
 
-  /** Load persisted state (call once at startup). */
-  async init(): Promise<void> {
+  /**
+   * Load persisted state. Safe to call multiple times — all callers share
+   * the same in-flight load, so `await init()` always waits for the state
+   * to actually be loaded (the Agent starts this at construction time so
+   * the first turn's step 1 does not read the default state).
+   */
+  init(): Promise<void> {
+    if (this.initialized) return Promise.resolve();
+    this.initPromise ??= this.initInternal();
+    return this.initPromise;
+  }
+
+  private async initInternal(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
 

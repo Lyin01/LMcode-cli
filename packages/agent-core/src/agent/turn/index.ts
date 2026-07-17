@@ -739,12 +739,19 @@ export class TurnFlow {
                   });
                 }
 
-                // Suggest /dream on the first step when conditions are met
-                if (this.agent.dreamTracker.shouldSuggest()) {
-                  this.agent.context.appendSystemReminder(
-                    this.agent.dreamTracker.getSuggestionMessage(),
-                    { kind: 'injection', variant: 'dream_suggestion' },
-                  );
+                // Suggest /dream on the first step when conditions are met.
+                // Await the tracker load started at Agent construction so
+                // the check reads persisted counters, not defaults. Main
+                // agents only — the reminder is user-facing noise in a
+                // subagent's context.
+                if (this.agent.type === 'main') {
+                  await this.agent.dreamTracker.init();
+                  if (this.agent.dreamTracker.shouldSuggest()) {
+                    this.agent.context.appendSystemReminder(
+                      this.agent.dreamTracker.getSuggestionMessage(),
+                      { kind: 'injection', variant: 'dream_suggestion' },
+                    );
+                  }
                 }
 
                 await this.agent.injection.inject();

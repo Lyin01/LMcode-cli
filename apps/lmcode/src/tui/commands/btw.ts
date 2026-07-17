@@ -91,7 +91,13 @@ class BtwOverlayComponent extends Container implements Focusable {
     }
   }
 
-  private cleanup(): void {
+  /**
+   * Release timers. Called on Esc/Enter dismissal AND by
+   * mountEditorReplacement when another panel replaces this overlay —
+   * without that hook a replaced overlay's spinner interval would keep
+   * firing requestRender forever.
+   */
+  cleanup(): void {
     this.stopSpinner();
   }
 

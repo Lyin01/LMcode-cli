@@ -240,8 +240,13 @@ export class PermissionManager {
         this.pendingApprovals.delete(approvalId);
       }
     } else {
+      // Fail closed: without an RPC approval handler there is nobody to
+      // answer the prompt, so an `ask` must not silently become an approve.
       response = {
-        decision: 'approved',
+        decision: 'rejected',
+        feedback:
+          'No approval handler is connected (agent.rpc.requestApproval is missing), so this call cannot be approved. ' +
+          'Connect a requestApproval handler, or use a permission mode that does not require approval (auto/yolo).',
       };
     }
 

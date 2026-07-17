@@ -245,6 +245,9 @@ export function createCronScheduler(opts: CronSchedulerOptions): CronScheduler {
    * Capped at MAX_COALESCE_ITERATIONS as a defence against runaway
    * loops; an expression that produces more than 10 000 fires in the
    * gap is degenerate and the LLM only needs the order of magnitude.
+   * When the cap truncates the enumeration, `lastDueMs` comes back as
+   * `nowMs` so the caller's baseline skips the unenumerated remainder
+   * instead of re-delivering it as a second coalesced batch.
    */
   function countCoalesced(
     task: CronTask,
@@ -271,6 +274,14 @@ export function createCronScheduler(opts: CronSchedulerOptions): CronScheduler {
       count++;
       cursor = next;
       lastDueMs = next;
+    }
+    if (count >= MAX_COALESCE_ITERATIONS) {
+      // Truncated: the gap almost certainly holds more ideal fires than
+      // we enumerated, so the count means "10 000+", not exactly
+      // 10 000. Advance the baseline all the way to `nowMs` — stopping
+      // at the 10 000th enumerated fire would make the NEXT tick
+      // deliver a second coalesced batch for the same gap.
+      lastDueMs = nowMs;
     }
     return { count, lastDueMs };
   }

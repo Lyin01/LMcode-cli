@@ -140,7 +140,7 @@ describe('Plan mode permission policy', () => {
     expect(deny.message ?? '').toContain('ExitPlanMode');
   });
 
-  it('blocks Write and Edit with no file write access while plan mode is active', async () => {
+  it('defers Write and Edit with no declared file access to later policies', async () => {
     const { agent } = await activePlanAgent();
 
     const write = new PlanModeGuardDenyPermissionPolicy(agent).evaluate(
@@ -155,8 +155,8 @@ describe('Plan mode permission policy', () => {
       ),
     );
 
-    expectDeny(write);
-    expectDeny(edit);
+    expect(write).toBeUndefined();
+    expect(edit).toBeUndefined();
   });
 
   it('allows multiple writes when every write access targets the active plan file', async () => {

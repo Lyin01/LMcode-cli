@@ -151,6 +151,12 @@ export class Agent {
   private lastLlmConfigLogSignature?: string;
   private readonly memoStoreReady: Promise<void> | undefined;
   private exitMemoryExtraction: ExitMemoryExtraction | undefined;
+  /**
+   * History length at the last successful memory extraction. Idle and exit
+   * extractions share this watermark so an unchanged history is never
+   * re-extracted (which would re-store the same content under new ids).
+   */
+  private lastMemoryExtractionHistoryLength: number | undefined;
   private closing: Promise<void> | undefined;
 
   constructor(options: AgentOptions) {
@@ -228,6 +234,12 @@ export class Agent {
     this.sessionMemory = new SessionMemory();
     this.workingSet = new WorkingSet();
     this.dreamTracker = new DreamTracker(lmcodeHomeDir ?? '');
+    // Start loading the persisted dream state immediately so the first
+    // turn's step-1 check (which awaits the same promise) sees the real
+    // counters instead of the defaults — without this a single-turn
+    // session never surfaces the /dream suggestion. Main agents only:
+    // subagents never surface the suggestion and share the same lock file.
+    if (this.type === 'main') void this.dreamTracker.init();
     this.replayBuilder = new ReplayBuilder(this);
   }
 
@@ -561,6 +573,9 @@ export class Agent {
 
     const history = this.context.history;
     if (history.length < 4) return; // Too short to contain meaningful task loops
+    // History has not changed since the last extraction (e.g. idle timer
+    // firing after an exit extraction already ran) — nothing new to learn.
+    if (history.length === this.lastMemoryExtractionHistoryLength) return;
 
     // homedir = <projectDir>/<sessionId>/agents/<agentId>
     const sessionId = this.homedir
@@ -638,7 +653,10 @@ export class Agent {
         : response.message.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
 
       const memos = parseMemoryMemos(summary);
-      if (memos.length === 0) return;
+      if (memos.length === 0) {
+        this.lastMemoryExtractionHistoryLength = history.length;
+        return;
+      }
 
       const store = this.memoStore;
       let failed = 0;
@@ -668,6 +686,7 @@ export class Agent {
         count: memos.length,
         sessionId,
       });
+      this.lastMemoryExtractionHistoryLength = history.length;
     } catch (error) {
       if (!signal.aborted) {
         this.log.warn('Exit memory extraction failed', { error: String(error) });
@@ -730,19 +749,27 @@ export class Agent {
     const extraction = this.exitMemoryExtraction;
     extraction?.abortController.abort();
     try {
-      await this.fullCompaction.close();
+      // Stop the agent-owned CronManager first (idempotent). The normal
+      // session close path already stops it; this covers agents torn down
+      // via the createAgent error fallback, which would otherwise leak the
+      // 1s tick interval and the SIGUSR1 hook for the process's lifetime.
+      await this.cron?.stop();
     } finally {
       try {
-        await this.settleExitMemoryExtractionForClose(extraction);
+        await this.fullCompaction.close();
       } finally {
         try {
-          await this.records.flush();
+          await this.settleExitMemoryExtractionForClose(extraction);
         } finally {
           try {
-            await this.tools.close();
+            await this.records.flush();
           } finally {
-            await this.memoStoreReady;
-            await this.memoStore?.close();
+            try {
+              await this.tools.close();
+            } finally {
+              await this.memoStoreReady;
+              await this.memoStore?.close();
+            }
           }
         }
       }

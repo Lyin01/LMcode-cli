@@ -137,9 +137,13 @@ export class MemoryConsolidateApplyTool implements BuiltinTool<MemoryConsolidate
         const plan: ConsolidationPlan = args;
         const result = await applyConsolidation(store, plan);
         await this.agent.dreamTracker.recordDream();
+        const skippedNote =
+          result.skipped > 0
+            ? ` Skipped ${result.skipped} plan entr${result.skipped === 1 ? 'y' : 'ies'} that no longer matched the stored memos.`
+            : '';
         return {
           isError: false,
-          output: `Consolidation complete. Deleted ${result.deleted} memo(s) and created ${result.created} merged memo(s).`,
+          output: `Consolidation complete. Deleted ${result.deleted} memo(s) and created ${result.created} merged memo(s).${skippedNote}`,
         };
       },
     };

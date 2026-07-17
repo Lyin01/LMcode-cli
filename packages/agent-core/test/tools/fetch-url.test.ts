@@ -59,7 +59,8 @@ describe('FetchURLTool', () => {
       signal,
     });
     expect(result.isError).toBe(false);
-    expect(toolContentString(result)).toBe('Hello, world!');
+    expect(toolContentString(result)).toContain('Hello, world!');
+    expect(toolContentString(result)).toContain('main text extracted from the page');
   });
 
   it('reports an extraction-specific message for extracted content', async () => {
@@ -252,7 +253,8 @@ describe('FetchURLTool', () => {
     });
 
     expect(result.isError).toBe(false);
-    expect(toolContentString(result)).toBe(markdown);
+    expect(toolContentString(result)).toContain(markdown);
+    expect(toolContentString(result)).toContain('full response body');
     // The passthrough message says the LLM is seeing the full response
     // body (py wording was "full content"; main #238 uses the broader
     // "full response body" phrasing).

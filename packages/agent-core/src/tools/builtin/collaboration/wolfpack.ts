@@ -134,7 +134,10 @@ export class WolfPackTool implements BuiltinTool<WolfPackToolInput> {
     const handlePromises = args.items.map(
       async (item): Promise<{ item: string; handle: SubagentHandle }> => {
         ctx.signal.throwIfAborted();
-        const prompt = template.replace(/\{\{item\}\}/g, item);
+        // Replacer function (not a string replacement) so `$&`, `$1`, `$'`
+        // etc. inside an item stay literal instead of being interpreted as
+        // replacement patterns.
+        const prompt = template.replace(/\{\{item\}\}/g, () => item);
         const handle = await this.subagentHost.spawn(profileName, {
           parentToolCallId: ctx.toolCallId,
           prompt,

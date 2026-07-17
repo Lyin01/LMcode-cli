@@ -99,14 +99,17 @@ export class FetchURLTool implements BuiltinTool<FetchURLInput> {
       }
 
       const builder = new ToolResultBuilder({ maxLineLength: null });
-      builder.write(content);
       // Tell the LLM whether it received the whole body or only the
       // extracted article text, so it can judge how complete the
-      // content is.
+      // content is. The note is prepended to the output itself — the
+      // `message` side channel is only shown when the builder truncates,
+      // so without this the model could not tell passthrough from
+      // extraction in the common (untruncated) case.
       const message =
         kind === 'passthrough'
           ? 'The returned content is the full response body, returned verbatim.'
           : 'The returned content is the main text extracted from the page.';
+      builder.write(`[${message}]\n${content}`);
       return builder.ok(message);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);

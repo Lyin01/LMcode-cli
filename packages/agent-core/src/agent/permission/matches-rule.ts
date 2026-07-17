@@ -92,7 +92,17 @@ export function matchPermissionRule({
     return { rule, strategy: 'tool_name_only', hasRuleArgs: false };
   }
 
-  return execution.matchesRule?.(parsed.argPattern) === true
+  // Tools without a matcher (MCP/user/custom tools) match by name only:
+  // rule arguments are interpreted only by tool-provided matchers, so an
+  // argument-bearing rule falls back to a plain tool-name match here. This
+  // keeps deny rules like `mcp__fs__write_file(/etc/**)` effective instead
+  // of silently never matching.
+  const matcher = execution.matchesRule;
+  if (matcher === undefined) {
+    return { rule, strategy: 'tool_name_only', hasRuleArgs: true };
+  }
+
+  return matcher(parsed.argPattern) === true
     ? { rule, strategy: 'matches_rule', hasRuleArgs: true }
     : undefined;
 }

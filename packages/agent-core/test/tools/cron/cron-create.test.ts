@@ -445,6 +445,52 @@ describe('CronCreateTool', () => {
       expect(result.isError ?? false).toBe(false);
       expect(manager.store.list()).toHaveLength(1);
     });
+
+    it('re-runs the guard inside execute() when the approval wait crosses the pinned minute', async () => {
+      // Manual-approval scenario: resolveExecution() passes the guard
+      // while the pinned minute is still ahead, the user approves minutes
+      // later, and by execute() time the minute has passed — the first
+      // fire has rolled to next year and execute() must refuse the
+      // insert instead of silently scheduling a year-late reminder.
+      const stub = createAgentStub();
+      const harness = createClocks();
+      const manager = new CronManager(stub.agent, {
+        clocks: harness.clocks,
+        pollIntervalMs: null,
+      });
+      const tool = new CronCreateTool(manager);
+
+      // Pin the one-shot two local minutes ahead, today's dom/month.
+      const target = new Date(harness.now() + 2 * 60_000);
+      const cron = [
+        String(target.getMinutes()),
+        String(target.getHours()),
+        String(target.getDate()),
+        String(target.getMonth() + 1),
+        '*',
+      ].join(' ');
+
+      const execution = tool.resolveExecution({
+        cron,
+        prompt: 'cross-minute',
+        recurring: false,
+      });
+      if (isErrorExecution(execution)) {
+        throw new Error('expected runnable execution');
+      }
+
+      // The approval wait crosses the pinned minute.
+      harness.advance(3 * 60_000);
+
+      const result = await execution.execute({
+        turnId: 't',
+        toolCallId: 'c',
+        signal: new AbortController().signal,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain('more than a year out');
+      expect(manager.store.list()).toHaveLength(0);
+    });
   });
 
   describe('approvalRule includes the payload', () => {

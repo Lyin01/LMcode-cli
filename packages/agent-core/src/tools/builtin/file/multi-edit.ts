@@ -18,6 +18,7 @@ import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import {
+  pinPhysicalParentDirectory,
   resolveRealPathAccessPath,
   revalidateRealPathAccessPath,
 } from '../../policies/path-access';
@@ -177,6 +178,7 @@ export class MultiEditTool implements BuiltinTool<MultiEditInput> {
         totalReplacements += replaceAll ? count : 1;
       }
 
+      await pinPhysicalParentDirectory(safePath, { jian: this.jian });
       await this.jian.writeText(safePath, materializeModelText(content, modelView.lineEndingStyle));
 
       const editCount = args.edits.length;

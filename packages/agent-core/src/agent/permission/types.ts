@@ -18,13 +18,22 @@ export type PermissionRuleScope = 'turn-override' | 'session-runtime' | 'project
  *   - `manual` — rule set drives decision; unmatched tool calls ask
  *   - `yolo`   — only deny rules can block; everything else allows
  *   - `auto`   — caller may bypass rule checks entirely
+ *
+ * Mode-independent hard boundary: sensitive-file paths (`.env`, cloud
+ * credentials, SSH private keys) are rejected by the file tools' path
+ * access layer before permission evaluation, in every mode including
+ * `yolo` — there is no approval channel for them. The
+ * `sensitive-file-access-ask` policy remains as defense-in-depth for
+ * access declarations that bypass the tool-layer check (e.g. Grep/Glob
+ * search roots).
  */
 export type PermissionMode = 'manual' | 'yolo' | 'auto';
 
 /**
  * A single permission rule. `pattern` is the DSL form (`Read(/etc/**)`,
  * `Bash(rm *)`, or bare `Write`). Rule arguments are interpreted only by
- * tools that provide a matcher; other tools match by name only.
+ * tools that provide a matcher; tools without one (MCP/user/custom tools)
+ * match by name only, ignoring the rule arguments.
  */
 export interface PermissionRule {
   readonly decision: PermissionRuleDecision;

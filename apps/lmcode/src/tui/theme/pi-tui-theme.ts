@@ -56,7 +56,10 @@ export function createMarkdownTheme(colors: ColorPalette): MarkdownTheme {
 }
 
 export function createEditorTheme(colors: ColorPalette): EditorTheme {
-  const muted = chalk.hex(colors.textMuted);
+  // Every styler must read the palette at call time: `colors` is mutated in
+  // place on theme switch (`Object.assign(state.theme.colors, …)`), so a
+  // pre-bound `chalk.hex(colors.x)` instance would pin the old hex forever.
+  const muted = (s: string): string => chalk.hex(colors.textMuted)(s);
   return {
     borderColor: (s) => chalk.hex(colors.border)(s),
     selectList: {

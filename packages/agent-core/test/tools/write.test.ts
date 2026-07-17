@@ -151,6 +151,37 @@ describe('WriteTool', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
+  it('refuses to write when the parent directory is swapped after approval', async () => {
+    // Simulates the residual TOCTOU window: revalidation passes, then an
+    // attacker replaces the parent directory with a symlink before the
+    // write lands. The pre-write parent pin must catch the drift.
+    let parentSwapped = false;
+    const writeText = vi.fn();
+    const tool = new WriteTool(
+      createFakeJian({
+        realpath: async (path) =>
+          path === '/workspace' && parentSwapped ? '/outside/evil' : path,
+        stat: DIR_STAT,
+        writeText,
+      }),
+      { workspaceDir: '/workspace', additionalDirs: [] },
+    );
+    const execution = await tool.resolveExecution({
+      path: '/workspace/output.txt',
+      content: 'data',
+    });
+    if (execution.isError === true) throw new TypeError('expected runnable execution');
+
+    parentSwapped = true;
+    const result = await execution.execute(
+      context({ path: '/workspace/output.txt', content: 'data' }),
+    );
+
+    expect(result).toMatchObject({ isError: true });
+    expect(toolContentString(result)).toContain('changed after access was approved');
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it('guides batching large content across multiple write calls', () => {
     const tool = new WriteTool(createFakeJian(), PERMISSIVE_WORKSPACE);
 

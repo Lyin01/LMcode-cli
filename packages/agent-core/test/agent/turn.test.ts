@@ -83,7 +83,10 @@ describe('Agent turn flow', () => {
     await main.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
     await main.untilTurnEnd();
 
-    expect(initSpy).toHaveBeenCalledTimes(1);
+    // Main agents kick off init at construction, again in launch(), and
+    // await it at step 1 — the real tracker shares one in-flight load
+    // across those calls, so the contract is "started early", not "once".
+    expect(initSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
     // launch() records via a fire-and-forget promise chain — wait for it.
     await vi.waitFor(() => {
       expect(recordSpy).toHaveBeenCalledTimes(1);

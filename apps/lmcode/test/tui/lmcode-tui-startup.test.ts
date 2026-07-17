@@ -180,6 +180,19 @@ describe("LmcodeTUI startup", () => {
     expect(driver.state.appState.sessionId).toBe("ses-latest");
   });
 
+  it("falls back to manual permission in the initial app state (no misleading YES badge)", () => {
+    const harness = makeHarness();
+    const driver = makeDriver(harness, makeStartupInput());
+
+    expect(driver.state.appState.permissionMode).toBe("manual");
+
+    const yoloDriver = makeDriver(makeHarness(), makeStartupInput({ yolo: true }));
+    expect(yoloDriver.state.appState.permissionMode).toBe("yolo");
+
+    const autoDriver = makeDriver(makeHarness(), makeStartupInput({ auto: true }));
+    expect(autoDriver.state.appState.permissionMode).toBe("auto");
+  });
+
   it("clears prompt cache usage when deleting the active session", async () => {
     const close = vi.fn(async () => {});
     const session = makeSession({

@@ -215,3 +215,17 @@ function dismissGoalPanel(host: SlashCommandHost): void {
     host.state.ui.requestRender();
   }
 }
+
+/**
+ * Drop the module-level panel/timer references when the transcript is torn
+ * down (session switch / clearTranscriptAndRedraw). Without this the 10s
+ * timer keeps a stale container reference and later fires a meaningless
+ * removeChild + render against the old session.
+ */
+export function resetGoalPanelState(): void {
+  if (activeGoalTimer !== undefined) {
+    clearTimeout(activeGoalTimer);
+    activeGoalTimer = undefined;
+  }
+  activeGoalPanel = undefined;
+}

@@ -54,18 +54,17 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
 
   shouldCompact(usedSize: number): boolean {
     if (this.maxSize <= 0) return false;
-    return (
-      usedSize >= this.maxSize * this.config.triggerRatio ||
-      this.shouldUseReservedContext(usedSize)
-    );
+    return usedSize >= this.maxSize * this.config.triggerRatio;
   }
 
   shouldBlock(usedSize: number): boolean {
     if (this.maxSize <= 0) return false;
-    return (
-      usedSize >= this.maxSize * this.config.blockRatio ||
-      this.shouldUseReservedContext(usedSize)
-    );
+    // Blocking is governed by blockRatio alone. The reserved-context zone
+    // lives in `shouldCompactProactively` so the triggerRatio → blockRatio
+    // window stays asynchronous (a max-reserved block threshold would sit
+    // below blockRatio for windows <= 333K — and below triggerRatio for
+    // windows <= 128K, a dead zone where blocking fired before triggering).
+    return usedSize >= this.maxSize * this.config.blockRatio;
   }
 
   private shouldUseReservedContext(usedSize: number): boolean {
@@ -160,7 +159,10 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   shouldCompactProactively(usedSize: number, maxOutputTokens: number): boolean {
     if (this.maxSize <= 0) return false;
     const predicted = usedSize + this.estimateTurnGrowth(maxOutputTokens);
-    return predicted >= this.maxSize;
+    // The reserved-context zone (used + reserved >= max) is a proactive
+    // signal too: the next response may not fit, so compact asynchronously
+    // — but never block the turn on it (that's blockRatio's job).
+    return predicted >= this.maxSize || this.shouldUseReservedContext(usedSize);
   }
 
   get checkAfterStep(): boolean {

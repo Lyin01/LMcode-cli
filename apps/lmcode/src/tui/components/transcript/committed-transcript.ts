@@ -6,6 +6,7 @@ import { NoticeMessageComponent, StatusMessageComponent } from '../messages/stat
 import { UserMessageComponent } from '../messages/user-message';
 import type { ColorPalette } from '../../theme/colors';
 import type { TranscriptEntry } from '../../types';
+import { replaceTabs } from '../../utils/render-text';
 
 class CommittedMessageComponent implements Component {
   private cachedWidth: number | undefined;
@@ -58,7 +59,11 @@ class CommittedMessageComponent implements Component {
       case 'thinking': {
         const text = entry.content.trim();
         if (text.length === 0) return [];
-        return new Text(`  ${chalk.hex(colors.textDim)('思考：')}${text}`, 0, 0).render(width);
+        // Truncate like the other entry kinds — an unbounded thinking dump
+        // would stretch the "folded history" view to hundreds of lines.
+        const maxLen = 200;
+        const snippet = text.length > maxLen ? `${replaceTabs(text.slice(0, maxLen))}…` : replaceTabs(text);
+        return new Text(`  ${chalk.hex(colors.textDim)('思考：')}${snippet}`, 0, 0).render(width);
       }
       case 'tool_call': {
         const data = entry.toolCallData;
@@ -66,7 +71,7 @@ class CommittedMessageComponent implements Component {
         const output = data?.result?.output ?? '';
         const trimmed = output.trim();
         const summary = trimmed.length > 0
-          ? `${trimmed.slice(0, 160)}${trimmed.length > 160 ? '…' : ''}`
+          ? `${replaceTabs(trimmed.slice(0, 160))}${trimmed.length > 160 ? '…' : ''}`
           : '…';
         return new Text(
           `  ${chalk.hex(colors.textDim)(`工具 ${name}：`)}${summary}`,

@@ -5,8 +5,6 @@ export interface RelevanceFactors {
   keywordOverlap: number; // 0-1
   /** Recency score: 1.0 for today, decays to 0 for >90 days. */
   recency: number; // 0-1
-  /** Usage boost: +0.1 per previous injection, capped at 0.3. */
-  usageBoost: number; // 0-0.3
   /** Project affinity: 1.0 same project, 0.3 same parent dir, 0 otherwise. */
   projectBoost: number; // 0-1
   /** Tag overlap between this memo and the current project's tag cloud. */
@@ -77,7 +75,6 @@ export function detectQueryIntent(query: string): QueryIntent {
 export function computeRelevanceScore(
   memo: MemoryMemoSummary,
   query: string,
-  usageCount: number = 0,
   currentProjectDir?: string,
   projectTagCloud?: Set<string>,
   intent?: QueryIntent,
@@ -88,7 +85,6 @@ export function computeRelevanceScore(
   const factors: RelevanceFactors = {
     keywordOverlap: computeKeywordSimilarity(memo, query),
     recency: computeRecency(memo.recordedAt),
-    usageBoost: Math.min(0.3, usageCount * 0.1),
     projectBoost: computeProjectBoost(memo.projectDir, currentProjectDir),
     tagOverlap: computeTagOverlap(memo.tags, projectTagCloud),
   };
@@ -98,15 +94,13 @@ export function computeRelevanceScore(
   // queries boost recency; factual queries boost keyword overlap.
   const kwWeight = 0.45 * (1 + (fi - 0.6) * 0.5);
   const recencyWeight = 0.25 * (1 + (ti - 0.3) * 0.571);
-  const usageWeight = 0.15;
   const projectWeight = 0.10;
   const tagWeight = 0.05;
-  const total = kwWeight + recencyWeight + usageWeight + projectWeight + tagWeight;
+  const total = kwWeight + recencyWeight + projectWeight + tagWeight;
 
   return (
     factors.keywordOverlap * (kwWeight / total) +
     factors.recency * (recencyWeight / total) +
-    factors.usageBoost * (usageWeight / total) +
     factors.projectBoost * (projectWeight / total) +
     factors.tagOverlap * (tagWeight / total)
   );
@@ -126,7 +120,7 @@ export function rankMemos(
   return memos
     .map((memo) => {
       const keywordScore = computeRelevanceScore(
-        memo, query, 0, currentProjectDir, projectTagCloud, intent,
+        memo, query, currentProjectDir, projectTagCloud, intent,
       );
       const vectorScore = vectorScores?.get(memo.id);
       // Blend: 60% keyword + 40% vector when both are available.

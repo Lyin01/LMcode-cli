@@ -139,7 +139,14 @@ export class AskUserQuestionTool implements BuiltinTool<AskUserQuestionInput> {
         };
       }
 
-      return dismissedQuestionResult();
+      // A genuine dismissal resolves as a null/empty result (handled above);
+      // a rejection here is a transport or handler failure and must surface
+      // as an error, not masquerade as "the user dismissed the question".
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        isError: true,
+        output: `Failed to ask the user: ${message}`,
+      };
     }
   }
 }

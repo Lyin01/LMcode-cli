@@ -138,7 +138,9 @@ export class GlobTool implements BuiltinTool<GlobInput> {
     // extensions/subtrees (e.g. `*.{ts,tsx}`) instead of forcing the model
     // into a separate call per alternative. The safety rails below are then
     // applied to each concrete alternative.
-    const patterns = expandBraces(args.pattern).slice(0, MAX_BRACE_PATTERNS);
+    const expandedPatterns = expandBraces(args.pattern);
+    const braceExpansionTruncated = expandedPatterns.length > MAX_BRACE_PATTERNS;
+    const patterns = expandedPatterns.slice(0, MAX_BRACE_PATTERNS);
 
     for (const pattern of patterns) {
       if (startsWithDoubleStarPrefix(pattern)) {
@@ -236,19 +238,23 @@ export class GlobTool implements BuiltinTool<GlobInput> {
       const entries: Array<{ path: string; mtime: number }> = [];
       const YIELD_SAFETY_CAP = MAX_MATCHES * 2;
       let yielded = 0;
-      let truncated = false;
+      // Distinguish *why* the walk stopped: the match cap means there
+      // really are MAX_MATCHES unique results; the yield safety cap can
+      // fire with far fewer unique entries collected, so the truncation
+      // banner must report the actual count and the real cause.
+      let truncated: 'matches' | 'yield' | false = false;
 
       outer: for (const root of searchRoots) {
         for (const pattern of patterns) {
           for await (const filePath of this.jian.glob(root, pattern)) {
             yielded++;
             if (yielded >= YIELD_SAFETY_CAP) {
-              truncated = true;
+              truncated = 'yield';
               break outer;
             }
             if (seen.has(filePath)) continue;
             if (entries.length >= MAX_MATCHES) {
-              truncated = true;
+              truncated = 'matches';
               break outer;
             }
             seen.add(filePath);
@@ -281,16 +287,33 @@ export class GlobTool implements BuiltinTool<GlobInput> {
       const relBase = searchRoots[0] ?? this.workspace.workspaceDir;
       const displayLines = paths.map((p) => relativizeIfUnder(p, relBase, pathClass));
 
-      if (entries.length === 0 && !truncated) {
-        return { output: 'No matches found' };
+      // A truncated brace expansion means some concrete patterns were
+      // never searched — warn instead of letting partial results
+      // look like a complete answer.
+      const braceWarning = braceExpansionTruncated
+        ? `[Brace expansion produced ${String(expandedPatterns.length)} patterns; only the first ${String(MAX_BRACE_PATTERNS)} were searched — use a more specific pattern]`
+        : undefined;
+      if (entries.length === 0 && truncated === false) {
+        return {
+          output:
+            braceWarning === undefined ? 'No matches found' : `${braceWarning}\nNo matches found`,
+        };
       }
       const lines: string[] = [];
-      if (truncated) {
+      if (truncated === 'matches') {
         lines.push(`[Truncated at ${String(MAX_MATCHES)} matches — use a more specific pattern]`);
         lines.push(`Only the first ${String(MAX_MATCHES)} matches are returned.`);
+      } else if (truncated === 'yield') {
+        lines.push(
+          `[Result stream terminated early by the yield safety cap after ${String(yielded)} yields — ` +
+            `only ${String(entries.length)} unique matches collected; use a more specific pattern]`,
+        );
+      }
+      if (braceWarning !== undefined) {
+        lines.push(braceWarning);
       }
       lines.push(...displayLines);
-      if (!truncated && entries.length === MAX_MATCHES) {
+      if (truncated === false && entries.length === MAX_MATCHES) {
         lines.push(`Found ${String(entries.length)} matches`);
       }
       return { output: lines.join('\n') };

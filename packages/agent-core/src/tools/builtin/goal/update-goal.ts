@@ -48,7 +48,9 @@ function extractRecentOutput(history: readonly { role: string; content: { type: 
     if (total.length >= MAX_GRADER_OUTPUT_CHARS) break;
   }
   const joined = parts.join('\n\n');
-  return joined.length > MAX_GRADER_OUTPUT_CHARS ? `${joined.slice(0, MAX_GRADER_OUTPUT_CHARS)}…` : joined;
+  // Keep the newest tail: the final assistant messages carry the completion
+  // evidence the grader needs; the head is the stale part to drop.
+  return joined.length > MAX_GRADER_OUTPUT_CHARS ? `…${joined.slice(-MAX_GRADER_OUTPUT_CHARS)}` : joined;
 }
 
 export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {

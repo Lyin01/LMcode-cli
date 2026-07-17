@@ -162,6 +162,33 @@ describe('createCronScheduler — tick behaviour', () => {
     expect(h.fired[0]!.coalescedCount).toBeLessThanOrEqual(4);
   });
 
+  it('delivers no second batch when coalescing truncates at the iteration cap', () => {
+    const h = createHarness();
+    h.tasks.push(
+      makeTask({ cron: '* * * * *', createdAt: h.now(), recurring: true }),
+    );
+    // 10 001 missed 1-minute fires > MAX_COALESCE_ITERATIONS (10 000):
+    // the first tick delivers ONE truncated batch whose count means
+    // "10 000+", and the baseline jumps past the unenumerated remainder.
+    h.advance(10_001 * 60_000);
+    h.scheduler.tick();
+
+    expect(h.fired).toHaveLength(1);
+    expect(h.fired[0]!.coalescedCount).toBe(10_000);
+
+    // An immediate second tick must NOT deliver a second coalesced batch
+    // for the same gap (pre-fix the baseline stopped at the 10 000th
+    // enumerated fire, so the leftover fires re-delivered ~1s later).
+    h.scheduler.tick();
+    expect(h.fired).toHaveLength(1);
+
+    // Normal scheduling resumes from the new baseline.
+    h.advance(60_000);
+    h.scheduler.tick();
+    expect(h.fired).toHaveLength(2);
+    expect(h.fired[1]!.coalescedCount).toBe(1);
+  });
+
   it('one-shot task fires once then is removed', () => {
     const h = createHarness();
     // createdAt is 1 minute earlier so we can advance past the next

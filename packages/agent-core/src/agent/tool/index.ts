@@ -362,6 +362,16 @@ export class ToolManager {
     // builtin/user tool names. The split keeps every caller on one string[].
     this.enabledTools = new Set(names.filter((name) => !isMcpToolName(name)));
     this.mcpAccessPatterns = names.filter((name) => isMcpToolName(name));
+    // allowBackground is baked into the Bash/Agent tool instances (and their
+    // descriptions) at construction, so re-run the initializer: without this
+    // a runtime tool-set change leaves background execution enabled after
+    // the Task* tools were disabled, or disabled after they were enabled.
+    // Only once the provider is configured (same gate the constructor
+    // uses): before that, the config-update path re-runs the
+    // initializer when the provider arrives and picks up these names.
+    if (this.agent.config.hasProvider) {
+      this.initializeBuiltinTools();
+    }
   }
 
   private isMcpToolEnabled(name: string): boolean {

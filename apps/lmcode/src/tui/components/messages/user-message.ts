@@ -10,6 +10,7 @@ import { ImageThumbnail } from '#/tui/components/media/image-thumbnail';
 import { USER_MESSAGE_BULLET } from '#/tui/constant/symbols';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
+import { replaceTabs } from '#/tui/utils/render-text';
 
 export class UserMessageComponent implements Component {
   private color: string;
@@ -21,7 +22,8 @@ export class UserMessageComponent implements Component {
 
   constructor(text: string, colors: ColorPalette, images?: ImageAttachment[]) {
     this.color = colors.roleUser;
-    this.textComponent = new Text(chalk.hex(colors.roleUser).bold(text), 0, 0);
+    // Raw tabs would render as variable-width holes in the terminal.
+    this.textComponent = new Text(chalk.hex(colors.roleUser).bold(replaceTabs(text)), 0, 0);
     this.spacerComponent = new Spacer(1);
     this.imageThumbnails = images?.map((img) => new ImageThumbnail(img, colors)) ?? [];
   }

@@ -48,6 +48,8 @@ export class LspClient {
   private buffer = '';
   private contentLength = -1;
   private started = false;
+  /** URIs currently open on the server, mapped to their last sync version. */
+  private readonly openDocuments = new Map<string, number>();
 
   constructor(
     private readonly command: string[],
@@ -122,6 +124,7 @@ export class LspClient {
 
   async stop(): Promise<void> {
     this.started = false;
+    this.openDocuments.clear();
     for (const { reject, timer } of this.pending.values()) {
       clearTimeout(timer);
       reject(new Error('LSP client stopped'));
@@ -140,13 +143,31 @@ export class LspClient {
   }
 
   didOpen(path: string, content: string, languageId: string): void {
-    this.notify('textDocument/didOpen', {
-      textDocument: {
-        uri: pathToUri(path),
-        languageId,
-        version: 1,
-        text: content,
-      },
+    // The LSP forbids sending didOpen twice for the same document. Track
+    // opened URIs and sync later reads with didChange + a bumped version,
+    // so servers (e.g. pyright) don't see duplicate opens or stale text
+    // after the file was edited between calls.
+    const uri = pathToUri(path);
+    const version = this.openDocuments.get(uri);
+    if (version === undefined) {
+      this.openDocuments.set(uri, 1);
+      this.notify('textDocument/didOpen', {
+        textDocument: {
+          uri,
+          languageId,
+          version: 1,
+          text: content,
+        },
+      });
+      return;
+    }
+    const next = version + 1;
+    this.openDocuments.set(uri, next);
+    this.notify('textDocument/didChange', {
+      textDocument: { uri, version: next },
+      // Full-document replacement (no range) — the servers we support all
+      // accept TextDocumentSyncKind.Full.
+      contentChanges: [{ text: content }],
     });
   }
 

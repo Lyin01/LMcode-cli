@@ -15,6 +15,7 @@ import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import {
+  pinPhysicalParentDirectory,
   resolveRealPathAccessPath,
   revalidateRealPathAccessPath,
 } from '../../policies/path-access';
@@ -157,6 +158,7 @@ export class EditTool implements BuiltinTool<EditInput> {
         }
 
         const newContent = replaceOnceLiteral(content, args.old_string, args.new_string);
+        await pinPhysicalParentDirectory(safePath, { jian: this.jian });
         await this.jian.writeText(
           safePath,
           materializeModelText(newContent, modelView.lineEndingStyle),
@@ -172,6 +174,7 @@ export class EditTool implements BuiltinTool<EditInput> {
       }
 
       const newContent = parts.join(args.new_string);
+      await pinPhysicalParentDirectory(safePath, { jian: this.jian });
       await this.jian.writeText(
         safePath,
         materializeModelText(newContent, modelView.lineEndingStyle),

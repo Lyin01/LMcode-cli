@@ -9,6 +9,7 @@ import {
   PathSecurityError,
   STRICT_WORKSPACE_ACCESS_POLICY,
   assertPathAllowed,
+  pinPhysicalParentDirectory,
   resolvePathAccess,
   resolvePathAccessPath,
   resolveRealPathAccessPath,
@@ -538,5 +539,52 @@ describe('path access policy', () => {
         expect(isSensitiveFile(`/home/user/.ssh/${key}`)).toBe(true);
       });
     }
+  });
+});
+
+describe('pinPhysicalParentDirectory', () => {
+  it('passes when the parent directory still resolves to the approved physical path', async () => {
+    const jian = createFakeJian({ realpath: async (path) => path });
+
+    await expect(
+      pinPhysicalParentDirectory('/workspace/src/out.txt', { jian }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws when the parent directory was swapped after approval', async () => {
+    // Simulates the TOCTOU race: an attacker replaced an intermediate
+    // directory with a symlink between revalidation and the write.
+    const jian = createFakeJian({
+      realpath: async (path) => (path === '/workspace/src' ? '/outside/evil' : path),
+    });
+
+    await expect(pinPhysicalParentDirectory('/workspace/src/out.txt', { jian })).rejects
+      .toMatchObject({
+        code: 'PATH_INVALID',
+        message: expect.stringContaining('changed after access was approved'),
+      });
+  });
+
+  it('compares parent directories case-insensitively on win32', async () => {
+    const jian = createFakeJian({
+      pathClass: () => 'win32',
+      realpath: async (path) => (path === 'C:/workspace/src' ? 'C:/Workspace/Src' : path),
+    });
+
+    await expect(
+      pinPhysicalParentDirectory('C:/workspace/src/out.txt', { jian }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('is best-effort: a failed parent re-resolution does not block the write', async () => {
+    const jian = createFakeJian({
+      realpath: async () => {
+        throw new Error('realpath unsupported');
+      },
+    });
+
+    await expect(
+      pinPhysicalParentDirectory('/workspace/src/out.txt', { jian }),
+    ).resolves.toBeUndefined();
   });
 });

@@ -88,18 +88,16 @@ function tierFor(intensity: number): Tier {
 
 // ── Public API ──────────────────────────────────────────────────────────
 
-const shimmerDefaultCache = new WeakMap<ColorPalette, ShimmerPalette>();
-
+// No memoization: the theme palette object is mutated in place on theme
+// switch (`Object.assign(colors, …)`), so any cache keyed on the palette
+// identity would serve stale hex values forever. Building the triplet is a
+// three-field allocation — cheap enough to do per call.
 function defaultPalette(colors: ColorPalette): ShimmerPalette {
-  const cached = shimmerDefaultCache.get(colors);
-  if (cached) return cached;
-  const p: ShimmerPalette = {
+  return {
     low: colors.textDim,
     mid: colors.textMuted,
     high: colors.primary,
   };
-  shimmerDefaultCache.set(colors, p);
-  return p;
 }
 
 /**

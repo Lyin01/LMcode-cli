@@ -160,11 +160,12 @@ describe('ApprovalPanelComponent', () => {
   });
 
   it.each(['\u0003', '\u0004', '\u001B'])(
-    'shortcut %j rejects approval immediately',
+    'shortcut %j cancels approval immediately',
     (key) => {
       const { dialog, responses } = makeDialog();
       dialog.handleInput(key);
-      expect(responses).toEqual([{ response: 'rejected' }]);
+      // Bailing out is a cancellation, not a rejection.
+      expect(responses).toEqual([{ response: 'cancelled' }]);
     },
   );
 

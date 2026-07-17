@@ -43,7 +43,10 @@ export function pathGlobMatch(
   pathOptions?: PermissionPathMatchOptions,
 ): boolean {
   const semantics = pathMatchSemantics(value, pattern, pathOptions);
-  const nocase = pathOptions?.caseInsensitivePaths ?? true;
+  // Case sensitivity follows the target filesystem: Win32 paths compare
+  // case-insensitively, POSIX paths case-sensitively. An explicit
+  // `caseInsensitivePaths` option always wins over the derived default.
+  const nocase = pathOptions?.caseInsensitivePaths ?? (semantics.pathClass === 'win32');
 
   if (globMatch(value, pattern, { nocase })) return true;
 

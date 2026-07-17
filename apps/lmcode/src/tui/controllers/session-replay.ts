@@ -85,6 +85,30 @@ export class SessionReplayRenderer {
     }
   }
 
+
+  /**
+   * Re-render the transcript from raw context history (post-/revoke). The
+   * transcript's visible window is a 10-turn projection of core history, so
+   * once a revoke reaches past that window the remaining prompts were never
+   * displayed - re-hydrate them through the same projection used on restore
+   * instead of leaving an empty transcript.
+   */
+  rebuildFromHistory(history: readonly ContextMessage[]): void {
+    this.host.setAppState({ isReplaying: true });
+    try {
+      const context = createReplayRenderContext();
+      const records = history.map(
+        (message): AgentReplayRecord => ({ type: 'message', message }),
+      );
+      for (const record of limitReplayRecordsByTurn(records, REPLAY_TURN_LIMIT)) {
+        this.renderRecord(context, record);
+      }
+      this.flushAssistant(context);
+      this.cleanupRuntime(context);
+    } finally {
+      this.host.setAppState({ isReplaying: false });
+    }
+  }
   // ---------------------------------------------------------------------------
   // Snapshot hydration
   // ---------------------------------------------------------------------------

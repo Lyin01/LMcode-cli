@@ -11,14 +11,22 @@ const FILE_NAME = 'entries.jsonl';
 const MIGRATION_MARKER = '.migrated';
 const SQLITE_MIGRATION_MARKER = '.migrated-to-sqlite';
 
-type DatabaseSyncConstructor = new (path: string) => DatabaseSync;
+type DatabaseSyncConstructor = new (path: string, options?: { timeout?: number }) => DatabaseSync;
 type EmbeddingTimer = NodeJS.Timeout;
 
 interface EmbeddingJob {
   readonly id: string;
   readonly text: string;
   state: 'queued' | 'running';
+  /** Number of failed embed attempts; jobs are dropped after the cap. */
+  attempts: number;
 }
+
+/** Default cap for FTS/vector candidate pools used by search() and list(). */
+const SEARCH_CANDIDATE_LIMIT = 200;
+
+/** Transient embed failures get this many tries before the job is dropped. */
+const MAX_EMBEDDING_ATTEMPTS = 3;
 
 export class MemoryMemoStore {
   private readonly projectDir: string;
@@ -31,9 +39,15 @@ export class MemoryMemoStore {
   private embeddingEngine: EmbeddingEngine | undefined;
   private readonly embeddingJobs = new Map<string, EmbeddingJob>();
   private embeddingTimer: EmbeddingTimer | undefined;
-  private embeddingFlush: Promise<void> | undefined;
+  private embeddingFlush: Promise<boolean> | undefined;
   private embeddingBackgroundError: unknown;
   private closing: Promise<void> | undefined;
+  /**
+   * Terminal latch: set once `close()` has run. Any further use throws instead
+   * of silently reopening the database and resurrecting released file handles
+   * during process teardown.
+   */
+  private closed = false;
 
   constructor(projectDir: string) {
     this.projectDir = projectDir;
@@ -46,6 +60,7 @@ export class MemoryMemoStore {
    * construction before relying on reads/writes.
    */
   async init(): Promise<void> {
+    if (this.closed) throw new Error('Memory store is closed');
     if (this.initialized) return;
     if (this.initialization !== undefined) return this.initialization;
 
@@ -70,7 +85,11 @@ export class MemoryMemoStore {
     }
 
     try {
-      this.db = new dbSyncClass(this.dbPath);
+      // Busy-timeout: the main agent, every subagent, and the TUI each open
+      // their own connection to the same memos.sqlite. Without it, a
+      // cross-connection write conflict under WAL surfaces as an immediate
+      // SQLITE_BUSY instead of waiting for the other writer to finish.
+      this.db = new dbSyncClass(this.dbPath, { timeout: 5000 });
       this.db.exec('PRAGMA foreign_keys = ON;');
       this.db.exec('PRAGMA journal_mode = WAL;');
       this.createSchema();
@@ -89,6 +108,7 @@ export class MemoryMemoStore {
 
   /** Iterate all memos from the database, newest first. Optionally filter by project directory. */
   async *read(options?: { projectDir?: string }): AsyncIterable<MemoryMemo> {
+    this.assertReadable();
     await this.init();
     if (this.db === undefined) return;
     const projectDir = options?.projectDir;
@@ -118,11 +138,32 @@ export class MemoryMemoStore {
 
   /** Get a single memo by ID. */
   async get(id: string): Promise<MemoryMemo | undefined> {
+    this.assertReadable();
+    return this.getInternal(id);
+  }
+
+  /**
+   * Fetch without the closing guard — write paths (update/delete) call this
+   * from inside the write lock, which `close()` itself waits behind, so they
+   * must not trip the closing check mid-write.
+   */
+  private async getInternal(id: string): Promise<MemoryMemo | undefined> {
     await this.init();
     if (this.db === undefined) return undefined;
     const stmt = this.db.prepare('SELECT * FROM memos WHERE id = ?');
     const row = stmt.get(id) as Record<string, unknown> | undefined;
     return row !== undefined ? rowToMemo(row) : undefined;
+  }
+
+  /**
+   * Fail fast when a read races teardown: preparing on a half-closed
+   * DatabaseSync would otherwise throw an opaque native error (or silently
+   * reopen the store after close()). Write paths go through withWriteLock,
+   * which performs the same check at entry.
+   */
+  private assertReadable(): void {
+    if (this.closed) throw new Error('Memory store is closed');
+    if (this.closing !== undefined) throw new Error('Memory store is closing');
   }
 
   /**
@@ -134,13 +175,14 @@ export class MemoryMemoStore {
    */
   async search(
     query: string,
-    options?: { candidateLimit?: number; projectDir?: string },
+    options?: { candidateLimit?: number; projectDir?: string; prefix?: boolean },
   ): Promise<MemoryMemo[]> {
+    this.assertReadable();
     await this.init();
     if (this.db === undefined) return [];
-    const ftsQuery = buildFtsQuery(query);
+    const ftsQuery = buildFtsQuery(query, { prefix: options?.prefix });
     if (ftsQuery === undefined) return [];
-    const limit = options?.candidateLimit ?? 200;
+    const limit = options?.candidateLimit ?? SEARCH_CANDIDATE_LIMIT;
     const projectDir = options?.projectDir;
     const stmt =
       projectDir === undefined
@@ -169,6 +211,7 @@ export class MemoryMemoStore {
     offset?: number;
     projectDir?: string;
   }): Promise<MemoryMemoListResult> {
+    this.assertReadable();
     await this.init();
     if (this.db === undefined) return { memos: [], total: 0 };
 
@@ -179,25 +222,36 @@ export class MemoryMemoStore {
 
     if (search !== undefined && search.length > 0) {
       let candidates = await this.search(search, { projectDir });
+      let scannedAll = false;
       // Preserve the pre-SQLite behavior: keyword search is intersected with a
       // substring filter so the exact query string must appear somewhere in the
       // memo text.
       if (candidates.length === 0) {
-        // Try prefix wildcard query so partial tokens still match.
-        const prefixQuery = buildFtsQuery(search, { prefix: true });
-        if (prefixQuery !== undefined) {
-          candidates = await this.search(prefixQuery, { projectDir });
-        }
+        // Try prefix wildcard query so partial tokens still match. Pass the
+        // raw search text with the prefix flag — rebuilding an FTS expression
+        // here and feeding it back through search() would tokenize away the
+        // `*` operators and inject literal "and" terms, never matching.
+        candidates = await this.search(search, { projectDir, prefix: true });
       }
       if (candidates.length === 0) {
         // Fallback: scan recent memos so tags and wording not captured by the
         // FTS index are still considered.
+        scannedAll = true;
         for await (const memo of this.read({ projectDir })) {
           candidates.push(memo);
         }
       }
       const filtered = candidates.filter((memo) => memoMatchesSearch(memo, search));
-      const total = filtered.length;
+      // The FTS candidate pool is capped (SEARCH_CANDIDATE_LIMIT), so its size
+      // is a lower bound, not the true total. When the cap was hit, count
+      // exactly with a full scan; the full-scan fallback is already exact.
+      let total = filtered.length;
+      if (!scannedAll && candidates.length >= SEARCH_CANDIDATE_LIMIT) {
+        total = 0;
+        for await (const memo of this.read({ projectDir })) {
+          if (memoMatchesSearch(memo, search)) total += 1;
+        }
+      }
       return { memos: filtered.slice(offset, offset + limit).map(toSummary), total };
     }
 
@@ -495,9 +549,9 @@ export class MemoryMemoStore {
       );
       this.db.exec('COMMIT');
       this.scheduleEmbedding(entry);
-    } catch {
+    } catch (cause) {
       this.db.exec('ROLLBACK');
-      throw new Error('Failed to append memo');
+      throw new Error('Failed to append memo', { cause });
     }
   }
 
@@ -514,7 +568,7 @@ export class MemoryMemoStore {
     await this.init();
     if (this.db === undefined) return false;
 
-    const existing = await this.get(id);
+    const existing = await this.getInternal(id);
     if (existing === undefined) return false;
 
     const updated: MemoryMemo = { ...existing, ...patch };
@@ -578,16 +632,16 @@ export class MemoryMemoStore {
       this.db.exec('COMMIT');
       this.scheduleEmbedding(updated);
       return true;
-    } catch {
+    } catch (cause) {
       this.db.exec('ROLLBACK');
-      throw new Error('Failed to update memo');
+      throw new Error('Failed to update memo', { cause });
     }
   }
 
   private async deleteInternal(id: string): Promise<boolean> {
     await this.init();
     if (this.db === undefined) return false;
-    const existing = await this.get(id);
+    const existing = await this.getInternal(id);
     if (existing === undefined) return true;
     const selectRow = this.db.prepare('SELECT rowid FROM memos WHERE id = ?');
     const row = selectRow.get(id) as { rowid: number } | undefined;
@@ -600,9 +654,9 @@ export class MemoryMemoStore {
       this.db.exec('COMMIT');
       this.embeddingJobs.delete(id);
       return true;
-    } catch {
+    } catch (cause) {
       this.db.exec('ROLLBACK');
-      throw new Error('Failed to delete memo');
+      throw new Error('Failed to delete memo', { cause });
     }
   }
 
@@ -631,10 +685,34 @@ export class MemoryMemoStore {
   /** Set the embedding engine. Call once after construction, before any writes. */
   setEmbeddingEngine(engine: EmbeddingEngine): void {
     this.embeddingEngine = engine;
+    // Backfill memos that have no stored vector — legacy JSONL migrations
+    // and writes made while the engine was unavailable would otherwise stay
+    // invisible to vector search forever.
+    void this.backfillMissingEmbeddings().catch((error: unknown) => {
+      this.embeddingBackgroundError = error;
+    });
+  }
+
+  private async backfillMissingEmbeddings(): Promise<void> {
+    if (this.embeddingEngine?.available !== true) return;
+    if (this.closed || this.closing !== undefined) return;
+    await this.init();
+    if (this.db === undefined) return;
+    const rows = this.db
+      .prepare(
+        `SELECT m.* FROM memos m
+         LEFT JOIN memory_embeddings e ON e.memory_id = m.id
+         WHERE e.memory_id IS NULL`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      this.scheduleEmbedding(rowToMemo(row));
+    }
   }
 
   /** Check whether the store has any vector embeddings. */
   hasEmbeddings(): boolean {
+    this.assertReadable();
     if (this.db === undefined) return false;
     const row = this.db.prepare('SELECT COUNT(*) as count FROM memory_embeddings').get() as
       | { count: number }
@@ -665,10 +743,11 @@ export class MemoryMemoStore {
       recencyCutoffDays?: number;
     },
   ): Promise<Array<{ memo: MemoryMemo; score: number }>> {
+    this.assertReadable();
     await this.init();
     if (this.db === undefined) return [];
 
-    const limit = options?.candidateLimit ?? 200;
+    const limit = options?.candidateLimit ?? SEARCH_CANDIDATE_LIMIT;
     const projectDir = options?.projectDir;
     const recencyCutoffDays = options?.recencyCutoffDays;
     const cutoffMs =
@@ -676,58 +755,36 @@ export class MemoryMemoStore {
         ? Date.now() - recencyCutoffDays * 24 * 60 * 60 * 1000
         : undefined;
 
-    let rows: Array<{ memory_id: string; embedding_json: string }>;
+    const conditions: string[] = [];
+    const params: Array<string | number> = [];
     if (projectDir !== undefined) {
-      const stmt =
-        cutoffMs === undefined
-          ? this.db.prepare(`
-              SELECT e.memory_id, e.embedding_json
-              FROM memory_embeddings e
-              JOIN memos m ON m.id = e.memory_id
-              WHERE (m.project_dir = ? OR m.project_dir = '')
-              ORDER BY m.recorded_at DESC
-              LIMIT ?
-            `)
-          : this.db.prepare(`
-              SELECT e.memory_id, e.embedding_json
-              FROM memory_embeddings e
-              JOIN memos m ON m.id = e.memory_id
-              WHERE (m.project_dir = ? OR m.project_dir = '')
-                AND m.recorded_at > ?
-              ORDER BY m.recorded_at DESC
-              LIMIT ?
-            `);
-      rows = (cutoffMs === undefined
-        ? stmt.all(projectDir, limit)
-        : stmt.all(projectDir, cutoffMs, limit)) as Array<{
-          memory_id: string;
-          embedding_json: string;
-        }>;
-    } else {
-      const stmt =
-        cutoffMs === undefined
-          ? this.db.prepare(`
-              SELECT e.memory_id, e.embedding_json
-              FROM memory_embeddings e
-              JOIN memos m ON m.id = e.memory_id
-              ORDER BY m.recorded_at DESC
-              LIMIT ?
-            `)
-          : this.db.prepare(`
-              SELECT e.memory_id, e.embedding_json
-              FROM memory_embeddings e
-              JOIN memos m ON m.id = e.memory_id
-              WHERE m.recorded_at > ?
-              ORDER BY m.recorded_at DESC
-              LIMIT ?
-            `);
-      rows = (cutoffMs === undefined
-        ? stmt.all(limit)
-        : stmt.all(cutoffMs, limit)) as Array<{
-          memory_id: string;
-          embedding_json: string;
-        }>;
+      conditions.push("(m.project_dir = ? OR m.project_dir = '')");
+      params.push(projectDir);
     }
+    if (cutoffMs !== undefined) {
+      conditions.push('m.recorded_at > ?');
+      params.push(cutoffMs);
+    }
+    // Vectors produced by a different embedding model are not comparable —
+    // cosine across models yields meaningless scores, so filter them out.
+    const engineModel = this.embeddingEngine?.model;
+    if (engineModel !== undefined) {
+      conditions.push('e.model = ?');
+      params.push(engineModel);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const stmt = this.db.prepare(`
+      SELECT e.memory_id, e.embedding_json
+      FROM memory_embeddings e
+      JOIN memos m ON m.id = e.memory_id
+      ${where}
+      ORDER BY m.recorded_at DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(...params, limit) as Array<{
+      memory_id: string;
+      embedding_json: string;
+    }>;
 
     if (rows.length === 0) return [];
 
@@ -778,6 +835,7 @@ export class MemoryMemoStore {
       id: memo.id,
       text: buildEmbeddingText(memo),
       state: 'queued',
+      attempts: 0,
     });
     if (this.closing !== undefined) return;
     if (this.embeddingTimer !== undefined) {
@@ -806,15 +864,18 @@ export class MemoryMemoStore {
         flush = this.startEmbeddingFlush(engine);
       }
 
-      await flush;
+      const drained = await flush;
       if (!this.hasQueuedEmbeddingJobs()) {
         this.embeddingBackgroundError = undefined;
         return;
       }
+      // A transient engine failure left jobs queued — stop here instead of
+      // spinning; the next scheduleEmbedding()/flushEmbeddings() retries them.
+      if (!drained) return;
     }
   }
 
-  private startEmbeddingFlush(engine: EmbeddingEngine): Promise<void> {
+  private startEmbeddingFlush(engine: EmbeddingEngine): Promise<boolean> {
     const flush = this.drainEmbeddingJobs(engine);
     this.embeddingFlush = flush;
     void flush.then(
@@ -828,23 +889,27 @@ export class MemoryMemoStore {
     return flush;
   }
 
-  private async drainEmbeddingJobs(engine: EmbeddingEngine): Promise<void> {
+  private async drainEmbeddingJobs(engine: EmbeddingEngine): Promise<boolean> {
     while (engine.available && this.hasQueuedEmbeddingJobs()) {
-      await this.flushEmbeddingBatch(engine);
+      const status = await this.flushEmbeddingBatch(engine);
+      // Engine hiccup: jobs were re-queued for a later flush — stop this
+      // drain instead of hot-looping on embedBatch failures.
+      if (status === 'retry-later') return false;
     }
+    return !this.hasQueuedEmbeddingJobs();
   }
 
-  private async flushEmbeddingBatch(engine: EmbeddingEngine): Promise<void> {
+  private async flushEmbeddingBatch(engine: EmbeddingEngine): Promise<'ok' | 'retry-later'> {
     await this.init();
     const db = this.db;
-    if (db === undefined) return;
+    if (db === undefined) return 'ok';
 
     const jobs = [...this.embeddingJobs.values()].filter((job) => job.state === 'queued');
-    if (jobs.length === 0) return;
+    if (jobs.length === 0) return 'ok';
     for (const job of jobs) job.state = 'running';
 
     try {
-      await this.processEmbeddingJobs(engine, db, jobs);
+      return await this.processEmbeddingJobs(engine, db, jobs);
     } catch (error) {
       this.requeueEmbeddingJobs(jobs);
       throw error;
@@ -855,7 +920,7 @@ export class MemoryMemoStore {
     engine: EmbeddingEngine,
     db: DatabaseSync,
     jobs: readonly EmbeddingJob[],
-  ): Promise<void> {
+  ): Promise<'ok' | 'retry-later'> {
     // Collect memos that still need embeddings.
     const pending: EmbeddingJob[] = [];
     for (const job of jobs) {
@@ -878,14 +943,25 @@ export class MemoryMemoStore {
       }
     }
 
-    if (pending.length === 0) return;
+    if (pending.length === 0) return 'ok';
 
     const vectors = await engine.embedBatch(pending.map((item) => item.text));
     if (vectors === null) {
+      // Transient engine failure — re-queue for a later flush instead of
+      // dropping the jobs (a dropped memo stays invisible to vector search
+      // until the next process start's backfill). Jobs that keep failing are
+      // dropped after MAX_EMBEDDING_ATTEMPTS so one poison text cannot block
+      // the queue forever.
       for (const job of pending) {
-        if (this.embeddingJobs.get(job.id) === job) this.embeddingJobs.delete(job.id);
+        if (this.embeddingJobs.get(job.id) !== job) continue;
+        job.attempts += 1;
+        if (job.attempts >= MAX_EMBEDDING_ATTEMPTS) {
+          this.embeddingJobs.delete(job.id);
+        } else {
+          job.state = 'queued';
+        }
       }
-      return;
+      return 'retry-later';
     }
     if (vectors.length !== pending.length) {
       throw new Error(
@@ -896,6 +972,7 @@ export class MemoryMemoStore {
     const insert = db.prepare(
       'INSERT OR REPLACE INTO memory_embeddings (memory_id, embedding_json, model, created_at) VALUES (?, ?, ?, ?)',
     );
+    const engineModel = engine.model ?? 'bge-small-zh-v1.5';
     const now = Date.now();
     const ready: Array<{ job: EmbeddingJob; vector: Float32Array }> = [];
     for (let index = 0; index < pending.length; index += 1) {
@@ -910,7 +987,7 @@ export class MemoryMemoStore {
         ready.push({ job, vector: vectors[index]! });
       }
     }
-    if (ready.length === 0) return;
+    if (ready.length === 0) return 'ok';
 
     db.exec('BEGIN TRANSACTION');
     try {
@@ -918,7 +995,7 @@ export class MemoryMemoStore {
         insert.run(
           job.id,
           JSON.stringify([...vector]),
-          'bge-small-zh-v1.5',
+          engineModel,
           now,
         );
       }
@@ -926,6 +1003,7 @@ export class MemoryMemoStore {
       for (const { job } of ready) {
         if (this.embeddingJobs.get(job.id) === job) this.embeddingJobs.delete(job.id);
       }
+      return 'ok';
     } catch (error) {
       db.exec('ROLLBACK');
       throw new Error('Failed to persist memory embeddings', { cause: error });
@@ -980,18 +1058,22 @@ export class MemoryMemoStore {
    * Call this when the store is no longer needed (e.g., during session teardown)
    * to prevent EBUSY errors on Windows from lingering WAL/SHM files.
    *
-   * After awaiting `close()` the store must not be used for further reads/writes
-   * without calling `init()` again.
+   * Close is terminal: after awaiting `close()` any further read/write throws
+   * `Memory store is closed` rather than silently reopening the database.
    */
   close(): Promise<void> {
+    // Idempotent: a store that already finished closing stays closed.
+    if (this.closed) return Promise.resolve();
     if (this.closing !== undefined) return this.closing;
     const closing = this.closeInternal();
     this.closing = closing;
     void closing.then(
       () => {
+        this.closed = true;
         if (this.closing === closing) this.closing = undefined;
       },
       () => {
+        this.closed = true;
         if (this.closing === closing) this.closing = undefined;
       },
     );

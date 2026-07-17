@@ -45,8 +45,19 @@ function comparable(path: string): string {
   return path.toLowerCase();
 }
 
+/**
+ * Windows silently strips trailing spaces and dots when creating a file, so
+ * `Write(C:\proj\.env )` lands on `.env`. Fold those variants back before
+ * matching or the basename check is trivially bypassed on new files. Applied
+ * unconditionally: a trailing-space/dot basename is an evasion attempt far
+ * more often than a real POSIX file, and flagging it is the safe direction.
+ */
+function normalizeWindowsBasename(name: string): string {
+  return name.replace(/[ .]+$/, '');
+}
+
 export function isSensitiveFile(path: string): boolean {
-  const name = basename(path);
+  const name = normalizeWindowsBasename(basename(path));
   const comparableName = comparable(name);
   const comparablePath = comparable(path);
 

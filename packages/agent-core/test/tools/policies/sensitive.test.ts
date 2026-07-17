@@ -40,6 +40,32 @@ describe('isSensitiveFile', () => {
     }
   });
 
+  it('flags Windows trailing space/dot evasion variants on new files', () => {
+    // Windows strips trailing spaces and dots when creating a file, so
+    // `Write(C:\proj\.env )` lands on `.env`; the basename check must fold
+    // those variants back instead of letting new files slip through.
+    for (const path of [
+      '.env ',
+      '.env.',
+      '.env . ',
+      '/app/.env.local ',
+      '.env.production ',
+      'id_rsa.',
+      'id_rsa ',
+      '/home/user/.ssh/id_ed25519.',
+      'credentials ',
+      'credentials.',
+    ]) {
+      expect(isSensitiveFile(path), path).toBe(true);
+    }
+  });
+
+  it('keeps exemptions and public keys non-sensitive with trailing space/dot', () => {
+    for (const path of ['.env.example ', '.env.sample.', 'id_rsa.pub ', 'credentials.json ']) {
+      expect(isSensitiveFile(path), path).toBe(false);
+    }
+  });
+
   it('does not flag normal source / config files or env exemplars', () => {
     // Mirrors the py parametrization exactly. `.envrc`, `environment.py`,
     // `.env_example`, `server.key.example`, `id_rsa.pub`, `credentials.json`

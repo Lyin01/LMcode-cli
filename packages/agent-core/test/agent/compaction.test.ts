@@ -126,11 +126,31 @@ describe('Agent compaction', () => {
     expect(strategy.computeCompactCount(messages, 'auto')).toBe(2);
   });
 
-  it('reserves response context by default before the ratio threshold is reached', () => {
+  it('treats the reserved context zone as proactive rather than blocking', () => {
     const strategy = new DefaultCompactionStrategy(() => 256_000);
 
+    // 210K/256K ≈ 82% — inside the reserved zone (used + 50K >= max) but
+    // below the 85% block ratio (217.6K). Compaction still triggers, and
+    // the reserved zone now routes through the proactive (async) check
+    // instead of blocking the turn.
     expect(strategy.shouldCompact(210_000)).toBe(true);
-    expect(strategy.shouldBlock(210_000)).toBe(true);
+    expect(strategy.shouldBlock(210_000)).toBe(false);
+    // 16K output * 2.5 growth = 41K, not enough to overflow on its own —
+    // this assertion isolates the reserved-context clause.
+    expect(strategy.shouldCompactProactively(210_000, 16_384)).toBe(true);
+    expect(strategy.shouldBlock(217_600)).toBe(true);
+  });
+
+  it('keeps the trigger-to-block window non-blocking for small context windows', () => {
+    const strategy = new DefaultCompactionStrategy(() => 100_000);
+
+    // 80%: past the 75% trigger and inside the reserved zone (50K..100K).
+    // With the reserved branch on shouldBlock this blocked at 80% — and
+    // for <=128K windows the block threshold even sat below the trigger
+    // threshold. Blocking now belongs to blockRatio alone.
+    expect(strategy.shouldCompact(80_000)).toBe(true);
+    expect(strategy.shouldBlock(80_000)).toBe(false);
+    expect(strategy.shouldBlock(85_000)).toBe(true);
   });
 
   it('starts compaction when only the predicted next step would overflow', async () => {
@@ -225,6 +245,42 @@ describe('Agent compaction', () => {
       ctx.agent.fullCompaction.beforeStep(new AbortController().signal),
     ).rejects.toMatchObject({ code: 'compaction.unable' });
     expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+  });
+
+  it('does not throw CONTEXT_OVERFLOW when the non-blocking compaction budget is exhausted', async () => {
+    const nonBlockingStrategy: CompactionStrategy = {
+      shouldCompact: () => true,
+      shouldBlock: () => false,
+      computeCompactCount: () => 2,
+      reduceCompactOnOverflow: (messages) => messages.length,
+      estimateTurnGrowth: (maxOutputTokens) => maxOutputTokens,
+      shouldCompactProactively: () => false,
+      checkAfterStep: false,
+      maxCompactionPerTurn: 1,
+    };
+    const ctx = testAgent({ compactionStrategy: nonBlockingStrategy });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user', 'old assistant', 20);
+    ctx.appendExchange(2, 'recent user', 'recent assistant', 40);
+    const compacted = ctx.once('context.apply_compaction');
+    ctx.mockNextResponse({ type: 'text', text: 'First auto summary.' });
+
+    // The first beforeStep consumes the turn's single auto-compaction slot.
+    await ctx.agent.fullCompaction.beforeStep(new AbortController().signal);
+    await compacted;
+
+    // Budget exhausted: the non-blocking (75–85%) branch must swallow the
+    // per-turn limit — throwing CONTEXT_OVERFLOW here would fail a turn
+    // that still has ~25% context headroom. Failure protection stays with
+    // the blocking branch and the real 413 overflow path.
+    await expect(
+      ctx.agent.fullCompaction.beforeStep(new AbortController().signal),
+    ).resolves.toBeUndefined();
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+    expect(ctx.llmCalls).toHaveLength(1);
   });
 
   it('waits for a cancelled after-step compaction worker before closing tools', async () => {
@@ -422,6 +478,50 @@ describe('Agent compaction', () => {
       ]
     `);
     await ctx.expectResumeMatches();
+  });
+
+  it('warns and keeps the compaction result when memory memo extraction throws', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const compacted = ctx.once('context.apply_compaction');
+    const warnSpy = vi.spyOn(ctx.agent.log, 'warn');
+    // Force the post-compaction memo extraction to throw: a memo store is
+    // present and the summary carries a memo block, but reading the
+    // session title rejects. Pre-fix this error vanished silently —
+    // `compacting` was already null by then, so the worker's catch guard
+    // never matched and nothing was logged.
+    (ctx.agent as unknown as { memoStore: unknown }).memoStore = {
+      append: vi.fn(),
+      close: vi.fn(),
+    };
+    ctx.agent.getSessionTitle = async () => {
+      throw new Error('title boom');
+    };
+
+    ctx.mockNextResponse({
+      type: 'text',
+      text: 'Compacted summary.\n```memory-memo\n{"userNeed":"n","approach":"a","outcome":"o"}\n```',
+    });
+    await ctx.rpc.beginCompaction({});
+    await compacted;
+
+    // The compaction result still lands; the extraction failure surfaces
+    // as a warning instead of being swallowed.
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Failed to extract memory memos from compaction',
+        expect.objectContaining({ error: expect.any(Error) }),
+      );
+    });
+    const events = ctx.newEvents();
+    expect(eventIndex(events, 'error')).toBe(-1);
+    expect(ctx.compactHistory()).toHaveLength(1);
+    expect(ctx.compactHistory()[0]?.text).toContain('Compacted summary.');
   });
 
   it('projects the compacted prefix before sending the summary request', async () => {
@@ -1471,12 +1571,18 @@ describe('Agent compaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('triggers auto compaction when pending tokens cross the reserved threshold', async () => {
+  it('triggers auto compaction asynchronously when pending tokens cross the reserved threshold', async () => {
+    // Reserved zone semantics: used + reserved >= max triggers compaction,
+    // but blocking belongs to blockRatio (85% of 2_000 = 1_700) alone, so
+    // the compaction runs in the background instead of stalling the turn.
+    const compactionResult = deferred<GenerateResult>();
+    const generate: GenerateFn = () => compactionResult.promise;
     const ctx = testAgent({
       initialConfig: {
         providers: {},
         loopControl: { reservedContextSize: 500 },
       },
+      generate,
     });
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1486,17 +1592,23 @@ describe('Agent compaction', () => {
       },
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 1_400);
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'x'.repeat(440) }]);
+    const compacted = ctx.once('context.apply_compaction');
 
-    ctx.mockNextResponse({ type: 'text', text: 'Reserved compacted summary.' });
-    ctx.mockNextResponse({ type: 'text', text: 'I can answer after reserved compaction.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'x'.repeat(440) }] });
-    await ctx.untilTurnEnd();
+    // ~1_510 tokens with the pending prompt: inside the 1_500..2_000
+    // reserved zone, below the 1_700 block threshold.
+    await ctx.agent.fullCompaction.beforeStep(new AbortController().signal);
 
-    expect(ctx.llmCalls).toHaveLength(2);
-    const [compactionCall, answerCall] = ctx.llmCalls;
-    expect(messageText(compactionCall?.history.at(-1))).toContain('<!-- Compression Priorities');
-    expect(answerCall?.history.map(messageText)).toContain('Reserved compacted summary.');
-    await ctx.expectResumeMatches();
+    // beforeStep returned without waiting for the worker — non-blocking.
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(true);
+    const events = ctx.newEvents();
+    expect(eventIndex(events, 'compaction.started')).toBeGreaterThanOrEqual(0);
+    expect(eventIndex(events, 'compaction.blocked')).toBe(-1);
+
+    compactionResult.resolve(textResult('Reserved compacted summary.'));
+    await compacted;
+    expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+    expect(ctx.compactHistory()[0]?.text).toBe('Reserved compacted summary.');
   });
 
   it('keeps an oversized pending user prompt out of auto compaction', async () => {

@@ -43,13 +43,11 @@ describe('computeRelevanceScore', () => {
     const sameScore = computeRelevanceScore(
       sameProject,
       'auth jwt',
-      0,
       '/workspace/project',
     );
     const otherScore = computeRelevanceScore(
       otherProject,
       'auth jwt',
-      0,
       '/workspace/project',
     );
 
@@ -70,8 +68,8 @@ describe('computeRelevanceScore', () => {
       approach: 'Change config',
     });
 
-    const taggedScore = computeRelevanceScore(tagged, 'bug', 0, '/workspace/project', cloud);
-    const untaggedScore = computeRelevanceScore(untagged, 'bug', 0, '/workspace/project', cloud);
+    const taggedScore = computeRelevanceScore(tagged, 'bug', '/workspace/project', cloud);
+    const untaggedScore = computeRelevanceScore(untagged, 'bug', '/workspace/project', cloud);
 
     expect(taggedScore).toBeGreaterThan(untaggedScore);
   });

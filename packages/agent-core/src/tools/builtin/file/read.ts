@@ -19,6 +19,10 @@ import readDescriptionTemplate from './read.md';
 export const MAX_LINES: number = 1000;
 export const MAX_LINE_LENGTH: number = 2000;
 export const MAX_BYTES: number = 100 * 1024;
+// Hard cap on input file size. Read materializes the whole file
+// (line buffer + anchor hash join), so multi-hundred-MB files can
+// spike memory to several times their size and OOM the process.
+export const MAX_READABLE_FILE_BYTES: number = 256 * 1024 * 1024;
 const S_IFMT = 0o170000;
 const S_IFREG = 0o100000;
 
@@ -221,6 +225,15 @@ export class ReadTool implements BuiltinTool<ReadInput> {
       }
       if (!isRegularFileMode(stat.stMode)) {
         return { isError: true, output: `"${args.path}" is not a file.` };
+      }
+      if (stat.stSize > MAX_READABLE_FILE_BYTES) {
+        return {
+          isError: true,
+          output:
+            `"${args.path}" is too large to read (${String(Math.round(stat.stSize / 1024 / 1024))} MB; `
+            + `limit ${String(MAX_READABLE_FILE_BYTES / 1024 / 1024)} MB). `
+            + 'Use Grep to search it, or Bash head/tail to page through it.',
+        };
       }
 
       const header = await this.jian.readBytes(safePath, MEDIA_SNIFF_BYTES);
