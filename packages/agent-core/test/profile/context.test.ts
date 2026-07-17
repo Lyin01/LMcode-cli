@@ -4,7 +4,7 @@ import { join } from 'pathe';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { loadAgentsMd } from '../../src/profile/context';
+import { loadAgentsMd, prepareSystemPromptContext } from '../../src/profile/context';
 import { testJian } from '../fixtures/test-jian';
 
 let homeDir: string;
@@ -71,5 +71,31 @@ describe('loadAgentsMd user-level discovery', () => {
 
     expect(result.content.split('home branded').length - 1).toBe(1);
     expect(result.paths.length).toBe(1);
+  });
+});
+
+describe('prepareSystemPromptContext', () => {
+  it('maps AGENTS.md contents into agentsMd and file paths into agentsMdPaths', async () => {
+    await mkdir(join(homeDir, '.lmcode'), { recursive: true });
+    const userFile = join(homeDir, '.lmcode', 'AGENTS.md');
+    const projectFile = join(workDir, 'AGENTS.md');
+    await writeFile(userFile, 'user level instructions', 'utf-8');
+    await writeFile(projectFile, 'project level instructions', 'utf-8');
+
+    const result = await prepareSystemPromptContext(testJian);
+
+    // The system prompt template labels LMCODE_AGENTS_MD as file *contents*
+    // and LMCODE_AGENTS_MD_PATHS as file *paths* — swapping either one makes
+    // the model see path lists instead of the actual conventions.
+    expect(result.agentsMd).toContain('user level instructions');
+    expect(result.agentsMd).toContain('project level instructions');
+    expect(result.agentsMdPaths).toEqual([userFile, projectFile]);
+  });
+
+  it('leaves agentsMd and agentsMdPaths empty when no AGENTS.md exists', async () => {
+    const result = await prepareSystemPromptContext(testJian);
+
+    expect(result.agentsMd).toBe('');
+    expect(result.agentsMdPaths).toEqual([]);
   });
 });

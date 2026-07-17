@@ -438,6 +438,64 @@ describe('Agent context', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('keeps the tool results a full compaction preserved visible to the model', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      modelCapabilities: {
+        image_in: false,
+        video_in: false,
+        audio_in: false,
+        thinking: false,
+        tool_use: true,
+        max_context_tokens: 200,
+      },
+    });
+
+    const bigOutput = `tool-output-${'x'.repeat(600)}`;
+    for (let i = 0; i < 11; i += 1) {
+      ctx.agent.context.appendUserMessage([{ type: 'text', text: `question ${String(i)}` }]);
+      ctx.dispatch({
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: `tc-${String(i)}`,
+          toolCallId: `tc-${String(i)}`,
+          result: { output: bigOutput },
+        },
+      });
+    }
+    ctx.appendAssistantTextWithUsage(99, 'usage carrier', 160);
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'tc-last',
+        toolCallId: 'tc-last',
+        result: { output: bigOutput },
+      },
+    });
+
+    // Sanity: above the 50% usage ratio the old results are micro-truncated.
+    expect(JSON.stringify(ctx.agent.context.messages)).toContain(
+      '[Old tool result content cleared]',
+    );
+
+    ctx.agent.context.applyCompaction({
+      summary: 'compacted summary',
+      compactedCount: 22,
+      tokensBefore: 160,
+      tokensAfter: 10,
+    });
+
+    // Usage dropped below the micro threshold, so detect() no longer
+    // recomputes the cutoff — a stale pre-compaction cutoff would truncate
+    // the very tool results this compaction preserved.
+    const after = JSON.stringify(ctx.agent.context.messages);
+    expect(after).not.toContain('[Old tool result content cleared]');
+    expect(after).toContain('tool-output-');
+    await ctx.expectResumeMatches();
+  });
+
   it('includes new user messages as pending until the next usage update', () => {
     const ctx = testAgent();
     ctx.configure();

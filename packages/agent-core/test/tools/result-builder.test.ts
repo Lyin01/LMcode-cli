@@ -247,5 +247,41 @@ describe('ToolResultBuilder', () => {
       expect(builder.nChars).toBeGreaterThan(0);
       expect(builder.nChars).toBe(6);
     });
+
+    it('keeps the true end of the stream in the tail after large input', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000 });
+      builder.write('H'.repeat(600) + '\n');
+      builder.write('H'.repeat(600) + '\n'); // head fills
+      for (let i = 0; i < 20; i += 1) {
+        builder.write(`mid-${String(i)}-${'x'.repeat(490)}\n`);
+      }
+      builder.write('FATAL real tail error\n');
+
+      const result = builder.ok();
+      // The tail ring must keep rotating past maxChars — otherwise the
+      // returned "tail" freezes mid-stream and the real final lines (where
+      // errors live) are silently dropped.
+      expect(result.output).toContain('FATAL real tail error');
+      expect(result.truncated).toBe(true);
+    });
+
+    it('never reports more lost bytes than were written', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000 });
+      let totalWritten = 0;
+      for (let i = 0; i < 10; i += 1) {
+        const line = 'L'.repeat(500) + '\n';
+        totalWritten += line.length;
+        builder.write(line);
+      }
+
+      const result = builder.ok();
+      const match = /\[\.{3}truncated\]\s+(\d+(?:\.\d+)?)\s*(B|KB|MB)/.exec(result.output);
+      expect(match).not.toBeNull();
+      const value = Number(match?.[1]);
+      const unit = match?.[2];
+      const lostBytes = unit === 'B' ? value : unit === 'KB' ? value * 1024 : value * 1024 * 1024;
+      expect(lostBytes).toBeGreaterThan(0);
+      expect(lostBytes).toBeLessThanOrEqual(totalWritten);
+    });
   });
 });

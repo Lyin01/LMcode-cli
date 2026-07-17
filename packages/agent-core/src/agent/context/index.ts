@@ -165,6 +165,10 @@ export class ContextMemory {
     this.flushDeferredMessagesIfToolExchangeClosed();
     this._tokenCount = summary.tokensAfter;
     this.tokenCountCoveredMessageCount = this._history.length;
+    // The micro cutoff was computed against the pre-compaction history
+    // length; keeping it would truncate the tool results this compaction
+    // deliberately preserved.
+    this.agent.microCompaction.reset();
     this.agent.injection.onContextCompacted(summary.compactedCount);
     this.agent.emitStatusUpdated();
   }

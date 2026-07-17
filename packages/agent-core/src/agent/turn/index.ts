@@ -195,8 +195,10 @@ export class TurnFlow {
       return null;
     }
 
-    // Initialize dream tracker and record new session on first turn
-    if (this.turnId === -1) {
+    // Initialize dream tracker and record new session on first turn.
+    // Subagents share the same dream-lock.json — counting their first turns
+    // as sessions would inflate the consolidation reminder counter.
+    if (this.turnId === -1 && this.agent.type === 'main') {
       void this.agent.dreamTracker.init().then(() =>
         this.agent.dreamTracker.recordNewSession(),
       );
@@ -207,7 +209,7 @@ export class TurnFlow {
     // pair per continuation turn rather than one mega-turn.
     const turnId = this.allocateTurnId();
     const controller = new AbortController();
-    const promise = this.turnWorker(turnId, input, origin, controller.signal);
+    const promise = this.turnWorker(turnId, input, origin, controller);
     this.activeTurn = { controller, promise };
     return turnId;
   }
@@ -302,8 +304,9 @@ export class TurnFlow {
     turnId: number,
     input: readonly ContentPart[],
     origin: PromptOrigin,
-    signal: AbortSignal,
+    controller: AbortController,
   ): Promise<TurnEndResult> {
+    const signal = controller.signal;
     const ownsActiveTurn = (): boolean =>
       this.activeTurn !== null &&
       this.activeTurn !== 'resuming' &&
@@ -323,12 +326,19 @@ export class TurnFlow {
         end.event.reason !== 'cancelled' &&
         end.event.reason !== 'failed'
       ) {
-        return await this.driveGoal(
+        // The standalone first turn released the active turn when it ended.
+        // Re-establish it before driving the goal so the drive stays
+        // cancellable and the session keeps reporting busy — otherwise a
+        // steer/RPC/cron prompt could start a concurrent turn writing to the
+        // same context.
+        const drivePromise = this.driveGoal(
           this.allocateTurnId(),
           [{ type: 'text', text: GOAL_CONTINUATION_PROMPT }],
           GOAL_CONTINUATION_ORIGIN,
           signal,
         );
+        this.activeTurn = { controller, promise: drivePromise };
+        return await drivePromise;
       }
       return end;
     } finally {

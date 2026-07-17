@@ -140,14 +140,6 @@ export class ToolResultBuilder {
   // ── Head-tail strategy ──────────────────────────────────────────────
 
   private writeHeadTailLine(line: string): number {
-    // If we have already passed maxChars, count the input for the marker
-    // but do not buffer it.
-    if (this.totalInputChars >= this.maxChars) {
-      this.totalInputChars += line.length;
-      this.truncationHappened = true;
-      return line.length;
-    }
-
     if (!this.headFull) {
       const remainingHead = this.headMaxChars - this.nCharsHead;
       if (remainingHead <= 0) {
@@ -282,22 +274,18 @@ export class ToolResultBuilder {
     const head = this.headBuffer.join('');
     const tail = this.tailRingBuffer.join('');
 
-    // Determine whether data was actually dropped from the tail ring buffer
-    // or total input exceeded maxChars.
+    // Everything that entered the builder but is no longer held in the head
+    // or tail buffers was lost to ring-buffer eviction; that single difference
+    // already accounts for input beyond maxChars, so no extra term is needed.
     const bufferedTotal = this.nCharsHead + this.nCharsTail;
-    const droppedAboveMax = this.totalInputChars > this.maxChars
-      ? this.totalInputChars - this.maxChars
-      : 0;
-    const lostToOverflow = bufferedTotal >= this.maxChars
-      ? 0
-      : (this.totalInputChars - bufferedTotal) + droppedAboveMax;
+    const lostToOverflow = Math.max(0, this.totalInputChars - bufferedTotal);
 
-    if (lostToOverflow <= 0 && this.totalInputChars <= this.maxChars) {
+    if (lostToOverflow <= 0) {
       // No data was lost — head just filled and tail continues.
       return head + tail;
     }
 
-    const marker = this.formatTruncatedMarker(Math.max(lostToOverflow, 0));
+    const marker = this.formatTruncatedMarker(lostToOverflow);
 
     if (head.length > 0 && !head.endsWith('\n')) {
       return `${head}\n${marker}\n${tail}`;

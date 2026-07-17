@@ -43,14 +43,14 @@ export function createPermissionDecisionPolicies(agent: Agent): readonly Permiss
     new CwdOutsideFileWriteAskPermissionPolicy(agent),
     // auto mode → approve after hard file-access boundaries.
     new AutoModeApprovePermissionPolicy(agent),
+    // ExitPlanMode with active plan_review + non-empty plan + non-auto → ask (tracks plan_submitted/plan_resolved itself). Runs before session history so a stale session approval can't bypass review of a new plan body.
+    new ExitPlanModeReviewAskPermissionPolicy(agent),
     // Approve-for-session memorized rule matches → approve. Runs before user-configured ask rules so an in-session grant beats a still-matching ask rule on later calls.
     new SessionApprovalHistoryPermissionPolicy(agent),
     // User-configured ask rule matches → ask.
     new UserConfiguredAskPermissionPolicy(agent),
     // User-configured allow rule matches → approve.
     new UserConfiguredAllowPermissionPolicy(agent),
-    // ExitPlanMode with active plan_review + non-empty plan + non-auto → ask (tracks plan_submitted/plan_resolved itself). Runs before session history so a stale session approval can't bypass review of a new plan body.
-    new ExitPlanModeReviewAskPermissionPolicy(agent),
     // EnterPlanMode, Write/Edit on the plan file, or ExitPlanMode with no actionable plan_review → approve.
     new PlanModeToolApprovePermissionPolicy(agent),
     // yolo mode → approve (full access, except explicit denies, plan review, and hard file-access checks above).

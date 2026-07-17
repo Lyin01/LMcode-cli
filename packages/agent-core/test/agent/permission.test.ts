@@ -686,10 +686,10 @@ describe('Permission policy chain', () => {
       'git-control-path-access-ask',
       'cwd-outside-file-write-ask',
       'auto-mode-approve',
+      'exit-plan-mode-review-ask',
       'session-approval-history',
       'user-configured-ask',
       'user-configured-allow',
-      'exit-plan-mode-review-ask',
       'plan-mode-tool-approve',
       'yolo-mode-approve',
       'wolfpack-mode-approve',
@@ -1630,7 +1630,7 @@ describe('ExitPlanMode permission policy', () => {
     });
   });
 
-  it('reuses session approval for ExitPlanMode without re-prompting plan review', async () => {
+  it('still reviews a new plan body after a session-scoped ExitPlanMode approval', async () => {
     const { manager, requestApproval, exit } = makePlanPermissionManager({
       mode: 'manual',
       plan: '# Updated Plan',
@@ -1654,9 +1654,11 @@ describe('ExitPlanMode permission policy', () => {
       }),
     );
 
-    expect(requestApproval).not.toHaveBeenCalled();
-    expect(exit).not.toHaveBeenCalled();
-    expect(result).toBeUndefined();
+    // A session-scoped approval memorized for ExitPlanMode must not skip
+    // review of a plan body the user has not seen.
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalled();
+    expect(result).toMatchObject({ syntheticResult: { isError: false } });
   });
 
   it('returns a synthetic stop-turn result when the user rejects the plan', async () => {

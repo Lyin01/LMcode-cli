@@ -46,4 +46,42 @@ describe('default agent profiles', () => {
       }),
     ).toThrow(/Embedded agent profile source missing: profile\/default\/missing\.md/);
   });
+
+  it('keeps section numbering sequential in the default system prompt', () => {
+    const prompt = DEFAULT_AGENT_PROFILES['agent']?.systemPrompt(promptContext) ?? '';
+
+    // Hand-numbered Chinese section headers have regressed twice (a skipped
+    // `### 3.` and 二十 placed before 十九); the rendered prompt is the
+    // contract the model actually sees, so guard the ordering here.
+    const expectedSections = [
+      '一',
+      '二',
+      '三',
+      '四',
+      '五',
+      '六',
+      '七',
+      '八',
+      '九',
+      '十',
+      '十一',
+      '十二',
+      '十三',
+      '十四',
+      '十五',
+      '十六',
+      '十七',
+      '十八',
+      '十九',
+      '二十',
+    ];
+    const topLevel = [...prompt.matchAll(/^## (.+?)、/gm)].map((m) => m[1]);
+    expect(topLevel).toEqual(expectedSections);
+
+    const sections = prompt.split(/^## /gm).slice(1);
+    for (const section of sections) {
+      const numbers = [...section.matchAll(/^### (\d+)\./gm)].map((m) => Number(m[1]));
+      expect(numbers).toEqual(numbers.map((_, index) => index + 1));
+    }
+  });
 });

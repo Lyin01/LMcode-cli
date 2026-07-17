@@ -23,8 +23,8 @@ export async function prepareSystemPromptContext(
   ]);
   return {
     cwdListing,
-    agentsMd: agentsMdResult.paths.map((p) => `- ${p}`).join('\n'),
-    agentsMdPaths: agentsMdResult.dirPaths,
+    agentsMd: agentsMdResult.content,
+    agentsMdPaths: agentsMdResult.paths,
   };
 }
 

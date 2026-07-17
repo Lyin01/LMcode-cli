@@ -62,6 +62,34 @@ describe('Agent turn flow', () => {
     vi.restoreAllMocks();
   });
 
+  it('records a dream session on the first turn only for the main agent', async () => {
+    const initSpy = vi.spyOn(DreamTracker.prototype, 'init');
+    const recordSpy = vi.spyOn(DreamTracker.prototype, 'recordNewSession');
+
+    const sub = testAgent({ type: 'sub' });
+    sub.configure();
+    sub.mockNextResponse({ type: 'text', text: 'sub reply' });
+    await sub.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+    await sub.untilTurnEnd();
+
+    // Subagents share the main agent's dream-lock.json — counting their
+    // first turns as sessions would inflate the consolidation reminder.
+    expect(recordSpy).not.toHaveBeenCalled();
+    expect(initSpy).not.toHaveBeenCalled();
+
+    const main = testAgent();
+    main.configure();
+    main.mockNextResponse({ type: 'text', text: 'main reply' });
+    await main.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
+    await main.untilTurnEnd();
+
+    expect(initSpy).toHaveBeenCalledTimes(1);
+    // launch() records via a fire-and-forget promise chain — wait for it.
+    await vi.waitFor(() => {
+      expect(recordSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('fires PostToolUse for same-step dups with the original real output, not the dedup placeholder', async () => {
     // Hook command asserts the dup's PostToolUse payload carries the real
     // stdout ('dup'), not the placeholder ('').
@@ -1193,6 +1221,41 @@ describe('Agent turn flow', () => {
     expect(tokenCalls).toEqual([undefined, true]);
     expect(result.output).toContain('OAuth provider credentials were rejected');
     expect(result.output).toContain('Send /login to login');
+  });
+
+  it('keeps a resumed goal drive cancellable after the standalone first turn releases', async () => {
+    const secondCall = deferred<GenerateResult>();
+    let generateCalls = 0;
+    const ctx = testAgent({
+      generate: async () => {
+        generateCalls += 1;
+        if (generateCalls === 1) {
+          // The model reactivates the paused goal during the first turn.
+          await ctx.agent.goal.resumeGoal({ reason: 'reactivated' });
+          return textResult('resuming the goal');
+        }
+        return secondCall.promise;
+      },
+    });
+    ctx.configure();
+    await ctx.agent.goal.createGoal({ objective: 'Finish the batch' });
+    await ctx.agent.goal.pauseGoal({ reason: 'hold' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue' }] });
+    await vi.waitFor(() => {
+      expect(generateCalls).toBe(2);
+    });
+
+    // The standalone first turn released the active turn at turn.ended; the
+    // goal drive after it must still be observable (no 'No active turn'
+    // rejection) and cancellable.
+    const drive = ctx.agent.turn.waitForCurrentTurn();
+    ctx.agent.turn.cancel();
+    secondCall.resolve(textResult('late reply'));
+
+    const end = await drive;
+    expect(end.event.reason).toBe('cancelled');
+    expect(ctx.agent.goal.getGoal().goal?.status).toBe('paused');
   });
 
   it('cancels an active turn', async () => {
