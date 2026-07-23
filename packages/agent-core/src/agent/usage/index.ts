@@ -10,6 +10,9 @@ import {
 } from '@lmcode-cli/ltod';
 
 import type { Agent } from '..';
+import { normalizeTokenUsage } from './normalize';
+
+export * from './normalize';
 
 export type UsageRecordScope = 'session' | 'turn';
 
@@ -41,23 +44,29 @@ export class UsageRecorder {
   }
 
   record(model: string, usage: TokenUsage, scope: UsageRecordScope = 'session'): void {
+    const normalizedUsage = normalizeTokenUsage(usage);
     this.agent?.records.logRecord({
       type: 'usage.record',
       model,
-      usage,
+      usage: normalizedUsage,
       usageScope: scope,
     });
     const current = this.byModel[model];
-    this.byModel[model] = current === undefined ? copyUsage(usage) : addUsage(current, usage);
+    this.byModel[model] =
+      current === undefined
+        ? copyUsage(normalizedUsage)
+        : normalizeTokenUsage(addUsage(current, normalizedUsage));
 
     if (scope === 'turn') {
       this.currentTurn =
-        this.currentTurn === undefined ? copyUsage(usage) : addUsage(this.currentTurn, usage);
+        this.currentTurn === undefined
+          ? copyUsage(normalizedUsage)
+          : normalizeTokenUsage(addUsage(this.currentTurn, normalizedUsage));
 
       // Log cache hit ratio for prefix-cache diagnostics.
       // `inputCacheRead` tokens cost ~2% of regular input tokens on DeepSeek.
-      const cacheHit = usage.inputCacheRead ?? 0;
-      const cacheMiss = (usage.inputOther ?? 0) + (usage.inputCacheCreation ?? 0);
+      const cacheHit = normalizedUsage.inputCacheRead;
+      const cacheMiss = normalizedUsage.inputOther + normalizedUsage.inputCacheCreation;
       const total = cacheHit + cacheMiss;
       if (total > 0) {
         const ratio = ((cacheHit / total) * 100).toFixed(1);
@@ -167,7 +176,10 @@ export class UsageRecorder {
 function totalUsage(byModel: Record<string, TokenUsage>): TokenUsage | undefined {
   let total: TokenUsage | undefined;
   for (const usage of Object.values(byModel)) {
-    total = total === undefined ? copyUsage(usage) : addUsage(total, usage);
+    total =
+      total === undefined
+        ? copyUsage(usage)
+        : normalizeTokenUsage(addUsage(total, usage));
   }
   return total;
 }

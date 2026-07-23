@@ -16,6 +16,7 @@ import type {
 import {
   generate,
   type ChatProvider,
+  type GenerateResult,
   type Message,
   type Tool,
 } from '@lmcode-cli/ltod';
@@ -43,7 +44,7 @@ import { FullCompaction, MicroCompaction, type CompactionStrategy } from './comp
 import { CronManager } from './cron';
 import { ConfigState } from './config';
 import { ContextMemory } from './context';
-import { GoalMode } from './goal';
+import { GoalMode, type GoalBudgetLimits } from './goal';
 import { HookEngine } from '../session/hooks';
 import { InjectionManager } from './injection/manager';
 import { DreamTracker, EXIT_EXTRACTION_SYSTEM_PROMPT, MemoryMemoStore, buildExitExtractionPrompt, createFastEmbedEngine, parseMemoryMemos } from '@lmcode/memory';
@@ -68,7 +69,7 @@ import {
   LtodLLM,
   type GenerateOptionsWithRequestLog,
 } from './turn/ltod-llm';
-import { UsageRecorder } from './usage';
+import { UsageRecorder, normalizeTokenUsage } from './usage';
 import { resolveCompletionBudget } from '../utils/completion-budget';
 import type { Jian } from '@lmcode-cli/jian';
 import type { ToolServices } from '../tools/support/services';
@@ -77,6 +78,20 @@ export type { AgentRecord, AgentRecordPersistence } from './records';
 export type { BuiltinTool, ToolInfo, ToolSource, UserToolRegistration } from './tool';
 
 export type AgentType = 'main' | 'sub' | 'independent';
+
+function normalizeGenerateResultUsage(result: GenerateResult): GenerateResult {
+  if (result.usage === null) return result;
+  const usage = normalizeTokenUsage(result.usage);
+  if (
+    usage.inputOther === result.usage.inputOther &&
+    usage.output === result.usage.output &&
+    usage.inputCacheRead === result.usage.inputCacheRead &&
+    usage.inputCacheCreation === result.usage.inputCacheCreation
+  ) {
+    return result;
+  }
+  return { ...result, usage };
+}
 
 const SIDE_QUESTION_SYSTEM =
   'You are a helpful coding assistant answering a quick side question. The user is in the middle of a coding session and needs a fast, concise answer. Keep your response short and focused — this is a side question, not the main task.';
@@ -156,7 +171,7 @@ export class Agent {
    * extractions share this watermark so an unchanged history is never
    * re-extracted (which would re-store the same content under new ids).
    */
-  private lastMemoryExtractionHistoryLength: number | undefined;
+  private lastMemoryExtractionContextRevision: number | undefined;
   private closing: Promise<void> | undefined;
 
   constructor(options: AgentOptions) {
@@ -247,7 +262,15 @@ export class Agent {
     return async (provider, systemPrompt, tools, history, callbacks, options) => {
       if (options?.auth !== undefined) {
         this.logLlmRequest(provider, systemPrompt, tools, history, options);
-        return this.rawGenerate(provider, systemPrompt, tools, history, callbacks, options);
+        const result = await this.rawGenerate(
+          provider,
+          systemPrompt,
+          tools,
+          history,
+          callbacks,
+          options,
+        );
+        return normalizeGenerateResultUsage(result);
       }
       const modelAlias = this.config.modelAlias;
       const withAuth =
@@ -256,13 +279,22 @@ export class Agent {
           : this.modelProvider?.resolveAuth?.(modelAlias, { log: this.log });
       if (withAuth === undefined) {
         this.logLlmRequest(provider, systemPrompt, tools, history, options);
-        return this.rawGenerate(provider, systemPrompt, tools, history, callbacks, options);
+        const result = await this.rawGenerate(
+          provider,
+          systemPrompt,
+          tools,
+          history,
+          callbacks,
+          options,
+        );
+        return normalizeGenerateResultUsage(result);
       }
-      return withAuth((auth) => {
+      const result = await withAuth((auth) => {
         const requestOptions = { ...options, auth };
         this.logLlmRequest(provider, systemPrompt, tools, history, requestOptions);
         return this.rawGenerate(provider, systemPrompt, tools, history, callbacks, requestOptions);
       });
+      return normalizeGenerateResultUsage(result);
     };
   }
 
@@ -499,7 +531,7 @@ export class Agent {
       },
       setGoalBudget: async (payload) => {
         const { value, unit } = payload;
-        let budgetLimits: import('./goal').GoalBudgetLimits;
+        let budgetLimits: GoalBudgetLimits;
         if (unit === 'turns') {
           budgetLimits = { turnBudget: value };
         } else if (unit === 'tokens') {
@@ -509,7 +541,7 @@ export class Agent {
           if (unit === 'seconds') ms *= 1000;
           else if (unit === 'minutes') ms *= 60_000;
           else if (unit === 'hours') ms *= 3_600_000;
-          budgetLimits = { wallClockBudgetMs: ms };
+          budgetLimits = { wallClockBudgetMs: Math.round(ms) };
         }
         return this.goal.setBudgetLimits({ budgetLimits }, 'user');
       },
@@ -571,11 +603,16 @@ export class Agent {
     await this.memoStore.init();
     signal.throwIfAborted();
 
-    const history = this.context.history;
+    // Keep a stable extraction boundary. Context appends mutate the live
+    // history array; using that reference would let messages arriving during
+    // the model call inflate the completed-length marker without ever being
+    // included in this extraction prompt.
+    const history = [...this.context.history];
+    const contextRevision = this.context.revision;
     if (history.length < 4) return; // Too short to contain meaningful task loops
     // History has not changed since the last extraction (e.g. idle timer
     // firing after an exit extraction already ran) — nothing new to learn.
-    if (history.length === this.lastMemoryExtractionHistoryLength) return;
+    if (contextRevision === this.lastMemoryExtractionContextRevision) return;
 
     // homedir = <projectDir>/<sessionId>/agents/<agentId>
     const sessionId = this.homedir
@@ -632,8 +669,9 @@ export class Agent {
     const userPrompt = buildExitExtractionPrompt(sessionId, history.length, sampleText);
 
     try {
+      const utility = this.config.utility;
       const response = await this.generate(
-        this.config.utilityProvider,
+        utility.provider,
         EXIT_EXTRACTION_SYSTEM_PROMPT,
         [], // no tools — extraction only
         [
@@ -646,6 +684,9 @@ export class Agent {
         undefined,
         { signal },
       );
+      if (response.usage !== null) {
+        this.usage.record(utility.model, response.usage);
+      }
       signal.throwIfAborted();
 
       const summary = typeof response.message.content === 'string'
@@ -654,7 +695,7 @@ export class Agent {
 
       const memos = parseMemoryMemos(summary);
       if (memos.length === 0) {
-        this.lastMemoryExtractionHistoryLength = history.length;
+        this.lastMemoryExtractionContextRevision = contextRevision;
         return;
       }
 
@@ -686,7 +727,7 @@ export class Agent {
         count: memos.length,
         sessionId,
       });
-      this.lastMemoryExtractionHistoryLength = history.length;
+      this.lastMemoryExtractionContextRevision = contextRevision;
     } catch (error) {
       if (!signal.aborted) {
         this.log.warn('Exit memory extraction failed', { error: String(error) });
@@ -718,12 +759,16 @@ export class Agent {
       ? `${SIDE_QUESTION_SYSTEM}\n\n<conversation_context>\n${conversationContext}\n</conversation_context>`
       : SIDE_QUESTION_SYSTEM;
 
+    const utility = this.config.utility;
     const response = await this.generate(
-      this.config.utilityProvider,
+      utility.provider,
       system,
       [],
       [{ role: 'user', content: [{ type: 'text' as const, text: question }], toolCalls: [] }],
     );
+    if (response.usage !== null) {
+      this.usage.record(utility.model, response.usage);
+    }
 
     const text = response.message.content
       .filter((p): p is { type: 'text'; text: string } => p.type === 'text')

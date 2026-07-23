@@ -1,4 +1,4 @@
-import type { Message, ToolCall } from '@lmcode-cli/ltod';
+import type { GenerateResult, Message, ToolCall } from '@lmcode-cli/ltod';
 import { createControlledPromise } from '@antfu/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -116,6 +116,42 @@ describe('post-write validation evidence', () => {
     expect(finalStepText).toContain(
       'Do not claim that appearance, animation timing, or the terminal frame was visually verified.',
     );
+  });
+
+  it('records visual and source review usage in the session and active goal', async () => {
+    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
+      error: null,
+      syntax: { status: 'passed' },
+      runtime: { status: 'passed' },
+      screenshots: ['ZmFrZS1wbmc='],
+      keyframeTimesMs: [0],
+    });
+    const ctx = await validationAgent(false, true);
+    await ctx.rpc.setActiveTools({ names: ['Write', 'UpdateGoal'] });
+    await ctx.agent.goal.createGoal({ objective: 'Create and validate page.html' });
+
+    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
+    ctx.mockNextResponse({ type: 'text', text: 'VISUAL_APPROVE' });
+    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
+    ctx.mockNextResponse({ type: 'text', text: 'Created and validated page.html.' });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_goal_blocked',
+      name: 'UpdateGoal',
+      arguments: JSON.stringify({ status: 'blocked' }),
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    const usageRecords = ctx.allEvents.filter(
+      (event) => event.type === '[wire]' && event.event === 'usage.record',
+    );
+    const goal = ctx.agent.goal.getGoal().goal;
+    expect(ctx.llmCalls).toHaveLength(5);
+    expect(usageRecords).toHaveLength(5);
+    expect(goal?.status).toBe('blocked');
+    expect(goal?.tokensUsed).toBe(ctx.agent.usage.stats().totalTokens);
   });
 
   it('does not label a single 2-second screenshot as the terminal animation frame', async () => {
@@ -579,6 +615,58 @@ describe('post-write validation evidence', () => {
         args: expect.objectContaining({ reason: 'completed' }),
       }),
     );
+  });
+
+  it('records a late timed-out source review outside the ended turn window', async () => {
+    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
+      error: null,
+      syntax: { status: 'passed' },
+      runtime: { status: 'passed' },
+      screenshots: undefined,
+      keyframeTimesMs: undefined,
+    });
+    const ctx = await validationAgent();
+    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
+    const sourceStarted = createControlledPromise<void>();
+    const lateSourceResponse = createControlledPromise<GenerateResult>();
+    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
+      if (args[2].length === 0 && args[1].startsWith('You are a critical code reviewer')) {
+        sourceStarted.resolve();
+        return lateSourceResponse;
+      }
+      return rawGenerate(...args);
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
+    ctx.mockNextResponse({ type: 'text', text: 'Created page.html with limited validation.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
+    await sourceStarted;
+    await vi.advanceTimersByTimeAsync(30_000);
+    await ctx.untilTurnEnd();
+    expect(ctx.agent.usage.data().currentTurn).toBeUndefined();
+    const lateUsageRecorded = ctx.once('usage.record');
+
+    lateSourceResponse.resolve({
+      id: 'late-source-review',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'APPROVE' }],
+        toolCalls: [],
+      },
+      usage: {
+        inputOther: 7,
+        output: 3,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+      },
+      finishReason: 'completed',
+      rawFinishReason: 'stop',
+    });
+    await lateUsageRecorded;
+
+    expect(ctx.agent.usage.stats().totalTokens).toBeGreaterThanOrEqual(10);
+    expect(ctx.agent.usage.data().currentTurn).toBeUndefined();
   });
 
   it('times out a local validator without cancelling the turn', async () => {

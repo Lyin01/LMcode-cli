@@ -7,10 +7,10 @@ import {
 } from '#/errors';
 import {
   APIEmptyResponseError,
+  grandTotal,
   isRetryableGenerateError,
   type GenerateResult,
   type Message,
-  type TokenUsage,
   APIContextOverflowError,
 } from '@lmcode-cli/ltod';
 
@@ -26,6 +26,7 @@ import {
   estimateTokensForMessages,
 } from '../../utils/tokens';
 import { project } from '../context/projector';
+import { isGoalResourceBudgetReached } from '../goal';
 import compactionInstructionTemplate from './compaction-instruction.md';
 import { renderMessagesToText } from './render-messages';
 import type { CompactionBeginData, CompactionResult } from './types';
@@ -59,6 +60,7 @@ const BLOCK_TIMEOUT_BASE_MS = 60_000;
 const BLOCK_TIMEOUT_PER_1K_TOKENS_MS = 500;
 /** Hard ceiling so a hung provider cannot stall a blocked turn forever. */
 const BLOCK_TIMEOUT_MAX_MS = 300_000;
+const GOAL_BUDGET_COMPACTION_CANCEL_REASON = '目标预算已用尽，压缩已取消。';
 
 /** Minimal system prompt used during compaction. The full agent system
  *  prompt contains tool descriptions and runtime injections that contradict
@@ -80,6 +82,7 @@ export class FullCompaction {
   private readonly workers = new Set<Promise<void>>();
   private closed = false;
   protected _compactedHistory: CompactedHistory[] = [];
+  private pendingRestoredCompletion: CompactedHistory | undefined;
   protected readonly strategy: CompactionStrategy;
 
   constructor(
@@ -185,17 +188,45 @@ export class FullCompaction {
     this.agent.emitEvent({ type: 'compaction.cancelled', reason });
   }
 
-  markCompleted(expected?: ActiveCompaction): boolean {
-    if (expected !== undefined && this.compacting !== expected) return false;
+  private prepareCompletion(expected: ActiveCompaction): CompactedHistory | undefined {
+    if (this.compacting !== expected) return undefined;
+    const compactedHistory = {
+      text: renderMessagesToText(this.agent.context.history),
+    };
     this.agent.records.logRecord({
       type: 'full_compaction.complete',
     });
+    if (this.compacting !== expected) return undefined;
+    return compactedHistory;
+  }
+
+  private commitCompletion(
+    expected: ActiveCompaction,
+    compactedHistory: CompactedHistory,
+  ): boolean {
+    if (this.compacting !== expected) return false;
     this.agent.usage.recordCompaction();
     this.compacting = null;
-    this._compactedHistory.push({
-      text: renderMessagesToText(this.agent.context.history),
-    });
+    this._compactedHistory.push(compactedHistory);
     return true;
+  }
+
+  restoreCompletion(): void {
+    this.pendingRestoredCompletion = {
+      text: renderMessagesToText(this.agent.context.history),
+    };
+  }
+
+  restoreCancellation(): void {
+    this.pendingRestoredCompletion = undefined;
+  }
+
+  restoreAppliedCompaction(): void {
+    const compactedHistory = this.pendingRestoredCompletion;
+    if (compactedHistory === undefined) return;
+    this.pendingRestoredCompletion = undefined;
+    this.agent.usage.recordCompaction();
+    this._compactedHistory.push(compactedHistory);
   }
 
   private get tokenCountWithPending(): number {
@@ -375,18 +406,19 @@ export class FullCompaction {
     compactedCount: number,
   ): Promise<void> {
     const signal = active.abortController.signal;
+    const goalId = this.agent.goal.getActiveGoal()?.goalId;
     const originalHistory = [...this.agent.context.history];
     const tokensBefore = estimateTokensForMessages(originalHistory);
     let retryCount = 0;
     try {
       await this.triggerPreCompactHook(data, tokensBefore, signal);
 
-      const model = this.agent.config.model;
+      const utility = this.agent.config.utility;
 
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);
-      let usage: TokenUsage | null;
       let summary: string;
       while (true) {
+        if (this.cancelForGoalBudget(active, goalId)) return;
         const messagesToCompact = originalHistory.slice(0, compactedCount);
         const messages = [
           ...project(messagesToCompact),
@@ -404,18 +436,26 @@ export class FullCompaction {
         class TruncatedError extends Error {}
         try {
           const response = await this.agent.generate(
-            this.agent.config.utilityProvider,
+            utility.provider,
             COMPACTION_SYSTEM_PROMPT,
             [],
             messages,
             undefined,
             { signal },
           );
+          if (response.usage !== null) {
+            this.agent.usage.record(utility.model, response.usage);
+            if (goalId !== undefined) {
+              await this.agent.goal.recordTokenUsageForGoal(
+                goalId,
+                grandTotal(response.usage),
+              );
+            }
+          }
           signal.throwIfAborted();
           if (response.finishReason === 'truncated') {
             throw new TruncatedError();
           }
-          usage = response.usage;
           summary = extractCompactionSummary(response);
           summary = this.postProcessSummary(summary);
           break;
@@ -426,16 +466,13 @@ export class FullCompaction {
           else if (!isRetryableGenerateError(error)) {
             throw error;
           }
+          if (this.cancelForGoalBudget(active, goalId)) return;
           if (retryCount + 1 >= MAX_COMPACTION_RETRY_ATTEMPTS) {
             throw error;
           }
           await sleepForRetry(delays[retryCount]!, signal);
           retryCount += 1;
         }
-      }
-
-      if (usage !== null) {
-        this.agent.usage.record(model, usage);
       }
 
       const newHistory = this.agent.context.history;
@@ -446,7 +483,11 @@ export class FullCompaction {
         }
       }
 
-      const recent = originalHistory.slice(compactedCount);
+      // The unchanged prefix check deliberately permits messages appended
+      // while summarization is in flight. They are retained by
+      // ContextMemory.applyCompaction, so they must also contribute to the
+      // resulting token count.
+      const recent = newHistory.slice(compactedCount);
       const tokensAfter = estimateTokens(summary) + estimateTokensForMessages(recent);
 
       const result: CompactionResult = {
@@ -455,9 +496,17 @@ export class FullCompaction {
         tokensBefore,
         tokensAfter,
       };
-      if (!this.markCompleted(active)) return;
+      const compactedHistory = this.prepareCompletion(active);
+      if (compactedHistory === undefined) return;
+      // Keep the worker active until both the context record and in-memory
+      // replacement succeed. Otherwise an apply failure is mistaken for a
+      // completed worker and silently swallowed by the catch below.
+      this.agent.context.applyCompaction(result, false);
+      if (!this.commitCompletion(active, compactedHistory)) return;
+      this.agent.emitStatusUpdated();
+      // A completed event is a state observation boundary. Publish it only
+      // after the journaled context replacement is visible to consumers.
       this.agent.emitEvent({ type: 'compaction.completed', result });
-      this.agent.context.applyCompaction(result);
       // Memo extraction must never sink the completed compaction. At this
       // point `compacting` is already null, so a throw here would miss the
       // catch below (its `this.compacting === active` guard no longer
@@ -507,6 +556,15 @@ export class FullCompaction {
         }
       }
     }
+  }
+
+  private cancelForGoalBudget(active: ActiveCompaction, goalId: string | undefined): boolean {
+    if (goalId === undefined) return false;
+    const goal = this.agent.goal.getGoal().goal;
+    if (goal?.goalId !== goalId) return false;
+    if (!isGoalResourceBudgetReached(goal)) return false;
+    this.markCanceled(GOAL_BUDGET_COMPACTION_CANCEL_REASON, active);
+    return true;
   }
 
   private async triggerPreCompactHook(

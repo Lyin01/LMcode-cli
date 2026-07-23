@@ -52,6 +52,30 @@ describe('runTurn — beforeStep hook', () => {
     expect(interrupted[0]?.reason).toBe('error');
   });
 
+  it('ends normally without opening a provider step when requested by the hook', async () => {
+    const hooks: LoopHooks = {
+      beforeStep: async () => ({ endTurn: true }),
+    };
+    const { result, llm, context, sink } = await runTurn({
+      hooks,
+      responses: [makeEndTurnResponse('never')],
+    });
+
+    expect(result).toMatchObject({
+      stopReason: 'end_turn',
+      steps: 1,
+      usage: {
+        inputOther: 0,
+        output: 0,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+      },
+    });
+    expect(llm.callCount).toBe(0);
+    expect(context.stepBegins()).toHaveLength(0);
+    expect(sink.byType('turn.interrupted')).toHaveLength(0);
+  });
+
   it('rethrows non-abort hook exceptions as loop errors', async () => {
     const hooks: LoopHooks = {
       beforeStep: async () => {
@@ -157,6 +181,55 @@ describe('runTurn — afterStep hook', () => {
     });
     expect(result.stopReason).toBe('end_turn');
     expect(afterStep).toHaveBeenCalled();
+  });
+});
+
+describe('runTurn — recordStepUsage hook', () => {
+  it('observes spent usage before cancellation prevents tool execution', async () => {
+    const controller = new AbortController();
+    const echo = new EchoTool();
+    const captured: Array<{ stepNumber: number; usageInput: number; usageOutput: number }> = [];
+    const hooks: LoopHooks = {
+      recordStepUsage: async (ctx) => {
+        captured.push({
+          stepNumber: ctx.stepNumber,
+          usageInput: inputTotal(ctx.usage),
+          usageOutput: ctx.usage.output,
+        });
+        controller.abort();
+      },
+    };
+
+    const { result } = await runTurn({
+      hooks,
+      tools: [echo],
+      responses: [
+        makeToolUseResponse([makeToolCall('echo', { text: 'never' }, 'tc-1')], {
+          inputOther: 3,
+          output: 5,
+        }),
+      ],
+      signal: controller.signal,
+    });
+
+    expect(result.stopReason).toBe('aborted');
+    expect(captured).toEqual([{ stepNumber: 1, usageInput: 3, usageOutput: 5 }]);
+    expect(echo.calls).toHaveLength(0);
+  });
+
+  it('swallows observer errors after retaining usage', async () => {
+    const recordStepUsage = vi.fn(async () => {
+      throw new Error('accounting observer crashed');
+    });
+    const { result } = await runTurn({
+      hooks: { recordStepUsage },
+      responses: [makeEndTurnResponse('ok', { inputOther: 2, output: 7 })],
+    });
+
+    expect(result.stopReason).toBe('end_turn');
+    expect(inputTotal(result.usage)).toBe(2);
+    expect(result.usage.output).toBe(7);
+    expect(recordStepUsage).toHaveBeenCalledTimes(1);
   });
 });
 

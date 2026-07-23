@@ -1,3 +1,4 @@
+import { createControlledPromise } from '@antfu/utils';
 import type { Jian } from '@lmcode-cli/jian';
 import type { ToolCall } from '@lmcode-cli/ltod';
 import * as posixPath from 'node:path/posix';
@@ -352,7 +353,7 @@ describe('Permission auto mode', () => {
   it.each([
     ['auto', 'auto-mode-approve'],
     ['yolo', 'yolo-mode-approve'],
-  ] as const)('tracks %s mode bypass through %s', async (mode, policyName) => {
+  ] as const)('tracks %s mode bypass through %s', async (mode, _policyName) => {
     const { manager, requestApproval } = makePermissionManager(async () => ({
       decision: 'approved',
     }));
@@ -2258,9 +2259,65 @@ describe('Approval cancellation', () => {
       block: true,
       reason: expect.stringContaining('approval request was cancelled'),
     });
+  });
 
-    
-    
+  it('withdraws the RPC request when the manager cancels a pending approval', async () => {
+    const approval = createControlledPromise<ApprovalResponse>();
+    const { manager, requestApproval } = makePermissionManager(() => approval);
+    manager.setMode('manual');
+
+    const result = manager.beforeToolCall(hookContext({ id: 'call_pending_cancel' }));
+    await vi.waitFor(() => {
+      expect(manager.getPendingApprovals()).toHaveLength(1);
+    });
+    const calls = requestApproval.mock.calls as unknown as readonly (
+      readonly [unknown, { readonly signal: AbortSignal }]
+    )[];
+    const approvalSignal = calls[0]?.[1].signal;
+
+    manager.cancelAllApprovals();
+
+    await expect(result).resolves.toMatchObject({
+      block: true,
+      reason: expect.stringContaining('approval request was cancelled'),
+    });
+    expect(approvalSignal?.aborted).toBe(true);
+    expect(manager.getPendingApprovals()).toEqual([]);
+  });
+
+  it('does not register an approval after its policy signal is aborted', async () => {
+    const realpathStarted = createControlledPromise<void>();
+    const releaseRealpath = createControlledPromise<string>();
+    const jian = createFakeJian({
+      realpath: vi.fn(async (path) => {
+        if (path !== '/workspace') return path;
+        realpathStarted.resolve();
+        return releaseRealpath;
+      }),
+    });
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { jian },
+    );
+    const controller = new AbortController();
+    const abortReason = new Error('Goal changed during policy resolution');
+    abortReason.name = 'AbortError';
+
+    const result = manager.beforeToolCall(
+      hookContext({
+        id: 'call_policy_abort',
+        toolName: 'Write',
+        args: { path: '/outside/file.txt', content: 'unsafe' },
+        signal: controller.signal,
+      }),
+    );
+    await realpathStarted;
+    controller.abort(abortReason);
+    releaseRealpath.resolve('/workspace');
+
+    await expect(result).rejects.toBe(abortReason);
+    expect(requestApproval).not.toHaveBeenCalled();
+    expect(manager.getPendingApprovals()).toEqual([]);
   });
 });
 
@@ -3639,6 +3696,7 @@ function hookContext(input: {
   readonly toolName?: string | undefined;
   readonly args?: Record<string, unknown> | undefined;
   readonly execution?: PermissionPolicyContext['execution'] | undefined;
+  readonly signal?: AbortSignal | undefined;
 }): PermissionPolicyContext {
   const toolName = input.toolName ?? 'Bash';
   const args = input.args ?? { command: 'printf first', timeout: 60 };
@@ -3651,7 +3709,7 @@ function hookContext(input: {
   return {
     turnId: '0',
     stepNumber: 1,
-    signal: new AbortController().signal,
+    signal: input.signal ?? new AbortController().signal,
     llm: {} as PermissionPolicyContext['llm'],
     toolCall,
     args,

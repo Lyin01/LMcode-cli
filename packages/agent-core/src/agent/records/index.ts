@@ -53,10 +53,10 @@ function restoreAgentRecord(agent: Agent, input: AgentRecord): void {
       agent.fullCompaction.begin(input);
       return;
     case 'full_compaction.cancel':
-      agent.fullCompaction.cancel();
+      agent.fullCompaction.restoreCancellation();
       return;
     case 'full_compaction.complete':
-      agent.fullCompaction.markCompleted();
+      agent.fullCompaction.restoreCompletion();
       return;
     case 'plan_mode.enter':
       agent.planMode.restoreEnter(input);
@@ -96,6 +96,7 @@ function restoreAgentRecord(agent: Agent, input: AgentRecord): void {
       return;
     case 'context.apply_compaction':
       agent.context.applyCompaction(input);
+      agent.fullCompaction.restoreAppliedCompaction();
       return;
     case 'tools.register_user_tool':
       agent.tools.registerUserTool(input);

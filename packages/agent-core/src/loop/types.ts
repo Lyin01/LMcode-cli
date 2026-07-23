@@ -72,6 +72,12 @@ export interface ExecutableToolSuccessResult {
    * this to the user.
    */
   readonly message?: string | undefined;
+  /**
+   * Internal loop-control hint. Tool result events strip this field before
+   * persistence; it only tells the current turn whether another model step is
+   * allowed after this tool batch.
+   */
+  readonly stopTurn?: boolean | undefined;
 }
 
 export interface ExecutableToolErrorResult {
@@ -128,7 +134,8 @@ export interface ExecutableTool<Input = unknown> extends Tool {
 
 /**
  * Step hooks are aligned to recorded phase boundaries: `beforeStep` runs before
- * `step.begin`, while `afterStep` runs after `step.end`.
+ * `step.begin`, `recordStepUsage` runs as soon as a provider response is
+ * available, and `afterStep` runs after `step.end`.
  */
 
 export interface LoopStepHookContext {
@@ -163,6 +170,10 @@ export interface FinalizeToolResultContext extends ToolExecutionHookContext {
   readonly result: ExecutableToolResult;
 }
 
+export interface LoopStepUsageContext extends LoopStepHookContext {
+  readonly usage: TokenUsage;
+}
+
 export interface LoopAfterStepContext extends LoopStepHookContext {
   readonly usage: TokenUsage;
   readonly stopReason: LoopStepStopReason;
@@ -176,6 +187,8 @@ export interface LoopStoppedStepContext extends LoopStepHookContext {
 export interface BeforeStepResult {
   readonly block?: boolean | undefined;
   readonly reason?: string | undefined;
+  /** End the turn normally before recording step.begin or calling the provider. */
+  readonly endTurn?: boolean | undefined;
 }
 
 export interface ShouldContinueAfterStopResult {
@@ -183,6 +196,8 @@ export interface ShouldContinueAfterStopResult {
 }
 
 export type BeforeStepHook = (ctx: LoopStepHookContext) => Promise<BeforeStepResult | undefined>;
+
+export type RecordStepUsageHook = (ctx: LoopStepUsageContext) => Promise<void>;
 
 export type AfterStepHook = (ctx: LoopAfterStepContext) => Promise<void>;
 
@@ -214,6 +229,12 @@ export type ShouldContinueAfterStopHook = (
  */
 export interface LoopHooks {
   beforeStep?: BeforeStepHook | undefined;
+  /**
+   * Observes provider usage before cancellation is re-checked or tool side
+   * effects begin. Errors are ignored because accounting observers cannot
+   * change turn control flow.
+   */
+  recordStepUsage?: RecordStepUsageHook | undefined;
   afterStep?: AfterStepHook | undefined;
   prepareToolExecution?: PrepareToolExecutionHook | undefined;
   authorizeToolExecution?: AuthorizeToolExecutionHook | undefined;

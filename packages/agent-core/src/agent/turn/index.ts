@@ -3,6 +3,7 @@ import {
   grandTotal as ltodGrandTotal,
   type ContentPart,
   type Message,
+  type TokenUsage,
 } from '@lmcode-cli/ltod';
 
 import type { Agent } from '..';
@@ -30,6 +31,8 @@ import {
   userCancellationReason,
 } from '../../utils/abort';
 import { USER_PROMPT_ORIGIN, type PromptOrigin } from '../context';
+import { GOAL_BUDGET_REACHED_REASON, isGoalResourceBudgetReached } from '../goal';
+import type { UsageRecordScope } from '../usage';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { ToolCallDeduplicator } from './tool-dedup';
 import CRITIC_SYSTEM_PROMPT from './critic-system.md';
@@ -78,6 +81,12 @@ const GOAL_CONTINUATION_PROMPT = [
 const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
   kind: 'system_trigger',
   name: 'goal_continuation',
+};
+
+const GOAL_CHANGED_TOOL_RESULT: ExecutableToolResult = {
+  isError: true,
+  output: 'Tool skipped because the active goal changed after the model request started.',
+  stopTurn: true,
 };
 
 const SPEC_CRITIC_MAX_REQUEST_CHARS = 6_000;
@@ -253,7 +262,7 @@ export class TurnFlow {
     return this.activeTurn !== null && this.activeTurn !== 'resuming';
   }
 
-  waitForCurrentTurn(signal?: AbortSignal | undefined): Promise<TurnEndResult> {
+  waitForCurrentTurn(signal?: AbortSignal): Promise<TurnEndResult> {
     const active = this.activeTurn;
     if (active === null || active === 'resuming') {
       return Promise.reject(new Error('No active turn'));
@@ -317,20 +326,17 @@ export class TurnFlow {
         return await this.driveGoal(turnId, input, origin, signal);
       }
       const end = await this.runOneTurn(turnId, input, origin, signal, true);
-      const resumedFromPausedOrBlocked =
-        initialGoalStatus === 'paused' || initialGoalStatus === 'blocked';
       const currentGoalStatus = this.agent.goal.getGoal().goal?.status;
       if (
-        resumedFromPausedOrBlocked &&
         currentGoalStatus === 'active' &&
         end.event.reason !== 'cancelled' &&
         end.event.reason !== 'failed'
       ) {
-        // The standalone first turn released the active turn when it ended.
-        // Re-establish it before driving the goal so the drive stays
-        // cancellable and the session keeps reporting busy — otherwise a
-        // steer/RPC/cron prompt could start a concurrent turn writing to the
-        // same context.
+        // A goal can become active by being created or resumed during this
+        // standalone turn. The turn released activeTurn when it ended, so
+        // re-establish it before driving the goal to keep the drive cancellable
+        // and the session observably busy. Otherwise a steer/RPC/cron prompt
+        // could start a concurrent turn writing to the same context.
         const drivePromise = this.driveGoal(
           this.allocateTurnId(),
           [{ type: 'text', text: GOAL_CONTINUATION_PROMPT }],
@@ -364,7 +370,7 @@ export class TurnFlow {
     while (true) {
       const goalBeforeTurn = this.agent.goal.getGoal().goal;
       if (goalBeforeTurn?.status === 'active' && goalBeforeTurn.budget.overBudget) {
-        await this.agent.goal.markBlocked({ reason: 'A configured budget was reached' });
+        await this.agent.goal.markBlocked({ reason: GOAL_BUDGET_REACHED_REASON });
         const ended = await this.endGoalTurnWithoutModel(turnId, turnInput, turnOrigin);
         return { event: ended };
       }
@@ -389,7 +395,7 @@ export class TurnFlow {
         return end;
       }
       if (goal.budget.overBudget) {
-        await this.agent.goal.markBlocked({ reason: 'A configured budget was reached' });
+        await this.agent.goal.markBlocked({ reason: GOAL_BUDGET_REACHED_REASON });
         return end;
       }
 
@@ -601,8 +607,10 @@ export class TurnFlow {
       .slice(0, SPEC_CRITIC_MAX_VALIDATION_CHARS);
 
     try {
+      const utility = this.agent.config.utility;
+      const goalId = this.agent.goal.getActiveGoal()?.goalId;
       const response = await this.agent.generate(
-        this.agent.config.utilityProvider,
+        utility.provider,
         SPEC_CRITIC_SYSTEM_PROMPT,
         [],
         [
@@ -634,10 +642,8 @@ export class TurnFlow {
         undefined,
         { signal },
       );
+      await this.recordTurnUtilityUsage(utility.model, goalId, response.usage);
       signal.throwIfAborted();
-      if (response.usage !== null) {
-        this.agent.usage.record(this.agent.config.model, response.usage, 'turn');
-      }
       const verdict = generateResultText(response).trim();
       const markerIndex = verdict.indexOf('SPEC_MISSING');
       if (markerIndex >= 0) {
@@ -652,6 +658,19 @@ export class TurnFlow {
       if (isAbortError(error)) throw error;
       this.agent.log.warn('spec critic failed; completing turn without review', { error });
       return undefined;
+    }
+  }
+
+  private async recordTurnUtilityUsage(
+    model: string,
+    goalId: string | undefined,
+    usage: TokenUsage | null,
+    scope: UsageRecordScope = 'turn',
+  ): Promise<void> {
+    if (usage === null) return;
+    this.agent.usage.record(model, usage, scope);
+    if (goalId !== undefined) {
+      await this.agent.goal.recordTokenUsageForGoal(goalId, ltodGrandTotal(usage));
     }
   }
 
@@ -707,6 +726,47 @@ export class TurnFlow {
       signal.throwIfAborted();
       const model = this.agent.config.model;
       const loopControl = this.agent.lmcodeConfig?.loopControl;
+      let pendingStepUsage: TokenUsage | undefined;
+      let stepGoalId: string | undefined;
+      let stepGoalTransitionSignal: AbortSignal | undefined;
+      let stepGoalCaptured = false;
+      let inTurnBudgetGoalId: string | undefined;
+      let inTurnBudgetStopped = false;
+      const stepGoalStillActive = (): boolean =>
+        this.agent.goal.getActiveGoal()?.goalId === stepGoalId;
+      const detectInTurnBudgetReached = (): boolean => {
+        const goal = this.agent.goal.getActiveGoal();
+        if (goal === null) return false;
+        if (inTurnBudgetGoalId !== undefined && goal.goalId !== inTurnBudgetGoalId) {
+          inTurnBudgetGoalId = undefined;
+        }
+        if (isGoalResourceBudgetReached(goal)) {
+          inTurnBudgetGoalId = goal.goalId;
+        }
+        return inTurnBudgetGoalId === goal.goalId;
+      };
+      const stopForInTurnBudget = async (): Promise<boolean> => {
+        if (inTurnBudgetStopped) return true;
+        if (!detectInTurnBudgetReached()) return false;
+        const goal = this.agent.goal.getActiveGoal();
+        if (goal === null || goal.goalId !== inTurnBudgetGoalId) return false;
+        const blocked = await this.agent.goal.markBlocked({
+          reason: GOAL_BUDGET_REACHED_REASON,
+        });
+        inTurnBudgetStopped = blocked?.goalId === goal.goalId;
+        return inTurnBudgetStopped;
+      };
+      const flushPendingStepUsage = (): void => {
+        if (pendingStepUsage === undefined) return;
+        const usage = pendingStepUsage;
+        pendingStepUsage = undefined;
+        try {
+          this.agent.usage.record(model, usage, 'turn');
+          this.agent.usage.recordLlmStep();
+        } catch {
+          // Accounting observers must not replace the turn's actual result.
+        }
+      };
       try {
         const result = await runTurn({
           turnId: String(turnId),
@@ -721,7 +781,13 @@ export class TurnFlow {
           hooks: {
             beforeStep: async ({ signal: stepSignal, stepNumber }) => {
               this.flushSteerBuffer();
+              if (stepGoalCaptured && !stepGoalStillActive()) return { endTurn: true };
+              const goalIdBeforeCompaction = this.agent.goal.getActiveGoal()?.goalId;
               await this.agent.fullCompaction.beforeStep(stepSignal);
+              if (this.agent.goal.getActiveGoal()?.goalId !== goalIdBeforeCompaction) {
+                return { endTurn: true };
+              }
+              if (await stopForInTurnBudget()) return { endTurn: true };
               refreshDedupContext();
 
               // Only inject on the first step of each turn to preserve
@@ -757,19 +823,37 @@ export class TurnFlow {
                 await this.agent.injection.inject();
               }
 
+              stepGoalId = this.agent.goal.getActiveGoal()?.goalId;
+              stepGoalTransitionSignal = this.agent.goal.transitionSignal;
+              stepGoalCaptured = true;
               deduper.beginStep();
               return;
             },
-            afterStep: async ({ usage }) => {
-              this.agent.usage.record(model, usage, 'turn');
-              this.agent.usage.recordLlmStep();
-              await this.agent.goal.recordTokenUsage(ltodGrandTotal(usage));
-              await this.agent.fullCompaction.afterStep();
+            recordStepUsage: async ({ usage }) => {
+              pendingStepUsage = usage;
+              if (stepGoalId === undefined) return;
+              const goal = await this.agent.goal.recordTokenUsageForGoal(
+                stepGoalId,
+                ltodGrandTotal(usage),
+              );
+              if (goal !== null && isGoalResourceBudgetReached(goal)) {
+                inTurnBudgetGoalId = goal.goalId;
+              }
+            },
+            afterStep: async () => {
+              flushPendingStepUsage();
+              const stoppedForBudget = await stopForInTurnBudget();
+              if (!stoppedForBudget && stepGoalStillActive()) {
+                await this.agent.fullCompaction.afterStep();
+              }
               deduper.endStep();
             },
             // oxlint-disable-next-line no-loop-func -- stop hook continuation state is scoped to this turn.
             shouldContinueAfterStop: async ({ signal, stopReason }) => {
-              if (this.flushSteerBuffer()) return { continue: true };
+              const flushedSteer = this.flushSteerBuffer();
+              if (await stopForInTurnBudget()) return { continue: false };
+              if (!stepGoalStillActive()) return { continue: false };
+              if (flushedSteer) return { continue: true };
               signal.throwIfAborted();
 
               // Stop hooks get one continuation; otherwise a hook that always blocks would loop forever.
@@ -779,6 +863,8 @@ export class TurnFlow {
                   inputData: { stopHookActive: stopHookContinuationUsed },
                 });
                 signal.throwIfAborted();
+                if (await stopForInTurnBudget()) return { continue: false };
+                if (!stepGoalStillActive()) return { continue: false };
                 if (stopBlock !== undefined) {
                   stopHookContinuationUsed = true;
                   this.agent.context.appendUserMessage(
@@ -836,6 +922,8 @@ export class TurnFlow {
                   validationLimitations,
                 );
                 signal.throwIfAborted();
+                if (await stopForInTurnBudget()) return { continue: false };
+                if (!stepGoalStillActive()) return { continue: false };
                 if (missing !== undefined) {
                   this.agent.context.appendSystemReminder(
                     SPEC_CRITIC_CONTINUATION_PROMPT.replace(
@@ -850,6 +938,9 @@ export class TurnFlow {
               return { continue: false };
             },
             prepareToolExecution: async (ctx) => {
+              if (!stepGoalStillActive()) {
+                return { syntheticResult: GOAL_CHANGED_TOOL_RESULT };
+              }
               refreshDedupContext();
               const cached = deduper.checkSameStep(
                 ctx.toolCall.id,
@@ -860,8 +951,22 @@ export class TurnFlow {
               return undefined;
             },
             authorizeToolExecution: async (ctx) => {
-              const authorization = await this.agent.permission.beforeToolCall(ctx);
+              if (!stepGoalStillActive()) {
+                return { syntheticResult: GOAL_CHANGED_TOOL_RESULT };
+              }
+              const goalTransitionSignal = stepGoalTransitionSignal;
+              const authorizationSignal =
+                goalTransitionSignal === undefined
+                  ? ctx.signal
+                  : AbortSignal.any([ctx.signal, goalTransitionSignal]);
+              const authorization = await this.agent.permission.beforeToolCall({
+                ...ctx,
+                signal: authorizationSignal,
+              });
               refreshDedupContext();
+              if (!stepGoalStillActive()) {
+                return { syntheticResult: GOAL_CHANGED_TOOL_RESULT };
+              }
               if (
                 authorization?.block !== true &&
                 authorization?.syntheticResult === undefined
@@ -1092,17 +1197,28 @@ export class TurnFlow {
                               toolCalls: [],
                             });
 
+                            const visualModel = this.agent.config.model;
+                            const visualGoalId = this.agent.goal.getActiveGoal()?.goalId;
                             const visualResponse = await withPostWriteStageDeadline(
                               signal,
-                              (reviewSignal) =>
-                                this.agent.generate(
+                              async (reviewSignal) => {
+                                const response = await this.agent.generate(
                                   this.agent.config.provider,
                                   visualSystemPrompt,
                                   [],
                                   visualHistory,
                                   undefined,
                                   { signal: reviewSignal },
-                                ),
+                                );
+                                await this.recordTurnUtilityUsage(
+                                  visualModel,
+                                  visualGoalId,
+                                  response.usage,
+                                  reviewSignal.aborted ? 'session' : 'turn',
+                                );
+                                reviewSignal.throwIfAborted();
+                                return response;
+                              },
                             );
                             const visualText = contentPartsText(
                               visualResponse.message.content,
@@ -1193,17 +1309,28 @@ Evaluate if this file meets high-quality software engineering standards and the 
                             toolCalls: [],
                           });
 
+                          const criticModel = this.agent.config.model;
+                          const criticGoalId = this.agent.goal.getActiveGoal()?.goalId;
                           const criticResponse = await withPostWriteStageDeadline(
                             signal,
-                            (reviewSignal) =>
-                              this.agent.generate(
+                            async (reviewSignal) => {
+                              const response = await this.agent.generate(
                                 this.agent.config.provider,
                                 CRITIC_SYSTEM_PROMPT,
                                 [],
                                 history,
                                 undefined,
                                 { signal: reviewSignal },
-                              ),
+                              );
+                              await this.recordTurnUtilityUsage(
+                                criticModel,
+                                criticGoalId,
+                                response.usage,
+                                reviewSignal.aborted ? 'session' : 'turn',
+                              );
+                              reviewSignal.throwIfAborted();
+                              return response;
+                            },
                           );
                           const criticText = contentPartsText(
                             criticResponse.message.content,
@@ -1282,6 +1409,13 @@ Evaluate if this file meets high-quality software engineering standards and the 
                 }
               }
 
+              if (detectInTurnBudgetReached()) {
+                finalResult = { ...finalResult, stopTurn: true };
+              }
+              if (!stepGoalStillActive()) {
+                finalResult = { ...finalResult, stopTurn: true };
+              }
+
               deduper.recordFinalResult(ctx.toolCall.id, finalResult);
               const { isError, output } = finalResult;
 
@@ -1318,6 +1452,10 @@ Evaluate if this file meets high-quality software engineering standards and the 
               return finalResult;
             },
           },
+        }).finally(() => {
+          // A provider response may be followed by an abort or tool failure
+          // before step.end. Its usage was still spent and must be retained.
+          flushPendingStepUsage();
         });
 
         return result.stopReason;

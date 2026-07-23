@@ -1,5 +1,6 @@
-import type { Message, ToolCall } from '@lmcode-cli/ltod';
-import { describe, expect, it } from 'vitest';
+import type { GenerateResult, Message, ToolCall } from '@lmcode-cli/ltod';
+import { createControlledPromise } from '@antfu/utils';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createCommandJian, testAgent } from './harness/agent';
 
@@ -120,6 +121,89 @@ describe('Spec-consistency critic', () => {
     expect(
       historyTexts.some((text) => text.includes('LMcode internal specification review')),
     ).toBe(false);
+  });
+
+  it('charges critic usage to the active goal before a later terminal update', async () => {
+    const ctx = testAgent({
+      jian: createCommandJian(''),
+      initialConfig: { providers: {}, enableSelfHealing: false },
+    });
+    ctx.configure({ tools: ['Write', 'UpdateGoal'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    await ctx.agent.goal.createGoal({ objective: 'Write notes and verify the result' });
+
+    ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
+    ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
+    ctx.mockNextResponse({ type: 'text', text: 'SPEC_OK' });
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'call_goal_blocked',
+      name: 'UpdateGoal',
+      arguments: JSON.stringify({ status: 'blocked' }),
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    const goal = ctx.agent.goal.getGoal().goal;
+    expect(ctx.llmCalls).toHaveLength(4);
+    expect(goal?.status).toBe('blocked');
+    expect(goal?.tokensUsed).toBe(ctx.agent.usage.stats().totalTokens);
+  });
+
+  it('does not continue from a stale critic verdict after the goal is paused', async () => {
+    const ctx = testAgent({
+      jian: createCommandJian(''),
+      initialConfig: { providers: {}, enableSelfHealing: false },
+    });
+    ctx.configure({ tools: ['Write'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    await ctx.agent.goal.createGoal({ objective: 'Write notes without stale continuation' });
+    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
+    const criticStarted = createControlledPromise<void>();
+    const criticResponse = createControlledPromise<GenerateResult>();
+    let mainCalls = 0;
+    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
+      if (args[1].includes('specification-compliance reviewer')) {
+        criticStarted.resolve();
+        return criticResponse;
+      }
+      mainCalls += 1;
+      return rawGenerate(...args);
+    });
+
+    ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
+    ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Main model must not continue.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
+    await criticStarted;
+    await ctx.agent.goal.pauseGoal({ reason: 'Paused during specification review' });
+    criticResponse.resolve({
+      id: 'stale-spec-verdict',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'SPEC_MISSING:\n- add more detail' }],
+        toolCalls: [],
+      },
+      usage: {
+        inputOther: 7,
+        output: 3,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+      },
+      finishReason: 'completed',
+      rawFinishReason: 'stop',
+    });
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    expect(mainCalls).toBe(2);
+    expect(
+      ctx.agent.context.history.some(
+        (message) =>
+          message.origin?.kind === 'system_trigger' && message.origin.name === 'spec_critic',
+      ),
+    ).toBe(false);
+    expect(ctx.agent.goal.getGoal().goal?.status).toBe('paused');
   });
 
   it('skips the critic when enableSpecCritic is false', async () => {

@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { TokenUsage } from '@lmcode-cli/ltod';
+import { emptyUsage, type TokenUsage } from '@lmcode-cli/ltod';
 import type { Logger } from '#/logging/types';
 
 import type { LoopEventDispatcher } from './events';
@@ -65,6 +65,10 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     if (beforeStep?.block === true) {
       throw new Error(beforeStep.reason ?? `Step ${String(currentStep)} was blocked`);
     }
+    if (beforeStep?.endTurn === true) {
+      signal.throwIfAborted();
+      return { usage: emptyUsage(), stopReason: 'end_turn' };
+    }
   }
 
   signal.throwIfAborted();
@@ -114,9 +118,22 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     maxAttempts: maxRetryAttempts,
     log,
   });
-  signal.throwIfAborted();
   const usage = response.usage;
   recordUsage(usage);
+  if (hooks?.recordStepUsage !== undefined) {
+    try {
+      await hooks.recordStepUsage({
+        turnId,
+        stepNumber: currentStep,
+        usage,
+        signal,
+        llm,
+      });
+    } catch {
+      // Usage has already been spent; accounting observers cannot change the turn result.
+    }
+  }
+  signal.throwIfAborted();
   const stopReason = deriveStepStopReason(response);
 
   // Execute tools only when the normalized response shape represents a tool

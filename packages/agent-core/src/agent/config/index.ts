@@ -15,6 +15,11 @@ import type { ResolvedRuntimeProvider } from '../../session/provider-manager';
 export * from './types';
 export { resolveThinkingEffort, type ThinkingEffort } from './thinking';
 
+export interface UtilityModelSelection {
+  readonly model: string;
+  readonly provider: ChatProvider;
+}
+
 export class ConfigState {
   private _cwd: string;
   private _modelAlias: string | undefined;
@@ -107,15 +112,28 @@ export class ConfigState {
    * Falls back to the main provider when unset, equal to the main model, or
    * mis-resolved — utility routing must never break the primary flow.
    */
-  get utilityProvider(): ChatProvider {
+  get utility(): UtilityModelSelection {
+    const model = this.model;
+    const fallback = (): UtilityModelSelection => ({ model, provider: this.provider });
     const alias = this.agent.lmcodeConfig?.utilityModel;
-    if (alias === undefined || alias === this._modelAlias) return this.provider;
+    if (alias === undefined || alias === model) return fallback();
     try {
       const resolved = this.agent.modelProvider?.resolveProviderConfig(alias);
-      return resolved === undefined ? this.provider : createProvider(resolved.provider);
+      return resolved === undefined
+        ? fallback()
+        : { model: alias, provider: createProvider(resolved.provider) };
     } catch {
-      return this.provider;
+      return fallback();
     }
+  }
+
+  get utilityProvider(): ChatProvider {
+    return this.utility.provider;
+  }
+
+  /** Model alias paired with {@link utilityProvider} for usage attribution. */
+  get utilityModel(): string {
+    return this.utility.model;
   }
 
   get model(): string {

@@ -20,6 +20,95 @@ afterEach(async () => {
 });
 
 describe('exit memory extraction lifecycle', () => {
+  it('records successful extraction usage for the session without charging the active goal', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lmcode-exit-memory-usage-'));
+    tempDirs.push(root);
+    const generate: GenerateFn = async () =>
+      textResult(
+        '```memory-memo\n' +
+          '{"userNeed":"remember task","approach":"extract","outcome":"completed"}\n' +
+          '```',
+      );
+    const ctx = testAgent({
+      generate,
+      homedir: join(root, 'sessions', 'session-1', 'agents', 'main'),
+      lmcodeHomeDir: root,
+    });
+    ctx.configure();
+    ctx.appendExchange(1, 'first task', 'first result', 20);
+    ctx.appendExchange(2, 'second task', 'second result', 40);
+    await ctx.agent.goal.createGoal({ objective: 'Continue the main task' });
+    const appendMemo = vi.spyOn(ctx.agent.memoStore!, 'append').mockResolvedValue(undefined);
+
+    try {
+      await ctx.agent.extractMemoriesOnExit();
+
+      expect(appendMemo).toHaveBeenCalledTimes(1);
+      expect(ctx.agent.usage.stats().totalTokens).toBe(2);
+      expect(ctx.agent.usage.data().currentTurn).toBeUndefined();
+      expect(ctx.agent.goal.getGoal().goal?.tokensUsed).toBe(0);
+    } finally {
+      await ctx.agent.memoStore!.close();
+    }
+  });
+
+  it('extracts messages appended while an earlier extraction was in flight', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lmcode-exit-memory-snapshot-'));
+    tempDirs.push(root);
+    const firstResponse = deferred<GenerateResult>();
+    const firstGenerateStarted = deferred<void>();
+    let calls = 0;
+    const subsequentPrompts: string[] = [];
+    const generate: GenerateFn = (_provider, _system, _tools, history) => {
+      calls += 1;
+      if (calls === 1) {
+        firstGenerateStarted.resolve();
+        return firstResponse.promise;
+      }
+      subsequentPrompts.push(
+        history
+          .flatMap((message) => message.content)
+          .map((part) => (part.type === 'text' ? part.text : ''))
+          .join('\n'),
+      );
+      return Promise.resolve(textResult('No new memory memo.'));
+    };
+    const ctx = testAgent({
+      generate,
+      homedir: join(root, 'sessions', 'session-1', 'agents', 'main'),
+      lmcodeHomeDir: root,
+    });
+    ctx.configure();
+    ctx.appendExchange(1, 'first task', 'first result', 20);
+    ctx.appendExchange(2, 'second task', 'second result', 40);
+
+    try {
+      const firstExtraction = ctx.agent.extractMemoriesOnExit();
+      await firstGenerateStarted.promise;
+      ctx.appendExchange(3, 'third task added during extraction', 'third result', 60);
+      firstResponse.resolve(textResult('No memory memo from the first snapshot.'));
+      await firstExtraction;
+
+      await ctx.agent.extractMemoriesOnExit();
+
+      expect(calls).toBe(2);
+      expect(subsequentPrompts[0]).toContain('third task added during extraction');
+      expect(subsequentPrompts[0]).toContain('third result');
+
+      ctx.agent.context.clear();
+      ctx.appendExchange(4, 'replacement task one', 'replacement result one', 20);
+      ctx.appendExchange(5, 'replacement task two', 'replacement result two', 40);
+      ctx.appendExchange(6, 'replacement task three', 'replacement result three', 60);
+      await ctx.agent.extractMemoriesOnExit();
+
+      expect(calls).toBe(3);
+      expect(subsequentPrompts[1]).toContain('replacement task one');
+      expect(subsequentPrompts[1]).not.toContain('third task added during extraction');
+    } finally {
+      await ctx.agent.memoStore!.close();
+    }
+  });
+
   it('aborts and settles extraction before closing the memo store', async () => {
     const root = await mkdtemp(join(tmpdir(), 'lmcode-exit-memory-close-'));
     tempDirs.push(root);

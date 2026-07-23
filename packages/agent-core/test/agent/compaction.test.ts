@@ -13,10 +13,14 @@ import {
 } from '@lmcode-cli/ltod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { AgentOptions } from '../../src/agent';
+import type {
+  AgentOptions,
+  AgentRecord,
+  AgentRecordPersistence,
+} from '../../src/agent';
 import { DefaultCompactionStrategy, type CompactionStrategy } from '../../src/agent/compaction';
 import { HookEngine, type HookEngineTriggerArgs } from '../../src/session/hooks';
-import { estimateTokensForMessages } from '../../src/utils/tokens';
+import { estimateTokens, estimateTokensForMessages } from '../../src/utils/tokens';
 import type { TestAgentContext, TestAgentOptions } from './harness/agent';
 import { testAgent } from './harness/agent';
 
@@ -325,6 +329,7 @@ describe('Agent compaction', () => {
 
     expect(closeTools).toHaveBeenCalledTimes(1);
     expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+    expect(ctx.agent.usage.stats().totalTokens).toBe(2);
     expect(eventIndex(ctx.newEvents(), 'context.apply_compaction')).toBe(-1);
   });
 
@@ -424,9 +429,9 @@ describe('Agent compaction', () => {
       [wire] usage.record               { "model": "lmcode", "usage": { "inputOther": 879, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
       [emit] agent.status.updated       { "model": "lmcode", "contextTokens": 120, "maxContextTokens": 256000, "contextUsage": 0.00046875, "planMode": false, "permission": "yolo", "usage": { "byModel": { "lmcode": { "inputOther": 879, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 879, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] full_compaction.complete   { "time": "<time>" }
-      [emit] compaction.completed       { "result": { "summary": "Compacted summary.", "compactedCount": 6, "tokensBefore": 39, "tokensAfter": 5 } }
       [wire] context.apply_compaction   { "summary": "Compacted summary.", "compactedCount": 6, "tokensBefore": 39, "tokensAfter": 5, "time": "<time>" }
       [emit] agent.status.updated       { "model": "lmcode", "contextTokens": 5, "maxContextTokens": 256000, "contextUsage": 0.00001953125, "planMode": false, "permission": "yolo", "usage": { "byModel": { "lmcode": { "inputOther": 879, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 879, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [emit] compaction.completed       { "result": { "summary": "Compacted summary.", "compactedCount": 6, "tokensBefore": 39, "tokensAfter": 5 } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: "You are a conversation context compaction assistant. Your job is to summarize the conversation above into a structured summary. Output text only. DO NOT CALL ANY TOOLS. Follow the compaction instruction in the last user message exactly. Pay special attention to the Memory Memo Extraction section — you MUST output memory-memo blocks for every completed task loop."
@@ -750,7 +755,7 @@ describe('Agent compaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('retries compaction responses with empty summaries before applying context', async () => {
+  it('records every returned compaction attempt in session and active-goal usage', async () => {
     vi.useFakeTimers();
     const firstEmptySummary = deferred<void>();
     let attempts = 0;
@@ -769,6 +774,7 @@ describe('Agent compaction', () => {
     });
     ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    await ctx.agent.goal.createGoal({ objective: 'Compact without escaping the budget' });
     const compacted = ctx.once('context.apply_compaction');
 
     await ctx.rpc.beginCompaction({});
@@ -777,6 +783,13 @@ describe('Agent compaction', () => {
     await compacted;
 
     expect(attempts).toBe(3);
+    expect(
+      ctx.allEvents.filter(
+        (event) => event.type === '[wire]' && event.event === 'usage.record',
+      ),
+    ).toHaveLength(3);
+    expect(ctx.agent.usage.stats().totalTokens).toBe(6);
+    expect(ctx.agent.goal.getGoal().goal?.tokensUsed).toBe(6);
     expect(ctx.compactHistory()).toEqual([
       { role: 'assistant', text: 'Recovered compacted summary.' },
     ]);
@@ -790,6 +803,107 @@ describe('Agent compaction', () => {
       }),
     ]);
     await ctx.expectResumeMatches();
+  });
+
+  it('does not retry compaction after its captured goal reaches a token budget', async () => {
+    let attempts = 0;
+    const generate: GenerateFn = async () => {
+      attempts += 1;
+      return textResult('');
+    };
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    await ctx.agent.goal.createGoal({ objective: 'Respect the compaction budget' });
+    await ctx.agent.goal.setBudgetLimits({ budgetLimits: { tokenBudget: 2 } });
+    const cancelled = ctx.once('compaction.cancelled');
+
+    await ctx.rpc.beginCompaction({});
+    await cancelled;
+
+    expect(attempts).toBe(1);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      tokensUsed: 2,
+      budget: {
+        tokenBudgetReached: true,
+      },
+    });
+    expect(ctx.compactHistory()).toEqual([
+      { role: 'user', text: 'old user one' },
+      { role: 'assistant', text: 'old assistant one' },
+      { role: 'user', text: 'recent user two' },
+      { role: 'assistant', text: 'recent assistant two' },
+    ]);
+  });
+
+  it('does not start the main model after blocking compaction reaches the goal token budget', async () => {
+    let attempts = 0;
+    const generate: GenerateFn = async () => {
+      attempts += 1;
+      return textResult(
+        attempts === 1 ? 'Compacted within the final budget.' : 'Main model must not run.',
+      );
+    };
+    const ctx = testAgent({ generate, compactionStrategy: alwaysCompactOnce });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    await ctx.agent.goal.createGoal({ objective: 'Stop at the compaction budget boundary' });
+    await ctx.agent.goal.setBudgetLimits({ budgetLimits: { tokenBudget: 2 } });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue within the hard budget' }] });
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    expect(attempts).toBe(1);
+    expect(ctx.agent.usage.stats().totalTokens).toBe(2);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      status: 'blocked',
+      terminalReason: 'A configured budget was reached',
+      tokensUsed: 2,
+      budget: { tokenBudgetReached: true },
+    });
+  });
+
+  it('does not start the main model when the goal is paused during blocking compaction', async () => {
+    const compactionResponse = deferred<GenerateResult>();
+    const compactionStarted = deferred<void>();
+    let attempts = 0;
+    const generate: GenerateFn = () => {
+      attempts += 1;
+      if (attempts === 1) {
+        compactionStarted.resolve();
+        return compactionResponse.promise;
+      }
+      return Promise.resolve(textResult('Main model must not run for a paused goal.'));
+    };
+    const ctx = testAgent({ generate, compactionStrategy: alwaysCompactOnce });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    await ctx.agent.goal.createGoal({ objective: 'Respect pause during compaction' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the active goal' }] });
+    await compactionStarted.promise;
+    await ctx.agent.goal.pauseGoal({ reason: 'Paused while compacting' });
+    compactionResponse.resolve(textResult('Compacted before honoring the pause.'));
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    expect(attempts).toBe(1);
+    expect(ctx.agent.usage.stats().totalTokens).toBe(2);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused while compacting',
+      turnsUsed: 1,
+      tokensUsed: 2,
+    });
   });
 
   it('waits before retrying compaction generation after a retryable failure', async () => {
@@ -891,6 +1005,48 @@ describe('Agent compaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('cancels manual compaction when the compacted context cannot be persisted', async () => {
+    const store = controllablePersistence();
+    const ctx = testAgent({ persistence: store.persistence });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    store.failOn('context.apply_compaction');
+    const failed = ctx.once('error');
+
+    ctx.mockNextResponse({ type: 'text', text: 'Compacted before persistence failed.' });
+    await ctx.rpc.beginCompaction({});
+    await failed;
+
+    const events = ctx.newEvents();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: '[wire]', event: 'full_compaction.cancel' }),
+        expect.objectContaining({ type: '[rpc]', event: 'compaction.cancelled' }),
+        expect.objectContaining({ type: '[rpc]', event: 'error' }),
+      ]),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: '[rpc]', event: 'compaction.completed' }),
+    );
+    expect(eventIndex(events, 'compaction.cancelled')).toBeLessThan(eventIndex(events, 'error'));
+    expect(ctx.agent.fullCompaction.compactedHistory).toEqual([]);
+    expect(ctx.compactHistory()).toEqual([
+      { role: 'user', text: 'old user one' },
+      { role: 'assistant', text: 'old assistant one' },
+      { role: 'user', text: 'recent user two' },
+      { role: 'assistant', text: 'recent assistant two' },
+    ]);
+
+    const resumed = testAgent({ persistence: store.persistence });
+    await resumed.agent.resume();
+    expect(resumed.compactHistory()).toEqual(ctx.compactHistory());
+    expect(resumed.agent.fullCompaction.compactedHistory).toEqual([]);
+  });
+
   it('fails a blocked turn when auto compaction generation fails', async () => {
     let attempts = 0;
     const generate: GenerateFn = async () => {
@@ -928,6 +1084,58 @@ describe('Agent compaction', () => {
       }),
     });
     await ctx.expectResumeMatches();
+  });
+
+  it('fails a blocked turn when the compacted context cannot be persisted', async () => {
+    const store = controllablePersistence();
+    let attempts = 0;
+    const generate: GenerateFn = async () => {
+      attempts += 1;
+      return textResult(
+        attempts === 1 ? 'Compacted before persistence failed.' : 'Main model must not run.',
+      );
+    };
+    const ctx = testAgent({
+      generate,
+      compactionStrategy: alwaysCompactOnce,
+      persistence: store.persistence,
+    });
+    ctx.configure();
+    store.failOn('context.apply_compaction');
+
+    await ctx.rpc.prompt({
+      input: [{ type: 'text', text: 'Stop if the compacted context cannot be persisted' }],
+    });
+    const events = await ctx.untilTurnEnd();
+
+    expect(attempts).toBe(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: {
+          turnId: 0,
+          reason: 'failed',
+          error: expect.objectContaining({
+            code: 'compaction.failed',
+            message: 'Error: record append failed for context.apply_compaction',
+          }),
+        },
+      }),
+    );
+    expect(ctx.agent.fullCompaction.compactedHistory).toEqual([]);
+    expect(ctx.compactHistory()).toEqual([
+      {
+        role: 'user',
+        text: 'Stop if the compacted context cannot be persisted',
+      },
+    ]);
+    const resumed = testAgent({
+      compactionStrategy: alwaysCompactOnce,
+      persistence: store.persistence,
+    });
+    await resumed.agent.resume();
+    expect(resumed.compactHistory()).toEqual(ctx.compactHistory());
+    expect(resumed.agent.fullCompaction.compactedHistory).toEqual([]);
   });
 
   it('opens the compaction circuit breaker after repeated auto-compaction failures', async () => {
@@ -1239,9 +1447,9 @@ describe('Agent compaction', () => {
       [wire] usage.record               { "model": "lmcode", "usage": { "inputOther": 857, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
       [emit] agent.status.updated       { "model": "lmcode", "contextTokens": 80, "maxContextTokens": 256000, "contextUsage": 0.0003125, "planMode": false, "permission": "yolo", "usage": { "byModel": { "lmcode": { "inputOther": 857, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 857, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] full_compaction.complete   { "time": "<time>" }
-      [emit] compaction.completed       { "result": { "summary": "Compacted prefix.", "compactedCount": 4, "tokensBefore": 25, "tokensAfter": 5 } }
-      [wire] context.apply_compaction   { "summary": "Compacted prefix.", "compactedCount": 4, "tokensBefore": 25, "tokensAfter": 5, "time": "<time>" }
-      [emit] agent.status.updated       { "model": "lmcode", "contextTokens": 5, "maxContextTokens": 256000, "contextUsage": 0.00001953125, "planMode": false, "permission": "yolo", "usage": { "byModel": { "lmcode": { "inputOther": 857, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 857, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] context.apply_compaction   { "summary": "Compacted prefix.", "compactedCount": 4, "tokensBefore": 25, "tokensAfter": 13, "time": "<time>" }
+      [emit] agent.status.updated       { "model": "lmcode", "contextTokens": 13, "maxContextTokens": 256000, "contextUsage": 0.00005078125, "planMode": false, "permission": "yolo", "usage": { "byModel": { "lmcode": { "inputOther": 857, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 857, "output": 8, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [emit] compaction.completed       { "result": { "summary": "Compacted prefix.", "compactedCount": 4, "tokensBefore": 25, "tokensAfter": 13 } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
       system: "You are a conversation context compaction assistant. Your job is to summarize the conversation above into a structured summary. Output text only. DO NOT CALL ANY TOOLS. Follow the compaction instruction in the last user message exactly. Pay special attention to the Memory Memo Extraction section — you MUST output memory-memo blocks for every completed task loop."
@@ -1265,7 +1473,46 @@ describe('Agent compaction', () => {
         },
       ]
     `);
+    expect(ctx.agent.context.tokenCount).toBe(
+      estimateTokens('Compacted prefix.') +
+        estimateTokensForMessages([
+          textMessage('user', 'new user while compacting'),
+        ]),
+    );
     await ctx.expectResumeMatches();
+  });
+
+  it('publishes completion only after the compacted context is applied', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const publish = ctx.agent.emitEvent.bind(ctx.agent);
+    let historyAtCompletion:
+      | Array<{ readonly role: string; readonly text: string }>
+      | undefined;
+    vi.spyOn(ctx.agent, 'emitEvent').mockImplementation((event) => {
+      publish(event);
+      if (event.type === 'compaction.completed') {
+        historyAtCompletion = ctx.compactHistory();
+      }
+    });
+    const completed = ctx.once('compaction.completed');
+
+    ctx.mockNextResponse({ type: 'text', text: 'Applied before publication.' });
+    await ctx.rpc.beginCompaction({});
+    await completed;
+
+    expect(historyAtCompletion).toEqual([
+      { role: 'assistant', text: 'Applied before publication.' },
+    ]);
+    const events = ctx.newEvents();
+    expect(eventIndex(events, 'context.apply_compaction')).toBeLessThan(
+      eventIndex(events, 'compaction.completed'),
+    );
   });
 
   it('cancels when the compacted prefix changes before completion', async () => {
@@ -1337,9 +1584,9 @@ describe('Agent compaction', () => {
       [wire] usage.record                { "model": "lmcode", "usage": { "inputOther": 856, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
       [emit] agent.status.updated        { "model": "lmcode", "contextTokens": 950000, "maxContextTokens": 256000, "contextUsage": 3.7109375, "planMode": false, "permission": "yolo", "usage": { "byModel": { "lmcode": { "inputOther": 856, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 856, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] full_compaction.complete    { "time": "<time>" }
-      [emit] compaction.completed        { "result": { "summary": "Auto compacted summary.", "compactedCount": 4, "tokensBefore": 46, "tokensAfter": 28 } }
       [wire] context.apply_compaction    { "summary": "Auto compacted summary.", "compactedCount": 4, "tokensBefore": 46, "tokensAfter": 28, "time": "<time>" }
       [emit] agent.status.updated        { "model": "lmcode", "contextTokens": 28, "maxContextTokens": 256000, "contextUsage": 0.000109375, "planMode": false, "permission": "yolo", "usage": { "byModel": { "lmcode": { "inputOther": 856, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 856, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [emit] compaction.completed        { "result": { "summary": "Auto compacted summary.", "compactedCount": 4, "tokensBefore": 46, "tokensAfter": 28 } }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta             { "turnId": 0, "delta": "I can answer after compaction." }
@@ -1889,9 +2136,9 @@ describe('Agent compaction', () => {
       [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 840, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "session", "time": "<time>" }
       [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 0, "maxContextTokens": 1000000, "contextUsage": 0, "planMode": false, "permission": "yolo", "usage": { "byModel": { "mock-model": { "inputOther": 840, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 840, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] full_compaction.complete    { "time": "<time>" }
-      [emit] compaction.completed        { "result": { "summary": "First compacted summary.", "compactedCount": 1, "tokensBefore": 8, "tokensAfter": 6 } }
       [wire] context.apply_compaction    { "summary": "First compacted summary.", "compactedCount": 1, "tokensBefore": 8, "tokensAfter": 6, "time": "<time>" }
       [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 6, "maxContextTokens": 1000000, "contextUsage": 0.000006, "planMode": false, "permission": "yolo", "usage": { "byModel": { "mock-model": { "inputOther": 840, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 840, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [emit] compaction.completed        { "result": { "summary": "First compacted summary.", "compactedCount": 1, "tokensBefore": 8, "tokensAfter": 6 } }
       [wire] context.append_loop_event   { "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [emit] turn.step.started           { "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] assistant.delta             { "turnId": 0, "delta": "I need a tool." }
@@ -2005,6 +2252,35 @@ const alwaysCompactOnce: CompactionStrategy = {
   checkAfterStep: true,
   maxCompactionPerTurn: 1,
 };
+
+function controllablePersistence(): {
+  readonly persistence: AgentRecordPersistence;
+  failOn(type: AgentRecord['type'] | undefined): void;
+} {
+  const records: AgentRecord[] = [];
+  let failedType: AgentRecord['type'] | undefined;
+  return {
+    persistence: {
+      async *read(): AsyncIterable<AgentRecord> {
+        for (const record of records) yield record;
+      },
+      append(record): void {
+        if (record.type === failedType) {
+          throw new Error(`record append failed for ${record.type}`);
+        }
+        records.push(record);
+      },
+      rewrite(nextRecords): void {
+        records.splice(0, records.length, ...nextRecords);
+      },
+      async flush(): Promise<void> {},
+      async close(): Promise<void> {},
+    },
+    failOn(type): void {
+      failedType = type;
+    },
+  };
+}
 
 function missingToolCall(): ToolCall {
   return {

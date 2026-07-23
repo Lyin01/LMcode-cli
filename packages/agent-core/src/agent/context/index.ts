@@ -28,6 +28,7 @@ export interface ContextMemorySnapshot {
   readonly openSteps: ReadonlyMap<string, ContextMessage>;
   readonly pendingToolResultIds: ReadonlySet<string>;
   readonly deferredMessages: readonly ContextMessage[];
+  readonly revision: number;
 }
 
 export class ContextMemory {
@@ -37,6 +38,7 @@ export class ContextMemory {
   private openSteps: Map<string, ContextMessage> = new Map();
   private pendingToolResultIds = new Set<string>();
   private deferredMessages: ContextMessage[] = [];
+  private _revision = 0;
 
   constructor(protected readonly agent: Agent) {}
 
@@ -48,6 +50,7 @@ export class ContextMemory {
       openSteps: new Map(this.openSteps),
       pendingToolResultIds: new Set(this.pendingToolResultIds),
       deferredMessages: [...this.deferredMessages],
+      revision: this._revision,
     };
   }
 
@@ -58,6 +61,7 @@ export class ContextMemory {
     this.openSteps = new Map(snapshot.openSteps);
     this.pendingToolResultIds = new Set(snapshot.pendingToolResultIds);
     this.deferredMessages = [...snapshot.deferredMessages];
+    this._revision = snapshot.revision;
   }
 
   appendUserMessage(
@@ -90,6 +94,8 @@ export class ContextMemory {
     this.openSteps.clear();
     this.pendingToolResultIds.clear();
     this.deferredMessages = [];
+    this._revision += 1;
+    this.agent.goal.onContextClear();
     this.agent.injection.onContextClear();
     this.agent.emitStatusUpdated();
   }
@@ -106,6 +112,7 @@ export class ContextMemory {
     this.agent.records.logRecord({ type: 'context.undo', count });
 
     let removedUserCount = 0;
+    let removedMessageCount = 0;
     let stoppedAtBoundary = false;
     for (let i = this._history.length - 1; i >= 0; i--) {
       const message = this._history[i];
@@ -118,6 +125,8 @@ export class ContextMemory {
       }
 
       this._history.splice(i, 1);
+      removedMessageCount += 1;
+      this.agent.goal.onContextMessageRemoved(i);
       this.agent.injection.onContextMessageRemoved(i);
 
       if (i < this.tokenCountCoveredMessageCount) {
@@ -139,6 +148,7 @@ export class ContextMemory {
     this.openSteps.clear();
     this.pendingToolResultIds.clear();
     this.deferredMessages = [];
+    if (removedMessageCount > 0) this._revision += 1;
     this.agent.emitStatusUpdated();
 
     if (!this.agent.records.restoring && (stoppedAtBoundary || removedUserCount < count)) {
@@ -147,7 +157,7 @@ export class ContextMemory {
     }
   }
 
-  applyCompaction(summary: CompactionResult): void {
+  applyCompaction(summary: CompactionResult, emitStatus: boolean = true): void {
     this.agent.records.logRecord({
       type: 'context.apply_compaction',
       ...summary,
@@ -169,8 +179,10 @@ export class ContextMemory {
     // length; keeping it would truncate the tool results this compaction
     // deliberately preserved.
     this.agent.microCompaction.reset();
+    this.agent.goal.onContextCompacted(summary.compactedCount);
     this.agent.injection.onContextCompacted(summary.compactedCount);
-    this.agent.emitStatusUpdated();
+    this._revision += 1;
+    if (emitStatus) this.agent.emitStatusUpdated();
   }
 
   data(): AgentContextData {
@@ -191,6 +203,10 @@ export class ContextMemory {
 
   get history(): readonly ContextMessage[] {
     return this._history;
+  }
+
+  get revision(): number {
+    return this._revision;
   }
 
   get messages(): Message[] {
@@ -215,6 +231,7 @@ export class ContextMemory {
         };
         this.pushHistory(message);
         this.openSteps.set(event.uuid, message);
+        this._revision += 1;
         return;
       }
       case 'step.end': {
@@ -231,6 +248,7 @@ export class ContextMemory {
             openStepIndex === -1 ? this._history.length : openStepIndex + 1;
         }
         this.flushDeferredMessagesIfToolExchangeClosed();
+        this._revision += 1;
         return;
       }
       case 'content.part': {
@@ -241,6 +259,7 @@ export class ContextMemory {
           );
         }
         openStep.content.push(event.part);
+        this._revision += 1;
         return;
       }
       case 'tool.call': {
@@ -257,6 +276,7 @@ export class ContextMemory {
           arguments: event.args === undefined ? null : JSON.stringify(event.args),
         });
         this.pendingToolResultIds.add(event.toolCallId);
+        this._revision += 1;
         return;
       }
       case 'tool.result': {
@@ -268,6 +288,7 @@ export class ContextMemory {
         });
         this.pendingToolResultIds.delete(event.toolCallId);
         this.flushDeferredMessagesIfToolExchangeClosed();
+        this._revision += 1;
         return;
       }
     }
@@ -280,9 +301,11 @@ export class ContextMemory {
     });
     if (this.hasOpenToolExchange()) {
       this.deferredMessages.push(message);
+      this._revision += 1;
       return;
     }
     this.pushHistory(message);
+    this._revision += 1;
   }
 
   private flushDeferredMessagesIfToolExchangeClosed(): void {

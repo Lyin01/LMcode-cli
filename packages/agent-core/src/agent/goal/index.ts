@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
 import { ErrorCodes, LmcodeError } from '#/errors';
+import { abortError } from '../../utils/abort';
 import type { Agent } from '..';
+import type { ContextMessage } from '../context';
 import type { AgentRecordOf } from '../records/types';
+import { normalizeNonNegativeSafeInteger, normalizeTokenCount } from '../usage';
 
 /**
  * Durable goal-mode state owned by {@link GoalMode}.
@@ -13,6 +16,10 @@ import type { AgentRecordOf } from '../records/types';
 
 /** Maximum objective length in characters. */
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
+/** Maximum completion-criterion length in characters. */
+const MAX_GOAL_COMPLETION_CRITERION_LENGTH = 4000;
+/** Maximum terminal-reason length in characters. */
+const MAX_GOAL_TERMINAL_REASON_LENGTH = 1000;
 
 /** Maximum number of working notes kept per goal. */
 const MAX_GOAL_NOTES = 10;
@@ -52,6 +59,7 @@ interface GoalState {
   budgetLimits: GoalBudgetLimits;
   terminalReason?: string;
   notes: GoalNote[];
+  evidenceStartIndex: number;
 }
 
 export interface GoalBudgetReport {
@@ -112,17 +120,21 @@ interface GoalReasonInput {
 
 export const GOAL_COMPLETION_REMINDER_NAME = 'goal_completion_summary';
 export const GOAL_BLOCKED_REMINDER_NAME = 'goal_blocked_reason';
+export const GOAL_BUDGET_REACHED_REASON = 'A configured budget was reached';
+
+export function isGoalResourceBudgetReached(goal: GoalSnapshot): boolean {
+  return goal.budget.tokenBudgetReached || goal.budget.wallClockBudgetReached;
+}
 
 export class GoalMode {
   private state: GoalState | undefined;
+  private transitionController = new AbortController();
 
   constructor(private readonly agent: Agent) {}
 
   normalizeAfterReplay(): void {
     const state = this.state;
     if (state === undefined) return;
-
-    state.wallClockResumedAt = undefined;
 
     if (state.status === 'complete') {
       this.clearInternal('runtime', { emit: false, track: false });
@@ -131,46 +143,87 @@ export class GoalMode {
 
     if (state.status === 'active') {
       const reason = 'Paused after agent resume';
-      this.applyStatus(state, 'paused');
-      state.terminalReason = reason;
-      this.persistState(state, { silent: true });
-      this.appendStatusUpdate(state, 'runtime', reason);
+      const next = cloneGoalState(state);
+      next.wallClockResumedAt = undefined;
+      this.applyStatus(next, 'paused');
+      next.terminalReason = reason;
+      this.recordAndCommitState(
+        next,
+        () => this.appendStatusUpdate(next, 'runtime', reason),
+        { silent: true, executionBoundaryChanged: true },
+      );
       return;
     }
   }
 
   restoreCreate(record: AgentRecordOf<'goal.create'>): void {
+    const objective = normalizeRestoredGoalObjective(record.objective);
+    if (objective === undefined) {
+      this.state = undefined;
+      return;
+    }
     const state: GoalState = {
       goalId: record.goalId,
-      objective: record.objective,
-      completionCriterion: record.completionCriterion,
+      objective,
+      completionCriterion: normalizeCompletionCriterion(record.completionCriterion)?.slice(
+        0,
+        MAX_GOAL_COMPLETION_CRITERION_LENGTH,
+      ),
       status: 'active',
       turnsUsed: 0,
       tokensUsed: 0,
       wallClockMs: 0,
       budgetLimits: {},
       notes: [],
+      evidenceStartIndex: this.agent.context.history.length,
     };
     this.state = state;
   }
 
   restoreUpdate(record: AgentRecordOf<'goal.update'>): void {
-    const state = this.state;
-    if (state === undefined) return;
+    const current = this.state;
+    if (current === undefined) return;
+    const state = cloneGoalState(current);
 
-    const status = record.status;
+    const status = normalizeGoalStatus(record.status);
     if (status !== undefined) {
       state.status = status;
       state.wallClockResumedAt = undefined;
-      state.terminalReason = status === 'active' ? undefined : record.reason;
+      state.terminalReason = status === 'active' ? undefined : normalizeGoalReason(record.reason);
     }
-    if (record.turnsUsed !== undefined) state.turnsUsed = record.turnsUsed;
-    if (record.tokensUsed !== undefined) state.tokensUsed = record.tokensUsed;
+    if (record.turnsUsed !== undefined) {
+      state.turnsUsed = Math.max(
+        state.turnsUsed,
+        normalizeNonNegativeSafeInteger(record.turnsUsed),
+      );
+    }
+    if (record.tokensUsed !== undefined) {
+      state.tokensUsed = Math.max(state.tokensUsed, normalizeTokenCount(record.tokensUsed));
+    }
     if (record.wallClockMs !== undefined) {
-      state.wallClockMs = record.wallClockMs;
+      state.wallClockMs = Math.max(
+        state.wallClockMs,
+        normalizeNonNegativeSafeInteger(record.wallClockMs),
+      );
       state.wallClockResumedAt = undefined;
     }
-    if (record.budgetLimits !== undefined) state.budgetLimits = record.budgetLimits;
+    if (record.budgetLimits !== undefined) {
+      state.budgetLimits = {
+        ...state.budgetLimits,
+        ...normalizeRestoredBudgetLimits(record.budgetLimits),
+      };
+    }
+    if (record.notes !== undefined && Array.isArray(record.notes)) {
+      state.notes = record.notes
+        .slice(-MAX_GOAL_NOTES)
+        .map((note) => ({
+          content: String(note.content ?? '').trim().slice(0, MAX_NOTE_LENGTH),
+          time:
+            typeof note.time === 'number' && Number.isFinite(note.time) ? note.time : Date.now(),
+        }))
+        .filter((note) => note.content.length > 0);
+    }
+    this.state = state;
   }
 
   restoreClear(_record: AgentRecordOf<'goal.clear'>): void {
@@ -190,6 +243,38 @@ export class GoalMode {
     return this.toSnapshot(state);
   }
 
+  get transitionSignal(): AbortSignal {
+    return this.transitionController.signal;
+  }
+
+  getEvidenceContext(goalId: string): readonly ContextMessage[] {
+    const state = this.state;
+    if (state === undefined || state.goalId !== goalId) return [];
+    return this.agent.context.history.slice(state.evidenceStartIndex);
+  }
+
+  onContextClear(): void {
+    const state = this.state;
+    if (state !== undefined) state.evidenceStartIndex = 0;
+  }
+
+  onContextCompacted(compactedCount: number): void {
+    const state = this.state;
+    if (state === undefined || state.evidenceStartIndex === 0) return;
+    const removedCount = normalizeNonNegativeSafeInteger(compactedCount);
+    state.evidenceStartIndex = Math.min(
+      this.agent.context.history.length,
+      Math.max(1, state.evidenceStartIndex - removedCount + 1),
+    );
+  }
+
+  onContextMessageRemoved(index: number): void {
+    const state = this.state;
+    if (state !== undefined && index < state.evidenceStartIndex) {
+      state.evidenceStartIndex--;
+    }
+  }
+
   // --- Creation ---
 
   async createGoal(input: CreateGoalInput, _actor: GoalActor = 'user'): Promise<GoalSnapshot> {
@@ -204,6 +289,17 @@ export class GoalMode {
       );
     }
 
+    const completionCriterion = normalizeCompletionCriterion(input.completionCriterion);
+    if (
+      completionCriterion !== undefined &&
+      completionCriterion.length > MAX_GOAL_COMPLETION_CRITERION_LENGTH
+    ) {
+      throw new LmcodeError(
+        ErrorCodes.GOAL_COMPLETION_CRITERION_TOO_LONG,
+        `Goal completion criterion cannot exceed ${MAX_GOAL_COMPLETION_CRITERION_LENGTH} characters`,
+      );
+    }
+
     const existing = this.state;
     if (existing !== undefined) {
       if (input.replace !== true) {
@@ -212,10 +308,8 @@ export class GoalMode {
           'A goal already exists; use replace to start a new one',
         );
       }
-      this.clearInternal('system');
     }
 
-    const completionCriterion = normalizeCompletionCriterion(input.completionCriterion);
     const state: GoalState = {
       goalId: randomUUID(),
       objective,
@@ -227,15 +321,21 @@ export class GoalMode {
       wallClockResumedAt: Date.now(),
       budgetLimits: {},
       notes: [],
+      evidenceStartIndex: this.agent.context.history.length,
     };
 
-    this.persistState(state);
-    this.agent.records.logRecord({
-      type: 'goal.create',
-      goalId: state.goalId,
-      objective: state.objective,
-      completionCriterion: state.completionCriterion,
-    });
+    this.recordAndCommitState(
+      state,
+      () => {
+        this.agent.records.logRecord({
+          type: 'goal.create',
+          goalId: state.goalId,
+          objective: state.objective,
+          completionCriterion: state.completionCriterion,
+        });
+      },
+      { executionBoundaryChanged: true },
+    );
     return this.toSnapshot(state);
   }
 
@@ -250,13 +350,19 @@ export class GoalMode {
         `Cannot pause a goal in status "${state.status}"`,
       );
     }
-    this.applyStatus(state, 'paused');
-    state.terminalReason = input.reason;
-    this.persistState(state, {
-      change: { kind: 'lifecycle', status: 'paused', reason: input.reason, actor },
-    });
-    this.appendStatusUpdate(state, actor, input.reason);
-    return this.toSnapshot(state);
+    const next = cloneGoalState(state);
+    const reason = normalizeGoalReason(input.reason);
+    this.applyStatus(next, 'paused');
+    next.terminalReason = reason;
+    this.recordAndCommitState(
+      next,
+      () => this.appendStatusUpdate(next, actor, reason),
+      {
+        change: { kind: 'lifecycle', status: 'paused', reason, actor },
+        executionBoundaryChanged: true,
+      },
+    );
+    return this.toSnapshot(next);
   }
 
   async pauseActiveGoal(
@@ -265,13 +371,19 @@ export class GoalMode {
   ): Promise<GoalSnapshot | null> {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
-    this.applyStatus(state, 'paused');
-    state.terminalReason = input.reason;
-    this.persistState(state, {
-      change: { kind: 'lifecycle', status: 'paused', reason: input.reason, actor },
-    });
-    this.appendStatusUpdate(state, actor, input.reason);
-    return this.toSnapshot(state);
+    const next = cloneGoalState(state);
+    const reason = normalizeGoalReason(input.reason);
+    this.applyStatus(next, 'paused');
+    next.terminalReason = reason;
+    this.recordAndCommitState(
+      next,
+      () => this.appendStatusUpdate(next, actor, reason),
+      {
+        change: { kind: 'lifecycle', status: 'paused', reason, actor },
+        executionBoundaryChanged: true,
+      },
+    );
+    return this.toSnapshot(next);
   }
 
   async resumeGoal(input: GoalReasonInput = {}, actor: GoalActor = 'user'): Promise<GoalSnapshot> {
@@ -283,13 +395,19 @@ export class GoalMode {
         `Cannot resume a goal in status "${state.status}"`,
       );
     }
-    state.terminalReason = undefined;
-    this.applyStatus(state, 'active');
-    this.persistState(state, {
-      change: { kind: 'lifecycle', status: 'active', reason: input.reason, actor },
-    });
-    this.appendStatusUpdate(state, actor, input.reason);
-    return this.toSnapshot(state);
+    const next = cloneGoalState(state);
+    const reason = normalizeGoalReason(input.reason);
+    next.terminalReason = undefined;
+    this.applyStatus(next, 'active');
+    this.recordAndCommitState(
+      next,
+      () => this.appendStatusUpdate(next, actor, reason),
+      {
+        change: { kind: 'lifecycle', status: 'active', reason, actor },
+        executionBoundaryChanged: true,
+      },
+    );
+    return this.toSnapshot(next);
   }
 
   async setBudgetLimits(
@@ -297,16 +415,26 @@ export class GoalMode {
     _actor: GoalActor = 'user',
   ): Promise<GoalSnapshot> {
     const state = this.requireState();
-    state.budgetLimits = { ...state.budgetLimits, ...input.budgetLimits };
-    this.persistState(state);
-    this.appendGoalUpdate({ budgetLimits: state.budgetLimits });
-    return this.toSnapshot(state);
+    validateBudgetLimits(input.budgetLimits);
+    const next = cloneGoalState(state);
+    next.budgetLimits = { ...next.budgetLimits, ...input.budgetLimits };
+    this.recordAndCommitState(next, () => {
+      this.appendGoalUpdate({
+        budgetLimits: next.budgetLimits,
+        wallClockMs: liveWallClockMs(next),
+      });
+    });
+    return this.toSnapshot(next);
   }
 
   async cancelGoal(actor: GoalActor = 'user'): Promise<GoalSnapshot> {
     const state = this.requireState();
     const snapshot = this.toSnapshot(state);
-    this.clearInternal(actor);
+    this.recordAndCommitState(
+      undefined,
+      () => this.agent.records.logRecord({ type: 'goal.clear' }),
+      { executionBoundaryChanged: true },
+    );
     if (actor === 'user') {
       this.agent.context.appendSystemReminder(GOAL_CANCELLED_REMINDER, {
         kind: 'system_trigger',
@@ -324,13 +452,19 @@ export class GoalMode {
   ): Promise<GoalSnapshot | null> {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
-    this.applyStatus(state, 'blocked');
-    state.terminalReason = input.reason;
-    this.persistState(state, {
-      change: { kind: 'lifecycle', status: 'blocked', reason: input.reason, actor },
-    });
-    this.appendStatusUpdate(state, actor, input.reason);
-    return this.toSnapshot(state);
+    const next = cloneGoalState(state);
+    const reason = normalizeGoalReason(input.reason);
+    this.applyStatus(next, 'blocked');
+    next.terminalReason = reason;
+    this.recordAndCommitState(
+      next,
+      () => this.appendStatusUpdate(next, actor, reason),
+      {
+        change: { kind: 'lifecycle', status: 'blocked', reason, actor },
+        executionBoundaryChanged: true,
+      },
+    );
+    return this.toSnapshot(next);
   }
 
   async markComplete(
@@ -339,18 +473,25 @@ export class GoalMode {
   ): Promise<GoalSnapshot | null> {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
-    this.applyStatus(state, 'complete');
-    state.terminalReason = input.reason;
-    const snapshot = this.toSnapshot(state);
-    this.appendStatusUpdate(state, actor, input.reason);
+    const next = cloneGoalState(state);
+    const reason = normalizeGoalReason(input.reason);
+    this.applyStatus(next, 'complete');
+    next.terminalReason = reason;
+    const snapshot = this.toSnapshot(next);
+    this.recordAndCommitState(
+      next,
+      () => this.appendStatusUpdate(next, actor, reason),
+      { silent: true, executionBoundaryChanged: true },
+    );
+    if (this.state !== next) return snapshot;
     this.emitGoalUpdated(snapshot, {
       kind: 'completion',
       status: 'complete',
-      reason: input.reason,
-      stats: this.statsOf(state),
+      reason,
+      stats: this.statsOf(next),
       actor,
     });
-    this.clearInternal(actor);
+    if (this.state === next) this.clearInternal(actor);
     return snapshot;
   }
 
@@ -365,20 +506,45 @@ export class GoalMode {
   async recordTokenUsage(tokenDelta: number): Promise<GoalSnapshot | null> {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
-    const delta = Math.max(0, tokenDelta);
-    state.tokensUsed += delta;
-    this.persistState(state, { silent: true });
-    this.appendGoalUpdate({ tokensUsed: state.tokensUsed });
-    return this.toSnapshot(state);
+    return this.recordTokenUsageForGoal(state.goalId, tokenDelta);
+  }
+
+  async recordTokenUsageForGoal(
+    goalId: string,
+    tokenDelta: number,
+  ): Promise<GoalSnapshot | null> {
+    const state = this.state;
+    if (state === undefined || state.goalId !== goalId) return null;
+    const next = cloneGoalState(state);
+    const delta = normalizeTokenCount(tokenDelta);
+    next.tokensUsed = normalizeTokenCount(
+      normalizeTokenCount(next.tokensUsed) + delta,
+    );
+    this.recordAndCommitState(
+      next,
+      () => {
+        this.appendGoalUpdate({
+          tokensUsed: next.tokensUsed,
+          wallClockMs: liveWallClockMs(next),
+        });
+      },
+      { silent: true },
+    );
+    return this.toSnapshot(next);
   }
 
   async incrementTurn(): Promise<GoalSnapshot | null> {
     const state = this.state;
     if (state === undefined || state.status !== 'active') return null;
-    state.turnsUsed += 1;
-    this.persistState(state);
-    this.appendGoalUpdate({ turnsUsed: state.turnsUsed });
-    return this.toSnapshot(state);
+    const next = cloneGoalState(state);
+    next.turnsUsed = normalizeNonNegativeSafeInteger(next.turnsUsed + 1);
+    this.recordAndCommitState(next, () => {
+      this.appendGoalUpdate({
+        turnsUsed: next.turnsUsed,
+        wallClockMs: liveWallClockMs(next),
+      });
+    });
+    return this.toSnapshot(next);
   }
 
   async addNote(content: string): Promise<GoalSnapshot | null> {
@@ -386,24 +552,44 @@ export class GoalMode {
     if (state === undefined || state.status !== 'active') return null;
     const trimmed = content.trim().slice(0, MAX_NOTE_LENGTH);
     if (trimmed.length === 0) return this.toSnapshot(state);
-    state.notes.push({ content: trimmed, time: Date.now() });
-    if (state.notes.length > MAX_GOAL_NOTES) {
-      state.notes = state.notes.slice(-MAX_GOAL_NOTES);
+    const next = cloneGoalState(state);
+    next.notes.push({ content: trimmed, time: Date.now() });
+    if (next.notes.length > MAX_GOAL_NOTES) {
+      next.notes = next.notes.slice(-MAX_GOAL_NOTES);
     }
-    this.persistState(state, { silent: true });
-    return this.toSnapshot(state);
+    this.recordAndCommitState(next, () => {
+      this.appendGoalUpdate({
+        notes: next.notes,
+        wallClockMs: liveWallClockMs(next),
+      });
+    });
+    return this.toSnapshot(next);
   }
 
   // --- Internals ---
 
   private clearInternal(
-    actor: GoalActor,
+    _actor: GoalActor,
     opts: { emit?: boolean; track?: boolean } = {},
   ): void {
     const state = this.state;
     if (state === undefined) return;
-    this.persistState(undefined, { silent: opts.emit === false });
-    this.agent.records.logRecord({ type: 'goal.clear' });
+    this.recordAndCommitState(
+      undefined,
+      () => {
+        if (opts.track !== false) {
+          this.agent.records.logRecord({ type: 'goal.clear' });
+        }
+      },
+      { silent: opts.emit === false },
+    );
+  }
+
+  private notifyExecutionBoundaryChanged(): void {
+    const previous = this.transitionController;
+    this.transitionController = new AbortController();
+    previous.abort(abortError());
+    this.agent.permission.cancelAllApprovals();
   }
 
   private appendStatusUpdate(state: GoalState, actor: GoalActor, reason?: string): void {
@@ -427,7 +613,9 @@ export class GoalMode {
   private applyStatus(state: GoalState, status: GoalStatus): void {
     const now = Date.now();
     if (state.status === 'active' && state.wallClockResumedAt !== undefined) {
-      state.wallClockMs += Math.max(0, now - state.wallClockResumedAt);
+      state.wallClockMs = normalizeNonNegativeSafeInteger(
+        state.wallClockMs + normalizeNonNegativeSafeInteger(now - state.wallClockResumedAt),
+      );
       state.wallClockResumedAt = undefined;
     }
     if (status === 'active') {
@@ -444,11 +632,33 @@ export class GoalMode {
     return state;
   }
 
-  private persistState(
+  private recordAndCommitState(
     state: GoalState | undefined,
-    opts: { silent?: boolean; change?: GoalChange } = {},
+    record: () => void,
+    opts: {
+      silent?: boolean;
+      change?: GoalChange;
+      executionBoundaryChanged?: boolean;
+    } = {},
   ): void {
+    const previousState = this.state;
+    const previousTransitionController = this.transitionController;
     this.state = state;
+
+    try {
+      record();
+    } catch (error) {
+      if (this.state === state) this.state = previousState;
+      throw error;
+    }
+
+    if (
+      opts.executionBoundaryChanged === true &&
+      this.transitionController === previousTransitionController
+    ) {
+      this.notifyExecutionBoundaryChanged();
+    }
+    if (this.state !== state) return;
     if (opts.silent !== true) {
       this.emitGoalUpdated(state === undefined ? null : this.toSnapshot(state), opts.change);
     }
@@ -467,6 +677,7 @@ export class GoalMode {
   }
 
   private toSnapshot(state: GoalState): GoalSnapshot {
+    const now = Date.now();
     return {
       goalId: state.goalId,
       objective: state.objective,
@@ -474,19 +685,29 @@ export class GoalMode {
       status: state.status,
       turnsUsed: state.turnsUsed,
       tokensUsed: state.tokensUsed,
-      wallClockMs: liveWallClockMs(state, Date.now()),
-      budget: computeBudgetReport(state, Date.now()),
+      wallClockMs: liveWallClockMs(state, now),
+      budget: computeBudgetReport(state, now),
       terminalReason: state.terminalReason,
-      notes: state.notes,
+      notes: state.notes.map((note) => ({ ...note })),
     };
   }
 }
 
+function cloneGoalState(state: GoalState): GoalState {
+  return {
+    ...state,
+    budgetLimits: { ...state.budgetLimits },
+    notes: [...state.notes],
+  };
+}
+
 function liveWallClockMs(state: GoalState, now: number = Date.now()): number {
   if (state.status === 'active' && state.wallClockResumedAt !== undefined) {
-    return state.wallClockMs + Math.max(0, now - state.wallClockResumedAt);
+    return normalizeNonNegativeSafeInteger(
+      state.wallClockMs + normalizeNonNegativeSafeInteger(now - state.wallClockResumedAt),
+    );
   }
-  return state.wallClockMs;
+  return normalizeNonNegativeSafeInteger(state.wallClockMs);
 }
 
 function computeBudgetReport(state: GoalState, now: number = Date.now()): GoalBudgetReport {
@@ -516,7 +737,71 @@ function computeBudgetReport(state: GoalState, now: number = Date.now()): GoalBu
   };
 }
 
-function normalizeCompletionCriterion(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
+function normalizeRestoredGoalObjective(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, MAX_GOAL_OBJECTIVE_LENGTH) : undefined;
+}
+
+function normalizeCompletionCriterion(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
   return trimmed?.length ? trimmed : undefined;
+}
+
+function normalizeGoalReason(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed?.length ? trimmed.slice(0, MAX_GOAL_TERMINAL_REASON_LENGTH) : undefined;
+}
+
+function normalizeGoalStatus(value: unknown): GoalStatus | undefined {
+  if (value === 'active' || value === 'paused' || value === 'blocked' || value === 'complete') {
+    return value;
+  }
+  return undefined;
+}
+
+function normalizeRestoredBudgetLimits(value: unknown): GoalBudgetLimits {
+  if (typeof value !== 'object' || value === null) return {};
+  const input = value as Record<string, unknown>;
+  const normalized: {
+    tokenBudget?: number;
+    turnBudget?: number;
+    wallClockBudgetMs?: number;
+  } = {};
+  const tokenBudget = normalizeBudgetLimit(input['tokenBudget']);
+  const turnBudget = normalizeBudgetLimit(input['turnBudget']);
+  const wallClockBudgetMs = normalizeBudgetLimit(input['wallClockBudgetMs']);
+  if (tokenBudget !== undefined) normalized.tokenBudget = tokenBudget;
+  if (turnBudget !== undefined) normalized.turnBudget = turnBudget;
+  if (wallClockBudgetMs !== undefined) normalized.wallClockBudgetMs = wallClockBudgetMs;
+  return normalized;
+}
+
+function normalizeBudgetLimit(value: unknown): number | undefined {
+  return isPositiveSafeInteger(value) ? value : undefined;
+}
+
+function validateBudgetLimits(limits: GoalBudgetLimits): void {
+  validateBudgetLimit('tokenBudget', limits.tokenBudget);
+  validateBudgetLimit('turnBudget', limits.turnBudget);
+  validateBudgetLimit('wallClockBudgetMs', limits.wallClockBudgetMs);
+}
+
+function validateBudgetLimit(
+  field: keyof GoalBudgetLimits,
+  value: number | undefined,
+): void {
+  if (value === undefined) return;
+  if (isPositiveSafeInteger(value)) return;
+  throw new LmcodeError(
+    ErrorCodes.GOAL_BUDGET_INVALID,
+    `${field} must be a positive safe integer`,
+    { details: { field, value: String(value) } },
+  );
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }

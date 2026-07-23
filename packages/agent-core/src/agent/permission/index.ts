@@ -1,5 +1,6 @@
 import type { Agent } from '..';
 import type { PrepareToolExecutionResult } from '../../loop';
+import { abortError } from '../../utils/abort';
 import { createPermissionDecisionPolicies } from './policies';
 import type {
   ApprovalResponse,
@@ -31,7 +32,7 @@ interface PendingApproval {
   readonly display: unknown;
   readonly startedAt: number;
   resolve(value: ApprovalResponse): void;
-  reject(error: Error): void;
+  cancel(): void;
 }
 
 export interface PendingApprovalInfo {
@@ -98,14 +99,14 @@ export class PermissionManager {
     const pending = this.pendingApprovals.get(id);
     if (pending === undefined) return false;
     this.pendingApprovals.delete(id);
-    pending.reject(new Error('Approval request cancelled'));
+    pending.cancel();
     return true;
   }
 
   /** Cancel all pending approval requests. */
   cancelAllApprovals(): void {
     for (const [, pending] of this.pendingApprovals) {
-      pending.reject(new Error('Approval request cancelled'));
+      pending.cancel();
     }
     this.pendingApprovals.clear();
   }
@@ -166,6 +167,7 @@ export class PermissionManager {
     context: PermissionPolicyContext,
   ): Promise<PrepareToolExecutionResult | undefined> {
     const evaluation = await this.evaluatePolicies(context);
+    context.signal.throwIfAborted();
     if (evaluation === undefined) return undefined;
 
     return this.permissionPolicyResolutionToPrepare(
@@ -181,6 +183,7 @@ export class PermissionManager {
     policyName: string | undefined,
   ): Promise<PrepareToolExecutionResult | undefined> {
     const { signal } = context;
+    signal.throwIfAborted();
     const id = context.toolCall.id;
     const name = context.toolCall.name;
     const display =
@@ -195,6 +198,8 @@ export class PermissionManager {
     let response: ApprovalResponse;
     if (this.agent.rpc?.requestApproval) {
       const approvalId = `approval-${String(++this.nextApprovalId)}`;
+      const approvalController = new AbortController();
+      const approvalSignal = AbortSignal.any([signal, approvalController.signal]);
       let timeout: NodeJS.Timeout | undefined;
       try {
         const customPromise = new Promise<ApprovalResponse>((resolve, reject) => {
@@ -205,8 +210,14 @@ export class PermissionManager {
             action,
             display,
             startedAt,
-            resolve,
-            reject,
+            resolve: (value) => {
+              resolve(value);
+              approvalController.abort(abortError());
+            },
+            cancel: () => {
+              resolve({ decision: 'cancelled' });
+              approvalController.abort(abortError());
+            },
           });
           // RPC response also drives the same promise
           const rpcRequestApproval = this.agent.rpc?.requestApproval;
@@ -219,13 +230,17 @@ export class PermissionManager {
                 action,
                 display,
               },
-              { signal },
+              { signal: approvalSignal },
             ).then(resolve, reject);
           }
         });
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeout = setTimeout(() => {
-            reject(new Error(`Approval request timed out after ${String(APPROVAL_TIMEOUT_MS)}ms`));
+            const error = new Error(
+              `Approval request timed out after ${String(APPROVAL_TIMEOUT_MS)}ms`,
+            );
+            reject(error);
+            approvalController.abort(error);
           }, APPROVAL_TIMEOUT_MS);
         });
         response = await Promise.race([customPromise, timeoutPromise]);
@@ -283,7 +298,9 @@ export class PermissionManager {
     context: PermissionPolicyContext,
   ): Promise<PolicyEvaluation | undefined> {
     for (const policy of this.policies) {
+      context.signal.throwIfAborted();
       const result = await policy.evaluate(context);
+      context.signal.throwIfAborted();
       if (result !== undefined) {
         return { policyName: policy.name, result };
       }

@@ -5,7 +5,7 @@ import type { ToolStoreUpdate } from '../../tools/store';
 import type { CompactionBeginData, CompactionResult } from '../compaction';
 import type { AgentConfigUpdateData } from '../config';
 import type { ContextMessage, PromptOrigin } from '../context';
-import type { GoalActor, GoalBudgetLimits, GoalStatus } from '../goal';
+import type { GoalActor, GoalBudgetLimits, GoalNote, GoalStatus } from '../goal';
 import type { PermissionApprovalResultRecord, PermissionMode } from '../permission';
 import type { UserToolRegistration } from '../tool';
 import type { UsageRecordScope } from '../usage';
@@ -88,6 +88,7 @@ export interface AgentRecordEvents {
     budgetLimits?: GoalBudgetLimits;
     reason?: string;
     actor?: GoalActor;
+    notes?: readonly GoalNote[];
   };
   'goal.clear': {};
 

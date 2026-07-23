@@ -6,12 +6,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Jian } from '@lmcode-cli/jian';
 import {
   APIConnectionError,
-  APIEmptyResponseError,
   APIStatusError,
-  APITimeoutError,
   type ChatProvider,
   type GenerateResult,
-  type ModelCapability,
   type ToolCall,
 } from '@lmcode-cli/ltod';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -1232,6 +1229,382 @@ describe('Agent turn flow', () => {
     expect(result.output).toContain('Send /login to login');
   });
 
+  it('autonomously continues a goal created during a standalone turn', async () => {
+    let generateCalls = 0;
+    let completedTurns: number | undefined;
+    const ctx = testAgent({
+      generate: async () => {
+        generateCalls += 1;
+        if (generateCalls === 1) {
+          await ctx.agent.goal.createGoal({ objective: 'Finish the batch' }, 'model');
+          return textResult('goal created');
+        }
+        const completed = await ctx.agent.goal.markComplete({ reason: 'batch done' });
+        completedTurns = completed?.turnsUsed;
+        return textResult('goal completed');
+      },
+    });
+    ctx.configure();
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create a durable goal' }] });
+    const end = await ctx.agent.turn.waitForCurrentTurn();
+
+    expect(end.event).toMatchObject({ turnId: 1, reason: 'completed' });
+    expect(generateCalls).toBe(2);
+    expect(completedTurns).toBe(1);
+    expect(ctx.agent.goal.getGoal().goal).toBeNull();
+  });
+
+  it('stops after a successful UpdateGoal terminal result without another model step', async () => {
+    const ctx = testAgent();
+    ctx.configure({ tools: ['UpdateGoal'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    await ctx.agent.goal.createGoal({ objective: 'Finish the batch' });
+    ctx.mockNextResponse(
+      { type: 'text', text: 'The goal is blocked.' },
+      {
+        type: 'function',
+        id: 'call_goal_blocked',
+        name: 'UpdateGoal',
+        arguments: JSON.stringify({ status: 'blocked' }),
+      },
+    );
+    ctx.mockNextResponse({ type: 'text', text: 'This response must not be requested.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the goal' }] });
+    const end = await ctx.agent.turn.waitForCurrentTurn();
+
+    expect(end).toMatchObject({
+      event: { turnId: 0, reason: 'completed' },
+      stopReason: 'end_turn',
+    });
+    expect(ctx.llmCalls).toHaveLength(1);
+    const blockedGoal = ctx.agent.goal.getGoal().goal;
+    expect(blockedGoal?.status).toBe('blocked');
+    expect(blockedGoal?.tokensUsed).toBeGreaterThan(0);
+    expect(blockedGoal?.tokensUsed).toBe(ctx.agent.usage.stats().totalTokens);
+  });
+
+  it('does not charge a replacement goal for a model request started by the original goal', async () => {
+    let replacementGoalId: string | undefined;
+    const ctx = testAgent({
+      initialConfig: { providers: {}, enableSpecCritic: false },
+      generate: async () => {
+        const replacement = await ctx.agent.goal.createGoal(
+          { objective: 'Replacement goal', replace: true },
+          'user',
+        );
+        replacementGoalId = replacement.goalId;
+        await ctx.agent.goal.pauseGoal({ reason: 'Replacement parked by the user' });
+        return {
+          id: 'replacement-during-generation',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Parking the replacement.' }],
+            toolCalls: [],
+          },
+          usage: {
+            inputOther: 9,
+            output: 4,
+            inputCacheRead: 0,
+            inputCacheCreation: 0,
+          },
+          finishReason: 'completed',
+          rawFinishReason: 'stop',
+        };
+      },
+    });
+    ctx.configure();
+    const original = await ctx.agent.goal.createGoal({ objective: 'Original goal' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the original goal' }] });
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    expect(replacementGoalId).not.toBe(original.goalId);
+    expect(ctx.agent.usage.stats().totalTokens).toBe(13);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      goalId: replacementGoalId,
+      objective: 'Replacement goal',
+      status: 'paused',
+      tokensUsed: 0,
+    });
+  });
+
+  it('does not execute tools from a model response after its goal is paused', async () => {
+    const response = deferred<GenerateResult>();
+    const generateStarted = deferred<void>();
+    let generateCalls = 0;
+    const ctx = testAgent({
+      jian: createCommandJian('stale-goal-tool-ran'),
+      initialConfig: { providers: {}, enableSpecCritic: false },
+      generate: () => {
+        generateCalls += 1;
+        if (generateCalls === 1) {
+          generateStarted.resolve();
+          return response.promise;
+        }
+        return Promise.resolve(textResult('A stale follow-up model step ran.'));
+      },
+    });
+    ctx.configure({ tools: ['Bash'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    await ctx.agent.goal.createGoal({ objective: 'Do not work after pause' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the active goal' }] });
+    await generateStarted.promise;
+    await ctx.agent.goal.pauseGoal({ reason: 'Paused during generation' });
+    const toolCall = bashCallWithId('call_stale_goal_bash', 'printf stale');
+    response.resolve({
+      id: 'stale-goal-tool-response',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Running a now-stale tool.' }],
+        toolCalls: [toolCall],
+      },
+      usage: {
+        inputOther: 9,
+        output: 4,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+      },
+      finishReason: 'tool_calls',
+      rawFinishReason: 'tool_calls',
+    });
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    const toolOutput = ctx.agent.context.history
+      .filter((message) => message.role === 'tool')
+      .flatMap((message) => message.content)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+    expect(generateCalls).toBe(1);
+    expect(toolOutput).not.toContain('stale-goal-tool-ran');
+    expect(toolOutput).toContain('active goal changed');
+    expect(ctx.agent.usage.stats().totalTokens).toBe(13);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      status: 'paused',
+      terminalReason: 'Paused during generation',
+      turnsUsed: 1,
+      tokensUsed: 13,
+    });
+  });
+
+  it('withdraws a pending tool approval when the user pauses its goal', async () => {
+    const ctx = testAgent({
+      jian: createCommandJian('paused-goal-tool-ran'),
+      initialConfig: { providers: {}, enableSpecCritic: false },
+    });
+    ctx.configure({ tools: ['Bash'] });
+    await ctx.rpc.setPermission({ mode: 'manual' });
+    await ctx.agent.goal.createGoal({ objective: 'Pause safely during approval' });
+    ctx.mockNextResponse(
+      { type: 'text', text: 'Waiting for permission.' },
+      bashCallWithId('call_paused_goal_approval', 'printf paused'),
+    );
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the active goal' }] });
+    await ctx.untilApprovalRequest();
+    const turn = ctx.agent.turn.waitForCurrentTurn();
+    let turnEnded = false;
+
+    try {
+      await ctx.rpc.updateGoalStatus({ status: 'paused' });
+      const endedWithoutApprovalResponse = await Promise.race([
+        turn.then(() => {
+          turnEnded = true;
+          return true;
+        }),
+        delay(250).then(() => false),
+      ]);
+
+      expect(endedWithoutApprovalResponse).toBe(true);
+    } finally {
+      if (!turnEnded) {
+        ctx.agent.permission.cancelAllApprovals();
+        await turn;
+      }
+    }
+
+    const toolOutput = ctx.agent.context.history
+      .filter((message) => message.role === 'tool')
+      .flatMap((message) => message.content)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+    expect(toolOutput).not.toContain('paused-goal-tool-ran');
+    expect(ctx.agent.permission.getPendingApprovals()).toEqual([]);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      status: 'paused',
+      turnsUsed: 1,
+    });
+  });
+
+  it('cancels permission resolution when the user pauses before approval registration', async () => {
+    const authorizationStarted = deferred<void>();
+    const authorizationAborted = deferred<void>();
+    const ctx = testAgent({
+      jian: createCommandJian('policy-race-tool-ran'),
+      initialConfig: { providers: {}, enableSpecCritic: false },
+    });
+    ctx.configure({ tools: ['Bash'] });
+    await ctx.rpc.setPermission({ mode: 'manual' });
+    await ctx.agent.goal.createGoal({ objective: 'Pause during policy resolution' });
+    vi.spyOn(ctx.agent.permission, 'beforeToolCall').mockImplementation(async (context) => {
+      authorizationStarted.resolve();
+      if (context.signal.aborted) {
+        authorizationAborted.resolve();
+      } else {
+        context.signal.addEventListener('abort', () => authorizationAborted.resolve(), {
+          once: true,
+        });
+      }
+      await authorizationAborted.promise;
+      context.signal.throwIfAborted();
+    });
+    ctx.mockNextResponse(
+      { type: 'text', text: 'Resolving permission policy.' },
+      bashCallWithId('call_goal_policy_race', 'printf policy-race'),
+    );
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue the active goal' }] });
+    await authorizationStarted.promise;
+    const turn = ctx.agent.turn.waitForCurrentTurn();
+    let turnEnded = false;
+
+    try {
+      await ctx.rpc.updateGoalStatus({ status: 'paused' });
+      const endedWithoutApprovalRegistration = await Promise.race([
+        turn.then(() => {
+          turnEnded = true;
+          return true;
+        }),
+        delay(250).then(() => false),
+      ]);
+
+      expect(endedWithoutApprovalRegistration).toBe(true);
+    } finally {
+      if (!turnEnded) {
+        ctx.agent.turn.cancel();
+        await turn;
+      }
+    }
+
+    const toolOutput = ctx.agent.context.history
+      .filter((message) => message.role === 'tool')
+      .flatMap((message) => message.content)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+    expect(toolOutput).not.toContain('policy-race-tool-ran');
+    expect(ctx.agent.permission.getPendingApprovals()).toEqual([]);
+    expect(ctx.agent.goal.getGoal().goal?.status).toBe('paused');
+  });
+
+  it('stops before another model step when a goal reaches its token budget mid-turn', async () => {
+    const ctx = testAgent({
+      jian: createCommandJian('budget-tool-ran'),
+      initialConfig: { providers: {}, enableSpecCritic: false },
+    });
+    ctx.configure({ tools: ['Bash'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    await ctx.agent.goal.createGoal({ objective: 'Run one bounded tool step' });
+    await ctx.agent.goal.setBudgetLimits({ budgetLimits: { tokenBudget: 1 } });
+    ctx.mockNextResponse(
+      { type: 'text', text: 'Running the bounded tool.' },
+      bashCallWithId('call_budget_bash', 'printf bounded'),
+    );
+    ctx.mockNextResponse({ type: 'text', text: 'This response must not be requested.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Continue within the budget' }] });
+    const end = await ctx.agent.turn.waitForCurrentTurn();
+
+    const toolOutput = ctx.agent.context.history
+      .filter((message) => message.role === 'tool')
+      .flatMap((message) => message.content)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+    const goal = ctx.agent.goal.getGoal().goal;
+    expect(end).toMatchObject({
+      event: { turnId: 0, reason: 'completed' },
+      stopReason: 'end_turn',
+    });
+    expect(ctx.llmCalls).toHaveLength(1);
+    expect(toolOutput).toContain('budget-tool-ran');
+    expect(goal).toMatchObject({
+      status: 'blocked',
+      terminalReason: 'A configured budget was reached',
+      turnsUsed: 1,
+    });
+    expect(goal?.tokensUsed).toBe(ctx.agent.usage.stats().totalTokens);
+  });
+
+  it('normalizes malformed provider usage before recording and enforcing a goal budget', async () => {
+    const ctx = testAgent({
+      generate: async () => ({
+        ...textResult('The bounded response is complete.'),
+        usage: {
+          inputOther: Number.NaN,
+          output: -3,
+          inputCacheRead: 4.9,
+          inputCacheCreation: Number.POSITIVE_INFINITY,
+        },
+      }),
+    });
+    ctx.configure();
+    await ctx.agent.goal.createGoal({ objective: 'Keep malformed usage bounded' });
+    await ctx.agent.goal.setBudgetLimits({ budgetLimits: { tokenBudget: 1 } });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Finish within the budget' }] });
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    const normalizedUsage = {
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 4,
+      inputCacheCreation: Number.MAX_SAFE_INTEGER - 4,
+    };
+    const usageRecord = ctx.allEvents.find(
+      (event) => event.type === '[wire]' && event.event === 'usage.record',
+    );
+    expect((usageRecord?.args as { usage?: unknown } | undefined)?.usage).toEqual(
+      normalizedUsage,
+    );
+    expect(ctx.agent.usage.stats()).toMatchObject({
+      total: normalizedUsage,
+      totalTokens: Number.MAX_SAFE_INTEGER,
+    });
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      status: 'blocked',
+      tokensUsed: Number.MAX_SAFE_INTEGER,
+      budget: { tokenBudgetReached: true },
+    });
+    await ctx.expectResumeMatches();
+  });
+
+  it('allows the final permitted goal turn to finish its multi-step tool exchange', async () => {
+    const ctx = testAgent({
+      jian: createCommandJian('turn-budget-tool-ran'),
+      initialConfig: { providers: {}, enableSpecCritic: false },
+    });
+    ctx.configure({ tools: ['Bash'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    await ctx.agent.goal.createGoal({ objective: 'Use one complete turn' });
+    await ctx.agent.goal.setBudgetLimits({ budgetLimits: { turnBudget: 1 } });
+    ctx.mockNextResponse(
+      { type: 'text', text: 'Running the turn-budget tool.' },
+      bashCallWithId('call_turn_budget_bash', 'printf bounded'),
+    );
+    ctx.mockNextResponse({ type: 'text', text: 'The permitted turn is finished.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Use the permitted turn' }] });
+    await ctx.agent.turn.waitForCurrentTurn();
+
+    expect(ctx.llmCalls).toHaveLength(2);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      status: 'blocked',
+      terminalReason: 'A configured budget was reached',
+      turnsUsed: 1,
+    });
+  });
+
   it('keeps a resumed goal drive cancellable after the standalone first turn releases', async () => {
     const secondCall = deferred<GenerateResult>();
     let generateCalls = 0;
@@ -1303,6 +1676,8 @@ describe('Agent turn flow', () => {
       [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "call_bash", "toolCallId": "call_bash", "result": { "output": "The user manually interrupted \\"Bash\\" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.", "isError": true } }, "time": "<time>" }
       [emit] tool.result                 { "turnId": 0, "toolCallId": "call_bash", "output": "The user manually interrupted \\"Bash\\" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.", "isError": true }
       [emit] turn.step.interrupted       { "turnId": 0, "step": 1, "reason": "aborted" }
+      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 0, "maxContextTokens": 1000000, "contextUsage": 0, "planMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 5, "output": 22, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [emit] turn.ended                  { "turnId": 0, "reason": "cancelled" }
     `);
     await ctx.expectResumeMatches();
@@ -1453,6 +1828,8 @@ describe('Agent turn flow', () => {
       [wire] context.append_loop_event   { "event": { "type": "tool.result", "parentUuid": "call_bash", "toolCallId": "call_bash", "result": { "output": "The user manually interrupted \\"Bash\\" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.", "isError": true } }, "time": "<time>" }
       [emit] tool.result                 { "turnId": 0, "toolCallId": "call_bash", "output": "The user manually interrupted \\"Bash\\" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.", "isError": true }
       [emit] turn.step.interrupted       { "turnId": 0, "step": 1, "reason": "aborted" }
+      [wire] usage.record                { "model": "mock-model", "usage": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [emit] agent.status.updated        { "model": "mock-model", "contextTokens": 0, "maxContextTokens": 1000000, "contextUsage": 0, "planMode": false, "permission": "manual", "usage": { "byModel": { "mock-model": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 7, "output": 25, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [emit] turn.ended                  { "turnId": 0, "reason": "cancelled" }
     `);
     await ctx.expectResumeMatches();
@@ -1469,16 +1846,6 @@ function bashCallWithId(id: string, command: string): ToolCall {
     id,
     name: 'Bash',
     arguments: JSON.stringify({ command, timeout: 60 }),
-  };
-}
-
-
-function singleAttemptAgentOptions(): Pick<TestAgentOptions, 'initialConfig'> {
-  return {
-    initialConfig: {
-      providers: {},
-      loopControl: { maxRetriesPerStep: 1 },
-    },
   };
 }
 
@@ -1516,17 +1883,6 @@ async function waitForFile(path: string): Promise<void> {
     await delay(10);
   }
   throw new Error(`Timed out waiting for ${path}`);
-}
-
-function mediaCapabilities(): ModelCapability {
-  return {
-    image_in: true,
-    video_in: true,
-    audio_in: false,
-    thinking: false,
-    tool_use: true,
-    max_context_tokens: 1_000_000,
-  };
 }
 
 function oauthAgentOptions(

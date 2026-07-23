@@ -48,10 +48,12 @@ export const ErrorCodes = {
 
   GOAL_OBJECTIVE_EMPTY: 'goal.objective_empty',
   GOAL_OBJECTIVE_TOO_LONG: 'goal.objective_too_long',
+  GOAL_COMPLETION_CRITERION_TOO_LONG: 'goal.completion_criterion_too_long',
   GOAL_ALREADY_EXISTS: 'goal.already_exists',
   GOAL_NOT_FOUND: 'goal.not_found',
   GOAL_STATUS_INVALID: 'goal.status_invalid',
   GOAL_NOT_RESUMABLE: 'goal.not_resumable',
+  GOAL_BUDGET_INVALID: 'goal.budget_invalid',
 
   SKILL_NOT_FOUND: 'skill.not_found',
   SKILL_TYPE_UNSUPPORTED: 'skill.type_unsupported',
@@ -301,7 +303,13 @@ export const LMCODE_ERROR_INFO = {
     title: 'Goal objective too long',
     retryable: false,
     public: true,
-    action: 'Shorten the goal objective to under 4000 characters.',
+    action: 'Shorten the goal objective to 4000 characters or fewer.',
+  },
+  'goal.completion_criterion_too_long': {
+    title: 'Goal completion criterion too long',
+    retryable: false,
+    public: true,
+    action: 'Shorten the goal completion criterion to 4000 characters or fewer.',
   },
   'goal.already_exists': {
     title: 'A goal already exists',
@@ -326,6 +334,12 @@ export const LMCODE_ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Only paused or blocked goals can be resumed.',
+  },
+  'goal.budget_invalid': {
+    title: 'Invalid goal budget',
+    retryable: false,
+    public: true,
+    action: 'Use a positive finite budget that resolves to a safe integer.',
   },
 
   'skill.not_found': {

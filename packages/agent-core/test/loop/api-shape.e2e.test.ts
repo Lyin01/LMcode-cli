@@ -36,6 +36,7 @@ import type {
   LoopEventDispatcher,
   LoopAfterStepContext,
   LoopStepHookContext,
+  LoopStepUsageContext,
   LoopTextDeltaEvent,
   LoopThinkingDeltaEvent,
   LoopToolCallDeltaEvent,
@@ -57,6 +58,7 @@ import type {
   ToolExecutionHookContext,
   PrepareToolExecutionHook,
   PrepareToolExecutionResult,
+  RecordStepUsageHook,
   ExecutableToolResult,
   FinalizeToolResultContext,
   FinalizeToolResultHook,
@@ -289,6 +291,12 @@ function _typeOnlyChecks(): void {
   };
   void afterStepContext;
 
+  const stepUsageContext: LoopStepUsageContext = {
+    ...stepHookContext,
+    usage: {} as TokenUsage,
+  };
+  void stepUsageContext;
+
   const stoppedStepContext: LoopStoppedStepContext = {
     ...stepHookContext,
     usage: {} as TokenUsage,
@@ -325,6 +333,7 @@ function _typeOnlyChecks(): void {
   // LoopHooks members are all optional.
   const allHooks: LoopHooks = {
     beforeStep: undefined,
+    recordStepUsage: undefined,
     afterStep: undefined,
     prepareToolExecution: undefined,
     finalizeToolResult: undefined,
@@ -482,6 +491,10 @@ function _typeOnlyChecks(): void {
     const usage: TokenUsage = ctx.usage;
     void usage;
   };
+  const recordStepUsageHook: RecordStepUsageHook = async (ctx) => {
+    const usage: TokenUsage = ctx.usage;
+    void usage;
+  };
   const prepareToolExecutionHook: PrepareToolExecutionHook = async (ctx) => ({
     updatedArgs: ctx.args,
   });
@@ -493,6 +506,7 @@ function _typeOnlyChecks(): void {
   void shouldContinueAfterStopResult;
   const hookShapes: LoopHooks = {
     beforeStep: beforeStepHook,
+    recordStepUsage: recordStepUsageHook,
     afterStep: afterStepHook,
     prepareToolExecution: prepareToolExecutionHook,
     finalizeToolResult: finalizeToolResultHook,
@@ -567,6 +581,7 @@ function _typeOnlyChecks(): void {
     | LoopEventDispatcher
     | LoopAfterStepContext
     | LoopStepHookContext
+    | LoopStepUsageContext
     | LoopStoppedStepContext
     | LoopTerminalStepStopReason
     | LoopStepStopReason
@@ -585,6 +600,7 @@ function _typeOnlyChecks(): void {
     | ToolExecutionHookContext
     | PrepareToolExecutionHook
     | PrepareToolExecutionResult
+    | RecordStepUsageHook
     | FinalizeToolResultContext
     | FinalizeToolResultHook
     | TurnResult;
