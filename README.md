@@ -11,9 +11,15 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@liumir/lmcode"><img src="https://img.shields.io/npm/v/@liumir/lmcode?style=flat-square&logo=npm&logoColor=white" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/@liumir/lmcode"><img src="https://img.shields.io/npm/dm/@liumir/lmcode?style=flat-square&logo=npm&logoColor=white" alt="npm downloads"></a>
+  <a href="https://github.com/Lyin01/LMcode-cli"><img src="https://img.shields.io/github/stars/Lyin01/LMcode-cli?style=flat-square" alt="GitHub stars"></a>
+  <a href="https://github.com/Lyin01/LMcode-cli/commits/main"><img src="https://img.shields.io/github/last-commit/Lyin01/LMcode-cli?style=flat-square" alt="last commit"></a>
   <a href="https://github.com/Lyin01/LMcode-cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Lyin01/LMcode-cli?style=flat-square" alt="license"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.19.0-green?style=flat-square&logo=node.js&logoColor=white" alt="node version"></a>
   <a href="https://github.com/Lyin01/LMcode-cli"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square" alt="platform"></a>
+</p>
+
+<p align="center">
+  <a href="README.en.md">English</a> | <b>中文</b>
 </p>
 
 LMcode 的界面和默认交互以中文为主，模型服务可以自己配置，也可以在同一个 TUI 中切换。
@@ -125,6 +131,13 @@ LMcode 不是离线工具。使用前需要知道数据会去哪里：
 当前版本启动时默认是 `yolo`。希望保留更多确认时，进入 TUI 后先用 `/permission` 切到 `auto` 或 `manual`。
 
 在重要仓库里使用前，建议先提交或暂存自己的改动。不要在不清楚任务内容时使用 `yolo`。
+
+## 路线图
+
+- **走向 v1.0**：稳定配置格式和公开的 CLI/SDK 接口。
+- **v1.0 清理**：移除已弃用的 `migration-legacy` 包（该包 README 中有日落计划）。
+- **桌面端**：`apps/lmcode-desktop` 已在 monorepo 中，正在开发。
+- **生态**：覆盖更多模型服务，扩充插件和内置 Skills。
 
 ## 本地开发
 
