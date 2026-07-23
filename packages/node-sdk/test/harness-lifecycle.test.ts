@@ -64,6 +64,88 @@ describe('LmcodeHarness lifecycle', () => {
     await harness.close();
   });
 
+  it('rejects duplicate creates while the same id is pending or active', async () => {
+    const { harness, rpc, root } = await createHarness();
+    const summary = sessionSummary(root, 'ses_duplicate_create');
+    const createResult = deferred<SessionSummary>();
+    const createSession = vi.spyOn(rpc, 'createSession').mockImplementation(
+      () => createResult.promise,
+    );
+    vi.spyOn(rpc, 'extractMemoriesOnExit').mockResolvedValue(undefined);
+    vi.spyOn(rpc, 'closeSession').mockResolvedValue(undefined);
+
+    const creating = harness.createSession({ id: summary.id, workDir: summary.workDir });
+    await expect(
+      harness.createSession({ id: summary.id, workDir: summary.workDir }),
+    ).rejects.toMatchObject({ code: 'session.already_exists' });
+    expect(createSession).toHaveBeenCalledTimes(1);
+
+    createResult.resolve(summary);
+    const session = await creating;
+    await expect(
+      harness.createSession({ id: summary.id, workDir: summary.workDir }),
+    ).rejects.toMatchObject({ code: 'session.already_exists' });
+    expect(createSession).toHaveBeenCalledTimes(1);
+
+    await session.close({ extractMemories: false });
+    await harness.close();
+  });
+
+  it('waits for a matching pending start before closeSession returns', async () => {
+    const { harness, rpc, root } = await createHarness();
+    const summary = sessionSummary(root, 'ses_close_pending_by_id');
+    const createResult = deferred<SessionSummary>();
+    vi.spyOn(rpc, 'createSession').mockImplementation(() => createResult.promise);
+    vi.spyOn(rpc, 'extractMemoriesOnExit').mockResolvedValue(undefined);
+    const closeSession = vi.spyOn(rpc, 'closeSession').mockResolvedValue(undefined);
+
+    const creating = harness.createSession({ id: summary.id, workDir: summary.workDir });
+    const closing = harness.closeSession(summary.id);
+    let closeSettled = false;
+    void closing.finally(() => {
+      closeSettled = true;
+    });
+    await Promise.resolve();
+    expect(closeSettled).toBe(false);
+
+    createResult.resolve(summary);
+    const session = await creating;
+    await closing;
+
+    expect(closeSession).toHaveBeenCalledWith({ sessionId: summary.id });
+    expect(harness.getSession(summary.id)).toBeUndefined();
+    expect(() => session.getResumeState()).toThrowError(
+      expect.objectContaining({ code: 'session.closed' }),
+    );
+    await harness.close();
+  });
+
+  it('closes an active SDK handle before deleting its persisted session', async () => {
+    const { harness, rpc, root } = await createHarness();
+    const summary = sessionSummary(root, 'ses_delete_active');
+    vi.spyOn(rpc, 'createSession').mockResolvedValue(summary);
+    const extractMemoriesOnExit = vi.spyOn(rpc, 'extractMemoriesOnExit').mockResolvedValue(
+      undefined,
+    );
+    const closeSession = vi.spyOn(rpc, 'closeSession').mockResolvedValue(undefined);
+    const deleteSession = vi.spyOn(rpc, 'deleteSession').mockResolvedValue(undefined);
+    const session = await harness.createSession({ id: summary.id, workDir: summary.workDir });
+
+    await harness.deleteSession(summary.id);
+
+    expect(extractMemoriesOnExit).not.toHaveBeenCalled();
+    expect(closeSession).toHaveBeenCalledWith({ sessionId: summary.id });
+    expect(deleteSession).toHaveBeenCalledWith({ sessionId: summary.id });
+    expect(closeSession.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteSession.mock.invocationCallOrder[0]!,
+    );
+    expect(harness.getSession(summary.id)).toBeUndefined();
+    expect(() => session.getResumeState()).toThrowError(
+      expect.objectContaining({ code: 'session.closed' }),
+    );
+    await harness.close();
+  });
+
   it('rejects new session starts after close begins', async () => {
     const { harness } = await createHarness();
     await harness.close();

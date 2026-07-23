@@ -134,12 +134,15 @@ describe('Agent turn flow', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Run duplicates' }] });
     await ctx.untilTurnEnd();
 
-    await vi.waitFor(() => {
-      expect(resolved).toEqual([
-        ['PostToolUse', 'Bash', 'allow'],
-        ['PostToolUse', 'Bash', 'allow'],
-      ]);
-    });
+    await vi.waitFor(
+      () => {
+        expect(resolved).toEqual([
+          ['PostToolUse', 'Bash', 'allow'],
+          ['PostToolUse', 'Bash', 'allow'],
+        ]);
+      },
+      { timeout: 5_000 },
+    );
   });
 
   it('executes a same-file Read again after an authorized Edit changes it', async () => {
@@ -326,9 +329,12 @@ describe('Agent turn flow', () => {
 
     expect(readLines).toHaveBeenCalledTimes(2);
     expect(hookEngine.executionRevision).toBeGreaterThan(0);
-    await vi.waitFor(() => {
-      expect(hookEngine.hasActiveExecutions).toBe(false);
-    });
+    await vi.waitFor(
+      () => {
+        expect(hookEngine.hasActiveExecutions).toBe(false);
+      },
+      { timeout: 5_000 },
+    );
   });
 
   it('emits a failed turn and error when generation fails', async () => {

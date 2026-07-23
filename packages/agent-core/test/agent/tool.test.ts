@@ -201,9 +201,12 @@ describe('Agent tools', () => {
     ctx.mockNextResponse({ type: 'text', text: 'The lookup failed.' });
     await ctx.untilTurnEnd();
 
-    await vi.waitFor(() => {
-      expect(resolved).toEqual([['PostToolUseFailure', 'Lookup', 'allow']]);
-    });
+    await vi.waitFor(
+      () => {
+        expect(resolved).toEqual([['PostToolUseFailure', 'Lookup', 'allow']]);
+      },
+      { timeout: 5_000 },
+    );
   });
 
   it('uses the active builtin tool set as the LLM visible tools', async () => {

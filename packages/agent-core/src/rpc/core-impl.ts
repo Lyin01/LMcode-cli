@@ -187,6 +187,9 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
     const workDir = requiredWorkDir('createSession', options.workDir);
     const config = this.reloadProviderManager();
     const id = options.id ?? createSessionId();
+    if (this.sessions.has(id)) {
+      throw new LmcodeError(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${id}" already exists`);
+    }
     const thinkingLevel = resolveThinkingLevel(options.thinking, config);
     const permissionMode = options.permission ?? config.defaultPermissionMode;
     const baseMcpConfig = await resolveSessionMcpConfig({

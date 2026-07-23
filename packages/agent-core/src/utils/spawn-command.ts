@@ -15,10 +15,16 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { lock } from 'proper-lockfile';
 
 const KILL_GRACE_MS = 100;
 const PROCESS_TERMINATION_TIMEOUT_MS = 5_000;
+const WINDOWS_TASKKILL_TIMEOUT_MS = 1_500;
+const WINDOWS_CHILD_CLOSE_TIMEOUT_MS = 250;
+const WINDOWS_TASKKILL_LOCK_TARGET = join(tmpdir(), 'lmcode-taskkill');
 
 /**
  * Map a Jian `Environment.osKind` ('Windows' | 'Linux' | 'macOS' | raw
@@ -69,7 +75,7 @@ export async function terminateProcessTree(
   if (platform === 'win32') {
     const killedTree = await runTaskkill(pid);
     if (!killedTree && !hasExited(child)) killDirectly(child);
-    await waitForChildClose(child);
+    await waitForChildClose(child, WINDOWS_CHILD_CLOSE_TIMEOUT_MS);
     return;
   }
 
@@ -79,7 +85,37 @@ export async function terminateProcessTree(
   await waitForChildClose(child);
 }
 
-function runTaskkill(pid: number): Promise<boolean> {
+async function runTaskkill(pid: number): Promise<boolean> {
+  let release: (() => Promise<void>) | undefined;
+  try {
+    // Concurrent taskkill.exe processes can deadlock each other on Windows.
+    // Serialize them across LMcode worker processes; if the lock itself is
+    // unavailable, degrade to the direct-child fallback instead of creating
+    // an unbounded process storm during mass cancellation.
+    release = await lock(WINDOWS_TASKKILL_LOCK_TARGET, {
+      realpath: false,
+      stale: 2_000,
+      update: 1_000,
+      retries: {
+        retries: 20,
+        factor: 1,
+        minTimeout: 10,
+        maxTimeout: 10,
+        randomize: true,
+      },
+    });
+  } catch {
+    return false;
+  }
+
+  try {
+    return await runTaskkillUnlocked(pid);
+  } finally {
+    await release().catch(() => {});
+  }
+}
+
+function runTaskkillUnlocked(pid: number): Promise<boolean> {
   return new Promise((resolve) => {
     let killer: ChildProcess;
     try {
@@ -109,7 +145,7 @@ function runTaskkill(pid: number): Promise<boolean> {
     timeout = setTimeout(() => {
       killDirectly(killer);
       finish(false);
-    }, PROCESS_TERMINATION_TIMEOUT_MS);
+    }, WINDOWS_TASKKILL_TIMEOUT_MS);
     timeout.unref();
   });
 }
@@ -134,7 +170,10 @@ function killDirectly(child: ChildProcess): void {
   }
 }
 
-async function waitForChildClose(child: ChildProcess): Promise<void> {
+async function waitForChildClose(
+  child: ChildProcess,
+  timeoutMs = PROCESS_TERMINATION_TIMEOUT_MS,
+): Promise<void> {
   if (hasExited(child)) return;
   let done!: () => void;
   const closePromise = new Promise<void>((resolve) => {
@@ -146,7 +185,7 @@ async function waitForChildClose(child: ChildProcess): Promise<void> {
   });
   let timeout: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<void>((resolve) => {
-    timeout = setTimeout(resolve, PROCESS_TERMINATION_TIMEOUT_MS);
+    timeout = setTimeout(resolve, timeoutMs);
     timeout.unref();
   });
   try {

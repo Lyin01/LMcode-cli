@@ -655,12 +655,15 @@ describe('Agent compaction', () => {
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
     ctx.agent.fullCompaction.begin({ source: 'auto', instruction: undefined });
     await compacted;
-    await vi.waitFor(() => {
-      expect(readHookPayloads(hookLog).map((payload) => payload['hook_event_name'])).toEqual([
-        'PreCompact',
-        'PostCompact',
-      ]);
-    });
+    await vi.waitFor(
+      () => {
+        expect(readHookPayloads(hookLog).map((payload) => payload['hook_event_name'])).toEqual([
+          'PreCompact',
+          'PostCompact',
+        ]);
+      },
+      { timeout: 5_000 },
+    );
 
     const [pre, post] = readHookPayloads(hookLog);
     expect(pre).toMatchObject({

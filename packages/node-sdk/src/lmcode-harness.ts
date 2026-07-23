@@ -38,7 +38,7 @@ export class LmcodeHarness {
   private readonly uiMode: string;
   private readonly activeSessions = new Map<string, Session>();
   private readonly pendingSessionStarts = new Set<Promise<Session>>();
-  private readonly pendingResumes = new Map<string, Promise<Session>>();
+  private readonly pendingSessionsById = new Map<string, Promise<Session>>();
   private readonly rpc: SDKRpcClient;
   private closeRequested = false;
   private closing: Promise<void> | undefined;
@@ -87,7 +87,8 @@ export class LmcodeHarness {
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
     this.assertOpen();
-    return this.trackSessionStart(this.createSessionInternal(options));
+    if (options.id !== undefined) this.assertSessionStartAvailable(options.id);
+    return this.trackSessionStart(this.createSessionInternal(options), options.id);
   }
 
   private async createSessionInternal(options: CreateSessionOptions): Promise<Session> {
@@ -118,16 +119,10 @@ export class LmcodeHarness {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
     if (active !== undefined) return Promise.resolve(active);
-    const pending = this.pendingResumes.get(id);
+    const pending = this.pendingSessionsById.get(id);
     if (pending !== undefined) return pending;
 
-    const resuming = this.trackSessionStart(this.resumeSessionInternal(id));
-    this.pendingResumes.set(id, resuming);
-    void resuming.then(
-      () => this.deletePendingResume(id, resuming),
-      () => this.deletePendingResume(id, resuming),
-    );
-    return resuming;
+    return this.trackSessionStart(this.resumeSessionInternal(id), id);
   }
 
   private async resumeSessionInternal(id: string): Promise<Session> {
@@ -150,7 +145,8 @@ export class LmcodeHarness {
 
   async forkSession(input: ForkSessionInput): Promise<Session> {
     this.assertOpen();
-    return this.trackSessionStart(this.forkSessionInternal(input));
+    if (input.forkId !== undefined) this.assertSessionStartAvailable(input.forkId);
+    return this.trackSessionStart(this.forkSessionInternal(input), input.forkId);
   }
 
   private async forkSessionInternal(input: ForkSessionInput): Promise<Session> {
@@ -181,12 +177,16 @@ export class LmcodeHarness {
   }
 
   async closeSession(id: string): Promise<void> {
-    await this.activeSessions.get(id)?.close();
+    const normalized = normalizeSessionId(id);
+    await this.pendingSessionsById.get(normalized)?.catch(() => undefined);
+    await this.activeSessions.get(normalized)?.close();
   }
 
   async deleteSession(id: string): Promise<void> {
-    await this.rpc.deleteSession({ sessionId: id });
-    this.activeSessions.delete(id);
+    const normalized = normalizeSessionId(id);
+    await this.pendingSessionsById.get(normalized)?.catch(() => undefined);
+    await this.activeSessions.get(normalized)?.close({ extractMemories: false });
+    await this.rpc.deleteSession({ sessionId: normalized });
   }
 
   async renameSession(input: RenameSessionInput): Promise<void> {
@@ -250,18 +250,26 @@ export class LmcodeHarness {
     }
   }
 
-  private trackSessionStart(start: Promise<Session>): Promise<Session> {
+  private trackSessionStart(start: Promise<Session>, id?: string): Promise<Session> {
     this.pendingSessionStarts.add(start);
+    if (id !== undefined) this.pendingSessionsById.set(id, start);
     void start.then(
-      () => this.pendingSessionStarts.delete(start),
-      () => this.pendingSessionStarts.delete(start),
+      () => this.deletePendingSessionStart(start, id),
+      () => this.deletePendingSessionStart(start, id),
     );
     return start;
   }
 
-  private deletePendingResume(id: string, expected: Promise<Session>): void {
-    if (this.pendingResumes.get(id) === expected) {
-      this.pendingResumes.delete(id);
+  private deletePendingSessionStart(start: Promise<Session>, id?: string): void {
+    this.pendingSessionStarts.delete(start);
+    if (id !== undefined && this.pendingSessionsById.get(id) === start) {
+      this.pendingSessionsById.delete(id);
+    }
+  }
+
+  private assertSessionStartAvailable(id: string): void {
+    if (this.activeSessions.has(id) || this.pendingSessionsById.has(id)) {
+      throw new LmcodeError(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${id}" already exists`);
     }
   }
 
