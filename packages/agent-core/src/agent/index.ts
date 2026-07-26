@@ -877,7 +877,7 @@ export class Agent {
     });
   }
 
-  private emitRecordsWriteError(error: unknown, record?: AgentRecord | undefined): void {
+  private emitRecordsWriteError(error: unknown, record?: AgentRecord): void {
     const message = error instanceof Error ? error.message : String(error);
     this.log.error('wire record persist failed', {
       agentHomedir: this.homedir,

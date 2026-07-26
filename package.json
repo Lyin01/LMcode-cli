@@ -9,6 +9,7 @@
     "build:packages": "pnpm -r --filter \"./packages/*\" run build",
     "dev:cli": "pnpm -C apps/lmcode run dev",
     "typecheck": "pnpm run build:packages && pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" --if-present run typecheck",
+    "audit:prod": "pnpm audit --prod",
     "lint": "oxlint --type-aware",
     "lint:fix": "pnpm run lint --fix",
     "lint:pkg": "pnpm -r --filter \"!@lmcode-cli/monorepo\" --filter \"!@liumir/lmcode-desktop\" exec publint && pnpm -r --filter \"./packages/*\" exec attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm internal-resolution-error",
@@ -19,7 +20,7 @@
     "eval:test": "vitest run --config evals/vitest.config.ts",
     "test:coverage": "vitest run --coverage",
     "clean": "pnpm -r run clean",
-    "publish": "pnpm run typecheck && pnpm run lint && pnpm run sherif && pnpm run test && pnpm run build && pnpm run lint:pkg && npm publish ./apps/lmcode",
+    "publish": "pnpm run audit:prod && pnpm run typecheck && pnpm run lint && pnpm run sherif && pnpm run test && pnpm run build && pnpm run lint:pkg && npm publish ./apps/lmcode",
     "prepare": "node scripts/prepare.mjs"
   },
   "devDependencies": {

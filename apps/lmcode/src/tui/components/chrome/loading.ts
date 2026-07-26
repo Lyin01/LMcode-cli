@@ -78,6 +78,7 @@ function getTerminalSize() {
 
 function visualWidth(s: string) {
   let w = 0
+  // oxlint-disable-next-line no-control-regex -- ESC is required to ignore ANSI SGR sequences.
   for (const ch of s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')) {
     w += /[一-鿿　-〿＀-￯]/.test(ch) ? 2 : 1
   }

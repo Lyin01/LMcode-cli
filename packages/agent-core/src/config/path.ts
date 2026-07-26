@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'pathe';
 
-export function resolveLmcodeHome(homeDir?: string | undefined): string {
+export function resolveLmcodeHome(homeDir?: string): string {
   return homeDir ?? process.env['LMCODE_HOME'] ?? join(homedir(), '.lmcode');
 }
 

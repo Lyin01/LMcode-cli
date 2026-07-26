@@ -31,6 +31,7 @@ function maskInputLine(raw: string): string {
 
   // Protect ANSI escape sequences (reverse-video cursor, IME marker, etc.)
   // while masking every other visible character.
+  // oxlint-disable-next-line no-control-regex -- ESC and BEL delimit the protected terminal sequences.
   const parts = content.split(/(\u001B(?:\[[0-9;]*m|_pi:c\u0007))/);
   const maskedContent = parts
     .map((part, index) => {

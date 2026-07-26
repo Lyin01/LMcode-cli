@@ -217,7 +217,7 @@ export function extractKeywords(text: string): string[] {
     // approximate word-level matching without a segmenter, so memos sharing a
     // real term (e.g. "缓存") outrank ones sharing only incidental characters.
     if (/[一-鿿㐀-䶿]/.test(part)) {
-      const chars = [...part];
+      const chars = Array.from(part);
       for (const ch of chars) {
         if (ch.length > 0 && !STOP_WORDS.has(ch)) {
           tokens.push(ch);

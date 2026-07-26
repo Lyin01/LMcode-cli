@@ -207,6 +207,8 @@ export function resolveChromiumExecutable(): string | undefined {
 
 export function cleanStack(stack: string | undefined, filepath: string): string {
   if (!stack) return '';
+  const basename = filepath.split(/[/\\]/).pop() || filepath;
+  const pathVariants = stackPathVariants(filepath);
   const lines = stack.split('\n');
   const cleanedLines: string[] = [];
 
@@ -221,6 +223,9 @@ export function cleanStack(stack: string | undefined, filepath: string): string 
     }
     // Remove absolute paths and file:// wrappers for cleaner, token-efficient output
     let cleaned = line;
+    for (const pathVariant of pathVariants) {
+      cleaned = cleaned.replaceAll(pathVariant, basename);
+    }
     cleaned = cleaned.replace(/file:\/\/\/[A-Za-z]:\/[^)]+\//g, '');
     cleaned = cleaned.replace(/[A-Za-z]:\\[^)]+\\/g, '');
     cleanedLines.push(cleaned);
@@ -228,11 +233,35 @@ export function cleanStack(stack: string | undefined, filepath: string): string 
   return cleanedLines.join('\n');
 }
 
+function stackPathVariants(filepath: string): string[] {
+  const normalized = filepath.replaceAll('\\', '/');
+  const encoded = normalized
+    .split('/')
+    .map((segment) => (/^[A-Za-z]:$/u.test(segment) ? segment : encodeURIComponent(segment)))
+    .join('/');
+  const variants = new Set([filepath, normalized]);
+
+  if (/^[A-Za-z]:\//u.test(normalized)) {
+    variants.add(`file:///${normalized}`);
+    variants.add(`file:///${encoded}`);
+  } else if (normalized.startsWith('//')) {
+    variants.add(`file:${normalized}`);
+    variants.add(`file:${encoded}`);
+  } else if (normalized.startsWith('/')) {
+    variants.add(`file://${normalized}`);
+    variants.add(`file://${encoded}`);
+  }
+
+  return [...variants]
+    .filter((variant) => variant.length > 0)
+    .sort((a, b) => b.length - a.length);
+}
+
 export function extractLineNumber(stack: string | undefined, filepath: string): number | null {
   if (!stack) return null;
   const basename = filepath.split(/[/\\]/).pop();
   if (!basename) return null;
-  const escaped = basename.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const escaped = basename.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
   const regex = new RegExp(`${escaped}:(\\d+)`);
   const match = stack.match(regex);
   if (match && match[1]) {
@@ -441,7 +470,7 @@ async function validateHtmlScriptsWithEvidence(
         const lineOffset = byteOffset !== -1 ? html.slice(0, byteOffset).split('\n').length - 1 : 0;
 
         const basename = filepath.split(/[/\\]/).pop() || '';
-        const escaped = basename.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const escaped = basename.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
         const regexLine = new RegExp(`${escaped}:(\\d+)`, 'g');
 
         let adjustedError = error;

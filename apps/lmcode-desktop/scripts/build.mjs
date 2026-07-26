@@ -1,11 +1,20 @@
-import { resolve, relative, delimiter, join } from 'node:path'
-import { existsSync, rmSync, mkdirSync, cpSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { resolve, relative, delimiter, dirname, join } from 'node:path'
+import { existsSync, rmSync, mkdirSync, cpSync, realpathSync } from 'node:fs'
 import { execSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const OUT_MAIN_DIR = resolve(ROOT, 'out/main')
 const VENDOR_DIR = resolve(ROOT, 'out/vendor')
+const NODE_SDK_PACKAGE_JSON = resolve(ROOT, '../../packages/node-sdk/package.json')
+const nodeSdkRequire = createRequire(NODE_SDK_PACKAGE_JSON)
+const PLAYWRIGHT_CORE_ROOT = realpathSync(
+  dirname(nodeSdkRequire.resolve('playwright-core/package.json')),
+)
+const PLAYWRIGHT_VENDOR_DIR = join(VENDOR_DIR, 'playwright-core')
+const PLAYWRIGHT_VENDOR_ENTRY = join(PLAYWRIGHT_VENDOR_DIR, 'index.mjs')
 
 // Ensure local + workspace-root .bin are on PATH so `vite` resolves whether this
 // script is run via `pnpm run build` or a bare `node scripts/build.mjs`.
@@ -52,8 +61,39 @@ const VENDOR = [
 /** spec -> absolute path of its vendored bundle (filled in by vendorAll). */
 const WORKSPACE_VENDOR = {}
 
+const externalPlaywrightRuntime = {
+  name: 'external-playwright-runtime',
+  setup(buildContext) {
+    // The full `playwright` package remains an optional user-provided override.
+    buildContext.onResolve({ filter: /^playwright$/ }, () => ({
+      path: 'playwright',
+      external: true,
+    }))
+    // `playwright-core` is copied next to the self-contained SDK vendor. Keep
+    // it as a real package so its package-relative JSON and helper files work.
+    buildContext.onResolve({ filter: /^playwright-core$/ }, () => ({
+      path: '../playwright-core/index.mjs',
+      external: true,
+    }))
+  },
+}
+
+async function vendorPlaywrightRuntime() {
+  console.log('> vendor playwright-core')
+  cpSync(PLAYWRIGHT_CORE_ROOT, PLAYWRIGHT_VENDOR_DIR, {
+    recursive: true,
+    dereference: true,
+  })
+  const runtime = await import(pathToFileURL(PLAYWRIGHT_VENDOR_ENTRY).href)
+  if (typeof runtime.chromium?.launch !== 'function') {
+    throw new Error('Vendored playwright-core does not expose chromium.launch')
+  }
+}
+
 async function vendorAll() {
   rmSync(VENDOR_DIR, { recursive: true, force: true })
+  mkdirSync(VENDOR_DIR, { recursive: true })
+  await vendorPlaywrightRuntime()
   for (const v of VENDOR) {
     if (!existsSync(v.distEntry)) {
       throw new Error(
@@ -75,6 +115,7 @@ async function vendorAll() {
       // Force .mjs so Node treats the output as ESM (no package.json in vendor/).
       outExtension: { '.js': '.mjs' },
       external: ['electron'],
+      plugins: v.name === 'node-sdk' ? [externalPlaywrightRuntime] : [],
       // Native addons that are statically required (e.g. memory's onnxruntime /
       // tokenizer) are copied next to the bundle and their paths rewritten.
       loader: { '.node': 'copy' },

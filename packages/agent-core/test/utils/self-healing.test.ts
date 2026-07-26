@@ -348,6 +348,19 @@ describe('self-healing: syntax validation', () => {
       expect(cleaned).not.toContain('node:internal');
       expect(cleaned).not.toContain('C:/Users/18312');
     });
+
+    it('redacts raw and encoded POSIX file paths without losing locations', () => {
+      const filepath = '/home/alice/project/demo page.html';
+      const stack = `Error: broken
+    at draw (file:///home/alice/project/demo%20page.html:7:26)
+    at onload (/home/alice/project/demo page.html:12:24)`;
+
+      const cleaned = cleanStack(stack, filepath);
+
+      expect(cleaned).toContain('at draw (demo page.html:7:26)');
+      expect(cleaned).toContain('at onload (demo page.html:12:24)');
+      expect(cleaned).not.toContain('/home/alice');
+    });
   });
 
   describe('extractLineNumber', () => {

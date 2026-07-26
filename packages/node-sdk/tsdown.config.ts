@@ -27,6 +27,9 @@ export default defineConfig({
   },
   deps: {
     alwaysBundle: [/^@lmcode-./],
-    neverBundle: [],
+    // Playwright reads package-relative runtime data such as browsers.json.
+    // Bundling it into a hashed chunk breaks those lookups, so preserve the
+    // optional package boundary and let each host decide how to ship it.
+    neverBundle: ['playwright', 'playwright-core'],
   },
 });

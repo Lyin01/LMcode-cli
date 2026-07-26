@@ -270,7 +270,7 @@ export class Session {
   async createAgent(
     config: Partial<AgentOptions>,
     profile?: ResolvedAgentProfile,
-    parentAgentId?: string | undefined,
+    parentAgentId?: string,
   ): Promise<{ readonly id: string; readonly agent: Agent }> {
     this.assertOpen();
     await this.skillsReady;
@@ -519,7 +519,7 @@ export class Session {
 
   private permissionOptions(
     parentAgentId: string | null,
-    input?: PermissionManagerOptions | undefined,
+    input?: PermissionManagerOptions,
   ): PermissionManagerOptions {
     if (parentAgentId === null) {
       return {

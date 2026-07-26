@@ -45,7 +45,7 @@ export default function App() {
 
   // Load config on mount
   useEffect(() => {
-    loadConfig()
+    void loadConfig()
   }, [loadConfig])
 
   // Re-hydrate a session's conversation from disk whenever it becomes active
@@ -53,7 +53,7 @@ export default function App() {
   useEffect(() => {
     if (!currentSessionId) return
     let cancelled = false
-    ;(async () => {
+    void (async () => {
       try {
         const raw = await window.lmcodeAPI.getSessionHistory(currentSessionId)
         if (cancelled) return
@@ -79,7 +79,7 @@ export default function App() {
 
   // Load sessions on mount
   useEffect(() => {
-    ;(async () => {
+    void (async () => {
       try {
         const rawSessions = await window.lmcodeAPI.listSessions()
         const mapped: SessionInfo[] = rawSessions.map((s) => ({

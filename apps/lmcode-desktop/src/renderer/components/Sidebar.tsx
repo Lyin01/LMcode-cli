@@ -130,7 +130,7 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault()
-        confirmRename()
+        void confirmRename()
       } else if (e.key === 'Escape') {
         cancelRename()
       }
@@ -230,7 +230,7 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
                     placeholder="对话名称"
                   />
                   <button
-                    onClick={(e) => { e.stopPropagation(); confirmRename() }}
+                    onClick={(e) => { e.stopPropagation(); void confirmRename() }}
                     className="shrink-0 rounded p-0.5 text-[var(--lm-accent-text)]"
                   >
                     <Check size={13} />

@@ -32,7 +32,7 @@ export interface LmcodeAuthSubmitFeedbackInput {
 export class LmcodeAuthFacade {
   constructor(private readonly options: LmcodeAuthFacadeOptions) {}
 
-  async getManagedUsage(_providerName?: string | undefined): Promise<
+  async getManagedUsage(_providerName?: string): Promise<
     | { readonly kind: 'ok'; readonly summary: unknown; readonly limits: readonly unknown[] }
     | { readonly kind: 'error'; readonly message: string }
   > {
@@ -48,7 +48,7 @@ export class LmcodeAuthFacade {
 
   readonly resolveOAuthTokenProvider = (
     _providerName: string,
-    _oauthRef?: OAuthRef | undefined,
+    _oauthRef?: OAuthRef,
   ): BearerTokenProvider | undefined => {
     return undefined;
   };

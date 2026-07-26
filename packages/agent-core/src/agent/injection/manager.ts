@@ -50,7 +50,7 @@ export class InjectionManager {
     if (parts.length === 0) return;
 
     const merged = parts
-      .map((p, i) => {
+      .map((p) => {
         const title = sectionTitle(p.variant);
         return `## ${title}\n\n${p.content}`;
       })

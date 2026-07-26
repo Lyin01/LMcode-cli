@@ -11,6 +11,7 @@
 
 import { writeFileSync } from 'node:fs';
 
+// oxlint-disable-next-line no-control-regex -- ESC is required to remove ANSI SGR sequences.
 const ANSI_ESCAPE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
 function stripAnsi(s) {

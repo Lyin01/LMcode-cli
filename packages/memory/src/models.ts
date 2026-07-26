@@ -69,7 +69,7 @@ export function createMemoryMemo(
     id?: string;
     recordedAt?: number;
     projectDir?: string;
-    tags?: string[] | unknown;
+    tags?: unknown;
   },
 ): MemoryMemo {
   return {
