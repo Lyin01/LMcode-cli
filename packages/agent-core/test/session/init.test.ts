@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'pathe';
-import { fileURLToPath } from 'node:url';
+import { join } from 'pathe';
 
 import { testJian } from '../fixtures/test-jian';
 import type { ProviderConfig } from '@lmcode-cli/ltod';

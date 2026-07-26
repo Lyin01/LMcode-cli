@@ -1,14 +1,11 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { LMCODE_PLUGIN_MARKETPLACE_URL } from '#/constant/app';
 import { loadPluginMarketplace } from '#/utils/plugin-marketplace';
-
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('loadPluginMarketplace', () => {
   it('loads a local marketplace file and resolves relative plugin sources', async () => {

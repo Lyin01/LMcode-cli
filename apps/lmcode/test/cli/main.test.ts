@@ -8,7 +8,7 @@ import { runPrompt } from '#/cli/run-prompt';
 import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
 import { runUpdatePreflight } from '#/cli/update/preflight';
-import { handleMainCommand, main } from '#/app';
+import { handleMainCommand } from '#/app';
 
 const mocks = vi.hoisted(() => {
   const parse = vi.fn();

@@ -10,7 +10,7 @@
     "dev:cli": "pnpm -C apps/lmcode run dev",
     "typecheck": "pnpm run build:packages && pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" --if-present run typecheck",
     "audit:prod": "pnpm audit --prod",
-    "lint": "oxlint --type-aware",
+    "lint": "oxlint --type-aware --deny-warnings",
     "lint:fix": "pnpm run lint --fix",
     "lint:pkg": "pnpm -r --filter \"!@lmcode-cli/monorepo\" --filter \"!@liumir/lmcode-desktop\" exec publint && pnpm -r --filter \"./packages/*\" exec attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm internal-resolution-error",
     "sherif": "sherif",

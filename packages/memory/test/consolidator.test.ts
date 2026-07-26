@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MemoryMemoStore } from '../src/store.js';
-import { createMemoryMemo, type MemoryMemo } from '../src/models.js';
+import type { MemoryMemo } from '../src/models.js';
 import { buildConsolidationPlan, applyConsolidation } from '../src/consolidator.js';
 
 /**

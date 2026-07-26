@@ -226,7 +226,7 @@ export class AgentTestContext {
 
   configureRuntimeModel(
     provider: ProviderConfig,
-    modelCapabilities?: ModelCapability | undefined,
+    modelCapabilities?: ModelCapability,
   ): void {
     if (this.options.providerManager === undefined) {
       this.lmcodeConfig = configWithProvider(this.lmcodeConfig, provider, modelCapabilities);
@@ -1088,11 +1088,6 @@ function capabilityNames(capabilities: ModelCapability | undefined): string[] {
     capabilities.thinking ? 'thinking' : undefined,
     capabilities.tool_use ? 'tool_use' : undefined,
   ].filter((capability): capability is string => capability !== undefined);
-}
-
-function buildSkillPrompt(content: string, args: string | undefined): string {
-  if (args === undefined) return content;
-  return `${content}\n\nUser request:\n${args}`;
 }
 
 function cloneRecord(event: AgentRecord): AgentRecord {

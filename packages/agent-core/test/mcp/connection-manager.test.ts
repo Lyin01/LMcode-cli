@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'pathe';
+import { join } from 'pathe';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import { testJian } from '../fixtures/test-jian';
 import type { ProviderConfig } from '@lmcode-cli/ltod';

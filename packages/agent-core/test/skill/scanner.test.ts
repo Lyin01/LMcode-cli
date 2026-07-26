@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, realpath as nodeRealpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, normalize, relative } from 'pathe';
+import { dirname, join, normalize, relative } from 'pathe';
 
 import { afterEach, describe, expect, it } from 'vitest';
 

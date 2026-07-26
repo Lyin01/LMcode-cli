@@ -31,7 +31,7 @@ type GenerateFn = NonNullable<AgentOptions['generate']>;
 interface CapturedLogEntry {
   readonly level: 'error' | 'warn' | 'info' | 'debug';
   readonly message: string;
-  readonly payload: LogPayload | undefined;
+  readonly payload: LogPayload;
 }
 
 function captureLogs(): { logger: Logger; entries: CapturedLogEntry[] } {
@@ -1887,7 +1887,7 @@ async function waitForFile(path: string): Promise<void> {
 
 function oauthAgentOptions(
   getAccessToken: (options?: { readonly force?: boolean }) => Promise<string>,
-  capabilities?: readonly string[] | undefined,
+  capabilities?: readonly string[],
 ): Pick<TestAgentOptions, 'initialConfig' | 'providerManagerOverrides'> {
   return {
     initialConfig: {

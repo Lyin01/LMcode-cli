@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "overrides": [
+    {
+      "files": ["**/test/**/*.ts"],
+      "rules": {
+        "eslint/no-control-regex": "off",
+        "typescript/unbound-method": "off"
+      }
+    }
+  ]
+}
