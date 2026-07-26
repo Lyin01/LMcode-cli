@@ -60,12 +60,6 @@ function makeAgent(
   return agent;
 }
 
-function runtime(cwd?: string) {
-  return {
-    jian: cwd === undefined ? testJian : testJian.withCwd(cwd),
-  };
-}
-
 function sessionRpc(): SDKSessionRPC {
   return {
     emitEvent: vi.fn(),

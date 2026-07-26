@@ -10,11 +10,7 @@ import type { ContentPart } from '@lmcode-cli/ltod';
 import { CronManager } from '../../../src/agent/cron/manager';
 import type { ClockSources } from '../../../src/tools/cron/clock';
 import type { CronTask } from '../../../src/tools/cron/types';
-import {
-  createAgentStub,
-  createClocks,
-  WALL_ANCHOR,
-} from './harness/stub';
+import { createAgentStub, createClocks } from './harness/stub';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 

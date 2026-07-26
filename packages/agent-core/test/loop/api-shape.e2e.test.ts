@@ -605,7 +605,6 @@ function _typeOnlyChecks(): void {
     | FinalizeToolResultHook
     | TurnResult;
   const _e: _Exports | undefined = undefined;
-  void _e;
 }
 void _typeOnlyChecks;
 

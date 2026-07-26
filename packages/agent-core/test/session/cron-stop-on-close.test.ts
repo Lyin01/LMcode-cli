@@ -8,14 +8,6 @@ import { testJian } from '../fixtures/test-jian';
 import type { SDKSessionRPC } from '../../src/rpc';
 import { Session } from '../../src/session';
 
-const OS_ENV = {
-  osKind: 'Linux',
-  osArch: 'arm64',
-  osVersion: 'test',
-  shellPath: '/bin/bash',
-  shellName: 'bash',
-} as const;
-
 const tempDirs: string[] = [];
 
 afterEach(async () => {

@@ -24,7 +24,7 @@ function mockSubagentHost<T extends Pick<SessionSubagentHost, 'spawn'> & Partial
 interface CapturedLogEntry {
   readonly level: 'error' | 'warn' | 'info' | 'debug';
   readonly message: string;
-  readonly payload: LogPayload | undefined;
+  readonly payload: LogPayload;
 }
 
 function captureLogs(): { logger: Logger; entries: CapturedLogEntry[] } {

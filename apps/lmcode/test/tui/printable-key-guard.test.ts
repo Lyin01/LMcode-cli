@@ -62,8 +62,7 @@ describe('TUI handleInput — printable-key guard', () => {
           }
           if (trimmed.startsWith('//')) continue;
           BARE_PRINTABLE.lastIndex = 0;
-          let m: RegExpExecArray | null;
-          while ((m = BARE_PRINTABLE.exec(line)) !== null) {
+          while (BARE_PRINTABLE.exec(line) !== null) {
             const normalized = file.replaceAll('\\', '/');
             offenders.push({
               file: normalized.slice(normalized.indexOf('src/')),
