@@ -1,4 +1,11 @@
-import type { LmcodeConfig, LmcodeConfigPatch } from '@lmcode-cli/lmcode-sdk'
+import type {
+  BackgroundTaskInfo,
+  CronJobInfo,
+  GoalSnapshotData,
+  LmcodeConfig,
+  LmcodeConfigPatch,
+  SessionStatus,
+} from '@lmcode-cli/lmcode-sdk'
 import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
@@ -7,6 +14,14 @@ import type {
   QuestionResponsePayload,
   SessionEventPayload,
 } from '../../shared/ipc-types'
+import type {
+  GitCommitResult,
+  GitFileDiff,
+  GitRepositorySnapshot,
+} from '../../shared/git-types'
+import type { ProjectTerminalInfo, TerminalOutputPayload } from '../../shared/terminal-types'
+import type { GitWorktreeInfo } from '../../shared/worktree-types'
+import type { TextAttachment } from '../../shared/file-types'
 
 declare global {
 interface SessionSummary {
@@ -54,6 +69,10 @@ interface BackgroundTaskInfo {
   readonly approvalReason?: string
   readonly timedOut?: boolean
   readonly stopReason?: string
+  readonly timeoutMs?: number
+  readonly agentId?: string
+  readonly subagentType?: string
+  readonly failureReason?: string
 }
 
 interface SkillSummary {
@@ -80,7 +99,9 @@ interface LmcodeAPI {
     model?: string
     thinking?: string
     permission?: 'yolo' | 'manual' | 'auto'
-  }) => Promise<SessionSummary | undefined>
+  }) => Promise<SessionSummary>
+
+  selectWorkDirectory: (initialDirectory?: string) => Promise<string | undefined>
 
   resumeSession: (id: string) => Promise<{
     summary: SessionSummary
@@ -98,9 +119,13 @@ interface LmcodeAPI {
   // Chat
   sendMessage: (sessionId: string, text: string) => Promise<void>
 
+  steerMessage: (sessionId: string, text: string) => Promise<void>
+
   cancelResponse: (sessionId: string) => Promise<void>
 
   getSessionHistory: (sessionId: string) => Promise<unknown[]>
+
+  getSessionStatus: (sessionId: string) => Promise<SessionStatus>
 
   // Skills & MCP
   listSkills: (sessionId: string) => Promise<SkillSummary[]>
@@ -118,7 +143,40 @@ interface LmcodeAPI {
 
   setPermission: (sessionId: string, mode: string) => Promise<void>
 
+  createGoal: (
+    sessionId: string,
+    objective: string,
+    replace?: boolean,
+  ) => Promise<GoalSnapshotData>
+
+  getGoal: (sessionId: string) => Promise<{ readonly goal: GoalSnapshotData | null }>
+
+  updateGoalStatus: (
+    sessionId: string,
+    status: 'active' | 'complete' | 'paused' | 'blocked',
+  ) => Promise<GoalSnapshotData | null>
+
+  cancelGoal: (sessionId: string) => Promise<GoalSnapshotData | null>
+
+  setPlanMode: (sessionId: string, enabled: boolean) => Promise<void>
+
+  compactSession: (sessionId: string, instruction?: string) => Promise<void>
+
+  undoHistory: (sessionId: string, count?: number) => Promise<void>
+
   closeSession: (sessionId: string) => Promise<void>
+
+  // Scheduled automations
+  listCronJobs: (sessionId: string) => Promise<readonly CronJobInfo[]>
+
+  createCronJob: (
+    sessionId: string,
+    input: { readonly cron: string; readonly prompt: string; readonly recurring?: boolean | undefined },
+  ) => Promise<CronJobInfo>
+
+  deleteCronJob: (sessionId: string, id: string) => Promise<void>
+
+  listBackgroundTasks: (sessionId: string) => Promise<readonly BackgroundTaskInfo[]>
 
   // Config
   getConfig: () => Promise<LmcodeConfig>
@@ -126,7 +184,36 @@ interface LmcodeAPI {
   setConfig: (patch: LmcodeConfigPatch) => Promise<LmcodeConfig>
 
   // File operations
-  readFileContent: (filePath: string) => Promise<string>
+  getPathForFile: (file: File) => string
+  readFileContent: (filePath: string) => Promise<TextAttachment>
+
+  // Git review
+  getGitSnapshot: (sessionId: string) => Promise<GitRepositorySnapshot>
+
+  getGitFileDiff: (sessionId: string, filePath: string) => Promise<GitFileDiff>
+
+  setGitFileStaged: (sessionId: string, filePath: string, staged: boolean) => Promise<void>
+
+  commitGitChanges: (sessionId: string, message: string) => Promise<GitCommitResult>
+
+  listGitWorktrees: (sessionId: string) => Promise<readonly GitWorktreeInfo[]>
+
+  createWorktreeHandoff: (
+    sessionId: string,
+    branchName: string,
+  ) => Promise<{ readonly worktree: GitWorktreeInfo; readonly session: SessionSummary }>
+
+  handoffToWorktree: (
+    sessionId: string,
+    worktreePath: string,
+  ) => Promise<{ readonly worktree: GitWorktreeInfo; readonly session: SessionSummary }>
+
+  // Project terminal
+  startTerminal: (sessionId: string) => Promise<ProjectTerminalInfo>
+
+  writeTerminal: (sessionId: string, input: string) => Promise<void>
+
+  stopTerminal: (sessionId: string) => Promise<void>
 
   // Version
   getVersion: () => Promise<string>
@@ -143,6 +230,8 @@ interface LmcodeAPI {
 
   onInteractionSettled: (callback: (data: InteractionSettledPayload) => void) => () => void
 
+  onTerminalOutput: (callback: (data: TerminalOutputPayload) => void) => () => void
+
   // Navigation events (from tray menu)
   onNavigate: (callback: (data: { route: string }) => void) => () => void
 
@@ -154,9 +243,9 @@ interface LmcodeAPI {
   deleteMemory: (id: string) => Promise<void>
 
   // Background tasks
-  stopTask: (taskId: string) => Promise<void>
+  stopTask: (sessionId: string, taskId: string) => Promise<void>
 
-  getTaskOutput: (taskId: string) => Promise<string>
+  getTaskOutput: (sessionId: string, taskId: string) => Promise<string>
 
   // Approval/Question responses
   respondApproval: (payload: ApprovalResponsePayload) => Promise<void>

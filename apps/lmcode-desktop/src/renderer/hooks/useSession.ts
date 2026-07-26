@@ -1,28 +1,38 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSessionStore } from '@/stores/session-store'
+import type { QueuedUserMessage } from '@/types'
+
+const EMPTY_QUEUE: readonly QueuedUserMessage[] = []
 
 export function useSession() {
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const isStreaming = useSessionStore((s) => s.isStreaming)
-  const setStreaming = useSessionStore((s) => s.setStreaming)
-  const addMessage = useSessionStore((s) => s.addMessage)
+  const setSessionStreaming = useSessionStore((s) => s.setSessionStreaming)
+  const addMessageToSession = useSessionStore((s) => s.addMessageToSession)
   const selectSession = useSessionStore((s) => s.selectSession)
   const createSessionAction = useSessionStore((s) => s.createSession)
   const clearMessages = useSessionStore((s) => s.clearMessages)
+  const queuedMessages = useSessionStore((s) =>
+    currentSessionId ? s.messageQueue[currentSessionId] ?? EMPTY_QUEUE : EMPTY_QUEUE,
+  )
+  const enqueueMessage = useSessionStore((s) => s.enqueueMessage)
+  const shiftQueuedMessage = useSessionStore((s) => s.shiftQueuedMessage)
+  const drainInFlight = useRef(false)
+  const [, setDrainTick] = useState(0)
 
   const sendMessage = useCallback(
     async (text: string) => {
       if (!currentSessionId || !text.trim() || isStreaming) return
 
       // Add user message
-      addMessage({
+      addMessageToSession(currentSessionId, {
         id: `msg_${Date.now()}`,
         role: 'user',
         content: text.trim(),
         timestamp: Date.now(),
       })
 
-      setStreaming(true)
+      setSessionStreaming(currentSessionId, true)
 
       try {
         await window.lmcodeAPI.sendMessage(currentSessionId, text.trim())
@@ -31,18 +41,17 @@ export function useSession() {
         // the user must see *something* instead of an empty, stuck-looking chat.
         console.error('Failed to send message:', err)
         const msg = err instanceof Error ? err.message : String(err)
-        addMessage({
+        addMessageToSession(currentSessionId, {
           id: `msg_err_${Date.now()}`,
           role: 'system',
           variant: 'error',
           content: `发送失败：${msg}`,
           timestamp: Date.now(),
         })
-        setStreaming(false)
-        useSessionStore.getState().setStreamStatus(null)
+        setSessionStreaming(currentSessionId, false)
       }
     },
-    [currentSessionId, isStreaming, addMessage, setStreaming],
+    [currentSessionId, isStreaming, addMessageToSession, setSessionStreaming],
   )
 
   const cancel = useCallback(async () => {
@@ -52,17 +61,67 @@ export function useSession() {
     } catch (err) {
       console.error('Failed to cancel:', err)
     }
-    setStreaming(false)
-  }, [currentSessionId, setStreaming])
+    setSessionStreaming(currentSessionId, false)
+  }, [currentSessionId, setSessionStreaming])
 
-  const createSession = useCallback(async () => {
-    await createSessionAction()
+  const steerMessage = useCallback(async (text: string) => {
+    const normalized = text.trim()
+    if (!currentSessionId || !isStreaming || !normalized) return
+    addMessageToSession(currentSessionId, {
+      id: `msg_steer_${Date.now()}`,
+      role: 'user',
+      content: normalized,
+      timestamp: Date.now(),
+    })
+    try {
+      await window.lmcodeAPI.steerMessage(currentSessionId, normalized)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      addMessageToSession(currentSessionId, {
+        id: `msg_steer_err_${Date.now()}`,
+        role: 'system',
+        variant: 'error',
+        content: `转向失败：${message}`,
+        timestamp: Date.now(),
+      })
+    }
+  }, [addMessageToSession, currentSessionId, isStreaming])
+
+  const queueMessage = useCallback((text: string) => {
+    const normalized = text.trim()
+    if (!currentSessionId || !normalized) return
+    enqueueMessage(currentSessionId, normalized)
+  }, [currentSessionId, enqueueMessage])
+
+  useEffect(() => {
+    if (
+      !currentSessionId ||
+      isStreaming ||
+      queuedMessages.length === 0 ||
+      drainInFlight.current
+    ) return
+
+    let next = shiftQueuedMessage(currentSessionId)
+    while (next && !next.text.trim()) next = shiftQueuedMessage(currentSessionId)
+    if (!next) return
+
+    drainInFlight.current = true
+    void sendMessage(next.text).finally(() => {
+      drainInFlight.current = false
+      setDrainTick((value) => value + 1)
+    })
+  }, [currentSessionId, isStreaming, queuedMessages, sendMessage, shiftQueuedMessage])
+
+  const createSession = useCallback(async (workDir?: string) => {
+    await createSessionAction(workDir)
   }, [createSessionAction])
 
   return {
     currentSessionId,
     isStreaming,
     sendMessage,
+    steerMessage,
+    queueMessage,
     cancel,
     selectSession,
     createSession,

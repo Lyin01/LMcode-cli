@@ -34,12 +34,18 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
   const setThinkingPreference = useSessionStore((s) => s.setThinkingPreference)
 
   const [permission, setPermission] = useState('manual')
+  const [version, setVersion] = useState('')
   const [saving, setSaving] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setPermission(sessionPermission)
   }, [sessionPermission])
+
+  useEffect(() => {
+    if (!open || version) return
+    void window.lmcodeAPI.getVersion().then(setVersion).catch(() => {})
+  }, [open, version])
 
   useEffect(() => {
     if (!open) return
@@ -166,7 +172,9 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
         </div>
 
         <div className="border-t border-[var(--lm-border)] px-4 py-3">
-          <p className="text-[11px] text-[var(--lm-text-muted)]">LMCODE Desktop v0.1.0</p>
+          <p className="text-[11px] text-[var(--lm-text-muted)]">
+            LMCODE Desktop{version ? ` v${version}` : ''}
+          </p>
         </div>
       </div>
     </div>

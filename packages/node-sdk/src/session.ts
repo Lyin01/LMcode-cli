@@ -10,6 +10,8 @@ import type { SDKRpcClient } from '#/rpc';
 import type {
   BackgroundTaskInfo,
   CompactOptions,
+  CreateCronJobInput,
+  CronJobInfo,
   GetGoalResult,
   GoalSnapshotData,
   McpServerInfo,
@@ -217,6 +219,26 @@ export class Session {
   async listSkills(): Promise<readonly SkillSummary[]> {
     this.ensureOpen();
     return this.rpc.listSkills({ sessionId: this.id });
+  }
+
+  async createCronJob(input: CreateCronJobInput): Promise<CronJobInfo> {
+    this.ensureOpen();
+    return this.rpc.createCronJob({ sessionId: this.id, ...input });
+  }
+
+  async listCronJobs(): Promise<readonly CronJobInfo[]> {
+    this.ensureOpen();
+    return this.rpc.listCronJobs({ sessionId: this.id });
+  }
+
+  async deleteCronJob(id: string): Promise<void> {
+    this.ensureOpen();
+    const normalizedId = normalizeRequiredString(
+      id,
+      'Cron job id cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    await this.rpc.deleteCronJob({ sessionId: this.id, id: normalizedId });
   }
 
   /**

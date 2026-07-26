@@ -59,6 +59,7 @@ export interface ResumeSessionPayload {
 export interface ForkSessionPayload {
   readonly sessionId: string;
   readonly id?: string;
+  readonly workDir?: string;
   readonly title?: string;
   readonly metadata?: JsonObject;
 }
@@ -195,6 +196,28 @@ export interface GetBackgroundPayload {
   readonly activeOnly?: boolean;
   /** Caps the number of tasks returned. When omitted, returns all matching tasks. */
   readonly limit?: number;
+}
+
+export interface CreateCronPayload {
+  readonly cron: string;
+  readonly prompt: string;
+  readonly recurring?: boolean | undefined;
+}
+
+export interface DeleteCronPayload {
+  readonly id: string;
+}
+
+export interface CronJobInfo {
+  readonly id: string;
+  readonly cron: string;
+  readonly humanSchedule: string;
+  readonly prompt: string;
+  readonly recurring: boolean;
+  readonly createdAt: number;
+  readonly lastFiredAt?: number | undefined;
+  readonly nextFireAt: number | null;
+  readonly stale: boolean;
 }
 export interface SkillSummary {
   readonly name: string;
@@ -392,6 +415,9 @@ export interface SessionAPI extends AgentAPIWithId {
   stopMcpServer: (payload: StopMcpServerPayload) => void;
   removeMcpServer: (payload: RemoveMcpServerPayload) => void;
   generateAgentsMd: (payload: EmptyPayload) => void;
+  createCron: (payload: CreateCronPayload) => CronJobInfo;
+  listCron: (payload: EmptyPayload) => readonly CronJobInfo[];
+  deleteCron: (payload: DeleteCronPayload) => void;
 }
 
 type SessionAPIWithId = WithSessionId<SessionAPI>;

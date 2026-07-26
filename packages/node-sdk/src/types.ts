@@ -19,6 +19,7 @@ export type {
   BackgroundTaskKind,
   BackgroundTaskStatus,
   ContextMessage,
+  CronJobInfo,
   ExportSessionManifest,
   LmcodeConfig,
   LmcodeConfigPatch,
@@ -90,6 +91,7 @@ export interface ResumeSessionInput {
 export interface ForkSessionInput {
   readonly id: string;
   readonly forkId?: string;
+  readonly workDir?: string;
   readonly title?: string;
   readonly metadata?: JsonObject;
 }
@@ -123,6 +125,12 @@ export interface GetConfigOptions {
 
 export interface CompactOptions {
   readonly instruction?: string | undefined;
+}
+
+export interface CreateCronJobInput {
+  readonly cron: string;
+  readonly prompt: string;
+  readonly recurring?: boolean | undefined;
 }
 
 export interface PlanInfo {

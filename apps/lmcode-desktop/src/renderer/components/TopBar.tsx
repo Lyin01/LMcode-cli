@@ -1,13 +1,30 @@
-import { PanelLeftOpen, ListTodo, Sun, Moon, SlidersHorizontal } from 'lucide-react'
+import {
+  GitCompareArrows,
+  GitFork,
+  Bot,
+  CalendarClock,
+  ListTodo,
+  Moon,
+  PanelLeftOpen,
+  SlidersHorizontal,
+  SquareTerminal,
+  Sun,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
+import { useSubagentStore } from '@/stores/subagent-store'
 import { resolveTheme, type ThemePref } from '@/lib/theme'
 
 interface TopBarProps {
   sidebarOpen: boolean
   onToggleSidebar: () => void
   onOpenTasks: () => void
+  onOpenGitReview: () => void
+  onOpenTerminal: () => void
+  onOpenWorktrees: () => void
+  onOpenSubagents: () => void
+  onOpenAutomations: () => void
   onOpenSettings: () => void
   theme: ThemePref
   onToggleTheme: () => void
@@ -17,6 +34,11 @@ export function TopBar({
   sidebarOpen,
   onToggleSidebar,
   onOpenTasks,
+  onOpenGitReview,
+  onOpenTerminal,
+  onOpenWorktrees,
+  onOpenSubagents,
+  onOpenAutomations,
   onOpenSettings,
   theme,
   onToggleTheme,
@@ -30,6 +52,9 @@ export function TopBar({
   const tasks = useTaskStore((s) => s.tasks)
   const runningCount = tasks.filter(
     (t) => t.status === 'running' || t.status === 'awaiting_approval',
+  ).length
+  const runningAgents = useSubagentStore((state) => state.agents).filter(
+    (agent) => agent.sessionId === currentSessionId && agent.status === 'running',
   ).length
 
   const current = sessions.find((s) => s.id === currentSessionId)
@@ -97,6 +122,56 @@ export function TopBar({
       </span>
 
       <div className="mx-0.5 h-5 w-px bg-[var(--lm-border)]" />
+
+      <button
+        onClick={onOpenGitReview}
+        disabled={!currentSessionId}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+        title="Git 变更审阅"
+      >
+        <GitCompareArrows size={18} />
+      </button>
+
+      <button
+        onClick={onOpenTerminal}
+        disabled={!currentSessionId}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+        title="项目终端"
+      >
+        <SquareTerminal size={18} />
+      </button>
+
+      <button
+        onClick={onOpenWorktrees}
+        disabled={!currentSessionId}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+        title="Git 工作树"
+      >
+        <GitFork size={18} />
+      </button>
+
+      <button
+        onClick={onOpenSubagents}
+        disabled={!currentSessionId}
+        className="relative flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+        title="子 Agent"
+      >
+        <Bot size={18} />
+        {runningAgents > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--lm-accent)] px-1 text-[10px] font-semibold text-[var(--lm-accent-fg)]">
+            {runningAgents}
+          </span>
+        )}
+      </button>
+
+      <button
+        onClick={onOpenAutomations}
+        disabled={!currentSessionId}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+        title="自动化"
+      >
+        <CalendarClock size={18} />
+      </button>
 
       <button
         onClick={onOpenTasks}

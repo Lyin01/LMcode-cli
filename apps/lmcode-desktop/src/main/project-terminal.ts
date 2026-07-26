@@ -1,0 +1,139 @@
+import { spawn } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import * as path from 'node:path'
+import type {
+  ProjectTerminalInfo,
+  TerminalOutputPayload,
+  TerminalOutputStream,
+} from '../shared/terminal-types.js'
+
+const TERMINAL_INPUT_LIMIT_CHARS = 65_536
+const TERMINAL_STOP_TIMEOUT_MS = 1_500
+
+interface ShellCommand {
+  readonly command: string
+  readonly args: readonly string[]
+  readonly label: string
+}
+
+interface ProjectTerminalEntry {
+  readonly sessionId: string
+  readonly workDir: string
+  readonly shell: string
+  readonly child: ChildProcessWithoutNullStreams
+  readonly exited: Promise<void>
+}
+
+function resolveShell(): ShellCommand {
+  const configured = process.env['LMCODE_TERMINAL_SHELL']?.trim()
+  if (configured) {
+    return { command: configured, args: [], label: path.basename(configured) }
+  }
+  if (process.platform === 'win32') {
+    return {
+      command: 'powershell.exe',
+      args: ['-NoLogo', '-NoProfile', '-Command', '-'],
+      label: 'PowerShell',
+    }
+  }
+  const command = process.env['SHELL']?.trim() || '/bin/sh'
+  return { command, args: [], label: path.basename(command) }
+}
+
+function waitTimeout(milliseconds: number): {
+  readonly promise: Promise<void>
+  readonly cancel: () => void
+} {
+  const deferred = Promise.withResolvers<void>()
+  const timer: NodeJS.Timeout = setTimeout(deferred.resolve, milliseconds)
+  return {
+    promise: deferred.promise,
+    cancel: () => clearTimeout(timer),
+  }
+}
+
+export class ProjectTerminalManager {
+  private readonly terminals = new Map<string, ProjectTerminalEntry>()
+
+  constructor(
+    private readonly emitOutput: (payload: TerminalOutputPayload) => void,
+  ) {}
+
+  start(sessionId: string, workDir: string): ProjectTerminalInfo {
+    const existing = this.terminals.get(sessionId)
+    if (existing && existing.child.exitCode === null) return this.toInfo(existing, true)
+
+    const shell = resolveShell()
+    const child = spawn(shell.command, [...shell.args], {
+      cwd: workDir,
+      env: {
+        ...process.env,
+        NO_COLOR: process.env['NO_COLOR'] ?? '1',
+        TERM: process.env['TERM'] ?? 'dumb',
+      },
+      shell: false,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+    const exit = Promise.withResolvers<void>()
+    const entry: ProjectTerminalEntry = {
+      sessionId,
+      workDir,
+      shell: shell.label,
+      child,
+      exited: exit.promise,
+    }
+    this.terminals.set(sessionId, entry)
+
+    const forward = (stream: TerminalOutputStream, chunk: Buffer | string): void => {
+      this.emitOutput({ sessionId, stream, data: chunk.toString() })
+    }
+    child.stdout.on('data', (chunk: Buffer | string) => forward('stdout', chunk))
+    child.stderr.on('data', (chunk: Buffer | string) => forward('stderr', chunk))
+    child.once('error', (error) => {
+      forward('system', `\n[终端启动失败：${error.message}]\n`)
+    })
+    child.once('close', (code) => {
+      if (this.terminals.get(sessionId) === entry) this.terminals.delete(sessionId)
+      forward('system', `\n[终端已退出，代码 ${code ?? 'unknown'}]\n`)
+      exit.resolve()
+    })
+
+    forward('system', `[${shell.label} · ${workDir}]\n`)
+    return this.toInfo(entry, true)
+  }
+
+  write(sessionId: string, input: string): void {
+    const entry = this.terminals.get(sessionId)
+    if (!entry || entry.child.exitCode !== null) throw new Error('当前项目终端未运行')
+    if (input.length > TERMINAL_INPUT_LIMIT_CHARS) throw new Error('终端输入过长')
+    if (input.includes('\0')) throw new Error('终端输入包含无效字符')
+    entry.child.stdin.write(input)
+  }
+
+  async stop(sessionId: string): Promise<void> {
+    const entry = this.terminals.get(sessionId)
+    if (!entry) return
+    entry.child.stdin.end()
+    entry.child.kill()
+
+    const timeout = waitTimeout(TERMINAL_STOP_TIMEOUT_MS)
+    await Promise.race([entry.exited, timeout.promise])
+    timeout.cancel()
+    if (entry.child.exitCode === null) entry.child.kill('SIGKILL')
+  }
+
+  async close(): Promise<void> {
+    await Promise.all([...this.terminals.keys()].map((sessionId) => this.stop(sessionId)))
+    this.terminals.clear()
+  }
+
+  private toInfo(entry: ProjectTerminalEntry, running: boolean): ProjectTerminalInfo {
+    return {
+      sessionId: entry.sessionId,
+      workDir: entry.workDir,
+      shell: entry.shell,
+      running,
+    }
+  }
+}

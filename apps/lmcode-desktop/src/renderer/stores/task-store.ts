@@ -13,6 +13,8 @@ export interface TaskEntry {
   approvalReason?: string
   timedOut?: boolean
   stopReason?: string
+  agentId?: string
+  subagentType?: string
 }
 
 export interface TaskStore {
@@ -40,6 +42,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       approvalReason: info.approvalReason,
       timedOut: info.timedOut,
       stopReason: info.stopReason,
+      agentId: info.agentId,
+      subagentType: info.subagentType,
     }
 
     if (existing) {

@@ -153,6 +153,7 @@ export class LmcodeHarness {
     const summary = await this.rpc.forkSession({
       id: normalizeSessionId(input.id),
       forkId: input.forkId,
+      workDir: input.workDir,
       title: input.title,
       metadata: input.metadata,
     });

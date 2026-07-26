@@ -42,6 +42,8 @@ import type {
   PluginSummary,
   ReloadSummary,
   CompactOptions,
+  CreateCronJobInput,
+  CronJobInfo,
   SessionPlan,
   SessionStats,
   SessionStatus,
@@ -120,6 +122,12 @@ export interface SetGoalBudgetRpcInput extends SessionIdRpcInput {
   readonly unit: 'turns' | 'tokens' | 'milliseconds' | 'seconds' | 'minutes' | 'hours';
 }
 
+export interface CreateCronJobRpcInput extends SessionIdRpcInput, CreateCronJobInput {}
+
+export interface DeleteCronJobRpcInput extends SessionIdRpcInput {
+  readonly id: string;
+}
+
 export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
   readonly name: string;
 }
@@ -192,6 +200,7 @@ export class SDKRpcClient {
     return rpc.forkSession({
       sessionId: input.id,
       id: input.forkId,
+      workDir: input.workDir,
       title: input.title,
       metadata: input.metadata,
     });
@@ -354,6 +363,26 @@ export class SDKRpcClient {
       value: input.value,
       unit: input.unit,
     });
+  }
+
+  async createCronJob(input: CreateCronJobRpcInput): Promise<CronJobInfo> {
+    const rpc = await this.getRpc();
+    return rpc.createCron({
+      sessionId: input.sessionId,
+      cron: input.cron,
+      prompt: input.prompt,
+      recurring: input.recurring,
+    });
+  }
+
+  async listCronJobs(input: SessionIdRpcInput): Promise<readonly CronJobInfo[]> {
+    const rpc = await this.getRpc();
+    return rpc.listCron({ sessionId: input.sessionId });
+  }
+
+  async deleteCronJob(input: DeleteCronJobRpcInput): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.deleteCron({ sessionId: input.sessionId, id: input.id });
   }
 
   async setPlanMode(input: SetSessionPlanModeRpcInput): Promise<void> {

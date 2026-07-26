@@ -61,9 +61,46 @@ max_context_size = 1000
 
 describe('LmcodeHarness.createSession transport link', () => {
 
-  it('emits session_fork with the forked session context', async () => {
+  it('creates, lists, and deletes persisted cron jobs through the Session API', async () => {
     const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
+    const workDir = await makeWorkDir();
+    const harness = new LmcodeHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_cron_transport',
+        workDir,
+      });
+      const created = await session.createCronJob({
+        cron: '*/5 * * * *',
+        prompt: 'Review the current project status',
+        recurring: true,
+      });
+
+      expect(created).toMatchObject({
+        id: expect.stringMatching(/^[0-9a-f]{8}$/),
+        cron: '*/5 * * * *',
+        prompt: 'Review the current project status',
+        recurring: true,
+        stale: false,
+      });
+      expect(created.nextFireAt).toEqual(expect.any(Number));
+      await expect(session.listCronJobs()).resolves.toEqual([created]);
+
+      await session.deleteCronJob(created.id);
+      await expect(session.listCronJobs()).resolves.toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('emits session_fork with the forked session context and target workDir', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeWorkDir();
+    const forkWorkDir = await makeWorkDir();
     const harness = new LmcodeHarness({
       identity: TEST_IDENTITY,
       homeDir,
@@ -77,10 +114,12 @@ describe('LmcodeHarness.createSession transport link', () => {
       const forked = await harness.forkSession({
         id: source.id,
         forkId: 'ses_fork_child',
+        workDir: forkWorkDir,
         title: 'Forked child',
       });
 
       expect(forked.id).toBe('ses_fork_child');
+      expect(forked.workDir).toBe(toPosixPath(forkWorkDir));
     } finally {
       await harness.close();
     }

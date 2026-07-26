@@ -11,12 +11,25 @@ interface ModelEntry {
   provider: string
 }
 
-export function ModelSwitcher() {
+interface ModelSwitcherProps {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
+
+export function ModelSwitcher({ open: controlledOpen, onOpenChange }: ModelSwitcherProps) {
   const model = useSessionStore((s) => s.model)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const config = useConfigStore((s) => s.config)
   const [models, setModels] = useState<ModelEntry[]>([])
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (controlledOpen === undefined) setInternalOpen(next)
+      onOpenChange?.(next)
+    },
+    [controlledOpen, onOpenChange],
+  )
 
   useEffect(() => {
     if (!config) return
@@ -63,7 +76,7 @@ export function ModelSwitcher() {
       }
       setOpen(false)
     },
-    [currentSessionId],
+    [currentSessionId, setOpen],
   )
 
   // Before the first turn the session model is unknown; fall back to the

@@ -57,6 +57,14 @@ function createTray(): void {
       },
     },
     {
+      label: '自动化',
+      click: () => {
+        mainWindow?.show()
+        mainWindow?.focus()
+        mainWindow?.webContents.send('lmcode:navigate', { route: 'automations' })
+      },
+    },
+    {
       label: '设置',
       click: () => {
         mainWindow?.show()
@@ -267,6 +275,7 @@ function buildAppMenu(): Menu {
       label: '文件',
       submenu: [
         { label: '新建对话', accelerator: 'CmdOrCtrl+N', click: () => navigate('new-session') },
+        { label: '自动化', accelerator: 'CmdOrCtrl+Shift+A', click: () => navigate('automations') },
         { label: '设置', accelerator: 'CmdOrCtrl+,', click: () => navigate('settings') },
         { type: 'separator' },
         {
@@ -345,10 +354,10 @@ function createWindow(): void {
     titleBarStyle: 'default',
     icon: join(__dirname, '../../resources/icon.ico'),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       // Keep the renderer fully active while hidden in the tray so streaming
       // responses and event updates are not throttled/paused.
       backgroundThrottling: false,

@@ -22,7 +22,7 @@ echo 完成 ✓
 echo [4/4] 启动 LMCODE...
 echo.
 echo 窗口即将打开...
-start /B npx electron . --no-sandbox
+start /B npx electron .
 
 echo.
 echo LMCODE 已启动！托盘图标在系统栏。

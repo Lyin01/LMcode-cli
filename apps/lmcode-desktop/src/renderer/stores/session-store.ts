@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   Message,
   PendingInteraction,
+  QueuedUserMessage,
   SessionInfo,
   ToolCallInfo,
 } from '@/types'
@@ -28,6 +29,7 @@ import type {
 } from '@lmcode-cli/lmcode-sdk'
 
 let msgCounter = 0
+let queuedMessageCounter = 0
 function nextMsgId(): string {
   msgCounter += 1
   return `msg_${Date.now()}_${msgCounter}`
@@ -46,6 +48,15 @@ interface SessionSlice {
 }
 
 const EMPTY_SLICE: SessionSlice = { messages: [], isStreaming: false, streamStatus: null }
+
+interface BackgroundSessionSlice extends SessionSlice {
+  readonly unread: boolean
+}
+
+const EMPTY_BACKGROUND_SLICE: BackgroundSessionSlice = {
+  ...EMPTY_SLICE,
+  unread: false,
+}
 
 /** Replace the last assistant message in `msgs` with `fn(msg)`, returning a new array. */
 function patchLastAssistant(msgs: Message[], fn: (m: Message) => Message): Message[] {
@@ -280,7 +291,7 @@ export interface SessionStore {
   /** Transient status line shown while streaming (e.g. retry / interrupt notices). */
   streamStatus: string | null
   /** Parked slices for sessions that are not in view but may still be streaming. */
-  bg: Record<string, SessionSlice>
+  bg: Record<string, BackgroundSessionSlice>
 
   model: string
   thinkingLevel: ThinkingEffort
@@ -289,16 +300,20 @@ export interface SessionStore {
   maxContextTokens: number
 
   pendingInteractions: PendingInteraction[]
+  messageQueue: Record<string, QueuedUserMessage[]>
 
   setSessions: (sessions: SessionInfo[]) => void
+  removeDeletedSession: (deletedId: string, remaining: SessionInfo[]) => void
   selectSession: (id: string) => void
-  createSession: () => Promise<void>
+  createSession: (workDir?: string) => Promise<void>
+  adoptSession: (summary: SessionSummary) => void
   addMessage: (msg: Message) => void
+  addMessageToSession: (sessionId: string, msg: Message) => void
   setMessages: (msgs: Message[]) => void
+  setMessagesForSession: (sessionId: string, msgs: Message[]) => void
   updateLastAssistantMessage: (updates: Partial<Message>) => void
   appendToLastMessage: (text: string) => void
-  setStreaming: (val: boolean) => void
-  setStreamStatus: (status: string | null) => void
+  setSessionStreaming: (sessionId: string, val: boolean) => void
   updateSessionStatus: (status: Partial<SessionInfo>) => void
   handleEvent: (sessionId: string, event: Event) => void
   clearMessages: () => void
@@ -312,6 +327,12 @@ export interface SessionStore {
   enqueuePendingInteraction: (interaction: PendingInteraction) => void
   completePendingInteraction: (requestId: string) => void
   discardPendingInteraction: (requestId: string) => void
+
+  enqueueMessage: (sessionId: string, text: string) => string
+  updateQueuedMessage: (sessionId: string, messageId: string, text: string) => void
+  removeQueuedMessage: (sessionId: string, messageId: string) => void
+  moveQueuedMessage: (sessionId: string, messageId: string, direction: -1 | 1) => void
+  shiftQueuedMessage: (sessionId: string) => QueuedUserMessage | undefined
 }
 
 function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): SessionInfo {
@@ -344,8 +365,59 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   maxContextTokens: 128000,
 
   pendingInteractions: [],
+  messageQueue: {},
 
   setSessions: (sessions) => set({ sessions }),
+
+  removeDeletedSession: (deletedId, remaining) =>
+    set((state) => {
+      const bg = { ...state.bg }
+      const messageQueue = { ...state.messageQueue }
+      const pendingInteractions = state.pendingInteractions.filter(
+        (interaction) => interaction.payload.sessionId !== deletedId,
+      )
+      delete bg[deletedId]
+      delete messageQueue[deletedId]
+
+      if (state.currentSessionId !== deletedId) {
+        return { sessions: remaining, bg, messageQueue, pendingInteractions }
+      }
+
+      const next = remaining[0]
+      if (!next) {
+        return {
+          sessions: remaining,
+          bg,
+          messageQueue,
+          pendingInteractions,
+          currentSessionId: null,
+          messages: [],
+          isStreaming: false,
+          streamStatus: null,
+          model: '',
+          permission: 'manual',
+          contextTokens: 0,
+          maxContextTokens: 128000,
+        }
+      }
+
+      const restored = bg[next.id]
+      delete bg[next.id]
+      return {
+        sessions: remaining,
+        bg,
+        messageQueue,
+        pendingInteractions,
+        currentSessionId: next.id,
+        messages: restored?.messages ?? [],
+        isStreaming: restored?.isStreaming ?? false,
+        streamStatus: restored?.streamStatus ?? null,
+        model: next.model ?? '',
+        permission: next.permission,
+        contextTokens: next.contextTokens,
+        maxContextTokens: next.maxContextTokens,
+      }
+    }),
 
   selectSession: (id) => {
     const state = get()
@@ -361,6 +433,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         messages: state.messages,
         isStreaming: state.isStreaming,
         streamStatus: state.streamStatus,
+        unread: false,
       }
     }
     const restored = bg[id]
@@ -380,47 +453,103 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })
   },
 
-  createSession: async () => {
+  createSession: async (requestedWorkDir) => {
     try {
+      let workDir = requestedWorkDir?.trim()
+      if (!workDir) {
+        const current = get().sessions.find((session) => session.id === get().currentSessionId)
+        workDir = await window.lmcodeAPI.selectWorkDirectory(current?.workDir)
+      }
+      if (!workDir) return
+
       const thinkingLevel = get().thinkingLevel
       const summary = await window.lmcodeAPI.createSession({
-        workDir: '',
+        workDir,
         thinking: thinkingLevel,
       })
-      const sid = summary?.id ?? `session_${Date.now()}`
-      const newSession = createNewSession(sid, {
-        title: summary?.title,
-        workDir: summary?.workDir ?? '',
-        thinkingLevel,
-      })
-      set((state) => {
-        // Park the current session before switching so a task running there
-        // survives (events keep flowing into bg) instead of being abandoned.
-        const bg = { ...state.bg }
-        if (state.currentSessionId) {
-          bg[state.currentSessionId] = {
-            messages: state.messages,
-            isStreaming: state.isStreaming,
-            streamStatus: state.streamStatus,
-          }
-        }
-        return {
-          bg,
-          sessions: [...state.sessions, newSession],
-          currentSessionId: sid,
-          messages: [],
-          isStreaming: false,
-          streamStatus: null,
-        }
-      })
+      get().adoptSession(summary)
     } catch (err) {
       console.error('Failed to create session:', err)
     }
   },
 
+  adoptSession: (summary) => {
+    const state = get()
+    const newSession = createNewSession(summary.id, {
+      title: summary.title,
+      workDir: summary.workDir,
+      createdAt: summary.createdAt,
+      updatedAt: summary.updatedAt,
+      model: state.model,
+      thinkingLevel: state.thinkingLevel,
+      permission: state.permission,
+    })
+    set((current) => {
+      const bg = { ...current.bg }
+      if (current.currentSessionId && current.currentSessionId !== summary.id) {
+        bg[current.currentSessionId] = {
+          messages: current.messages,
+          isStreaming: current.isStreaming,
+          streamStatus: current.streamStatus,
+          unread: false,
+        }
+      }
+      delete bg[summary.id]
+      return {
+        bg,
+        sessions: [
+          newSession,
+          ...current.sessions.filter((session) => session.id !== summary.id),
+        ],
+        currentSessionId: summary.id,
+        messages: [],
+        isStreaming: false,
+        streamStatus: null,
+        model: newSession.model ?? '',
+        permission: newSession.permission,
+        contextTokens: newSession.contextTokens,
+        maxContextTokens: newSession.maxContextTokens,
+      }
+    })
+  },
+
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
 
+  addMessageToSession: (sessionId, msg) =>
+    set((state) => {
+      if (state.currentSessionId === sessionId) {
+        return { messages: [...state.messages, msg] }
+      }
+      const previous = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
+      return {
+        bg: {
+          ...state.bg,
+          [sessionId]: {
+            ...previous,
+            messages: [...previous.messages, msg],
+            unread: true,
+          },
+        },
+      }
+    }),
+
   setMessages: (msgs) => set({ messages: msgs }),
+
+  setMessagesForSession: (sessionId, msgs) =>
+    set((state) => {
+      if (state.currentSessionId === sessionId) return { messages: msgs }
+      const previous = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
+      return {
+        bg: {
+          ...state.bg,
+          [sessionId]: {
+            ...previous,
+            messages: msgs,
+            unread: true,
+          },
+        },
+      }
+    }),
 
   updateLastAssistantMessage: (updates) =>
     set((state) => ({
@@ -432,9 +561,26 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messages: patchLastAssistant(state.messages, (m) => ({ ...m, content: m.content + text })),
     })),
 
-  setStreaming: (val) => set({ isStreaming: val }),
-
-  setStreamStatus: (status) => set({ streamStatus: status }),
+  setSessionStreaming: (sessionId, val) =>
+    set((state) => {
+      if (state.currentSessionId === sessionId) {
+        return {
+          isStreaming: val,
+          ...(!val ? { streamStatus: null } : {}),
+        }
+      }
+      const previous = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
+      return {
+        bg: {
+          ...state.bg,
+          [sessionId]: {
+            ...previous,
+            isStreaming: val,
+            ...(!val ? { streamStatus: null } : {}),
+          },
+        },
+      }
+    }),
 
   updateSessionStatus: (status) =>
     set((state) => ({
@@ -483,9 +629,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       )
       set({ messages: next.messages, isStreaming: next.isStreaming, streamStatus: next.streamStatus })
     } else {
-      const prev = state.bg[sessionId] ?? EMPTY_SLICE
+      const prev = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
       const next = reduceMessageEvent(prev, event)
-      if (next !== prev) set({ bg: { ...state.bg, [sessionId]: next } })
+      if (next !== prev) {
+        set({ bg: { ...state.bg, [sessionId]: { ...next, unread: true } } })
+      }
     }
   },
 
@@ -541,4 +689,64 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         (interaction) => interaction.payload.requestId !== requestId,
       ),
     })),
+
+  enqueueMessage: (sessionId, text) => {
+    queuedMessageCounter += 1
+    const id = `queued_${Date.now()}_${queuedMessageCounter}`
+    const message: QueuedUserMessage = { id, text, createdAt: Date.now() }
+    set((state) => ({
+      messageQueue: {
+        ...state.messageQueue,
+        [sessionId]: [...(state.messageQueue[sessionId] ?? []), message],
+      },
+    }))
+    return id
+  },
+
+  updateQueuedMessage: (sessionId, messageId, text) =>
+    set((state) => ({
+      messageQueue: {
+        ...state.messageQueue,
+        [sessionId]: (state.messageQueue[sessionId] ?? []).map((message) =>
+          message.id === messageId ? { ...message, text } : message,
+        ),
+      },
+    })),
+
+  removeQueuedMessage: (sessionId, messageId) =>
+    set((state) => ({
+      messageQueue: {
+        ...state.messageQueue,
+        [sessionId]: (state.messageQueue[sessionId] ?? []).filter(
+          (message) => message.id !== messageId,
+        ),
+      },
+    })),
+
+  moveQueuedMessage: (sessionId, messageId, direction) =>
+    set((state) => {
+      const queue = [...(state.messageQueue[sessionId] ?? [])]
+      const index = queue.findIndex((message) => message.id === messageId)
+      const target = index + direction
+      if (index < 0 || target < 0 || target >= queue.length) return state
+      const current = queue[index]
+      const adjacent = queue[target]
+      if (!current || !adjacent) return state
+      queue[index] = adjacent
+      queue[target] = current
+      return { messageQueue: { ...state.messageQueue, [sessionId]: queue } }
+    }),
+
+  shiftQueuedMessage: (sessionId) => {
+    const queue = get().messageQueue[sessionId] ?? []
+    const message = queue[0]
+    if (!message) return undefined
+    set((state) => ({
+      messageQueue: {
+        ...state.messageQueue,
+        [sessionId]: (state.messageQueue[sessionId] ?? []).slice(1),
+      },
+    }))
+    return message
+  },
 }))

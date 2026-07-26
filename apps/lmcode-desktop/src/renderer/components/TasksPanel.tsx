@@ -35,7 +35,7 @@ function TaskCard({ task }: { task: TaskEntry }) {
 
   const handleStop = async () => {
     try {
-      await window.lmcodeAPI.stopTask(task.taskId)
+      await window.lmcodeAPI.stopTask(task.sessionId, task.taskId)
     } catch (err) {
       console.error('Failed to stop task:', err)
     }

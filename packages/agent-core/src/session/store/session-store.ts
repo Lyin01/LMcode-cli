@@ -58,6 +58,7 @@ export interface CreateSessionRecordInput {
 export interface ForkSessionRecordInput {
   readonly sourceId: string;
   readonly targetId: string;
+  readonly workDir?: string;
   readonly title?: string;
   readonly metadata?: JsonObject;
 }
@@ -109,7 +110,9 @@ export class SessionStore {
       throw new LmcodeError(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${input.targetId}" already exists`);
     }
 
-    const targetDir = this.sessionDirFor({ id: input.targetId, workDir: source.workDir });
+    const targetWorkDir =
+      input.workDir === undefined ? source.workDir : normalizeRequiredWorkDir(input.workDir);
+    const targetDir = this.sessionDirFor({ id: input.targetId, workDir: targetWorkDir });
     if (await isDirectory(targetDir)) {
       throw new LmcodeError(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${input.targetId}" already exists`);
     }
@@ -122,11 +125,11 @@ export class SessionStore {
         errorOnExist: true,
       });
       await this.writeForkedState(input, source.sessionDir, targetDir);
-      const summary = await this.summaryFromDir(input.targetId, targetDir, source.workDir);
+      const summary = await this.summaryFromDir(input.targetId, targetDir, targetWorkDir);
       await appendSessionIndexEntry(this.homeDir, {
         sessionId: input.targetId,
         sessionDir: targetDir,
-        workDir: source.workDir,
+        workDir: targetWorkDir,
       });
       return summary;
     } catch (error) {

@@ -10,7 +10,16 @@ export default defineConfig({
   base: './',
   build: {
     outDir: resolve(import.meta.dirname, 'out/renderer'),
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'zustand'],
+          'markdown-vendor': ['react-markdown', 'remark-gfm', 'rehype-highlight'],
+          'ui-vendor': ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-select']
+        }
+      }
+    }
   },
   resolve: {
     alias: {

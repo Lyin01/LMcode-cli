@@ -7,6 +7,7 @@ import { build } from 'esbuild'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const OUT_MAIN_DIR = resolve(ROOT, 'out/main')
+const OUT_PRELOAD_DIR = resolve(ROOT, 'out/preload')
 const VENDOR_DIR = resolve(ROOT, 'out/vendor')
 const NODE_SDK_PACKAGE_JSON = resolve(ROOT, '../../packages/node-sdk/package.json')
 const nodeSdkRequire = createRequire(NODE_SDK_PACKAGE_JSON)
@@ -183,13 +184,16 @@ await build({
 
 // 3. Build preload
 console.log('> esbuild preload')
+rmSync(OUT_PRELOAD_DIR, { recursive: true, force: true })
 await build({
   entryPoints: [resolve(ROOT, 'src/preload/index.ts')],
   bundle: true,
   platform: 'node',
   target: 'node22',
-  format: 'esm',
-  outfile: resolve(ROOT, 'out/preload/index.mjs'),
+  // Sandboxed preload scripts run in Electron's restricted CommonJS
+  // environment and cannot use ESM imports.
+  format: 'cjs',
+  outfile: resolve(OUT_PRELOAD_DIR, 'index.cjs'),
   external: ['electron'],
   tsconfigRaw,
   logLevel: 'info',
@@ -204,4 +208,4 @@ execSync('vite build --config vite.renderer.config.ts', {
 })
 
 console.log('\n✅ 构建完成')
-console.log('启动: cd apps/lmcode-desktop && npx electron . --no-sandbox')
+console.log('启动: cd apps/lmcode-desktop && npx electron .')

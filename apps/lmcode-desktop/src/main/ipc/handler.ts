@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, Notification } from 'electron'
+import { app, ipcMain, BrowserWindow, dialog, Notification } from 'electron'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { MemoryMemoStore } from '@lmcode/memory'
 import type { MemoryMemoSummary } from '@lmcode/memory'
@@ -14,26 +14,46 @@ import type {
   ResumedSessionState,
   LmcodeConfig,
   LmcodeConfigPatch,
+  GoalSnapshotData,
+  CronJobInfo,
+  BackgroundTaskInfo,
+  SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
-import fs from 'node:fs'
 import type {
   ApprovalRequestPayload,
   InteractionSettledPayload,
   QuestionRequestPayload,
 } from '../../shared/ipc-types.js'
+import type {
+  GitCommitResult,
+  GitFileDiff,
+  GitRepositorySnapshot,
+} from '../../shared/git-types.js'
+import type { ProjectTerminalInfo, TerminalOutputPayload } from '../../shared/terminal-types.js'
+import type { GitWorktreeInfo } from '../../shared/worktree-types.js'
+import {
+  commitGitChanges,
+  inspectGitFileDiff,
+  inspectGitRepository,
+  setGitFileStaged,
+} from '../git-review.js'
+import {
+  createGitWorktree,
+  listGitWorktrees,
+  resolveGitWorktree,
+} from '../git-worktree.js'
+import { ProjectTerminalManager } from '../project-terminal.js'
 import { PendingInteractionRegistry } from './pending-interactions.js'
 import { isTrustedIpcSender } from '../security.js'
+import { readTextAttachment } from '../file-attachment.js'
+import type { TextAttachment } from '../../shared/file-types.js'
+import { scheduledSessionIds } from '../scheduled-sessions.js'
 
 interface SessionEntry {
   session: Session
   unsubscribeEvent: () => void
-}
-
-interface BackgroundTaskSession extends Session {
-  stopBackground?: (input: { taskId: string }) => Promise<void> | void
-  getBackgroundOutput?: (input: { taskId: string }) => Promise<string> | string
 }
 
 const CANCELLED_APPROVAL: ApprovalResponse = { decision: 'cancelled' }
@@ -93,6 +113,14 @@ export function registerAllHandlers(
   const pendingQuestions = new PendingInteractionRegistry<QuestionResult>()
   let closing = false
   let closePromise: Promise<void> | undefined
+  const terminalManager = new ProjectTerminalManager((payload: TerminalOutputPayload) => {
+    if (closing || mainWindow.isDestroyed()) return
+    try {
+      mainWindow.webContents.send('lmcode:terminalOutput', payload)
+    } catch {
+      // Renderer teardown can race the destroyed check.
+    }
+  })
 
   function settleSessionInteractions(sessionId: string): void {
     pendingApprovals.settleSession(sessionId, CANCELLED_APPROVAL)
@@ -252,6 +280,37 @@ export function registerAllHandlers(
     }
   }
 
+  async function getSessionWorkDir(sessionId: string): Promise<string> {
+    const entry = await ensureActiveSession(sessionId)
+    const workDir = entry.session.summary?.workDir
+    if (!workDir) throw new Error(`Session "${sessionId}" has no project directory`)
+    return workDir
+  }
+
+  async function forkSessionIntoWorktree(
+    sessionId: string,
+    worktree: GitWorktreeInfo,
+  ): Promise<SessionSummary> {
+    const source = await ensureActiveSession(sessionId)
+    const branchLabel = worktree.branch ?? worktree.head.slice(0, 8)
+    const sourceTitle = source.session.summary?.title?.trim()
+    const fork = await harness.forkSession({
+      id: sessionId,
+      workDir: worktree.path,
+      title: sourceTitle ? `${sourceTitle} · ${branchLabel}` : undefined,
+      metadata: {
+        desktopWorktree: {
+          branch: branchLabel,
+          path: worktree.path,
+          sourceSessionId: sessionId,
+        },
+      },
+    })
+    setupSessionListeners(fork)
+    if (!fork.summary) throw new Error('工作树会话已创建，但缺少会话摘要')
+    return fork.summary
+  }
+
   // ── Session management ──────────────────────────────────────────
 
   secureInvoke('lmcode:createSession', async (_event, opts: {
@@ -259,28 +318,48 @@ export function registerAllHandlers(
     model?: string
     thinking?: string
     permission?: 'yolo' | 'manual' | 'auto'
-  }): Promise<SessionSummary | undefined> => {
-    // The SDK requires a real working directory. The desktop UI does not yet
-    // expose a project picker, so fall back to the user's home directory.
-    const workDir = opts.workDir?.trim() ? opts.workDir : app.getPath('home')
+  }): Promise<SessionSummary> => {
+    const workDir = opts.workDir.trim()
+    if (!workDir) {
+      throw new Error('A project directory is required to create a desktop session')
+    }
     const session = await harness.createSession({ ...opts, workDir })
     setupSessionListeners(session)
+    if (!session.summary) {
+      throw new Error('The desktop session was created without a summary')
+    }
     return session.summary
   })
+
+  secureInvoke(
+    'lmcode:selectWorkDirectory',
+    async (_event, initialDirectory?: string): Promise<string | undefined> => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: '选择 LMCODE 项目文件夹',
+        defaultPath: initialDirectory?.trim() || app.getPath('home'),
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      if (result.canceled) return undefined
+      return result.filePaths[0]
+    },
+  )
 
   secureInvoke('lmcode:resumeSession', async (_event, id: string): Promise<{
     summary: SessionSummary
     resumeState: ResumedSessionState | undefined
   }> => {
-    const session = await harness.resumeSession({ id })
-    setupSessionListeners(session)
+    const { session } = await ensureActiveSession(id)
+    if (!session.summary) {
+      throw new Error(`Session "${id}" resumed without a summary`)
+    }
     return {
-      summary: session.summary!,
+      summary: session.summary,
       resumeState: session.getResumeState(),
     }
   })
 
   secureInvoke('lmcode:deleteSession', async (_event, id: string): Promise<void> => {
+    await terminalManager.stop(id)
     const entry = activeSessions.get(id)
     if (entry) {
       entry.unsubscribeEvent()
@@ -314,6 +393,11 @@ export function registerAllHandlers(
     await entry.session.prompt(text)
   })
 
+  secureInvoke('lmcode:steerMessage', async (_event, sessionId: string, text: string): Promise<void> => {
+    const entry = await ensureActiveSession(sessionId)
+    await entry.session.steer(text)
+  })
+
   secureInvoke('lmcode:cancelResponse', async (_event, sessionId: string): Promise<void> => {
     settleSessionInteractions(sessionId)
     const entry = activeSessions.get(sessionId)
@@ -335,6 +419,14 @@ export function registerAllHandlers(
     return ctx.history
   })
 
+  secureInvoke(
+    'lmcode:getSessionStatus',
+    async (_event, sessionId: string): Promise<SessionStatus> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.getStatus()
+    },
+  )
+
   // ── Session control ─────────────────────────────────────────────
 
   secureInvoke('lmcode:setModel', async (_event, sessionId: string, model: string): Promise<void> => {
@@ -352,7 +444,73 @@ export function registerAllHandlers(
     await entry.session.setPermission(mode as 'yolo' | 'manual' | 'auto')
   })
 
+  secureInvoke(
+    'lmcode:createGoal',
+    async (
+      _event,
+      sessionId: string,
+      objective: string,
+      replace: boolean,
+    ): Promise<GoalSnapshotData> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.createGoal(objective, { replace })
+    },
+  )
+
+  secureInvoke(
+    'lmcode:getGoal',
+    async (_event, sessionId: string): Promise<{ readonly goal: GoalSnapshotData | null }> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.getGoal()
+    },
+  )
+
+  secureInvoke(
+    'lmcode:updateGoalStatus',
+    async (
+      _event,
+      sessionId: string,
+      status: 'active' | 'complete' | 'paused' | 'blocked',
+    ): Promise<GoalSnapshotData | null> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.updateGoalStatus(status)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:cancelGoal',
+    async (_event, sessionId: string): Promise<GoalSnapshotData | null> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.cancelGoal()
+    },
+  )
+
+  secureInvoke(
+    'lmcode:setPlanMode',
+    async (_event, sessionId: string, enabled: boolean): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.setPlanMode(enabled)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:compactSession',
+    async (_event, sessionId: string, instruction?: string): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.compact({ instruction })
+    },
+  )
+
+  secureInvoke(
+    'lmcode:undoHistory',
+    async (_event, sessionId: string, count: number): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.undoHistory(count)
+    },
+  )
+
   secureInvoke('lmcode:closeSession', async (_event, sessionId: string): Promise<void> => {
+    await terminalManager.stop(sessionId)
     const entry = activeSessions.get(sessionId)
     if (entry) {
       entry.unsubscribeEvent()
@@ -365,6 +523,48 @@ export function registerAllHandlers(
       settleSessionInteractions(sessionId)
     }
   })
+
+  // ── Scheduled automations ──────────────────────────────────────
+
+  secureInvoke(
+    'lmcode:listCronJobs',
+    async (_event, sessionId: string): Promise<readonly CronJobInfo[]> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.listCronJobs()
+    },
+  )
+
+  secureInvoke(
+    'lmcode:createCronJob',
+    async (
+      _event,
+      sessionId: string,
+      input: {
+        readonly cron: string
+        readonly prompt: string
+        readonly recurring?: boolean | undefined
+      },
+    ): Promise<CronJobInfo> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.createCronJob(input)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:deleteCronJob',
+    async (_event, sessionId: string, id: string): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.deleteCronJob(id)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:listBackgroundTasks',
+    async (_event, sessionId: string): Promise<readonly BackgroundTaskInfo[]> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.listBackgroundTasks({ activeOnly: false })
+    },
+  )
 
   // ── Skills ──────────────────────────────────────────────────────
 
@@ -417,15 +617,112 @@ export function registerAllHandlers(
 
   // ── File operations ─────────────────────────────────────────────
 
-  secureInvoke('lmcode:readFileContent', async (_event, filePath: string): Promise<string> => {
-    const content = await fs.promises.readFile(filePath, 'utf-8')
-    return content
+  secureInvoke('lmcode:readFileContent', async (_event, filePath: string): Promise<TextAttachment> => {
+    return readTextAttachment(filePath)
   })
+
+  // ── Git review ─────────────────────────────────────────────────
+
+  secureInvoke(
+    'lmcode:getGitSnapshot',
+    async (_event, sessionId: string): Promise<GitRepositorySnapshot> => {
+      return inspectGitRepository(await getSessionWorkDir(sessionId))
+    },
+  )
+
+  secureInvoke(
+    'lmcode:getGitFileDiff',
+    async (_event, sessionId: string, filePath: string): Promise<GitFileDiff> => {
+      return inspectGitFileDiff(await getSessionWorkDir(sessionId), filePath)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:setGitFileStaged',
+    async (
+      _event,
+      sessionId: string,
+      filePath: string,
+      staged: boolean,
+    ): Promise<void> => {
+      await setGitFileStaged(await getSessionWorkDir(sessionId), filePath, staged)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:commitGitChanges',
+    async (_event, sessionId: string, message: string): Promise<GitCommitResult> => {
+      return commitGitChanges(await getSessionWorkDir(sessionId), message)
+    },
+  )
+
+  // ── Git worktrees ───────────────────────────────────────────────
+
+  secureInvoke(
+    'lmcode:listGitWorktrees',
+    async (_event, sessionId: string): Promise<readonly GitWorktreeInfo[]> => {
+      return listGitWorktrees(await getSessionWorkDir(sessionId))
+    },
+  )
+
+  secureInvoke(
+    'lmcode:createWorktreeHandoff',
+    async (
+      _event,
+      sessionId: string,
+      branchName: string,
+    ): Promise<{ readonly worktree: GitWorktreeInfo; readonly session: SessionSummary }> => {
+      const worktree = await createGitWorktree(
+        await getSessionWorkDir(sessionId),
+        harness.homeDir,
+        branchName,
+      )
+      return { worktree, session: await forkSessionIntoWorktree(sessionId, worktree) }
+    },
+  )
+
+  secureInvoke(
+    'lmcode:handoffToWorktree',
+    async (
+      _event,
+      sessionId: string,
+      worktreePath: string,
+    ): Promise<{ readonly worktree: GitWorktreeInfo; readonly session: SessionSummary }> => {
+      const worktree = await resolveGitWorktree(
+        await getSessionWorkDir(sessionId),
+        worktreePath,
+      )
+      return { worktree, session: await forkSessionIntoWorktree(sessionId, worktree) }
+    },
+  )
+
+  // ── Project terminal ────────────────────────────────────────────
+
+  secureInvoke(
+    'lmcode:startTerminal',
+    async (_event, sessionId: string): Promise<ProjectTerminalInfo> => {
+      return terminalManager.start(sessionId, await getSessionWorkDir(sessionId))
+    },
+  )
+
+  secureInvoke(
+    'lmcode:writeTerminal',
+    (_event, sessionId: string, input: string): void => {
+      terminalManager.write(sessionId, input)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:stopTerminal',
+    async (_event, sessionId: string): Promise<void> => {
+      await terminalManager.stop(sessionId)
+    },
+  )
 
   // ── Version ─────────────────────────────────────────────────────
 
   secureInvoke('lmcode:getVersion', (): string => {
-    return '0.1.0'
+    return app.getVersion()
   })
 
   // ── Misc ────────────────────────────────────────────────────────
@@ -482,28 +779,37 @@ export function registerAllHandlers(
 
   // ── Background task operations ─────────────────────────────────
 
-  secureInvoke('lmcode:stopTask', async (_event, taskId: string): Promise<void> => {
-    for (const [_sid, entry] of activeSessions) {
-      try {
-        await (entry.session as BackgroundTaskSession).stopBackground?.({ taskId })
-        return
-      } catch {
-        // Session doesn't support this method
-      }
-    }
-    throw new Error(`Task "${taskId}" not found or cannot be stopped`)
-  })
+  secureInvoke(
+    'lmcode:stopTask',
+    async (_event, sessionId: string, taskId: string): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.stopBackgroundTask(taskId, { reason: 'Stopped from LMCODE Desktop' })
+    },
+  )
 
-  secureInvoke('lmcode:getTaskOutput', async (_event, taskId: string): Promise<string> => {
-    for (const [_sid, entry] of activeSessions) {
+  secureInvoke(
+    'lmcode:getTaskOutput',
+    async (_event, sessionId: string, taskId: string): Promise<string> => {
+      const entry = await ensureActiveSession(sessionId)
+      return entry.session.getBackgroundTaskOutput(taskId)
+    },
+  )
+
+  // Cron managers are session-owned. Resume every session that has persisted
+  // jobs so its automations continue firing while the desktop app is open,
+  // even when that conversation is not the selected tab.
+  const scheduledSessionsActivation = (async (): Promise<void> => {
+    const ids = await scheduledSessionIds(await harness.listSessions())
+    for (const id of ids) {
+      if (closing) return
       try {
-        const output = await (entry.session as BackgroundTaskSession).getBackgroundOutput?.({ taskId })
-        if (output !== undefined) return output
+        await ensureActiveSession(id)
       } catch {
-        // Session doesn't support this method
+        // One damaged session must not prevent other automations from loading.
       }
     }
-    return ''
+  })().catch(() => {
+    // Session discovery is best-effort during startup; opening the panel retries.
   })
 
   // ── Cleanup on window close ─────────────────────────────────────
@@ -532,6 +838,7 @@ export function registerAllHandlers(
       }
     }
 
+    await scheduledSessionsActivation
     runStep(() => mainWindow.webContents.removeListener('did-start-navigation', handleNavigation))
     runStep(() => mainWindow.webContents.removeListener('did-finish-load', cancelAllPendingInteractions))
     runStep(() => mainWindow.webContents.removeListener('render-process-gone', handleRenderProcessGone))
@@ -549,6 +856,11 @@ export function registerAllHandlers(
       runStep(() => entry.session.setQuestionHandler(undefined))
     }
     activeSessions.clear()
+    try {
+      await terminalManager.close()
+    } catch (error) {
+      errors.push(error)
+    }
     try {
       await memoryStore.close()
     } catch (error) {

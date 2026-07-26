@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useState } from 'react'
 import { useSessionStore } from '@/stores/session-store'
+import { useTaskStore } from '@/stores/task-store'
+import { useSubagentStore } from '@/stores/subagent-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useEvents } from '@/hooks/useEvents'
 import { Sidebar } from '@/components/Sidebar'
@@ -11,9 +13,16 @@ import { SettingsPanel } from '@/components/SettingsPanel'
 import { MemoryBrowser } from '@/components/MemoryBrowser'
 import { TasksPanel } from '@/components/TasksPanel'
 import { ExtensionsPanel } from '@/components/ExtensionsPanel'
+import { GitReviewPanel } from '@/components/GitReviewPanel'
+import { TerminalPanel } from '@/components/TerminalPanel'
+import { WorktreesPanel } from '@/components/WorktreesPanel'
+import { SubagentsPanel } from '@/components/SubagentsPanel'
+import { AutomationsPanel } from '@/components/AutomationsPanel'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
 import { historyToMessages } from '@/lib/history'
 import type { SessionInfo } from '@/types'
+import { FolderOpen } from 'lucide-react'
+import { isThinkingEffort } from '@/lib/thinking'
 
 export default function App() {
   const loadConfig = useConfigStore((s) => s.loadConfig)
@@ -26,6 +35,11 @@ export default function App() {
   const [showMemory, setShowMemory] = useState(false)
   const [showTasks, setShowTasks] = useState(false)
   const [showExtensions, setShowExtensions] = useState(false)
+  const [showGitReview, setShowGitReview] = useState(false)
+  const [showTerminal, setShowTerminal] = useState(false)
+  const [showWorktrees, setShowWorktrees] = useState(false)
+  const [showSubagents, setShowSubagents] = useState(false)
+  const [showAutomations, setShowAutomations] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [theme, setThemeState] = useState<ThemePref>(() => getStoredTheme())
 
@@ -77,18 +91,61 @@ export default function App() {
     }
   }, [currentSessionId])
 
+  useEffect(() => {
+    if (!currentSessionId) return
+    let cancelled = false
+    void window.lmcodeAPI.getSessionStatus(currentSessionId)
+      .then((status) => {
+        if (!cancelled && useSessionStore.getState().currentSessionId === currentSessionId) {
+          const thinkingLevel = isThinkingEffort(status.thinkingLevel)
+            ? status.thinkingLevel
+            : useSessionStore.getState().thinkingLevel
+          useSessionStore.getState().updateSessionStatus({
+            model: status.model,
+            thinkingLevel,
+            permission: status.permission,
+            contextTokens: status.contextTokens,
+            maxContextTokens: status.maxContextTokens,
+          })
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [currentSessionId])
+
+  // Rehydrate persisted background work when switching sessions. Live events
+  // continue updating the same stores after this snapshot is applied.
+  useEffect(() => {
+    if (!currentSessionId) return
+    let cancelled = false
+    void window.lmcodeAPI.listBackgroundTasks(currentSessionId)
+      .then((tasks) => {
+        if (cancelled) return
+        const taskStore = useTaskStore.getState()
+        for (const task of tasks) taskStore.addOrUpdateTask(currentSessionId, task)
+        useSubagentStore.getState().hydrateTasks(currentSessionId, tasks)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [currentSessionId])
+
   // Load sessions on mount
   useEffect(() => {
     void (async () => {
       try {
         const rawSessions = await window.lmcodeAPI.listSessions()
+        const thinkingLevel = useSessionStore.getState().thinkingLevel
         const mapped: SessionInfo[] = rawSessions.map((s) => ({
           id: s.id,
           title: s.title,
           workDir: s.workDir,
           createdAt: s.createdAt,
           updatedAt: s.updatedAt,
-          thinkingLevel: 'auto',
+          thinkingLevel,
           permission: 'manual',
           contextTokens: 0,
           maxContextTokens: 128000,
@@ -100,12 +157,9 @@ export default function App() {
           // Open the most recently used session on launch.
           const latest = [...mapped].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]!
           selectSession(latest.id)
-        } else {
-          await createSession()
         }
       } catch (err) {
         console.error('Failed to load sessions:', err)
-        await createSession()
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -115,6 +169,11 @@ export default function App() {
     setShowMemory(false)
     setShowTasks(false)
     setShowExtensions(false)
+    setShowGitReview(false)
+    setShowTerminal(false)
+    setShowWorktrees(false)
+    setShowSubagents(false)
+    setShowAutomations(false)
     setShowSettings(true)
   }, [])
 
@@ -122,6 +181,11 @@ export default function App() {
     setShowSettings(false)
     setShowTasks(false)
     setShowExtensions(false)
+    setShowGitReview(false)
+    setShowTerminal(false)
+    setShowWorktrees(false)
+    setShowSubagents(false)
+    setShowAutomations(false)
     setShowMemory(true)
   }, [])
 
@@ -129,6 +193,11 @@ export default function App() {
     setShowSettings(false)
     setShowMemory(false)
     setShowTasks(false)
+    setShowGitReview(false)
+    setShowTerminal(false)
+    setShowWorktrees(false)
+    setShowSubagents(false)
+    setShowAutomations(false)
     setShowExtensions(true)
   }, [])
 
@@ -136,20 +205,91 @@ export default function App() {
     setShowSettings(false)
     setShowMemory(false)
     setShowExtensions(false)
+    setShowGitReview(false)
+    setShowTerminal(false)
+    setShowWorktrees(false)
+    setShowSubagents(false)
+    setShowAutomations(false)
     setShowTasks((prev) => !prev)
+  }, [])
+
+  const handleOpenGitReview = useCallback(() => {
+    setShowSettings(false)
+    setShowMemory(false)
+    setShowTasks(false)
+    setShowExtensions(false)
+    setShowTerminal(false)
+    setShowWorktrees(false)
+    setShowSubagents(false)
+    setShowAutomations(false)
+    setShowGitReview(true)
+  }, [])
+
+  const handleOpenTerminal = useCallback(() => {
+    setShowSettings(false)
+    setShowMemory(false)
+    setShowTasks(false)
+    setShowExtensions(false)
+    setShowGitReview(false)
+    setShowWorktrees(false)
+    setShowSubagents(false)
+    setShowAutomations(false)
+    setShowTerminal(true)
+  }, [])
+
+  const handleOpenWorktrees = useCallback(() => {
+    setShowSettings(false)
+    setShowMemory(false)
+    setShowTasks(false)
+    setShowExtensions(false)
+    setShowGitReview(false)
+    setShowTerminal(false)
+    setShowSubagents(false)
+    setShowAutomations(false)
+    setShowWorktrees(true)
+  }, [])
+
+  const handleOpenSubagents = useCallback(() => {
+    setShowSettings(false)
+    setShowMemory(false)
+    setShowTasks(false)
+    setShowExtensions(false)
+    setShowGitReview(false)
+    setShowTerminal(false)
+    setShowWorktrees(false)
+    setShowAutomations(false)
+    setShowSubagents(true)
+  }, [])
+
+  const handleOpenAutomations = useCallback(() => {
+    setShowSettings(false)
+    setShowMemory(false)
+    setShowTasks(false)
+    setShowExtensions(false)
+    setShowGitReview(false)
+    setShowTerminal(false)
+    setShowWorktrees(false)
+    setShowSubagents(false)
+    setShowAutomations(true)
   }, [])
 
   // Menu / tray navigation (新建对话, 设置 from the native menu and tray).
   useEffect(() => {
     const unsub = window.lmcodeAPI.onNavigate(({ route }) => {
       if (route === 'new-session') {
-        void createSession()
+        const state = useSessionStore.getState()
+        const currentWorkDir = state.sessions.find(
+          (session) => session.id === state.currentSessionId,
+        )?.workDir
+        void createSession(currentWorkDir)
       } else if (route === 'settings') {
         handleOpenSettings()
+      } else if (route === 'automations') {
+        handleOpenAutomations()
       }
     })
     return unsub
-  }, [createSession, handleOpenSettings])
+  }, [createSession, handleOpenAutomations, handleOpenSettings])
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-[var(--lm-bg-base)] text-[var(--lm-text-primary)]">
@@ -166,16 +306,40 @@ export default function App() {
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onOpenTasks={handleToggleTasks}
+          onOpenGitReview={handleOpenGitReview}
+          onOpenTerminal={handleOpenTerminal}
+          onOpenWorktrees={handleOpenWorktrees}
+          onOpenSubagents={handleOpenSubagents}
+          onOpenAutomations={handleOpenAutomations}
           onOpenSettings={handleOpenSettings}
           theme={theme}
           onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         />
 
         {currentSessionId ? (
-          <ChatPanel />
+          <ChatPanel onOpenSettings={handleOpenSettings} />
         ) : (
-          <div className="flex flex-1 items-center justify-center text-[var(--lm-text-muted)]">
-            <p>请选择或创建一个会话</p>
+          <div className="flex flex-1 items-center justify-center px-6 text-center">
+            <div className="flex max-w-md flex-col items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)]">
+                <FolderOpen size={28} strokeWidth={1.6} />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-[var(--lm-text-primary)]">
+                  打开一个项目开始工作
+                </h2>
+                <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--lm-text-muted)]">
+                  LMCODE 会把会话、工具权限和文件操作限定到你选择的工作目录。
+                </p>
+              </div>
+              <button
+                onClick={() => void createSession()}
+                className="flex items-center gap-2 rounded-lg bg-[var(--lm-accent)] px-4 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] shadow-[var(--lm-shadow-soft)] transition-colors hover:bg-[var(--lm-accent-hover)]"
+              >
+                <FolderOpen size={16} />
+                选择项目文件夹
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -190,6 +354,11 @@ export default function App() {
       <MemoryBrowser open={showMemory} onClose={() => setShowMemory(false)} />
       <TasksPanel open={showTasks} onClose={() => setShowTasks(false)} />
       <ExtensionsPanel open={showExtensions} onClose={() => setShowExtensions(false)} />
+      <GitReviewPanel open={showGitReview} onClose={() => setShowGitReview(false)} />
+      <TerminalPanel open={showTerminal} onClose={() => setShowTerminal(false)} />
+      <WorktreesPanel open={showWorktrees} onClose={() => setShowWorktrees(false)} />
+      <SubagentsPanel open={showSubagents} onClose={() => setShowSubagents(false)} />
+      <AutomationsPanel open={showAutomations} onClose={() => setShowAutomations(false)} />
 
       {/* Dialogs */}
       <ApprovalDialog />

@@ -147,6 +147,38 @@ describe('SessionStore.list', () => {
     ].toSorted());
   });
 
+  it('forks conversation state into a different project workDir', async () => {
+    const homeDir = await makeTempDir();
+    const sourceWorkDir = await makeWorkDir();
+    const targetWorkDir = await makeWorkDir();
+    const store = new SessionStore(homeDir);
+    const source = await store.create({ id: 'ses_handoff_source', workDir: sourceWorkDir });
+    await writeSessionState(source.sessionDir, {
+      createdAt: '2030-01-01T00:00:00.000Z',
+      updatedAt: '2030-01-01T00:00:00.000Z',
+      title: 'Handoff source',
+      agents: {},
+    });
+
+    const fork = await store.fork({
+      sourceId: source.id,
+      targetId: 'ses_handoff_worktree',
+      workDir: targetWorkDir,
+    });
+
+    expect(fork.workDir).toBe(toPosixPath(targetWorkDir));
+    expect((await store.list({ workDir: sourceWorkDir })).map((session) => session.id)).toEqual([
+      source.id,
+    ]);
+    expect((await store.list({ workDir: targetWorkDir })).map((session) => session.id)).toEqual([
+      fork.id,
+    ]);
+    const forkState = JSON.parse(
+      await readFile(join(fork.sessionDir, 'state.json'), 'utf-8'),
+    ) as { forkedFrom?: string };
+    expect(forkState.forkedFrom).toBe(source.id);
+  });
+
   it('returns only sessions from the requested workDir bucket', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeWorkDir();

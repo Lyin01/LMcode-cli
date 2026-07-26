@@ -32,10 +32,17 @@ import type {
   UnregisterToolPayload,
   UpdateSessionMetadataPayload,
   CreateGoalPayload,
+  CreateCronPayload,
+  CronJobInfo,
+  DeleteCronPayload,
   UpdateGoalStatusPayload,
   SetGoalBudgetPayload,
 } from '#/rpc';
 import type { PromisableMethods } from '#/utils/types';
+import type { CronManager } from '#/agent/cron';
+import { CronCreateInputSchema, CronCreateTool } from '#/tools/cron/cron-create';
+import { cronToHuman, parseCronExpression } from '#/tools/cron/cron-expr';
+import type { CronTask } from '#/tools/cron/types';
 
 import type { Session, SessionMeta } from '.';
 import {
@@ -119,6 +126,58 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   generateAgentsMd(_payload: EmptyPayload): Promise<void> {
     this.session.assertOpen();
     return this.session.generateAgentsMd();
+  }
+
+  async createCron(payload: CreateCronPayload): Promise<CronJobInfo> {
+    const manager = this.getCronManager();
+    const parsedInput = CronCreateInputSchema.safeParse(payload);
+    if (!parsedInput.success) {
+      throw new LmcodeError(
+        ErrorCodes.REQUEST_INVALID,
+        parsedInput.error.issues[0]?.message ?? 'Invalid cron request',
+      );
+    }
+
+    const execution = new CronCreateTool(manager).resolveExecution(parsedInput.data);
+    if (!('execute' in execution)) {
+      throw new LmcodeError(
+        ErrorCodes.REQUEST_INVALID,
+        typeof execution.output === 'string' ? execution.output : 'Cron request failed',
+      );
+    }
+    const result = await execution.execute({
+      turnId: 'rpc-cron-create',
+      toolCallId: 'rpc-cron-create',
+      signal: new AbortController().signal,
+    });
+    if (result.isError || typeof result.output !== 'string') {
+      throw new LmcodeError(
+        ErrorCodes.REQUEST_INVALID,
+        typeof result.output === 'string' ? result.output : 'Cron request failed',
+      );
+    }
+
+    const id = /^id: ([0-9a-f]{8})$/m.exec(result.output)?.[1];
+    const task = id === undefined ? undefined : manager.store.get(id);
+    if (task === undefined) {
+      throw new LmcodeError(ErrorCodes.INTERNAL, 'Cron job was created without a readable record');
+    }
+    return projectCronJob(manager, task);
+  }
+
+  listCron(_payload: EmptyPayload): readonly CronJobInfo[] {
+    const manager = this.getCronManager();
+    return manager.store.list().map((task) => projectCronJob(manager, task));
+  }
+
+  deleteCron(payload: DeleteCronPayload): void {
+    if (!/^[0-9a-f]{8}$/.test(payload.id)) {
+      throw new LmcodeError(ErrorCodes.REQUEST_INVALID, 'Cron job id must be 8 lowercase hex characters');
+    }
+    const removed = this.getCronManager().removeTasks([payload.id]);
+    if (removed.length === 0) {
+      throw new LmcodeError(ErrorCodes.REQUEST_INVALID, `No cron job with id ${payload.id}`);
+    }
   }
 
   async prompt({ agentId, ...payload }: AgentScopedPayload<PromptPayload>) {
@@ -295,6 +354,15 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
     return agent.rpcMethods;
   }
 
+  private getCronManager(): CronManager {
+    this.session.assertOpen();
+    const manager = this.session.agents.get('main')?.cron;
+    if (manager === null || manager === undefined) {
+      throw new LmcodeError(ErrorCodes.NOT_IMPLEMENTED, 'Cron scheduling is unavailable');
+    }
+    return manager;
+  }
+
   private needUpdateEasyTitle(metadata: SessionMeta): boolean {
     if (hasCustomTitle(metadata)) return false;
     if (!isUntitled(metadata.title)) return false;
@@ -333,6 +401,26 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
       },
     });
   }
+}
+
+function projectCronJob(manager: CronManager, task: CronTask): CronJobInfo {
+  let humanSchedule = task.cron;
+  try {
+    humanSchedule = cronToHuman(parseCronExpression(task.cron));
+  } catch {
+    // Persisted legacy entries can be malformed; keep the raw expression visible.
+  }
+  return {
+    id: task.id,
+    cron: task.cron,
+    humanSchedule,
+    prompt: task.prompt,
+    recurring: task.recurring !== false,
+    createdAt: task.createdAt,
+    lastFiredAt: task.lastFiredAt,
+    nextFireAt: manager.getNextFireForTask(task.id),
+    stale: manager.isStale(task),
+  };
 }
 
 function isUntitled(title: unknown): boolean {

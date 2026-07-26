@@ -20,6 +20,10 @@ const electron = vi.hoisted(() => {
     removeListener: vi.fn((channel: string) => {
       eventListeners.delete(channel)
     }),
+    showOpenDialog: vi.fn(async () => ({
+      canceled: false,
+      filePaths: ['C:/work'],
+    })),
   }
 })
 
@@ -40,6 +44,7 @@ vi.mock('electron', () => ({
     on: electron.on,
     removeListener: electron.removeListener,
   },
+  dialog: { showOpenDialog: electron.showOpenDialog },
   Notification: class {
     static isSupported(): boolean {
       return false
@@ -108,6 +113,10 @@ describe('desktop handler lifecycle', () => {
     electron.invokeHandlers.clear()
     electron.eventListeners.clear()
     vi.clearAllMocks()
+    electron.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: ['C:/work'],
+    })
   })
 
   afterEach(() => {
@@ -167,6 +176,135 @@ describe('desktop handler lifecycle', () => {
     await registration.close()
   })
 
+  it('returns the selected project directory and preserves cancellation', async () => {
+    const mainWindow = createWindow()
+    const registration = registerAllHandlers(
+      { configPath: 'C:/Users/test/.lmcode/config.toml' } as never,
+      mainWindow as never,
+      'file:///renderer/index.html',
+    )
+
+    await expect(invoke('lmcode:selectWorkDirectory', 'C:/existing')).resolves.toBe('C:/work')
+    expect(electron.showOpenDialog).toHaveBeenCalledWith(
+      mainWindow,
+      expect.objectContaining({
+        defaultPath: 'C:/existing',
+        properties: expect.arrayContaining(['openDirectory']),
+      }),
+    )
+
+    electron.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    await expect(invoke('lmcode:selectWorkDirectory')).resolves.toBeUndefined()
+
+    await registration.close()
+  })
+
+  it('bridges goal, plan, compaction, and history controls to the active SDK session', async () => {
+    const goal = {
+      goalId: 'goal-1',
+      objective: 'ship desktop',
+      status: 'active',
+      turnsUsed: 0,
+      tokensUsed: 0,
+      wallClockMs: 0,
+      budget: {
+        tokenBudget: null,
+        turnBudget: null,
+        wallClockBudgetMs: null,
+        remainingTokens: null,
+        remainingTurns: null,
+        remainingWallClockMs: null,
+        overBudget: false,
+      },
+      notes: [],
+    }
+    const session = {
+      id: 'session-controls',
+      summary: { id: 'session-controls', workDir: 'C:/work' },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+      createGoal: vi.fn(async () => goal),
+      getGoal: vi.fn(async () => ({ goal })),
+      updateGoalStatus: vi.fn(async () => ({ ...goal, status: 'paused' })),
+      cancelGoal: vi.fn(async () => ({ ...goal, status: 'complete' })),
+      setPlanMode: vi.fn(async () => undefined),
+      compact: vi.fn(async () => undefined),
+      undoHistory: vi.fn(async () => undefined),
+      steer: vi.fn(async () => undefined),
+      listCronJobs: vi.fn(async () => []),
+      createCronJob: vi.fn(async (input: Record<string, unknown>) => ({ id: 'abc12345', ...input })),
+      deleteCronJob: vi.fn(async () => undefined),
+      listBackgroundTasks: vi.fn(async () => []),
+      stopBackgroundTask: vi.fn(async () => undefined),
+      getBackgroundTaskOutput: vi.fn(async () => 'task output'),
+      getStatus: vi.fn(async () => ({
+        thinkingLevel: 'medium',
+        permission: 'manual',
+        planMode: false,
+        contextTokens: 10,
+        maxContextTokens: 1_000,
+        contextUsage: 0.01,
+      })),
+    }
+    const registration = registerAllHandlers(
+      {
+        configPath: 'C:/Users/test/.lmcode/config.toml',
+        createSession: vi.fn(async () => session),
+      } as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+    await invoke('lmcode:createSession', { workDir: 'C:/work' })
+
+    await expect(
+      invoke('lmcode:createGoal', 'session-controls', 'ship desktop', true),
+    ).resolves.toEqual(goal)
+    await expect(invoke('lmcode:getGoal', 'session-controls')).resolves.toEqual({ goal })
+    await invoke('lmcode:updateGoalStatus', 'session-controls', 'paused')
+    await invoke('lmcode:cancelGoal', 'session-controls')
+    await invoke('lmcode:setPlanMode', 'session-controls', true)
+    await invoke('lmcode:compactSession', 'session-controls', 'retain decisions')
+    await invoke('lmcode:undoHistory', 'session-controls', 2)
+    await invoke('lmcode:steerMessage', 'session-controls', 'focus on the failing test')
+    await expect(invoke('lmcode:listCronJobs', 'session-controls')).resolves.toEqual([])
+    await invoke('lmcode:createCronJob', 'session-controls', {
+      cron: '0 9 * * 1-5',
+      prompt: 'Run tests',
+      recurring: true,
+    })
+    await invoke('lmcode:deleteCronJob', 'session-controls', 'abc12345')
+    await expect(invoke('lmcode:listBackgroundTasks', 'session-controls')).resolves.toEqual([])
+    await invoke('lmcode:stopTask', 'session-controls', 'task-1')
+    await expect(invoke('lmcode:getTaskOutput', 'session-controls', 'task-1')).resolves.toBe(
+      'task output',
+    )
+    await expect(invoke('lmcode:getSessionStatus', 'session-controls')).resolves.toEqual(
+      expect.objectContaining({ contextTokens: 10, maxContextTokens: 1_000 }),
+    )
+
+    expect(session.createGoal).toHaveBeenCalledWith('ship desktop', { replace: true })
+    expect(session.updateGoalStatus).toHaveBeenCalledWith('paused')
+    expect(session.cancelGoal).toHaveBeenCalledOnce()
+    expect(session.setPlanMode).toHaveBeenCalledWith(true)
+    expect(session.compact).toHaveBeenCalledWith({ instruction: 'retain decisions' })
+    expect(session.undoHistory).toHaveBeenCalledWith(2)
+    expect(session.steer).toHaveBeenCalledWith('focus on the failing test')
+    expect(session.createCronJob).toHaveBeenCalledWith({
+      cron: '0 9 * * 1-5',
+      prompt: 'Run tests',
+      recurring: true,
+    })
+    expect(session.deleteCronJob).toHaveBeenCalledWith('abc12345')
+    expect(session.listBackgroundTasks).toHaveBeenCalledWith({ activeOnly: false })
+    expect(session.stopBackgroundTask).toHaveBeenCalledWith('task-1', {
+      reason: 'Stopped from LMCODE Desktop',
+    })
+    expect(session.getBackgroundTaskOutput).toHaveBeenCalledWith('task-1')
+
+    await registration.close()
+  })
+
   it('waits for memory close and removes registered IPC handlers during cleanup', async () => {
     const deferred = Promise.withResolvers<void>()
     memory.close.mockReturnValueOnce(deferred.promise)
@@ -182,8 +320,9 @@ describe('desktop handler lifecycle', () => {
     const cleanup = registration.close().finally(() => {
       cleanupSettled = true
     })
-    await Promise.resolve()
-    expect(memory.close).toHaveBeenCalledOnce()
+    await vi.waitFor(() => {
+      expect(memory.close).toHaveBeenCalledOnce()
+    })
     expect(cleanupSettled).toBe(false)
     expect(electron.removeHandler).toHaveBeenCalledTimes(registeredChannels.length)
 
@@ -191,6 +330,52 @@ describe('desktop handler lifecycle', () => {
     await cleanup
     expect(cleanupSettled).toBe(true)
     expect(electron.invokeHandlers.size).toBe(0)
+  })
+
+  it('deduplicates session selection and concurrent status hydration', async () => {
+    const session = {
+      id: 'session-resume',
+      summary: { id: 'session-resume', workDir: 'C:/work' },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+      getResumeState: vi.fn(() => ({ context: { history: [] } })),
+      getStatus: vi.fn(async () => ({
+        thinkingLevel: 'high',
+        permission: 'auto',
+        planMode: false,
+        contextTokens: 42,
+        maxContextTokens: 1_000,
+        contextUsage: 0.042,
+      })),
+    }
+    const resume = Promise.withResolvers<typeof session>()
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      listSessions: vi.fn(async () => []),
+      resumeSession: vi.fn(() => resume.promise),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+
+    const selected = invoke('lmcode:resumeSession', 'session-resume')
+    const status = invoke('lmcode:getSessionStatus', 'session-resume')
+    await vi.waitFor(() => {
+      expect(harness.resumeSession).toHaveBeenCalledTimes(1)
+    })
+    resume.resolve(session)
+
+    await expect(selected).resolves.toEqual({
+      summary: session.summary,
+      resumeState: { context: { history: [] } },
+    })
+    await expect(status).resolves.toEqual(expect.objectContaining({ contextTokens: 42 }))
+    expect(session.onEvent).toHaveBeenCalledTimes(1)
+
+    await registration.close()
   })
 
   it('does not attach a resumed session after its renderer registration closes', async () => {

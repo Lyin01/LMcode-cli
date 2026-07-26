@@ -11,7 +11,11 @@ function greeting(): string {
   return '晚上好'
 }
 
-export function ChatPanel() {
+interface ChatPanelProps {
+  onOpenSettings?: () => void
+}
+
+export function ChatPanel({ onOpenSettings }: ChatPanelProps) {
   const messages = useSessionStore((s) => s.messages)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
 
@@ -35,7 +39,7 @@ export function ChatPanel() {
               LMCODE · AI Agent 桌面客户端
             </p>
           </div>
-          <Composer autoFocus />
+          <Composer autoFocus onOpenSettings={onOpenSettings} />
         </div>
       </div>
     )
@@ -46,7 +50,7 @@ export function ChatPanel() {
       <MessageList />
       <div className="shrink-0 px-4 pb-4">
         <div className="mx-auto max-w-3xl">
-          <Composer />
+          <Composer onOpenSettings={onOpenSettings} />
         </div>
       </div>
     </div>

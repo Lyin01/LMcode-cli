@@ -1,4 +1,5 @@
 import type { Event } from '@lmcode-cli/lmcode-sdk'
+import type { ThinkingEffort } from '@/lib/thinking'
 
 export type {
   ApprovalRequestPayload,
@@ -38,11 +39,17 @@ export interface SessionInfo {
   createdAt: number
   updatedAt: number
   model?: string
-  thinkingLevel: string
+  thinkingLevel: ThinkingEffort
   permission: string
   contextTokens: number
   maxContextTokens: number
   isStreaming: boolean
+}
+
+export interface QueuedUserMessage {
+  readonly id: string
+  readonly text: string
+  readonly createdAt: number
 }
 
 export type AgentEvent = Event

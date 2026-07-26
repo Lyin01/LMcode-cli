@@ -51,6 +51,9 @@ import type {
   CoreAPI,
   CoreInfo,
   CreateSessionPayload,
+  CreateCronPayload,
+  CronJobInfo,
+  DeleteCronPayload,
   DeleteSessionPayload,
   EmptyPayload,
   ExportSessionPayload,
@@ -357,6 +360,7 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
     await this.sessionStore.fork({
       sourceId: source.id,
       targetId: id,
+      workDir: input.workDir,
       title: input.title,
       metadata: input.metadata,
     });
@@ -675,6 +679,24 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
 
   generateAgentsMd({ sessionId, ...payload }: SessionScopedPayload<EmptyPayload>): Promise<void> {
     return this.sessionApi(sessionId).generateAgentsMd(payload);
+  }
+
+  createCron({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<CreateCronPayload>): Promise<CronJobInfo> {
+    return this.sessionApi(sessionId).createCron(payload);
+  }
+
+  listCron({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<EmptyPayload>): readonly CronJobInfo[] {
+    return this.sessionApi(sessionId).listCron(payload);
+  }
+
+  deleteCron({ sessionId, ...payload }: SessionScopedPayload<DeleteCronPayload>): void {
+    return this.sessionApi(sessionId).deleteCron(payload);
   }
 
   async installPlugin(payload: InstallPluginPayload): Promise<PluginSummary> {

@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { useSessionStore } from '@/stores/session-store'
 import {
   Target,
   Cpu,
@@ -9,6 +8,10 @@ import {
   Eraser,
   Download,
   HelpCircle,
+  ListChecks,
+  Archive,
+  Undo2,
+  CircleOff,
 } from 'lucide-react'
 
 export interface SlashCommand {
@@ -16,7 +19,8 @@ export interface SlashCommand {
   label: string
   description: string
   icon: React.ReactNode
-  action: () => void
+  /** Text inserted into the composer instead of executing immediately. */
+  insertText?: string
 }
 
 interface SlashCommandsDialogProps {
@@ -33,7 +37,6 @@ export function SlashCommandsDialog({
   onSelect,
   onClose,
 }: SlashCommandsDialogProps) {
-  const clearMessages = useSessionStore((s) => s.clearMessages)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -41,69 +44,69 @@ export function SlashCommandsDialog({
     {
       id: 'goal',
       label: '/goal',
-      description: '开启自主目标循环',
+      description: '创建目标并立即开始执行',
       icon: <Target size={14} />,
-      action: () => {
-        // /goal - start autonomous goal loop (future feature)
-        console.log('Slash command: /goal')
-      },
+      insertText: '/goal ',
+    },
+    {
+      id: 'goaloff',
+      label: '/goaloff',
+      description: '取消当前目标',
+      icon: <CircleOff size={14} />,
+    },
+    {
+      id: 'plan',
+      label: '/plan',
+      description: '进入只读规划模式',
+      icon: <ListChecks size={14} />,
     },
     {
       id: 'model',
       label: '/model',
       description: '切换模型',
       icon: <Cpu size={14} />,
-      action: () => {
-        // /model - triggers model switcher UI (handled by parent)
-        console.log('Slash command: /model')
-      },
     },
     {
       id: 'mode',
       label: '/mode',
       description: '切换权限模式',
       icon: <Shield size={14} />,
-      action: () => {
-        // /mode - switch permission mode
-        console.log('Slash command: /mode')
-      },
     },
     {
       id: 'config',
       label: '/config',
       description: '打开设置面板',
       icon: <Settings size={14} />,
-      action: () => {
-        // /config - open settings (handled by parent)
-        console.log('Slash command: /config')
-      },
+    },
+    {
+      id: 'compact',
+      label: '/compact',
+      description: '压缩当前会话上下文',
+      icon: <Archive size={14} />,
+    },
+    {
+      id: 'revoke',
+      label: '/revoke',
+      description: '撤销最近一轮对话',
+      icon: <Undo2 size={14} />,
     },
     {
       id: 'clear',
       label: '/clear',
-      description: '清除对话',
+      description: '在当前项目中新建对话',
       icon: <Eraser size={14} />,
-      action: () => {
-        clearMessages()
-      },
     },
     {
       id: 'export',
       label: '/export',
       description: '导出会话',
       icon: <Download size={14} />,
-      action: () => {
-        console.log('Slash command: /export')
-      },
     },
     {
       id: 'help',
       label: '/help',
       description: '显示帮助',
       icon: <HelpCircle size={14} />,
-      action: () => {
-        console.log('Slash command: /help')
-      },
     },
   ]
 
@@ -130,6 +133,7 @@ export function SlashCommandsDialog({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      if (filtered.length === 0) return
       switch (e.key) {
         case 'ArrowDown':
         case 'Tab':

@@ -20,12 +20,17 @@ export const THINKING_OPTIONS: ReadonlyArray<{ value: ThinkingEffort; label: str
   { value: 'medium', label: '中（推荐）', hint: '速度与质量均衡' },
   { value: 'high', label: '高', hint: '深度推理，较慢' },
   { value: 'xhigh', label: '极高', hint: '最强推理，最慢' },
+  { value: 'max', label: '最大', hint: '允许模型使用最大推理预算' },
 ]
+
+export function isThinkingEffort(value: string): value is ThinkingEffort {
+  return THINKING_OPTIONS.some((option) => option.value === value)
+}
 
 export function getStoredThinking(): ThinkingEffort {
   try {
     const v = localStorage.getItem(STORAGE_KEY)
-    if (v && THINKING_OPTIONS.some((o) => o.value === v)) return v as ThinkingEffort
+    if (v && isThinkingEffort(v)) return v
   } catch {
     // ignore (e.g. storage disabled)
   }

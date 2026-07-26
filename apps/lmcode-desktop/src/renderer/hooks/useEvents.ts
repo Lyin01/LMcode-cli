@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
+import { useSubagentStore } from '@/stores/subagent-store'
 import type {
   ApprovalRequestPayload,
   QuestionRequestPayload,
@@ -12,6 +13,9 @@ export function useEvents() {
   const enqueuePendingInteraction = useSessionStore((s) => s.enqueuePendingInteraction)
   const discardPendingInteraction = useSessionStore((s) => s.discardPendingInteraction)
   const addOrUpdateTask = useTaskStore((s) => s.addOrUpdateTask)
+  const subagentSpawned = useSubagentStore((s) => s.spawned)
+  const subagentCompleted = useSubagentStore((s) => s.completed)
+  const subagentFailed = useSubagentStore((s) => s.failed)
 
   useEffect(() => {
     const unsubEvent = window.lmcodeAPI.onSessionEvent((payload: SessionEventPayload) => {
@@ -28,6 +32,12 @@ export function useEvents() {
         addOrUpdateTask(sessionId, event.info)
       } else if (event?.type === 'background.task.terminated' && event?.info) {
         addOrUpdateTask(sessionId, event.info)
+      } else if (event?.type === 'subagent.spawned') {
+        subagentSpawned(sessionId, event)
+      } else if (event?.type === 'subagent.completed') {
+        subagentCompleted(sessionId, event)
+      } else if (event?.type === 'subagent.failed') {
+        subagentFailed(sessionId, event)
       }
     })
 
@@ -49,5 +59,13 @@ export function useEvents() {
       unsubQuestion()
       unsubInteractionSettled()
     }
-  }, [handleEvent, enqueuePendingInteraction, discardPendingInteraction, addOrUpdateTask])
+  }, [
+    handleEvent,
+    enqueuePendingInteraction,
+    discardPendingInteraction,
+    addOrUpdateTask,
+    subagentSpawned,
+    subagentCompleted,
+    subagentFailed,
+  ])
 }

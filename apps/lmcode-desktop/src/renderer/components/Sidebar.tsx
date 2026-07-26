@@ -11,6 +11,7 @@ import {
   X,
   BookOpen,
   Blocks,
+  FolderOpen,
 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
@@ -29,13 +30,20 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const selectSession = useSessionStore((s) => s.selectSession)
   const setSessions = useSessionStore((s) => s.setSessions)
+  const removeDeletedSession = useSessionStore((s) => s.removeDeletedSession)
   const bg = useSessionStore((s) => s.bg)
   const activeStreaming = useSessionStore((s) => s.isStreaming)
   const { createSession } = useSession()
+  const currentWorkDir = sessions.find((session) => session.id === currentSessionId)?.workDir
 
   const isStreamingSession = useCallback(
     (id: string) => (id === currentSessionId ? activeStreaming : !!bg[id]?.isStreaming),
     [currentSessionId, activeStreaming, bg],
+  )
+
+  const hasUnreadSession = useCallback(
+    (id: string) => id !== currentSessionId && bg[id]?.unread === true,
+    [bg, currentSessionId],
   )
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -54,13 +62,14 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
 
   const refreshSessions = useCallback(async () => {
     const raw = await window.lmcodeAPI.listSessions()
+    const thinkingLevel = useSessionStore.getState().thinkingLevel
     const mapped: SessionInfo[] = raw.map((s) => ({
       id: s.id,
       title: s.title,
       workDir: s.workDir,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
-      thinkingLevel: 'auto',
+      thinkingLevel,
       permission: 'manual',
       contextTokens: 0,
       maxContextTokens: 128000,
@@ -75,9 +84,7 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
     try {
       await window.lmcodeAPI.deleteSession(id)
       const mapped = await refreshSessions()
-      if (id === currentSessionId && mapped.length > 0) {
-        selectSession(mapped[0]!.id)
-      }
+      removeDeletedSession(id, mapped)
     } catch (err) {
       console.error('Failed to delete session:', err)
     }
@@ -164,14 +171,24 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
         </div>
 
         {/* New chat */}
-        <div className="px-3 pb-2 pt-1">
+        <div className="flex gap-1.5 px-3 pb-2 pt-1">
           <button
-            onClick={createSession}
-            className="flex w-full items-center gap-2 rounded-lg bg-[var(--lm-accent)] px-3 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] shadow-[var(--lm-shadow-soft)] transition-colors hover:bg-[var(--lm-accent-hover)]"
+            onClick={() => void createSession(currentWorkDir)}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-[var(--lm-accent)] px-3 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] shadow-[var(--lm-shadow-soft)] transition-colors hover:bg-[var(--lm-accent-hover)]"
           >
             <Plus size={16} />
-            <span>新建对话</span>
+            <span>{currentWorkDir ? '新建对话' : '打开项目'}</span>
           </button>
+          {currentWorkDir && (
+            <button
+              onClick={() => void createSession()}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+              title="打开其他项目"
+              aria-label="打开其他项目"
+            >
+              <FolderOpen size={16} />
+            </button>
+          )}
         </div>
 
         {/* Search */}
@@ -216,6 +233,7 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
               onDoubleClick={(e) => {
                 if (editingId !== session.id) startRename(e, session)
               }}
+              title={session.workDir}
             >
               {editingId === session.id ? (
                 <div className="flex flex-1 items-center gap-1">
@@ -248,6 +266,12 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
                     <span
                       className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--lm-accent)]"
                       title="正在生成…"
+                    />
+                  )}
+                  {!isStreamingSession(session.id) && hasUnreadSession(session.id) && (
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--lm-accent)]"
+                      title="有新结果"
                     />
                   )}
                   <span className="flex-1 truncate">
