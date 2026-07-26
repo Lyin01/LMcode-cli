@@ -783,7 +783,7 @@ async function dispatchToolCall(
   step: ToolCallStepContext,
   call: PreflightedToolCall,
   args: unknown,
-  displayFields?: ToolCallDisplayFields | undefined,
+  displayFields?: ToolCallDisplayFields,
 ): Promise<void> {
   const { toolCall, toolName } = call;
   await step.dispatchEvent({

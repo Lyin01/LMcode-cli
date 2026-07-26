@@ -8,7 +8,7 @@ export interface ConfigStore {
   updateConfig: (patch: LmcodeConfigPatch) => Promise<void>
 }
 
-export const useConfigStore = create<ConfigStore>((set, get) => ({
+export const useConfigStore = create<ConfigStore>((set) => ({
   config: null,
   homeDir: '',
 

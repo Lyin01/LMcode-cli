@@ -134,7 +134,7 @@ export class ReadMediaFileTool implements BuiltinTool<ReadMediaFileInput> {
     private readonly jian: Jian,
     private readonly workspace: WorkspaceConfig,
     private readonly capabilities: ModelCapability,
-    private readonly videoUploader?: VideoUploader | undefined,
+    private readonly videoUploader?: VideoUploader,
   ) {
     if (!capabilities.image_in && !capabilities.video_in) {
       const skip = new Error('ReadMediaFile requires image_in or video_in capability');

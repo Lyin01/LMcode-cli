@@ -457,6 +457,10 @@ importers:
       '@types/yazl':
         specifier: ^2.4.6
         version: 2.4.6
+    optionalDependencies:
+      playwright-core:
+        specifier: ^1.61.0
+        version: 1.61.0
 
 packages:
 

@@ -57,7 +57,7 @@ export class SessionSubagentHost {
   constructor(
     private readonly session: Session,
     private readonly ownerAgentId: string,
-    readonly backgroundTaskTimeoutMs?: number | undefined,
+    readonly backgroundTaskTimeoutMs?: number,
   ) {}
 
   async spawn(profileName: string, options: RunSubagentOptions): Promise<SubagentHandle> {

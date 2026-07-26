@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-native/
 .tmp-api-extractor/
+.tmp-codex-desktop-smoke/
 coverage/
 *.tsbuildinfo
 .vitest-results/

@@ -241,7 +241,7 @@ export class CustomEditor extends Editor {
           // The cursor char is rendered as \x1b[7mX\x1b[0m by pi-tui.
           // Replace \x1b[0m with \x1b[27m (reverse-off only) so that
           // the outer reverse-video wrapper stays effective past the cursor.
-          lines[i] = `\x1b[7m${line.replace(/\u001B\[0m/g, '\u001B[27m')}\x1b[27m`;
+          lines[i] = `\x1b[7m${line.replaceAll('\u001B[0m', '\u001B[27m')}\x1b[27m`;
         }
       }
     }

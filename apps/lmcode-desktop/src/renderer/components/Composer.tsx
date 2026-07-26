@@ -1,6 +1,5 @@
 import { useRef, useCallback, useEffect, useState } from 'react'
-import { ArrowUp, Square, Paperclip, FileUp } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ArrowUp, Square, Paperclip } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
@@ -142,7 +141,7 @@ export function Composer({ autoFocus }: ComposerProps) {
     ta.style.height = 'auto'
     setShowSlash(false)
     setSlashQuery('')
-    sendMessage(text)
+    void sendMessage(text)
   }, [sendMessage, isStreaming])
 
   const handleKeyDown = useCallback(

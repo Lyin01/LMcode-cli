@@ -45,5 +45,8 @@
     "@lmcode-cli/jian": "workspace:^",
     "@lmcode-cli/ltod": "workspace:^",
     "@types/yazl": "^2.4.6"
+  },
+  "optionalDependencies": {
+    "playwright-core": "^1.61.0"
   }
 }

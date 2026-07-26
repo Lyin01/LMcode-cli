@@ -127,7 +127,7 @@ function makeInterruptedEvent(
   reason: LoopInterruptReason,
   attemptedSteps: number,
   activeStep: number | undefined,
-  message?: string | undefined,
+  message?: string,
 ): LoopTurnInterruptedEvent {
   return {
     type: 'turn.interrupted',

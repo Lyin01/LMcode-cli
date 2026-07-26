@@ -43,14 +43,16 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
 
   useEffect(() => {
     if (open) {
-      fetchMemories()
+      void fetchMemories()
       setTimeout(() => searchRef.current?.focus(), 100)
     }
   }, [open, fetchMemories])
 
   useEffect(() => {
     if (!open) return
-    const timer = setTimeout(() => fetchMemories(searchQuery), 300)
+    const timer = setTimeout(() => {
+      void fetchMemories(searchQuery)
+    }, 300)
     return () => clearTimeout(timer)
   }, [searchQuery, fetchMemories, open])
 

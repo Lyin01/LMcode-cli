@@ -77,7 +77,7 @@ export async function ensureRgPath(options: EnsureRgPathOptions = {}): Promise<R
 
 async function resolveRgPath(
   shareDir: string,
-  signal?: AbortSignal | undefined,
+  signal?: AbortSignal,
 ): Promise<RgResolution> {
   const existing = await findExistingRg(shareDir);
   if (existing) return existing;

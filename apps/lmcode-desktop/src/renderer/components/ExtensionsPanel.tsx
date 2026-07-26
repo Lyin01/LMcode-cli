@@ -63,7 +63,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   }, [sessionId, tab])
 
   useEffect(() => {
-    if (open) refresh()
+    if (open) void refresh()
   }, [open, tab, refresh])
 
   useEffect(() => {

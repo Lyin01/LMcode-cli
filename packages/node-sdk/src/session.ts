@@ -370,7 +370,7 @@ export class Session {
     return this.rpc.getPluginInfo(id);
   }
 
-  async activateSkill(name: string, args?: string | undefined): Promise<void> {
+  async activateSkill(name: string, args?: string): Promise<void> {
     this.ensureOpen();
     const skillName = normalizeRequiredString(
       name,
