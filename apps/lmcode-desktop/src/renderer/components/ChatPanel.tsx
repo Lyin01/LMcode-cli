@@ -16,12 +16,14 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ onOpenSettings }: ChatPanelProps) {
-  const messages = useSessionStore((s) => s.messages)
+  // Narrow boolean selector: subscribing to the whole `messages` array would
+  // re-render this panel (and the heavy Composer subtree) on every stream delta.
+  const isEmpty = useSessionStore((s) => s.messages.length === 0)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
 
   if (!currentSessionId) return null
 
-  if (messages.length === 0) {
+  if (isEmpty) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
         <div className="w-full max-w-2xl pb-10">
@@ -39,7 +41,7 @@ export function ChatPanel({ onOpenSettings }: ChatPanelProps) {
               LMCODE · AI Agent 桌面客户端
             </p>
           </div>
-          <Composer autoFocus onOpenSettings={onOpenSettings} />
+          <Composer key={currentSessionId} autoFocus onOpenSettings={onOpenSettings} />
         </div>
       </div>
     )
@@ -50,7 +52,7 @@ export function ChatPanel({ onOpenSettings }: ChatPanelProps) {
       <MessageList />
       <div className="shrink-0 px-4 pb-4">
         <div className="mx-auto max-w-3xl">
-          <Composer onOpenSettings={onOpenSettings} />
+          <Composer key={currentSessionId} onOpenSettings={onOpenSettings} />
         </div>
       </div>
     </div>

@@ -13,5 +13,10 @@ export default defineConfig({
     name: 'lmcode-desktop',
     include: ['test/**/*.test.ts'],
     environment: 'node',
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      reporter: ['text', 'html'],
+    },
   },
 })

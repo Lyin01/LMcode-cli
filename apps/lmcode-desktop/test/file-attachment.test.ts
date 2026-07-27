@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  isSensitiveAttachmentPath,
   readTextAttachment,
   TEXT_ATTACHMENT_LIMIT_BYTES,
 } from '../src/main/file-attachment'
@@ -54,5 +55,55 @@ describe('desktop text attachments', () => {
       sizeBytes: TEXT_ATTACHMENT_LIMIT_BYTES - 1 + Buffer.byteLength('你tail'),
       truncated: true,
     })
+  })
+
+  it('rejects credential and secret files even though they are valid UTF-8', async () => {
+    const envPath = await temporaryFile('.env', 'API_KEY=secret')
+    const envLocalPath = await temporaryFile('.env.local', 'API_KEY=secret')
+    const pemPath = await temporaryFile('server.pem', '-----BEGIN-----')
+    const cookiesPath = await temporaryFile('site_cookies.json', '{}')
+
+    await expect(readTextAttachment(envPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(envLocalPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(pemPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(cookiesPath)).rejects.toThrow('安全考虑')
+  })
+
+  it('rejects a symlink that points at a sensitive file', async () => {
+    const envPath = await temporaryFile('.env', 'API_KEY=secret')
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'lmcode-attachment-'))
+    temporaryDirectories.push(directory)
+    const linkPath = path.join(directory, 'innocent.txt')
+    try {
+      await fs.symlink(envPath, linkPath)
+    } catch {
+      // Windows requires elevated privileges for file symlinks; nothing to test.
+      return
+    }
+
+    await expect(readTextAttachment(linkPath)).rejects.toThrow('安全考虑')
+  })
+})
+
+describe('sensitive attachment path denylist', () => {
+  const home = os.homedir()
+  const inHome = (...segments: string[]) => path.join(home, ...segments)
+
+  it('blocks app config, device id and credential stores under the home directory', () => {
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'config.toml'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'config.toml.bak'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'device_id'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.ssh', 'id_rsa'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.gnupg', 'secring.gpg'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.aws', 'credentials'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.kube', 'config'))).toBe(true)
+  })
+
+  it('does not over-block ordinary files, including non-secret files under ~/.lmcode', () => {
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'sessions', 'abc', 'events.jsonl'))).toBe(false)
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'memory', 'note.md'))).toBe(false)
+    expect(isSensitiveAttachmentPath(inHome('project', 'config.toml'))).toBe(false)
+    expect(isSensitiveAttachmentPath(inHome('project', 'src', 'index.ts'))).toBe(false)
+    expect(isSensitiveAttachmentPath(inHome('project', 'env.example'))).toBe(false)
   })
 })

@@ -25,26 +25,45 @@ interface SidebarProps {
   onOpenExtensions: () => void
 }
 
+/**
+ * Per-session streaming/unread badges. Subscribes with narrow per-id boolean
+ * selectors so a background session's stream deltas (which replace the whole
+ * `bg` object on every delta) only re-render the affected badge, not the
+ * entire sidebar.
+ */
+function SessionBadges({ sessionId, isCurrent }: { sessionId: string; isCurrent: boolean }) {
+  const isStreaming = useSessionStore((s) =>
+    isCurrent ? s.isStreaming : (s.bg[sessionId]?.isStreaming ?? false),
+  )
+  const hasUnread = useSessionStore((s) => !isCurrent && s.bg[sessionId]?.unread === true)
+
+  if (isStreaming) {
+    return (
+      <span
+        className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--lm-accent)]"
+        title="正在生成…"
+      />
+    )
+  }
+  if (hasUnread) {
+    return (
+      <span
+        className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--lm-accent)]"
+        title="有新结果"
+      />
+    )
+  }
+  return null
+}
+
 export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenExtensions }: SidebarProps) {
   const sessions = useSessionStore((s) => s.sessions)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const selectSession = useSessionStore((s) => s.selectSession)
   const setSessions = useSessionStore((s) => s.setSessions)
   const removeDeletedSession = useSessionStore((s) => s.removeDeletedSession)
-  const bg = useSessionStore((s) => s.bg)
-  const activeStreaming = useSessionStore((s) => s.isStreaming)
   const { createSession } = useSession()
   const currentWorkDir = sessions.find((session) => session.id === currentSessionId)?.workDir
-
-  const isStreamingSession = useCallback(
-    (id: string) => (id === currentSessionId ? activeStreaming : !!bg[id]?.isStreaming),
-    [currentSessionId, activeStreaming, bg],
-  )
-
-  const hasUnreadSession = useCallback(
-    (id: string) => id !== currentSessionId && bg[id]?.unread === true,
-    [bg, currentSessionId],
-  )
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -262,18 +281,7 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
                 </div>
               ) : (
                 <>
-                  {isStreamingSession(session.id) && (
-                    <span
-                      className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--lm-accent)]"
-                      title="正在生成…"
-                    />
-                  )}
-                  {!isStreamingSession(session.id) && hasUnreadSession(session.id) && (
-                    <span
-                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--lm-accent)]"
-                      title="有新结果"
-                    />
-                  )}
+                  <SessionBadges sessionId={session.id} isCurrent={session.id === currentSessionId} />
                   <span className="flex-1 truncate">
                     {session.title || session.workDir || '新会话'}
                   </span>

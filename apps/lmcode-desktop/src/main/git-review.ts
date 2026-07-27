@@ -194,6 +194,25 @@ async function createUntrackedPatch(root: string, filePath: string): Promise<Git
     throw new Error('拒绝读取 Git 工作区之外的文件')
   }
 
+  // The lexical check above is not enough: git status happily lists a symlink
+  // as untracked, and readFile follows it — so a malicious repo could exfiltrate
+  // any file outside the worktree into the diff preview (and from there into a
+  // model prompt). Resolve the real path and re-check containment.
+  const realRoot = await fs.realpath(root)
+  const realPath = await fs.realpath(absolutePath)
+  const realRelative = path.relative(realRoot, realPath)
+  if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+    throw new Error('拒绝读取 Git 工作区之外的文件')
+  }
+  const stat = await fs.lstat(absolutePath)
+  if (stat.isSymbolicLink()) {
+    return {
+      kind: 'untracked',
+      patch: `Symbolic link ${displayPath(filePath)} is untracked`,
+      truncated: false,
+    }
+  }
+
   const content = await fs.readFile(absolutePath)
   if (content.includes(0)) {
     return {

@@ -18,6 +18,7 @@ import { TerminalPanel } from '@/components/TerminalPanel'
 import { WorktreesPanel } from '@/components/WorktreesPanel'
 import { SubagentsPanel } from '@/components/SubagentsPanel'
 import { AutomationsPanel } from '@/components/AutomationsPanel'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
 import { historyToMessages } from '@/lib/history'
 import type { SessionInfo } from '@/types'
@@ -317,7 +318,9 @@ export default function App() {
         />
 
         {currentSessionId ? (
-          <ChatPanel onOpenSettings={handleOpenSettings} />
+          <ErrorBoundary name="对话">
+            <ChatPanel onOpenSettings={handleOpenSettings} />
+          </ErrorBoundary>
         ) : (
           <div className="flex flex-1 items-center justify-center px-6 text-center">
             <div className="flex max-w-md flex-col items-center gap-4">
@@ -345,24 +348,46 @@ export default function App() {
       </div>
 
       {/* Overlays */}
-      <SettingsPanel
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
-        theme={theme}
-        onThemeChange={setTheme}
-      />
-      <MemoryBrowser open={showMemory} onClose={() => setShowMemory(false)} />
-      <TasksPanel open={showTasks} onClose={() => setShowTasks(false)} />
-      <ExtensionsPanel open={showExtensions} onClose={() => setShowExtensions(false)} />
-      <GitReviewPanel open={showGitReview} onClose={() => setShowGitReview(false)} />
-      <TerminalPanel open={showTerminal} onClose={() => setShowTerminal(false)} />
-      <WorktreesPanel open={showWorktrees} onClose={() => setShowWorktrees(false)} />
-      <SubagentsPanel open={showSubagents} onClose={() => setShowSubagents(false)} />
-      <AutomationsPanel open={showAutomations} onClose={() => setShowAutomations(false)} />
+      <ErrorBoundary name="设置">
+        <SettingsPanel
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          theme={theme}
+          onThemeChange={setTheme}
+        />
+      </ErrorBoundary>
+      <ErrorBoundary name="记忆库">
+        <MemoryBrowser open={showMemory} onClose={() => setShowMemory(false)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="任务">
+        <TasksPanel open={showTasks} onClose={() => setShowTasks(false)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="扩展">
+        <ExtensionsPanel open={showExtensions} onClose={() => setShowExtensions(false)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="Git 审查">
+        <GitReviewPanel open={showGitReview} onClose={() => setShowGitReview(false)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="终端">
+        <TerminalPanel open={showTerminal} onClose={() => setShowTerminal(false)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="Worktrees">
+        <WorktreesPanel open={showWorktrees} onClose={() => setShowWorktrees(false)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="子代理">
+        <SubagentsPanel open={showSubagents} onClose={() => setShowSubagents(false)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="自动化">
+        <AutomationsPanel open={showAutomations} onClose={() => setShowAutomations(false)} />
+      </ErrorBoundary>
 
       {/* Dialogs */}
-      <ApprovalDialog />
-      <QuestionDialog />
+      <ErrorBoundary name="审批对话框">
+        <ApprovalDialog />
+      </ErrorBoundary>
+      <ErrorBoundary name="提问对话框">
+        <QuestionDialog />
+      </ErrorBoundary>
     </div>
   )
 }

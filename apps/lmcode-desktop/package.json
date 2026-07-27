@@ -1,6 +1,6 @@
 {
   "name": "@liumir/lmcode-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "LMCODE Desktop - AI Agent 桌面客户端",
   "license": "MIT",
@@ -8,18 +8,20 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "build:renderer": "vite build --config vite.renderer.config.ts",
-    "preview": "electron-vite preview",
+    "preview": "pnpm run build && pnpm run start",
     "start": "electron .",
     "postinstall": "electron-builder install-app-deps",
     "build:win": "pnpm run build && electron-builder --win",
     "release": "pnpm run build && electron-builder --win --publish always",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
+    "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web && pnpm run typecheck:test",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
-    "typecheck:web": "tsc --noEmit -p tsconfig.web.json"
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "@lmcode-cli/lmcode-sdk": "workspace:^",
@@ -56,9 +58,8 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.0",
     "autoprefixer": "^10.4.0",
-    "electron": "39.8.10",
+    "electron": "43.2.0",
     "electron-builder": "^26.0.0",
-    "electron-vite": "^3.0.0",
     "esbuild": "^0.25.0",
     "postcss": "^8.5.0",
     "tailwindcss": "^4.0.0",

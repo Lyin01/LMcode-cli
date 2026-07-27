@@ -1,4 +1,5 @@
 import type { Message } from '@/types'
+import { memo } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallBlock } from '@/components/ToolCallBlock'
@@ -6,11 +7,19 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 
+// Module-level constants: inline arrays would break React.memo's props
+// comparison on every render.
+const REMARK_PLUGINS = [remarkGfm]
+const REHYPE_PLUGINS = [rehypeHighlight]
+
 interface MessageItemProps {
   message: Message
 }
 
-export function MessageItem({ message }: MessageItemProps) {
+// memoized: during streaming only the last assistant message gets a new object
+// identity (see patchLastAssistant), so historical items bail out of the
+// expensive markdown + highlight.js re-render.
+export const MessageItem = memo(function MessageItem({ message }: MessageItemProps) {
   const { role } = message
 
   // ── User: right-aligned warm bubble ────────────────────────────────
@@ -65,7 +74,7 @@ export function MessageItem({ message }: MessageItemProps) {
 
         {message.content ? (
           <div className="lm-markdown">
-            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>
               {message.content}
             </Markdown>
           </div>
@@ -75,4 +84,4 @@ export function MessageItem({ message }: MessageItemProps) {
       </div>
     </div>
   )
-}
+})

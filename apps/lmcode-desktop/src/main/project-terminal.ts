@@ -90,6 +90,11 @@ export class ProjectTerminalManager {
     }
     child.stdout.on('data', (chunk: Buffer | string) => forward('stdout', chunk))
     child.stderr.on('data', (chunk: Buffer | string) => forward('stderr', chunk))
+    // Without this, a write() landing in the window between the shell exiting
+    // and exitCode being set raises EPIPE on stdin as an *unhandled* 'error'
+    // event — which Node turns into an uncaught exception that crashes the
+    // whole main process. The 'close' handler below already reports the exit.
+    child.stdin.on('error', () => {})
     child.once('error', (error) => {
       forward('system', `\n[终端启动失败：${error.message}]\n`)
     })

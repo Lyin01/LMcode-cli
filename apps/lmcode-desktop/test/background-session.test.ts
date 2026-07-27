@@ -38,9 +38,27 @@ describe('desktop background session results', () => {
 
   it('marks a finished off-screen turn unread and clears the marker when selected', () => {
     const store = useSessionStore.getState()
-    store.handleEvent('session-b', { type: 'turn.started', turnId: 1, origin: { kind: 'user' } })
-    store.handleEvent('session-b', { type: 'assistant.delta', turnId: 1, delta: 'Scheduled result' })
-    store.handleEvent('session-b', { type: 'turn.ended', turnId: 1, reason: 'completed' })
+    store.handleEvent('session-b', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'agent-b',
+      sessionId: 'session-b',
+    })
+    store.handleEvent('session-b', {
+      type: 'assistant.delta',
+      turnId: 1,
+      delta: 'Scheduled result',
+      agentId: 'agent-b',
+      sessionId: 'session-b',
+    })
+    store.handleEvent('session-b', {
+      type: 'turn.ended',
+      turnId: 1,
+      reason: 'completed',
+      agentId: 'agent-b',
+      sessionId: 'session-b',
+    })
 
     expect(useSessionStore.getState().bg['session-b']).toMatchObject({
       unread: true,
