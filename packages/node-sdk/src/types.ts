@@ -69,6 +69,16 @@ export interface LmcodeHarnessOptions {
   readonly skillDirs?: readonly string[];
 }
 
+export interface HarnessCloseOptions {
+  /**
+   * Whether each session runs exit-time memory extraction (an LLM round-trip)
+   * before closing. Defaults to true. Hosts that need a fast shutdown (e.g. a
+   * desktop tray quit) can pass false — compaction-time and idle extraction
+   * still preserve memories.
+   */
+  readonly extractMemories?: boolean | undefined;
+}
+
 export interface CreateSessionOptions {
   readonly id?: string | undefined;
   readonly workDir: string;

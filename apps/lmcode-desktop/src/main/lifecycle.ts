@@ -28,10 +28,12 @@ export function withTimeoutBudget(
   })
 }
 
-export function onceAsync(task: () => Promise<void>): () => Promise<void> {
+export function onceAsync<Args extends unknown[]>(
+  task: (...args: Args) => Promise<void>,
+): (...args: Args) => Promise<void> {
   let result: Promise<void> | undefined
-  return () => {
-    result ??= Promise.resolve().then(task)
+  return (...args: Args) => {
+    result ??= Promise.resolve().then(() => task(...args))
     return result
   }
 }

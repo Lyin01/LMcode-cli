@@ -19,6 +19,18 @@ describe('desktop shutdown lifecycle', () => {
     expect(closeHarness).toHaveBeenCalledOnce()
   })
 
+  it('forwards the first call arguments to the shared closer and ignores later ones', async () => {
+    const closeHarness = vi.fn(async (_options?: { extractMemories?: boolean }) => {})
+    const closeOnce = onceAsync(closeHarness)
+
+    await closeOnce({ extractMemories: false })
+    await closeOnce({ extractMemories: true })
+    await closeOnce()
+
+    expect(closeHarness).toHaveBeenCalledOnce()
+    expect(closeHarness).toHaveBeenCalledWith({ extractMemories: false })
+  })
+
   it('blocks every quit attempt until cleanup settles, then allows exactly one retry', async () => {
     const deferred = Promise.withResolvers<void>()
     const cleanup = vi.fn(() => deferred.promise)

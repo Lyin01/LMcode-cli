@@ -19,6 +19,7 @@ import type {
   ExportSessionResult,
   ForkSessionInput,
   GetConfigOptions,
+  HarnessCloseOptions,
   LmcodeConfig,
   LmcodeConfigPatch,
   LmcodeHarnessOptions,
@@ -41,6 +42,7 @@ export class LmcodeHarness {
   private readonly pendingSessionsById = new Map<string, Promise<Session>>();
   private readonly rpc: SDKRpcClient;
   private closeRequested = false;
+  private closeOptions: HarnessCloseOptions = {};
   private closing: Promise<void> | undefined;
 
   constructor(options: LmcodeHarnessOptions) {
@@ -233,9 +235,14 @@ export class LmcodeHarness {
     return this.rpc.removeProvider(providerId);
   }
 
-  close(): Promise<void> {
+  /**
+   * Idempotent: the first call's options win. Subsequent calls return the
+   * in-flight close promise and silently ignore any new options.
+   */
+  close(options: HarnessCloseOptions = {}): Promise<void> {
     if (this.closing !== undefined) return this.closing;
     this.closeRequested = true;
+    this.closeOptions = options;
     const closing = this.closeInternal();
     this.closing = closing;
     return closing;
@@ -243,7 +250,9 @@ export class LmcodeHarness {
 
   private async closeInternal(): Promise<void> {
     await Promise.allSettled(this.pendingSessionStarts);
-    await Promise.all(Array.from(this.activeSessions.values(), (session) => session.close()));
+    await Promise.all(
+      Array.from(this.activeSessions.values(), (session) => session.close(this.closeOptions)),
+    );
     try {
       await getRootLogger().flush();
     } catch {
@@ -276,7 +285,7 @@ export class LmcodeHarness {
 
   private async rejectStartedSessionIfClosing(session: Session): Promise<void> {
     if (!this.closeRequested) return;
-    await session.close();
+    await session.close(this.closeOptions);
     throw new LmcodeError(ErrorCodes.SESSION_CLOSED, 'LmcodeHarness is closed');
   }
 

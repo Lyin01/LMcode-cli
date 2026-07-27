@@ -154,6 +154,38 @@ describe('LmcodeHarness lifecycle', () => {
       harness.createSession({ id: 'ses_after_close', workDir: '/workspace' }),
     ).rejects.toMatchObject({ code: 'session.closed' });
   });
+
+  it('runs exit-time memory extraction for active sessions on close by default', async () => {
+    const { harness, rpc, root } = await createHarness();
+    const summary = sessionSummary(root, 'ses_close_extract_default');
+    vi.spyOn(rpc, 'createSession').mockResolvedValue(summary);
+    const extractMemoriesOnExit = vi.spyOn(rpc, 'extractMemoriesOnExit').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(rpc, 'closeSession').mockResolvedValue(undefined);
+    await harness.createSession({ id: summary.id, workDir: summary.workDir });
+
+    await harness.close();
+
+    expect(extractMemoriesOnExit).toHaveBeenCalled();
+  });
+
+  it('skips exit-time memory extraction when close opts out', async () => {
+    const { harness, rpc, root } = await createHarness();
+    const summary = sessionSummary(root, 'ses_close_extract_opt_out');
+    vi.spyOn(rpc, 'createSession').mockResolvedValue(summary);
+    const extractMemoriesOnExit = vi.spyOn(rpc, 'extractMemoriesOnExit').mockResolvedValue(
+      undefined,
+    );
+    const closeSession = vi.spyOn(rpc, 'closeSession').mockResolvedValue(undefined);
+    await harness.createSession({ id: summary.id, workDir: summary.workDir });
+
+    await harness.close({ extractMemories: false });
+
+    expect(extractMemoriesOnExit).not.toHaveBeenCalled();
+    expect(closeSession).toHaveBeenCalledWith({ sessionId: summary.id });
+    expect(harness.sessions.size).toBe(0);
+  });
 });
 
 async function createHarness(): Promise<{

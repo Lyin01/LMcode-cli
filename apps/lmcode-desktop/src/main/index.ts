@@ -16,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import updaterPkg from 'electron-updater'
 import { LmcodeHarness } from '@lmcode-cli/lmcode-sdk'
+import type { HarnessCloseOptions } from '@lmcode-cli/lmcode-sdk'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
 import { onceAsync, ShutdownCoordinator, withTimeoutBudget } from './lifecycle.js'
 import { createAppMenuTemplate } from './app-menu.js'
@@ -46,10 +47,12 @@ let menuStateListener: ((event: IpcMainEvent, state: unknown) => void) | null = 
 
 // ── Shutdown budget ────────────────────────────────────────────────────
 //
-// Closing the SDK runtime can block for tens of seconds: each session runs a
-// memory-extraction LLM round-trip on close (observed ~11s, capped at 30s).
-// Quitting the app must never wait that long — cleanup is best-effort with a
-// hard budget, and a watchdog force-exits if anything still hangs.
+// The desktop quits with exit-time memory extraction disabled (that LLM
+// round-trip was observed at ~11s per session, capped at 30s) — memories are
+// still preserved by compaction-time and idle extraction. Cleanup remaining
+// (session/terminal teardown, logger flush) is local and fast, but stays
+// best-effort with a hard budget, and a watchdog force-exits if anything
+// still hangs.
 const RUNTIME_CLOSE_BUDGET_MS = 3_000
 const SHUTDOWN_WATCHDOG_MS = 6_000
 let shutdownWatchdog: NodeJS.Timeout | null = null
@@ -495,7 +498,7 @@ async function attachHandlersToCurrentWindow(): Promise<void> {
   handlerRegistration = registerAllHandlers(harness, mainWindow, trustedRendererUrl)
 }
 
-const closeRuntime = onceAsync(async (): Promise<void> => {
+const closeRuntime = onceAsync(async (options?: HarnessCloseOptions): Promise<void> => {
   if (harnessInitialization !== null) {
     await harnessInitialization.catch(() => {
       // Startup owns its failure; still close resources it managed to create.
@@ -511,7 +514,7 @@ const closeRuntime = onceAsync(async (): Promise<void> => {
   // stacking during shutdown.
   const results = await Promise.allSettled([
     closeHandlerRegistration(),
-    currentHarness?.close(),
+    currentHarness?.close(options),
   ])
   for (const result of results) {
     if (result.status === 'rejected') errors.push(result.reason)
@@ -538,11 +541,12 @@ async function cleanupApplication(): Promise<void> {
   } finally {
     tray = null
   }
-  // Bound the runtime close: session teardown can block on exit-time memory
-  // extraction (an LLM call with a 30s upstream timeout). Race it against a
-  // fixed budget and exit anyway once the budget is spent — the underlying
-  // close keeps running in the background and its errors are still logged.
-  const closing = closeRuntime().catch((error: unknown) => {
+  // Bound the runtime close: exit-time memory extraction is skipped here so
+  // teardown stays local (memories are still captured at compaction time and
+  // by the idle extractor), but the close is still raced against a fixed
+  // budget in case something hangs — the underlying close keeps running in
+  // the background and its errors are still logged.
+  const closing = closeRuntime({ extractMemories: false }).catch((error: unknown) => {
     console.error('Failed to close desktop runtime:', error)
     errors.push(error)
   })
