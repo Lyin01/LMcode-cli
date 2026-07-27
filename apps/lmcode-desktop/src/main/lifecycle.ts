@@ -2,6 +2,32 @@ export interface BeforeQuitEvent {
   preventDefault(): void
 }
 
+export type BudgetOutcome = 'completed' | 'budget-exceeded'
+
+/**
+ * Race an async cleanup against a hard time budget. The work keeps running
+ * in the background either way (its own handlers log failures); callers use
+ * this to bound how long process shutdown waits for best-effort cleanup.
+ */
+export function withTimeoutBudget(
+  work: Promise<unknown>,
+  budgetMs: number,
+): Promise<BudgetOutcome> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('budget-exceeded'), budgetMs)
+    void work.then(
+      () => {
+        clearTimeout(timer)
+        resolve('completed')
+      },
+      () => {
+        clearTimeout(timer)
+        resolve('completed')
+      },
+    )
+  })
+}
+
 export function onceAsync(task: () => Promise<void>): () => Promise<void> {
   let result: Promise<void> | undefined
   return () => {

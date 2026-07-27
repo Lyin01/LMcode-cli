@@ -17,7 +17,7 @@ import { is } from '@electron-toolkit/utils'
 import updaterPkg from 'electron-updater'
 import { LmcodeHarness } from '@lmcode-cli/lmcode-sdk'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
-import { onceAsync, ShutdownCoordinator } from './lifecycle.js'
+import { onceAsync, ShutdownCoordinator, withTimeoutBudget } from './lifecycle.js'
 import { createAppMenuTemplate } from './app-menu.js'
 import { classifyNavigation, isTrustedIpcSender } from './security.js'
 import {
@@ -43,6 +43,26 @@ let handlerCleanup: Promise<void> | null = null
 let harnessInitialization: Promise<void> | null = null
 let desktopMenuState: DesktopMenuState = DEFAULT_DESKTOP_MENU_STATE
 let menuStateListener: ((event: IpcMainEvent, state: unknown) => void) | null = null
+
+// ── Shutdown budget ────────────────────────────────────────────────────
+//
+// Closing the SDK runtime can block for tens of seconds: each session runs a
+// memory-extraction LLM round-trip on close (observed ~11s, capped at 30s).
+// Quitting the app must never wait that long — cleanup is best-effort with a
+// hard budget, and a watchdog force-exits if anything still hangs.
+const RUNTIME_CLOSE_BUDGET_MS = 3_000
+const SHUTDOWN_WATCHDOG_MS = 6_000
+let shutdownWatchdog: NodeJS.Timeout | null = null
+
+function armShutdownWatchdog(): void {
+  if (shutdownWatchdog !== null) return
+  shutdownWatchdog = setTimeout(() => {
+    console.warn('[shutdown] cleanup exceeded the watchdog limit; forcing exit')
+    app.exit(0)
+  }, SHUTDOWN_WATCHDOG_MS)
+  // Never let the watchdog itself keep the process alive.
+  shutdownWatchdog.unref()
+}
 
 // ── Tray icon ─────────────────────────────────────────────────────────
 
@@ -486,15 +506,15 @@ const closeRuntime = onceAsync(async (): Promise<void> => {
   harness = null
 
   const errors: unknown[] = []
-  try {
-    await closeHandlerRegistration()
-  } catch (error) {
-    errors.push(error)
-  }
-  try {
-    await currentHarness?.close()
-  } catch (error) {
-    errors.push(error)
+  // Handler teardown (HTTP/IPC) and harness close (sessions, terminals) are
+  // independent; run them concurrently so their latencies overlap instead of
+  // stacking during shutdown.
+  const results = await Promise.allSettled([
+    closeHandlerRegistration(),
+    currentHarness?.close(),
+  ])
+  for (const result of results) {
+    if (result.status === 'rejected') errors.push(result.reason)
   }
   if (errors.length > 0) throw new AggregateError(errors, 'Failed to close desktop runtime')
 })
@@ -518,10 +538,17 @@ async function cleanupApplication(): Promise<void> {
   } finally {
     tray = null
   }
-  try {
-    await closeRuntime()
-  } catch (error) {
+  // Bound the runtime close: session teardown can block on exit-time memory
+  // extraction (an LLM call with a 30s upstream timeout). Race it against a
+  // fixed budget and exit anyway once the budget is spent — the underlying
+  // close keeps running in the background and its errors are still logged.
+  const closing = closeRuntime().catch((error: unknown) => {
+    console.error('Failed to close desktop runtime:', error)
     errors.push(error)
+  })
+  const outcome = await withTimeoutBudget(closing, RUNTIME_CLOSE_BUDGET_MS)
+  if (outcome === 'budget-exceeded') {
+    console.warn(`[shutdown] runtime cleanup exceeded ${RUNTIME_CLOSE_BUDGET_MS}ms budget; exiting anyway`)
   }
   if (errors.length > 0) throw new AggregateError(errors, 'Failed to clean up desktop application')
 }
@@ -592,5 +619,6 @@ app.on('activate', () => {
 
 app.on('before-quit', (event) => {
   isQuitting = true
+  armShutdownWatchdog()
   shutdownCoordinator.handleBeforeQuit(event)
 })

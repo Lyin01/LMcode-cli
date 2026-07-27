@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { onceAsync, ShutdownCoordinator } from '../src/main/lifecycle'
+import { onceAsync, ShutdownCoordinator, withTimeoutBudget } from '../src/main/lifecycle'
 
 describe('desktop shutdown lifecycle', () => {
   it('runs a shared async closer only once for concurrent callers', async () => {
@@ -63,5 +63,35 @@ describe('desktop shutdown lifecycle', () => {
     expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(reportError).toHaveBeenCalledWith(error)
     expect(requestQuit).toHaveBeenCalledOnce()
+  })
+
+  it('resolves "completed" when the work settles within the budget', async () => {
+    const deferred = Promise.withResolvers<void>()
+    const outcome = withTimeoutBudget(deferred.promise, 1_000)
+
+    deferred.resolve()
+    await expect(outcome).resolves.toBe('completed')
+  })
+
+  it('resolves "budget-exceeded" when the work outlives the budget', async () => {
+    const never = new Promise<void>(() => {})
+    const outcome = withTimeoutBudget(never, 50)
+
+    await expect(outcome).resolves.toBe('budget-exceeded')
+  })
+
+  it('resolves "completed" for rejected work without leaking an unhandled rejection', async () => {
+    const onUnhandled = vi.fn()
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const outcome = withTimeoutBudget(Promise.reject(new Error('close failed')), 1_000)
+
+      await expect(outcome).resolves.toBe('completed')
+      // Give the rejection a chance to surface if the budget helper dropped it.
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(onUnhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
   })
 })
