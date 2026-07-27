@@ -5,6 +5,7 @@ import type {
   QueuedUserMessage,
   SessionInfo,
   ToolCallInfo,
+  UserAttachment,
 } from '@/types'
 import {
   DEFAULT_THINKING_EFFORT,
@@ -328,7 +329,11 @@ export interface SessionStore {
   completePendingInteraction: (requestId: string) => void
   discardPendingInteraction: (requestId: string) => void
 
-  enqueueMessage: (sessionId: string, text: string) => string
+  enqueueMessage: (
+    sessionId: string,
+    text: string,
+    attachments?: readonly UserAttachment[],
+  ) => string
   updateQueuedMessage: (sessionId: string, messageId: string, text: string) => void
   removeQueuedMessage: (sessionId: string, messageId: string) => void
   moveQueuedMessage: (sessionId: string, messageId: string, direction: -1 | 1) => void
@@ -690,10 +695,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ),
     })),
 
-  enqueueMessage: (sessionId, text) => {
+  enqueueMessage: (sessionId, text, attachments = []) => {
     queuedMessageCounter += 1
     const id = `queued_${Date.now()}_${queuedMessageCounter}`
-    const message: QueuedUserMessage = { id, text, createdAt: Date.now() }
+    const message: QueuedUserMessage = {
+      id,
+      text,
+      attachments: [...attachments],
+      createdAt: Date.now(),
+    }
     set((state) => ({
       messageQueue: {
         ...state.messageQueue,

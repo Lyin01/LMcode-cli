@@ -4,9 +4,13 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  applyGitHunkAction,
   commitGitChanges,
+  discardAllGitChanges,
+  discardGitFileChanges,
   inspectGitFileDiff,
   inspectGitRepository,
+  setAllGitFilesStaged,
   setGitFileStaged,
 } from '../src/main/git-review'
 
@@ -123,5 +127,128 @@ describe('desktop Git review', () => {
     await expect(inspectGitRepository(workDir)).resolves.toEqual(
       expect.objectContaining({ changes: [] }),
     )
+  })
+
+  it('stages, unstages, and reverts one hunk without touching a separate hunk', async () => {
+    const workDir = await createRepository()
+    const original = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n') + '\n'
+    await fs.writeFile(path.join(workDir, 'tracked.txt'), original, 'utf8')
+    git(workDir, 'add', 'tracked.txt')
+    git(
+      workDir,
+      '-c',
+      'user.name=LMCODE Test',
+      '-c',
+      'user.email=lmcode@example.invalid',
+      'commit',
+      '-m',
+      'expand fixture',
+    )
+
+    const changedLines = original.trimEnd().split('\n')
+    changedLines[1] = 'line 2 changed'
+    changedLines[14] = 'line 15 changed'
+    await fs.writeFile(path.join(workDir, 'tracked.txt'), `${changedLines.join('\n')}\n`, 'utf8')
+
+    await applyGitHunkAction(workDir, {
+      filePath: 'tracked.txt',
+      sectionKind: 'unstaged',
+      hunkIndex: 0,
+      action: 'stage',
+    })
+    const partlyStaged = await inspectGitRepository(workDir)
+    expect(partlyStaged.changes).toEqual([
+      expect.objectContaining({ path: 'tracked.txt', staged: true, unstaged: true }),
+    ])
+    const splitDiff = await inspectGitFileDiff(workDir, 'tracked.txt')
+    expect(splitDiff.sections.find((section) => section.kind === 'staged')?.patch)
+      .toContain('line 2 changed')
+    expect(splitDiff.sections.find((section) => section.kind === 'unstaged')?.patch)
+      .toContain('line 15 changed')
+
+    await applyGitHunkAction(workDir, {
+      filePath: 'tracked.txt',
+      sectionKind: 'staged',
+      hunkIndex: 0,
+      action: 'unstage',
+    })
+    await applyGitHunkAction(workDir, {
+      filePath: 'tracked.txt',
+      sectionKind: 'unstaged',
+      hunkIndex: 0,
+      action: 'revert',
+    })
+
+    const content = (await fs.readFile(path.join(workDir, 'tracked.txt'), 'utf8'))
+      .replaceAll('\r\n', '\n')
+    expect(content).toContain('line 2\n')
+    expect(content).not.toContain('line 2 changed')
+    expect(content).toContain('line 15 changed')
+  })
+
+  it('stages and unstages the whole diff while preserving working files', async () => {
+    const workDir = await createRepository()
+    await fs.writeFile(path.join(workDir, 'tracked.txt'), 'before\nafter\n', 'utf8')
+    await fs.writeFile(path.join(workDir, 'new.txt'), 'new content\n', 'utf8')
+
+    await setAllGitFilesStaged(workDir, true)
+    const staged = await inspectGitRepository(workDir)
+    expect(staged.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'tracked.txt', staged: true, unstaged: false }),
+        expect.objectContaining({ path: 'new.txt', staged: true, unstaged: false }),
+      ]),
+    )
+
+    await setAllGitFilesStaged(workDir, false)
+    const unstaged = await inspectGitRepository(workDir)
+    expect(unstaged.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'tracked.txt', staged: false, unstaged: true }),
+        expect.objectContaining({ path: 'new.txt', kind: 'untracked', staged: false }),
+      ]),
+    )
+    await expect(fs.readFile(path.join(workDir, 'new.txt'), 'utf8')).resolves.toBe('new content\n')
+  })
+
+  it('restores tracked changes and sends untracked files through the trash callback', async () => {
+    const workDir = await createRepository()
+    const untrackedPath = path.join(workDir, 'untracked.txt')
+    await fs.writeFile(path.join(workDir, 'tracked.txt'), 'changed\n', 'utf8')
+    await fs.writeFile(untrackedPath, 'recoverable\n', 'utf8')
+    const trashed: string[] = []
+    const trashItem = async (target: string): Promise<void> => {
+      trashed.push(target)
+      await fs.rm(target, { force: true })
+    }
+
+    await discardGitFileChanges(workDir, 'tracked.txt', 'unstaged', trashItem)
+    const restored = await fs.readFile(path.join(workDir, 'tracked.txt'), 'utf8')
+    expect(restored.replaceAll('\r\n', '\n')).toBe('before\n')
+    expect(trashed).toEqual([])
+
+    await discardGitFileChanges(workDir, 'untracked.txt', 'all', trashItem)
+    expect(trashed).toEqual([untrackedPath])
+    await expect(fs.stat(untrackedPath)).rejects.toThrow()
+  })
+
+  it('discards the complete diff only through the supplied recoverable-trash boundary', async () => {
+    const workDir = await createRepository()
+    await fs.writeFile(path.join(workDir, 'tracked.txt'), 'changed\n', 'utf8')
+    await fs.writeFile(path.join(workDir, 'new.txt'), 'new\n', 'utf8')
+    git(workDir, 'add', 'tracked.txt')
+    const trashed: string[] = []
+
+    await discardAllGitChanges(workDir, async (target) => {
+      trashed.push(path.basename(target))
+      await fs.rm(target, { force: true })
+    })
+
+    await expect(inspectGitRepository(workDir)).resolves.toEqual(
+      expect.objectContaining({ changes: [] }),
+    )
+    expect(trashed).toEqual(['new.txt'])
+    const restored = await fs.readFile(path.join(workDir, 'tracked.txt'), 'utf8')
+    expect(restored.replaceAll('\r\n', '\n')).toBe('before\n')
   })
 })

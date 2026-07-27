@@ -46,3 +46,15 @@ export interface GitCommitResult {
   readonly oid: string
   readonly summary: string
 }
+
+export type GitHunkSectionKind = 'staged' | 'unstaged'
+export type GitHunkAction = 'stage' | 'unstage' | 'revert'
+
+export interface GitHunkActionInput {
+  readonly filePath: string
+  readonly sectionKind: GitHunkSectionKind
+  readonly hunkIndex: number
+  readonly action: GitHunkAction
+}
+
+export type GitDiscardScope = 'unstaged' | 'all'

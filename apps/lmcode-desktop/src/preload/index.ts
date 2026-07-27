@@ -14,7 +14,16 @@ import type {
   SessionEventPayload,
 } from '../shared/ipc-types.js'
 import type { TerminalOutputPayload } from '../shared/terminal-types.js'
-import type { TextAttachment } from '../shared/file-types.js'
+import type {
+  DesktopPromptRequest,
+  FileAttachmentPreview,
+  TextAttachment,
+} from '../shared/file-types.js'
+import type {
+  DesktopMenuCommandPayload,
+  DesktopMenuState,
+} from '../shared/menu-types.js'
+import type { GitDiscardScope, GitHunkActionInput } from '../shared/git-types.js'
 
 // Custom API exposed as window.lmcodeAPI
 const lmcodeAPI = {
@@ -46,11 +55,11 @@ const lmcodeAPI = {
 
   // ── Chat ────────────────────────────────────────────────────────
 
-  sendMessage: (sessionId: string, text: string) =>
-    ipcRenderer.invoke('lmcode:sendMessage', sessionId, text),
+  sendMessage: (sessionId: string, request: DesktopPromptRequest) =>
+    ipcRenderer.invoke('lmcode:sendMessage', sessionId, request),
 
-  steerMessage: (sessionId: string, text: string) =>
-    ipcRenderer.invoke('lmcode:steerMessage', sessionId, text),
+  steerMessage: (sessionId: string, request: DesktopPromptRequest) =>
+    ipcRenderer.invoke('lmcode:steerMessage', sessionId, request),
 
   cancelResponse: (sessionId: string) =>
     ipcRenderer.invoke('lmcode:cancelResponse', sessionId),
@@ -154,6 +163,15 @@ const lmcodeAPI = {
   readFileContent: (filePath: string): Promise<TextAttachment> =>
     ipcRenderer.invoke('lmcode:readFileContent', filePath),
 
+  readFileAttachment: (filePath: string): Promise<FileAttachmentPreview> =>
+    ipcRenderer.invoke('lmcode:readFileAttachment', filePath),
+
+  readInlineImageAttachment: (
+    name: string,
+    dataUrl: string,
+  ): Promise<FileAttachmentPreview> =>
+    ipcRenderer.invoke('lmcode:readInlineImageAttachment', name, dataUrl),
+
   // ── Git review ─────────────────────────────────────────────────
 
   getGitSnapshot: (sessionId: string) =>
@@ -164,6 +182,21 @@ const lmcodeAPI = {
 
   setGitFileStaged: (sessionId: string, filePath: string, staged: boolean) =>
     ipcRenderer.invoke('lmcode:setGitFileStaged', sessionId, filePath, staged),
+
+  setAllGitFilesStaged: (sessionId: string, staged: boolean) =>
+    ipcRenderer.invoke('lmcode:setAllGitFilesStaged', sessionId, staged),
+
+  applyGitHunkAction: (sessionId: string, input: GitHunkActionInput) =>
+    ipcRenderer.invoke('lmcode:applyGitHunkAction', sessionId, input),
+
+  discardGitFileChanges: (
+    sessionId: string,
+    filePath: string,
+    scope: GitDiscardScope,
+  ) => ipcRenderer.invoke('lmcode:discardGitFileChanges', sessionId, filePath, scope),
+
+  discardAllGitChanges: (sessionId: string) =>
+    ipcRenderer.invoke('lmcode:discardAllGitChanges', sessionId),
 
   commitGitChanges: (sessionId: string, message: string) =>
     ipcRenderer.invoke('lmcode:commitGitChanges', sessionId, message),
@@ -238,14 +271,19 @@ const lmcodeAPI = {
     }
   },
 
-  // ── Navigation events (from tray menu) ──────────────────────────
+  // ── Native application menu ────────────────────────────────────
 
-  onNavigate: (callback: (data: { route: string }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { route: string }) => callback(data)
-    ipcRenderer.on('lmcode:navigate', handler)
+  onMenuCommand: (callback: (data: DesktopMenuCommandPayload) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: DesktopMenuCommandPayload) =>
+      callback(data)
+    ipcRenderer.on('lmcode:menuCommand', handler)
     return () => {
-      ipcRenderer.removeListener('lmcode:navigate', handler)
+      ipcRenderer.removeListener('lmcode:menuCommand', handler)
     }
+  },
+
+  updateMenuState: (state: DesktopMenuState) => {
+    ipcRenderer.send('lmcode:updateMenuState', state)
   },
 
   // ── Approval / Question responses ───────────────────────────────

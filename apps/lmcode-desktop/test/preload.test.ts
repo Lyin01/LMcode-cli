@@ -39,6 +39,19 @@ describe('desktop preload bridge', () => {
       getGitSnapshot(sessionId: string): Promise<unknown>
       getGitFileDiff(sessionId: string, filePath: string): Promise<unknown>
       setGitFileStaged(sessionId: string, filePath: string, staged: boolean): Promise<void>
+      setAllGitFilesStaged(sessionId: string, staged: boolean): Promise<void>
+      applyGitHunkAction(sessionId: string, input: {
+        filePath: string
+        sectionKind: 'staged' | 'unstaged'
+        hunkIndex: number
+        action: 'stage' | 'unstage' | 'revert'
+      }): Promise<void>
+      discardGitFileChanges(
+        sessionId: string,
+        filePath: string,
+        scope: 'unstaged' | 'all',
+      ): Promise<void>
+      discardAllGitChanges(sessionId: string): Promise<void>
       commitGitChanges(sessionId: string, message: string): Promise<unknown>
       listCronJobs(sessionId: string): Promise<unknown>
       createCronJob(sessionId: string, input: unknown): Promise<unknown>
@@ -51,10 +64,21 @@ describe('desktop preload bridge', () => {
       listGitWorktrees(sessionId: string): Promise<unknown>
       createWorktreeHandoff(sessionId: string, branchName: string): Promise<unknown>
       handoffToWorktree(sessionId: string, worktreePath: string): Promise<unknown>
-      steerMessage(sessionId: string, text: string): Promise<void>
+      sendMessage(sessionId: string, request: unknown): Promise<void>
+      steerMessage(sessionId: string, request: unknown): Promise<void>
+      readFileAttachment(filePath: string): Promise<unknown>
+      readInlineImageAttachment(name: string, dataUrl: string): Promise<unknown>
       getSessionStatus(sessionId: string): Promise<unknown>
       onInteractionSettled(callback: (payload: unknown) => void): () => void
       onTerminalOutput(callback: (payload: unknown) => void): () => void
+      onMenuCommand(callback: (payload: unknown) => void): () => void
+      updateMenuState(state: {
+        hasActiveSession: boolean
+        canFindInConversation: boolean
+        sidebarOpen: boolean
+        canGoPrevious: boolean
+        canGoNext: boolean
+      }): void
       respondApproval(payload: unknown): Promise<void>
       respondQuestion(payload: unknown): Promise<void>
     }
@@ -69,6 +93,16 @@ describe('desktop preload bridge', () => {
     await api.getGitSnapshot('session-1')
     await api.getGitFileDiff('session-1', 'src/app.ts')
     await api.setGitFileStaged('session-1', 'src/app.ts', true)
+    await api.setAllGitFilesStaged('session-1', false)
+    const hunkAction = {
+      filePath: 'src/app.ts',
+      sectionKind: 'unstaged' as const,
+      hunkIndex: 1,
+      action: 'stage' as const,
+    }
+    await api.applyGitHunkAction('session-1', hunkAction)
+    await api.discardGitFileChanges('session-1', 'src/app.ts', 'unstaged')
+    await api.discardAllGitChanges('session-1')
     await api.commitGitChanges('session-1', 'Update app')
     await api.listCronJobs('session-1')
     await api.createCronJob('session-1', {
@@ -85,7 +119,14 @@ describe('desktop preload bridge', () => {
     await api.listGitWorktrees('session-1')
     await api.createWorktreeHandoff('session-1', 'lmcode/feature')
     await api.handoffToWorktree('session-1', 'C:/worktrees/feature')
-    await api.steerMessage('session-1', 'change direction')
+    const promptRequest = {
+      text: 'change direction',
+      attachments: [{ source: 'path', kind: 'image', filePath: 'C:/work/screen.png' }],
+    }
+    await api.sendMessage('session-1', promptRequest)
+    await api.steerMessage('session-1', promptRequest)
+    await api.readFileAttachment('C:/work/screen.png')
+    await api.readInlineImageAttachment('clipboard.png', 'data:image/png;base64,abc=')
     await api.getSessionStatus('session-1')
     await api.respondApproval(approval)
     await api.respondQuestion(question)
@@ -108,6 +149,24 @@ describe('desktop preload bridge', () => {
     terminalListener?.({}, terminalPayload)
     unsubscribeTerminal()
 
+    const onMenuCommand = vi.fn()
+    const unsubscribeMenuCommand = api.onMenuCommand(onMenuCommand)
+    const menuCommandListener = electron.on.mock.calls.find(
+      ([channel]) => channel === 'lmcode:menuCommand',
+    )?.[1] as ((event: unknown, payload: unknown) => void) | undefined
+    const menuCommandPayload = { command: 'show-terminal' }
+    menuCommandListener?.({}, menuCommandPayload)
+    unsubscribeMenuCommand()
+
+    const menuState = {
+      hasActiveSession: true,
+      canFindInConversation: true,
+      sidebarOpen: false,
+      canGoPrevious: true,
+      canGoNext: false,
+    }
+    api.updateMenuState(menuState)
+
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:exportSession', 'session-1')
     expect(electron.getPathForFile).toHaveBeenCalledWith(file)
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:selectWorkDirectory', 'C:/work')
@@ -128,6 +187,26 @@ describe('desktop preload bridge', () => {
       'session-1',
       'src/app.ts',
       true,
+    )
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'lmcode:setAllGitFilesStaged',
+      'session-1',
+      false,
+    )
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'lmcode:applyGitHunkAction',
+      'session-1',
+      hunkAction,
+    )
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'lmcode:discardGitFileChanges',
+      'session-1',
+      'src/app.ts',
+      'unstaged',
+    )
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'lmcode:discardAllGitChanges',
+      'session-1',
     )
     expect(electron.invoke).toHaveBeenCalledWith(
       'lmcode:commitGitChanges',
@@ -166,17 +245,36 @@ describe('desktop preload bridge', () => {
       'C:/worktrees/feature',
     )
     expect(electron.invoke).toHaveBeenCalledWith(
+      'lmcode:sendMessage',
+      'session-1',
+      promptRequest,
+    )
+    expect(electron.invoke).toHaveBeenCalledWith(
       'lmcode:steerMessage',
       'session-1',
-      'change direction',
+      promptRequest,
+    )
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'lmcode:readFileAttachment',
+      'C:/work/screen.png',
+    )
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'lmcode:readInlineImageAttachment',
+      'clipboard.png',
+      'data:image/png;base64,abc=',
     )
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:getSessionStatus', 'session-1')
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:respondApproval', approval)
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:respondQuestion', question)
     expect(onSettled).toHaveBeenCalledWith(settledPayload)
     expect(onTerminalOutput).toHaveBeenCalledWith(terminalPayload)
+    expect(onMenuCommand).toHaveBeenCalledWith(menuCommandPayload)
     expect(electron.removeListener).toHaveBeenCalledWith('lmcode:interactionSettled', listener)
     expect(electron.removeListener).toHaveBeenCalledWith('lmcode:terminalOutput', terminalListener)
-    expect(electron.send).not.toHaveBeenCalled()
+    expect(electron.removeListener).toHaveBeenCalledWith(
+      'lmcode:menuCommand',
+      menuCommandListener,
+    )
+    expect(electron.send).toHaveBeenCalledWith('lmcode:updateMenuState', menuState)
   })
 })

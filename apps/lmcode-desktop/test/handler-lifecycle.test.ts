@@ -24,6 +24,7 @@ const electron = vi.hoisted(() => {
       canceled: false,
       filePaths: ['C:/work'],
     })),
+    trashItem: vi.fn(async (): Promise<void> => undefined),
   }
 })
 
@@ -45,6 +46,7 @@ vi.mock('electron', () => ({
     removeListener: electron.removeListener,
   },
   dialog: { showOpenDialog: electron.showOpenDialog },
+  shell: { trashItem: electron.trashItem },
   Notification: class {
     static isSupported(): boolean {
       return false
@@ -266,7 +268,10 @@ describe('desktop handler lifecycle', () => {
     await invoke('lmcode:setPlanMode', 'session-controls', true)
     await invoke('lmcode:compactSession', 'session-controls', 'retain decisions')
     await invoke('lmcode:undoHistory', 'session-controls', 2)
-    await invoke('lmcode:steerMessage', 'session-controls', 'focus on the failing test')
+    await invoke('lmcode:steerMessage', 'session-controls', {
+      text: 'focus on the failing test',
+      attachments: [],
+    })
     await expect(invoke('lmcode:listCronJobs', 'session-controls')).resolves.toEqual([])
     await invoke('lmcode:createCronJob', 'session-controls', {
       cron: '0 9 * * 1-5',
@@ -289,7 +294,9 @@ describe('desktop handler lifecycle', () => {
     expect(session.setPlanMode).toHaveBeenCalledWith(true)
     expect(session.compact).toHaveBeenCalledWith({ instruction: 'retain decisions' })
     expect(session.undoHistory).toHaveBeenCalledWith(2)
-    expect(session.steer).toHaveBeenCalledWith('focus on the failing test')
+    expect(session.steer).toHaveBeenCalledWith([
+      { type: 'text', text: 'focus on the failing test' },
+    ])
     expect(session.createCronJob).toHaveBeenCalledWith({
       cron: '0 9 * * 1-5',
       prompt: 'Run tests',

@@ -87,7 +87,10 @@ export function SubagentsPanel({ open, onClose }: SubagentsPanelProps) {
     setError(null)
     try {
       const instruction = `请调整子 Agent ${agent.name}（${agent.subagentId}）的工作方向：${direction}`
-      await window.lmcodeAPI.steerMessage(agent.sessionId, instruction)
+      await window.lmcodeAPI.steerMessage(agent.sessionId, {
+        text: instruction,
+        attachments: [],
+      })
       addMessageToSession(agent.sessionId, {
         id: `msg_subagent_steer_${Date.now()}`,
         role: 'user',

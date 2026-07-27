@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type {
   ProjectTerminalInfo,
@@ -24,14 +25,41 @@ interface ProjectTerminalEntry {
   readonly exited: Promise<void>
 }
 
+function isOnPath(command: string): boolean {
+  const pathEnv = process.env['PATH'] ?? ''
+  const extensions = process.platform === 'win32'
+    ? (process.env['PATHEXT'] ?? '.EXE;.CMD;.BAT').split(';')
+    : ['']
+  for (const directory of pathEnv.split(path.delimiter)) {
+    if (!directory) continue
+    for (const extension of extensions) {
+      if (fs.existsSync(path.join(directory, command + extension.toLowerCase()))) return true
+      if (fs.existsSync(path.join(directory, command + extension.toUpperCase()))) return true
+    }
+  }
+  return false
+}
+
 function resolveShell(): ShellCommand {
   const configured = process.env['LMCODE_TERMINAL_SHELL']?.trim()
   if (configured) {
     return { command: configured, args: [], label: path.basename(configured) }
   }
   if (process.platform === 'win32') {
+    // Some minimal environments (CI shells, service accounts) do not put the
+    // PowerShell directory on PATH. Fall back to the well-known install path
+    // so the terminal still starts instead of dying with ENOENT.
+    const wellKnown = path.join(
+      process.env['SystemRoot'] ?? 'C:\\Windows',
+      'System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    )
+    const command = isOnPath('powershell.exe')
+      ? 'powershell.exe'
+      : fs.existsSync(wellKnown)
+        ? wellKnown
+        : 'powershell.exe'
     return {
-      command: 'powershell.exe',
+      command,
       args: ['-NoLogo', '-NoProfile', '-Command', '-'],
       label: 'PowerShell',
     }

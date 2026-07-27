@@ -3,6 +3,7 @@ import { memo } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallBlock } from '@/components/ToolCallBlock'
+import { AttachmentStrip } from '@/components/AttachmentStrip'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -26,8 +27,11 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
   if (role === 'user') {
     return (
       <div className="flex animate-fade-in justify-end">
-        <div className="max-w-[82%] whitespace-pre-wrap rounded-[18px] bg-[var(--lm-bg-bubble)] px-4 py-2.5 text-[14px] leading-relaxed text-[var(--lm-text-primary)]">
-          {message.content}
+        <div className="flex max-w-[82%] flex-col gap-2 rounded-[18px] bg-[var(--lm-bg-bubble)] px-3 py-2.5 text-[14px] leading-relaxed text-[var(--lm-text-primary)]">
+          {message.attachments && message.attachments.length > 0 && (
+            <AttachmentStrip attachments={message.attachments} />
+          )}
+          {message.content && <span className="whitespace-pre-wrap px-1">{message.content}</span>}
         </div>
       </div>
     )

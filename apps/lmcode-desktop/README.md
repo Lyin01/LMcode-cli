@@ -7,8 +7,9 @@ LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 
 - 项目优先：通过系统目录选择器打开项目，会话按工作目录分组，不会自动创建无项目的空会话。
 - 完整会话流：创建、恢复、重命名、删除、导出、历史重放、模型/思考等级/权限切换。
 - 对话控制：消息排队、队列编辑与排序、运行中转向、取消生成、审批和结构化提问。
+- 多模态附件：支持选择、拖放或直接粘贴截图；文本文件以附件卡片发送，PNG、JPEG、GIF、WebP 图片通过模型多模态输入发送。
 - Agent 工作流：`/goal`、`/plan`、`/compact`、`/revoke` 等斜杠命令，实时子 Agent 状态、停止与转向，后台任务恢复。
-- 项目工具：Git 变更与 diff、暂存/取消暂存/提交、worktree 创建或接力、项目终端。
+- 项目工具：Codex 式代码审查（未暂存/已暂存范围、双侧行号、逐文件/逐 hunk 暂存与撤销、行内评论回填对话）、Git 提交、worktree 创建或接力、项目终端。
 - 自动化：在当前会话中创建、查看和删除 Cron 任务；桌面端运行时会自动恢复包含计划任务的持久化会话。
 - 生态能力：Skills、MCP、记忆浏览与搜索、系统托盘和桌面通知。
 
@@ -16,13 +17,13 @@ LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 
 
 - 渲染进程启用 Chromium sandbox 与 `contextIsolation`，不直接访问 Node.js；所有系统能力通过类型化 preload API 进入主进程。
 - Git 命令使用参数数组执行，不经过 shell 拼接；worktree 接力只接受 Git 已登记的路径。
-- 文本附件最大 256 KiB，并拒绝二进制或非法 UTF-8 内容。
+- 文本附件最大 256 KiB；图片附件单个最大 10 MiB，每条消息最多 8 个附件。凭据文件、未知二进制和非法 UTF-8 内容会被拒绝。
 - 项目终端是会话级持久 PowerShell 进程，适合项目命令和连续工作流；它不是完整 PTY 终端模拟器。
 - Cron 自动化依赖桌面应用正在运行，可以最小化到托盘；应用完全退出后不会在系统后台独立触发。
 
 ## 技术栈
 
-- Electron 39
+- Electron 43
 - React 19、TypeScript、Tailwind CSS v4
 - Zustand
 - esbuild（主进程与 preload）+ Vite（渲染进程）

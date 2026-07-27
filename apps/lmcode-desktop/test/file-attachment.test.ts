@@ -3,10 +3,14 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  buildDesktopPromptInput,
   isSensitiveAttachmentPath,
+  readFileAttachment,
+  readInlineImageAttachment,
   readTextAttachment,
   TEXT_ATTACHMENT_LIMIT_BYTES,
 } from '../src/main/file-attachment'
+import { MAX_PROMPT_ATTACHMENTS, parseTextAttachmentPart } from '../src/shared/file-types'
 
 const temporaryDirectories: string[] = []
 
@@ -82,6 +86,113 @@ describe('desktop text attachments', () => {
     }
 
     await expect(readTextAttachment(linkPath)).rejects.toThrow('安全考虑')
+  })
+})
+
+describe('desktop multimodal attachments', () => {
+  it('detects supported images by bytes and returns a model-ready data URL', async () => {
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
+    const filePath = await temporaryFile('screen.png', png)
+
+    await expect(readFileAttachment(filePath)).resolves.toEqual({
+      kind: 'image',
+      name: 'screen.png',
+      mimeType: 'image/png',
+      sizeBytes: png.byteLength,
+      dataUrl: `data:image/png;base64,${Buffer.from(png).toString('base64')}`,
+    })
+  })
+
+  it('builds one typed SDK prompt containing user text, text files, and images', async () => {
+    const textPath = await temporaryFile('notes.md', '# Findings')
+    const imagePath = await temporaryFile(
+      'screen.png',
+      new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1]),
+    )
+
+    const parts = await buildDesktopPromptInput({
+      text: 'Review these attachments',
+      attachments: [
+        { source: 'path', kind: 'text', filePath: textPath },
+        { source: 'path', kind: 'image', filePath: imagePath },
+      ],
+    })
+
+    expect(parts[0]).toEqual({ type: 'text', text: 'Review these attachments' })
+    expect(parts[1]?.type).toBe('text')
+    if (parts[1]?.type !== 'text') throw new Error('Expected a text attachment part')
+    expect(parseTextAttachmentPart(parts[1].text)).toEqual({
+      metadata: { name: 'notes.md', sizeBytes: 10, truncated: false },
+      content: '# Findings',
+    })
+    expect(parts[2]).toMatchObject({
+      type: 'image_url',
+      imageUrl: { id: 'screen.png', url: expect.stringMatching(/^data:image\/png;base64,/) },
+    })
+  })
+
+  it('accepts an image-only prompt and enforces the attachment count contract', async () => {
+    const imagePath = await temporaryFile(
+      'screen.png',
+      new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1]),
+    )
+
+    await expect(buildDesktopPromptInput({
+      text: '',
+      attachments: [{ source: 'path', kind: 'image', filePath: imagePath }],
+    })).resolves.toHaveLength(1)
+
+    await expect(buildDesktopPromptInput({
+      text: 'too many',
+      attachments: Array.from({ length: MAX_PROMPT_ATTACHMENTS + 1 }, () => ({
+        source: 'path' as const,
+        kind: 'image' as const,
+        filePath: imagePath,
+      })),
+    })).rejects.toThrow(`最多附加 ${MAX_PROMPT_ATTACHMENTS} 个文件`)
+  })
+
+  it('rejects an attachment whose contents changed type after preview', async () => {
+    const filePath = await temporaryFile('changed.dat', 'plain text')
+    await expect(buildDesktopPromptInput({
+      text: 'inspect',
+      attachments: [{ source: 'path', kind: 'image', filePath }],
+    })).rejects.toThrow('类型已变化')
+  })
+
+  it('validates a pathless clipboard image and includes it in the SDK prompt', async () => {
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
+    const dataUrl = `data:image/png;base64,${Buffer.from(png).toString('base64')}`
+
+    expect(readInlineImageAttachment('', dataUrl)).toEqual({
+      kind: 'image',
+      name: 'clipboard.png',
+      mimeType: 'image/png',
+      sizeBytes: png.byteLength,
+      dataUrl,
+    })
+    await expect(buildDesktopPromptInput({
+      text: '',
+      attachments: [{
+        source: 'inline',
+        kind: 'image',
+        name: 'pasted.png',
+        dataUrl,
+      }],
+    })).resolves.toEqual([{
+      type: 'image_url',
+      imageUrl: { id: 'pasted.png', url: dataUrl },
+    }])
+  })
+
+  it('rejects malformed or MIME-spoofed clipboard image data', () => {
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1])
+    const encoded = Buffer.from(png).toString('base64')
+
+    expect(() => readInlineImageAttachment('screen.jpg', `data:image/jpeg;base64,${encoded}`))
+      .toThrow('文件内容不一致')
+    expect(() => readInlineImageAttachment('screen.png', 'data:image/png;base64,abc'))
+      .toThrow('图片数据无效')
   })
 })
 

@@ -1,5 +1,15 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage, globalShortcut, dialog } from 'electron'
-import type { MenuItemConstructorOptions } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  nativeImage,
+  shell,
+  Tray,
+} from 'electron'
+import type { IpcMainEvent } from 'electron'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -8,7 +18,14 @@ import updaterPkg from 'electron-updater'
 import { LmcodeHarness } from '@lmcode-cli/lmcode-sdk'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
 import { onceAsync, ShutdownCoordinator } from './lifecycle.js'
-import { classifyNavigation } from './security.js'
+import { createAppMenuTemplate } from './app-menu.js'
+import { classifyNavigation, isTrustedIpcSender } from './security.js'
+import {
+  DEFAULT_DESKTOP_MENU_STATE,
+  isDesktopMenuState,
+  type DesktopMenuCommand,
+  type DesktopMenuState,
+} from '../shared/menu-types.js'
 
 // electron-updater is CommonJS; destructure the default export for ESM.
 const { autoUpdater } = updaterPkg
@@ -28,6 +45,8 @@ let trustedRendererUrl: string | null = null
 let handlerRegistration: DesktopHandlerRegistration | null = null
 let handlerCleanup: Promise<void> | null = null
 let harnessInitialization: Promise<void> | null = null
+let desktopMenuState: DesktopMenuState = DEFAULT_DESKTOP_MENU_STATE
+let menuStateListener: ((event: IpcMainEvent, state: unknown) => void) | null = null
 
 // ── Tray icon ─────────────────────────────────────────────────────────
 
@@ -50,27 +69,15 @@ function createTray(): void {
     },
     {
       label: '新建会话',
-      click: () => {
-        mainWindow?.show()
-        mainWindow?.focus()
-        mainWindow?.webContents.send('lmcode:navigate', { route: 'new-session' })
-      },
+      click: () => dispatchMenuCommand('new-conversation'),
     },
     {
       label: '自动化',
-      click: () => {
-        mainWindow?.show()
-        mainWindow?.focus()
-        mainWindow?.webContents.send('lmcode:navigate', { route: 'automations' })
-      },
+      click: () => dispatchMenuCommand('show-automations'),
     },
     {
       label: '设置',
-      click: () => {
-        mainWindow?.show()
-        mainWindow?.focus()
-        mainWindow?.webContents.send('lmcode:navigate', { route: 'settings' })
-      },
+      click: () => dispatchMenuCommand('show-settings'),
     },
     { type: 'separator' },
     {
@@ -130,9 +137,22 @@ function messageBox(
     : dialog.showMessageBox(options)
 }
 
-function navigate(route: string): void {
+function dispatchMenuCommand(command: DesktopMenuCommand): void {
   showAndFocus()
-  mainWindow?.webContents.send('lmcode:navigate', { route })
+  const targetWindow = mainWindow
+  if (targetWindow === null || targetWindow.isDestroyed()) return
+
+  const send = (): void => {
+    if (!targetWindow.isDestroyed()) {
+      targetWindow.webContents.send('lmcode:menuCommand', { command })
+    }
+  }
+
+  if (targetWindow.webContents.isLoadingMainFrame()) {
+    targetWindow.webContents.once('did-finish-load', send)
+  } else {
+    send()
+  }
 }
 
 // Whether the in-flight update check was user-initiated (so we know whether to
@@ -254,92 +274,65 @@ function showAbout(): void {
   })
 }
 
-function buildAppMenu(): Menu {
-  const isMac = process.platform === 'darwin'
+function installApplicationMenu(): void {
+  const openExternal = (url: string): void => {
+    void shell.openExternal(url).catch(() => {})
+  }
+  const template = createAppMenuTemplate({
+    appName: app.name,
+    // The unpackaged one-click build is still a user-facing app. Only expose
+    // reload/devtools when the dedicated development launcher opts in.
+    isDevelopment: process.env['NODE_ENV'] === 'development',
+    isMac: process.platform === 'darwin',
+    state: desktopMenuState,
+    actions: {
+      dispatch: dispatchMenuCommand,
+      hideWindow: () => mainWindow?.hide(),
+      quit: () => {
+        isQuitting = true
+        app.quit()
+      },
+      checkForUpdates: () => void checkForUpdates(true),
+      showAbout,
+      openDocumentation: () =>
+        openExternal(`${GITHUB_URL}/tree/main/apps/lmcode-desktop`),
+      openChangelog: () => openExternal(`${GITHUB_URL}/releases`),
+      reportIssue: () => openExternal(`${GITHUB_URL}/issues/new`),
+      openDataDirectory: () => void shell.openPath(app.getPath('userData')),
+    },
+  })
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
 
-  const template: MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? [
-          {
-            label: app.name,
-            submenu: [
-              { label: '关于 LMCODE', click: () => showAbout() },
-              { label: '检测更新…', click: () => void checkForUpdates(true) },
-              { type: 'separator' as const },
-              { label: '退出', accelerator: 'Cmd+Q', click: () => { isQuitting = true; app.quit() } },
-            ],
-          } as MenuItemConstructorOptions,
-        ]
-      : []),
-    {
-      label: '文件',
-      submenu: [
-        { label: '新建对话', accelerator: 'CmdOrCtrl+N', click: () => navigate('new-session') },
-        { label: '自动化', accelerator: 'CmdOrCtrl+Shift+A', click: () => navigate('automations') },
-        { label: '设置', accelerator: 'CmdOrCtrl+,', click: () => navigate('settings') },
-        { type: 'separator' },
-        {
-          label: '隐藏到托盘',
-          accelerator: 'CmdOrCtrl+W',
-          click: () => mainWindow?.hide(),
-        },
-        ...(!isMac
-          ? [
-              { type: 'separator' as const },
-              { label: '退出', accelerator: 'CmdOrCtrl+Q', click: () => { isQuitting = true; app.quit() } },
-            ]
-          : []),
-      ],
-    },
-    {
-      label: '编辑',
-      submenu: [
-        { label: '撤销', role: 'undo' },
-        { label: '重做', role: 'redo' },
-        { type: 'separator' },
-        { label: '剪切', role: 'cut' },
-        { label: '复制', role: 'copy' },
-        { label: '粘贴', role: 'paste' },
-        { label: '全选', role: 'selectAll' },
-      ],
-    },
-    {
-      label: '视图',
-      submenu: [
-        { label: '重新加载', role: 'reload' },
-        { label: '强制重新加载', role: 'forceReload' },
-        { label: '开发者工具', role: 'toggleDevTools' },
-        { type: 'separator' },
-        { label: '实际大小', role: 'resetZoom' },
-        { label: '放大', role: 'zoomIn' },
-        { label: '缩小', role: 'zoomOut' },
-        { type: 'separator' },
-        { label: '全屏', role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: '窗口',
-      submenu: [
-        { label: '最小化', role: 'minimize' },
-        { label: '缩放', role: 'zoom' },
-        { label: '关闭', role: 'close' },
-      ],
-    },
-    {
-      label: '帮助',
-      submenu: [
-        { label: '检测更新…', click: () => void checkForUpdates(true) },
-        { type: 'separator' },
-        { label: '项目主页 (GitHub)', click: () => void shell.openExternal(GITHUB_URL) },
-        { label: '报告问题', click: () => void shell.openExternal(`${GITHUB_URL}/issues`) },
-        { label: '打开数据目录', click: () => void shell.openPath(app.getPath('userData')) },
-        { type: 'separator' },
-        { label: '关于 LMCODE', click: () => showAbout() },
-      ],
-    },
-  ]
+function registerMenuStateListener(): void {
+  if (menuStateListener !== null) return
+  menuStateListener = (event, state): void => {
+    const targetWindow = mainWindow
+    if (
+      targetWindow === null ||
+      trustedRendererUrl === null ||
+      !isTrustedIpcSender(event, targetWindow.webContents, trustedRendererUrl) ||
+      !isDesktopMenuState(state)
+    ) return
 
-  return Menu.buildFromTemplate(template)
+    if (
+      desktopMenuState.hasActiveSession === state.hasActiveSession &&
+      desktopMenuState.canFindInConversation === state.canFindInConversation &&
+      desktopMenuState.sidebarOpen === state.sidebarOpen &&
+      desktopMenuState.canGoPrevious === state.canGoPrevious &&
+      desktopMenuState.canGoNext === state.canGoNext
+    ) return
+
+    desktopMenuState = state
+    installApplicationMenu()
+  }
+  ipcMain.on('lmcode:updateMenuState', menuStateListener)
+}
+
+function unregisterMenuStateListener(): void {
+  if (menuStateListener === null) return
+  ipcMain.removeListener('lmcode:updateMenuState', menuStateListener)
+  menuStateListener = null
 }
 
 // ── Window ─────────────────────────────────────────────────────────────
@@ -507,6 +500,11 @@ const closeRuntime = onceAsync(async (): Promise<void> => {
 async function cleanupApplication(): Promise<void> {
   const errors: unknown[] = []
   try {
+    unregisterMenuStateListener()
+  } catch (error) {
+    errors.push(error)
+  }
+  try {
     globalShortcut.unregisterAll()
   } catch (error) {
     errors.push(error)
@@ -548,8 +546,9 @@ if (!gotSingleInstanceLock) {
   })
 
   void app.whenReady().then(async () => {
+    registerMenuStateListener()
+    installApplicationMenu()
     createWindow()
-    Menu.setApplicationMenu(buildAppMenu())
     const initialization = initHarness()
     harnessInitialization = initialization
     try {

@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSessionStore } from '@/stores/session-store'
-import type { QueuedUserMessage } from '@/types'
+import { createDesktopPromptRequest } from '@/lib/prompt-request'
+import type { QueuedUserMessage, UserAttachment } from '@/types'
 
 const EMPTY_QUEUE: readonly QueuedUserMessage[] = []
+const EMPTY_ATTACHMENTS: readonly UserAttachment[] = []
+
+function toDisplayAttachment(attachment: UserAttachment): UserAttachment {
+  return {
+    id: attachment.id,
+    kind: attachment.kind,
+    name: attachment.name,
+    sizeBytes: attachment.sizeBytes,
+    truncated: attachment.truncated,
+    previewUrl: attachment.previewUrl,
+  }
+}
 
 export function useSession() {
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
@@ -21,21 +34,26 @@ export function useSession() {
   const [, setDrainTick] = useState(0)
 
   const sendMessage = useCallback(
-    async (text: string) => {
-      if (!currentSessionId || !text.trim() || isStreaming) return
+    async (text: string, attachments: readonly UserAttachment[] = EMPTY_ATTACHMENTS) => {
+      const normalized = text.trim()
+      if (!currentSessionId || (!normalized && attachments.length === 0) || isStreaming) return
 
       // Add user message
       addMessageToSession(currentSessionId, {
         id: `msg_${Date.now()}`,
         role: 'user',
-        content: text.trim(),
+        content: normalized,
+        attachments: attachments.map(toDisplayAttachment),
         timestamp: Date.now(),
       })
 
       setSessionStreaming(currentSessionId, true)
 
       try {
-        await window.lmcodeAPI.sendMessage(currentSessionId, text.trim())
+        await window.lmcodeAPI.sendMessage(
+          currentSessionId,
+          createDesktopPromptRequest(normalized, attachments),
+        )
       } catch (err) {
         // The turn threw before/while producing a reply. Don't fail silently —
         // the user must see *something* instead of an empty, stuck-looking chat.
@@ -64,17 +82,24 @@ export function useSession() {
     setSessionStreaming(currentSessionId, false)
   }, [currentSessionId, setSessionStreaming])
 
-  const steerMessage = useCallback(async (text: string) => {
+  const steerMessage = useCallback(async (
+    text: string,
+    attachments: readonly UserAttachment[] = EMPTY_ATTACHMENTS,
+  ) => {
     const normalized = text.trim()
-    if (!currentSessionId || !isStreaming || !normalized) return
+    if (!currentSessionId || !isStreaming || (!normalized && attachments.length === 0)) return
     addMessageToSession(currentSessionId, {
       id: `msg_steer_${Date.now()}`,
       role: 'user',
       content: normalized,
+      attachments: attachments.map(toDisplayAttachment),
       timestamp: Date.now(),
     })
     try {
-      await window.lmcodeAPI.steerMessage(currentSessionId, normalized)
+      await window.lmcodeAPI.steerMessage(
+        currentSessionId,
+        createDesktopPromptRequest(normalized, attachments),
+      )
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       addMessageToSession(currentSessionId, {
@@ -87,10 +112,13 @@ export function useSession() {
     }
   }, [addMessageToSession, currentSessionId, isStreaming])
 
-  const queueMessage = useCallback((text: string) => {
+  const queueMessage = useCallback((
+    text: string,
+    attachments: readonly UserAttachment[] = EMPTY_ATTACHMENTS,
+  ) => {
     const normalized = text.trim()
-    if (!currentSessionId || !normalized) return
-    enqueueMessage(currentSessionId, normalized)
+    if (!currentSessionId || (!normalized && attachments.length === 0)) return
+    enqueueMessage(currentSessionId, normalized, attachments)
   }, [currentSessionId, enqueueMessage])
 
   useEffect(() => {
@@ -102,11 +130,13 @@ export function useSession() {
     ) return
 
     let next = shiftQueuedMessage(currentSessionId)
-    while (next && !next.text.trim()) next = shiftQueuedMessage(currentSessionId)
+    while (next && !next.text.trim() && next.attachments.length === 0) {
+      next = shiftQueuedMessage(currentSessionId)
+    }
     if (!next) return
 
     drainInFlight.current = true
-    void sendMessage(next.text).finally(() => {
+    void sendMessage(next.text, next.attachments).finally(() => {
       drainInFlight.current = false
       setDrainTick((value) => value + 1)
     })

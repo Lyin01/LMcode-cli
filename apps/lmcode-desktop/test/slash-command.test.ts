@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { parseDesktopSlashCommand } from '../src/renderer/lib/slash-command'
+import {
+  buildDesktopReviewPrompt,
+  parseDesktopSlashCommand,
+} from '../src/renderer/lib/slash-command'
 
 describe('desktop slash command parsing', () => {
   it('keeps normal prompts out of command dispatch', () => {
@@ -33,5 +36,21 @@ describe('desktop slash command parsing', () => {
     expect(parseDesktopSlashCommand('/revoke zero')).toEqual(
       expect.objectContaining({ kind: 'error' }),
     )
+  })
+
+  it('parses visual and agent-driven review scopes with a read-only contract', () => {
+    expect(parseDesktopSlashCommand('/review')).toEqual({ kind: 'review-open' })
+    expect(parseDesktopSlashCommand('/review uncommitted')).toEqual({
+      kind: 'review-run',
+      target: 'uncommitted',
+    })
+    const base = parseDesktopSlashCommand('/review base origin/main')
+    expect(base).toEqual({ kind: 'review-run', target: 'base', value: 'origin/main' })
+    expect(parseDesktopSlashCommand('/review base --output=/tmp/leak')).toEqual(
+      expect.objectContaining({ kind: 'error' }),
+    )
+    if (base?.kind !== 'review-run') throw new Error('expected a review command')
+    expect(buildDesktopReviewPrompt(base)).toContain('不要修改工作区、暂存区或提交历史')
+    expect(buildDesktopReviewPrompt(base)).toContain('`origin/main`')
   })
 })

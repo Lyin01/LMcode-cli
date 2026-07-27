@@ -8,7 +8,13 @@ describe('desktop message queue', () => {
 
   it('keeps queued follow-ups editable, reorderable, and removable per session', () => {
     const store = useSessionStore.getState()
-    const first = store.enqueueMessage('session-a', 'first task')
+    const attachment = {
+      id: 'attachment-1',
+      kind: 'image' as const,
+      name: 'screen.png',
+      filePath: 'C:/work/screen.png',
+    }
+    const first = store.enqueueMessage('session-a', 'first task', [attachment])
     const second = store.enqueueMessage('session-a', 'second task')
     store.enqueueMessage('session-b', 'other session')
 
@@ -17,7 +23,7 @@ describe('desktop message queue', () => {
 
     expect(useSessionStore.getState().messageQueue['session-a']).toEqual([
       expect.objectContaining({ id: second, text: 'edited second task' }),
-      expect.objectContaining({ id: first, text: 'first task' }),
+      expect.objectContaining({ id: first, text: 'first task', attachments: [attachment] }),
     ])
     expect(useSessionStore.getState().shiftQueuedMessage('session-a')).toEqual(
       expect.objectContaining({ id: second, text: 'edited second task' }),
@@ -25,7 +31,7 @@ describe('desktop message queue', () => {
     useSessionStore.getState().removeQueuedMessage('session-a', first)
     expect(useSessionStore.getState().messageQueue['session-a']).toEqual([])
     expect(useSessionStore.getState().messageQueue['session-b']).toEqual([
-      expect.objectContaining({ text: 'other session' }),
+      expect.objectContaining({ text: 'other session', attachments: [] }),
     ])
   })
 })

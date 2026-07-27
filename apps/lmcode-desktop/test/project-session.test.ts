@@ -83,7 +83,7 @@ describe('desktop project session contract', () => {
         timestamp: 1,
       }],
       messageQueue: {
-        'session-project': [{ id: 'queued-1', text: 'later', createdAt: 1 }],
+        'session-project': [{ id: 'queued-1', text: 'later', attachments: [], createdAt: 1 }],
       },
     })
 

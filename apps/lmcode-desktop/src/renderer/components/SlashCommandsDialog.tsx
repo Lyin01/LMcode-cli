@@ -12,6 +12,7 @@ import {
   Archive,
   Undo2,
   CircleOff,
+  ScanSearch,
 } from 'lucide-react'
 
 export interface SlashCommand {
@@ -59,6 +60,12 @@ export function SlashCommandsDialog({
       label: '/plan',
       description: '进入只读规划模式',
       icon: <ListChecks size={14} />,
+    },
+    {
+      id: 'review',
+      label: '/review',
+      description: '打开代码审查，或指定范围让 Agent 只读审查',
+      icon: <ScanSearch size={14} />,
     },
     {
       id: 'model',

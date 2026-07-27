@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDown,
@@ -8,25 +8,46 @@ import {
   GitBranch,
   GitCommitHorizontal,
   Loader2,
+  MessageSquareText,
   Minus,
   Plus,
   RefreshCw,
+  Trash2,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session-store'
+import {
+  GitDiffView,
+  type GitReviewComment,
+  type GitReviewCommentInput,
+} from '@/components/GitDiffView'
+import { formatGitReviewComments } from '@/lib/git-review-comments'
 import type {
   GitChangeKind,
-  GitDiffSection,
+  GitDiscardScope,
   GitFileChange,
   GitFileDiff,
+  GitHunkActionInput,
   GitRepositorySnapshot,
 } from '../../shared/git-types'
 
 interface GitReviewPanelProps {
-  open: boolean
-  onClose: () => void
+  readonly open: boolean
+  readonly onClose: () => void
+  readonly onAddCommentsToChat: (prompt: string) => void
 }
+
+type ReviewScope = 'unstaged' | 'staged' | 'all'
+
+type PendingDestructiveAction =
+  | { readonly kind: 'hunk'; readonly input: GitHunkActionInput }
+  | {
+      readonly kind: 'file'
+      readonly filePath: string
+      readonly scope: GitDiscardScope
+    }
+  | { readonly kind: 'all' }
 
 const CHANGE_LABELS: Record<GitChangeKind, { readonly short: string; readonly label: string }> = {
   added: { short: 'A', label: '新增' },
@@ -40,10 +61,10 @@ const CHANGE_LABELS: Record<GitChangeKind, { readonly short: string; readonly la
   unknown: { short: '·', label: '变更' },
 }
 
-const DIFF_SECTION_LABELS: Record<GitDiffSection['kind'], string> = {
-  staged: '已暂存',
+const SCOPE_LABELS: Record<ReviewScope, string> = {
   unstaged: '未暂存',
-  untracked: '未跟踪文件',
+  staged: '已暂存',
+  all: '所有变更',
 }
 
 function errorMessage(error: unknown): string {
@@ -60,56 +81,38 @@ function splitFilePath(filePath: string): { readonly name: string; readonly dire
   }
 }
 
-function diffLineClass(line: string): string {
-  if (line.startsWith('@@')) return 'text-[var(--lm-accent-text)]'
-  if (line.startsWith('+') && !line.startsWith('+++')) return 'text-[var(--lm-success)]'
-  if (line.startsWith('-') && !line.startsWith('---')) return 'text-[var(--lm-error)]'
-  if (
-    line.startsWith('diff --git') ||
-    line.startsWith('index ') ||
-    line.startsWith('---') ||
-    line.startsWith('+++')
-  ) {
-    return 'text-[var(--lm-text-muted)]'
-  }
-  return 'text-[var(--lm-text-secondary)]'
+function changeInScope(change: GitFileChange, scope: ReviewScope): boolean {
+  if (scope === 'staged') return change.staged
+  if (scope === 'unstaged') return change.unstaged
+  return true
 }
 
-function diffLineStyle(line: string): React.CSSProperties | undefined {
-  if (line.startsWith('+') && !line.startsWith('+++')) {
-    return { backgroundColor: 'color-mix(in srgb, var(--lm-success) 10%, transparent)' }
+function destructiveCopy(action: PendingDestructiveAction): {
+  readonly title: string
+  readonly description: string
+  readonly confirmation: string
+} {
+  if (action.kind === 'hunk') {
+    return {
+      title: '撤销这个代码块？',
+      description: `将永久丢弃 ${action.input.filePath} 中这个未暂存代码块的修改。`,
+      confirmation: '撤销代码块',
+    }
   }
-  if (line.startsWith('-') && !line.startsWith('---')) {
-    return { backgroundColor: 'color-mix(in srgb, var(--lm-error) 10%, transparent)' }
+  if (action.kind === 'file') {
+    return {
+      title: '撤销这个文件的变更？',
+      description: action.scope === 'all'
+        ? `将永久丢弃 ${action.filePath} 的所有已暂存和未暂存修改。未跟踪文件会移到系统回收站。`
+        : `将永久丢弃 ${action.filePath} 的未暂存修改。`,
+      confirmation: '撤销文件变更',
+    }
   }
-  return undefined
-}
-
-function DiffSectionView({ section }: { readonly section: GitDiffSection }) {
-  const lines = section.patch.split('\n')
-  return (
-    <section>
-      <div className="sticky top-0 z-10 flex items-center gap-2 border-y border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-3 py-1.5 text-[11px] font-medium text-[var(--lm-text-secondary)]">
-        {DIFF_SECTION_LABELS[section.kind]}
-        {section.truncated && (
-          <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--lm-accent-text)]">
-            预览已截断
-          </span>
-        )}
-      </div>
-      <pre className="m-0 min-w-max bg-[var(--lm-bg-code)] py-1 font-mono text-[11px] leading-5">
-        {lines.map((line, index) => (
-          <code
-            key={`${index}:${line.slice(0, 24)}`}
-            className={cn('block min-h-5 px-3', diffLineClass(line))}
-            style={diffLineStyle(line)}
-          >
-            {line || ' '}
-          </code>
-        ))}
-      </pre>
-    </section>
-  )
+  return {
+    title: '撤销全部变更？',
+    description: '将永久丢弃当前仓库的所有已暂存和未暂存修改。未跟踪文件会移到系统回收站。',
+    confirmation: '撤销全部变更',
+  }
 }
 
 function ChangeRow({
@@ -125,13 +128,12 @@ function ChangeRow({
   const status = CHANGE_LABELS[change.kind]
   return (
     <button
+      type="button"
       onClick={onSelect}
       title={change.originalPath ? `${change.originalPath} → ${change.path}` : change.path}
       className={cn(
         'flex w-full items-start gap-2 border-b border-[var(--lm-border)] px-3 py-2.5 text-left transition-colors',
-        selected
-          ? 'bg-[var(--lm-bg-active)]'
-          : 'hover:bg-[var(--lm-bg-hover)]',
+        selected ? 'bg-[var(--lm-bg-active)]' : 'hover:bg-[var(--lm-bg-hover)]',
       )}
     >
       <span
@@ -177,15 +179,24 @@ function ChangeRow({
   )
 }
 
-export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
+export function GitReviewPanel({
+  open,
+  onClose,
+  onAddCommentsToChat,
+}: GitReviewPanelProps) {
   const sessionId = useSessionStore((state) => state.currentSessionId)
   const [snapshot, setSnapshot] = useState<GitRepositorySnapshot | null>(null)
+  const [scope, setScope] = useState<ReviewScope>('unstaged')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [diff, setDiff] = useState<GitFileDiff | null>(null)
+  const [diffRevision, setDiffRevision] = useState(0)
   const [loading, setLoading] = useState(false)
   const [diffLoading, setDiffLoading] = useState(false)
   const [mutating, setMutating] = useState(false)
   const [commitMessage, setCommitMessage] = useState('')
+  const [comments, setComments] = useState<GitReviewComment[]>([])
+  const [pendingDestructive, setPendingDestructive] =
+    useState<PendingDestructiveAction | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const refreshSequence = useRef(0)
@@ -200,10 +211,6 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
       const next = await window.lmcodeAPI.getGitSnapshot(sessionId)
       if (refreshSequence.current !== sequence) return
       setSnapshot(next)
-      setSelectedPath((current) => {
-        if (current && next.changes.some((change) => change.path === current)) return current
-        return next.changes[0]?.path ?? null
-      })
     } catch (reason) {
       if (refreshSequence.current !== sequence) return
       setSnapshot(null)
@@ -218,6 +225,24 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
     if (!open) return
     void refresh()
   }, [open, refresh])
+
+  useEffect(() => {
+    setScope('unstaged')
+    setComments([])
+    setPendingDestructive(null)
+  }, [sessionId])
+
+  const scopedChanges = useMemo(
+    () => snapshot?.changes.filter((change) => changeInScope(change, scope)) ?? [],
+    [scope, snapshot],
+  )
+
+  useEffect(() => {
+    setSelectedPath((current) => {
+      if (current && scopedChanges.some((change) => change.path === current)) return current
+      return scopedChanges[0]?.path ?? null
+    })
+  }, [scopedChanges])
 
   useEffect(() => {
     if (!open || !sessionId || !selectedPath) {
@@ -243,16 +268,24 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
     return () => {
       cancelled = true
     }
-  }, [open, selectedPath, sessionId])
+  }, [diffRevision, open, selectedPath, sessionId])
 
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+      if (event.key !== 'Escape') return
+      if (pendingDestructive) setPendingDestructive(null)
+      else onClose()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+  }, [onClose, open, pendingDestructive])
+
+  const finishMutation = useCallback(async (message: string) => {
+    setNotice(message)
+    setDiffRevision((revision) => revision + 1)
+    await refresh()
+  }, [refresh])
 
   const updateSelectedStage = useCallback(async (staged: boolean) => {
     if (!sessionId || !selectedPath) return
@@ -261,14 +294,81 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
     setNotice(null)
     try {
       await window.lmcodeAPI.setGitFileStaged(sessionId, selectedPath, staged)
-      setNotice(staged ? '已暂存所选文件' : '已取消暂存所选文件')
-      await refresh()
+      await finishMutation(staged ? '已暂存所选文件' : '已取消暂存所选文件')
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
       setMutating(false)
     }
-  }, [refresh, selectedPath, sessionId])
+  }, [finishMutation, selectedPath, sessionId])
+
+  const updateAllStage = useCallback(async (staged: boolean) => {
+    if (!sessionId) return
+    setMutating(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await window.lmcodeAPI.setAllGitFilesStaged(sessionId, staged)
+      await finishMutation(staged ? '已暂存全部变更' : '已取消暂存全部变更')
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setMutating(false)
+    }
+  }, [finishMutation, sessionId])
+
+  const applyHunkAction = useCallback(async (input: GitHunkActionInput) => {
+    if (!sessionId) return
+    if (input.action === 'revert') {
+      setPendingDestructive({ kind: 'hunk', input })
+      return
+    }
+    setMutating(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await window.lmcodeAPI.applyGitHunkAction(sessionId, input)
+      await finishMutation(input.action === 'stage' ? '已暂存所选代码块' : '已取消暂存所选代码块')
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setMutating(false)
+    }
+  }, [finishMutation, sessionId])
+
+  const confirmDestructiveAction = useCallback(async () => {
+    if (!sessionId || !pendingDestructive) return
+    const action = pendingDestructive
+    setPendingDestructive(null)
+    setMutating(true)
+    setError(null)
+    setNotice(null)
+    try {
+      if (action.kind === 'hunk') {
+        await window.lmcodeAPI.applyGitHunkAction(sessionId, action.input)
+        setComments((current) =>
+          current.filter((comment) => comment.filePath !== action.input.filePath))
+        await finishMutation('已撤销所选代码块')
+      } else if (action.kind === 'file') {
+        await window.lmcodeAPI.discardGitFileChanges(
+          sessionId,
+          action.filePath,
+          action.scope,
+        )
+        setComments((current) =>
+          current.filter((comment) => comment.filePath !== action.filePath))
+        await finishMutation('已撤销所选文件的变更')
+      } else {
+        await window.lmcodeAPI.discardAllGitChanges(sessionId)
+        setComments([])
+        await finishMutation('已撤销全部变更')
+      }
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setMutating(false)
+    }
+  }, [finishMutation, pendingDestructive, sessionId])
 
   const commitStagedChanges = useCallback(async () => {
     const message = commitMessage.trim()
@@ -279,36 +379,78 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
     try {
       const result = await window.lmcodeAPI.commitGitChanges(sessionId, message)
       setCommitMessage('')
-      setNotice(`已提交 ${result.oid}`)
-      await refresh()
+      setComments((current) =>
+        current.filter((comment) => comment.sectionKind !== 'staged'))
+      await finishMutation(`已提交 ${result.oid}`)
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
       setMutating(false)
     }
-  }, [commitMessage, refresh, sessionId])
+  }, [commitMessage, finishMutation, sessionId])
+
+  const saveComment = useCallback((input: GitReviewCommentInput) => {
+    setComments((current) => {
+      const existingIndex = current.findIndex((comment) =>
+        comment.filePath === input.filePath &&
+        comment.sectionKind === input.sectionKind &&
+        comment.line === input.line &&
+        comment.side === input.side)
+      if (existingIndex < 0) {
+        return [...current, { ...input, id: globalThis.crypto.randomUUID() }]
+      }
+      return current.map((comment, index) =>
+        index === existingIndex ? { ...comment, body: input.body } : comment)
+    })
+  }, [])
+
+  const sendCommentsToChat = useCallback(() => {
+    if (comments.length === 0) return
+    onAddCommentsToChat(formatGitReviewComments(comments))
+    setComments([])
+    onClose()
+  }, [comments, onAddCommentsToChat, onClose])
 
   if (!open) return null
 
   const changeCount = snapshot?.changes.length ?? 0
   const selectedChange = snapshot?.changes.find((change) => change.path === selectedPath)
   const hasStagedChanges = snapshot?.changes.some((change) => change.staged) ?? false
+  const hasUnstagedChanges = snapshot?.changes.some((change) => change.unstaged) ?? false
+  const scopeCounts: Record<ReviewScope, number> = {
+    unstaged: snapshot?.changes.filter((change) => change.unstaged).length ?? 0,
+    staged: snapshot?.changes.filter((change) => change.staged).length ?? 0,
+    all: changeCount,
+  }
+  const visibleSections = diff?.sections.filter((section) => {
+    if (scope === 'all') return true
+    if (scope === 'staged') return section.kind === 'staged'
+    return section.kind === 'unstaged' || section.kind === 'untracked'
+  }) ?? []
+  const discardScope: GitDiscardScope =
+    scope === 'unstaged' && selectedChange?.kind !== 'untracked' ? 'unstaged' : 'all'
+  const pendingCopy = pendingDestructive ? destructiveCopy(pendingDestructive) : null
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <aside className="relative z-10 ml-auto flex h-full w-[min(900px,calc(100vw-48px))] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]">
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default bg-black/30 backdrop-blur-sm"
+        onClick={onClose}
+        aria-label="关闭 Git 变更审阅"
+      />
+      <aside className="relative z-10 ml-auto flex h-full w-[min(1040px,calc(100vw-32px))] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--lm-border)] px-4">
           <GitBranch size={17} className="text-[var(--lm-accent-text)]" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h2 className="text-[14px] font-semibold text-[var(--lm-text-primary)]">Git 变更审阅</h2>
+              <h2 className="text-[14px] font-semibold text-[var(--lm-text-primary)]">代码审查</h2>
               {snapshot?.branch && (
                 <span className="max-w-48 truncate rounded-full bg-[var(--lm-bg-hover)] px-2 py-0.5 font-mono text-[10px] text-[var(--lm-text-secondary)]">
                   {snapshot.branch}
                 </span>
               )}
-              {snapshot && snapshot.isRepository && (
+              {snapshot?.isRepository && (
                 <span className="text-[10px] text-[var(--lm-text-muted)]">{changeCount} 个变更</span>
               )}
             </div>
@@ -323,6 +465,7 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
             </div>
           )}
           <button
+            type="button"
             onClick={() => void refresh()}
             disabled={loading}
             className="rounded-md p-1.5 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:opacity-50"
@@ -331,6 +474,7 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
             <RefreshCw size={15} className={loading ? 'lm-spin' : ''} />
           </button>
           <button
+            type="button"
             onClick={onClose}
             className="rounded-md p-1.5 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
             title="关闭"
@@ -340,49 +484,127 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
         </header>
 
         {snapshot?.isRepository && snapshot.changes.length > 0 && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-4 py-2">
-            {selectedChange?.unstaged && (
+          <>
+            <div className="flex shrink-0 items-center gap-1 border-b border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)] px-3 py-1.5">
+              {(Object.keys(SCOPE_LABELS) as ReviewScope[]).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setScope(item)}
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-[10px] font-medium transition-colors',
+                    scope === item
+                      ? 'bg-[var(--lm-bg-active)] text-[var(--lm-text-primary)]'
+                      : 'text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)]',
+                  )}
+                >
+                  {SCOPE_LABELS[item]} {scopeCounts[item]}
+                </button>
+              ))}
               <button
-                onClick={() => void updateSelectedStage(true)}
-                disabled={mutating}
-                className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--lm-border-strong)] px-2 py-1.5 text-[10px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:opacity-40"
-                title="将所选文件的工作区变更加入暂存区"
+                type="button"
+                onClick={sendCommentsToChat}
+                disabled={comments.length === 0}
+                className="ml-auto flex items-center gap-1.5 rounded-md bg-[var(--lm-accent)] px-2.5 py-1 text-[10px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
+                title="把全部行内评论写入对话编辑器"
               >
-                <Plus size={11} /> 暂存
+                <MessageSquareText size={11} />
+                添加 {comments.length} 条评论到对话
               </button>
-            )}
-            {selectedChange?.staged && (
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-3 py-2">
+              {selectedChange?.unstaged && (
+                <button
+                  type="button"
+                  onClick={() => void updateSelectedStage(true)}
+                  disabled={mutating}
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--lm-border-strong)] px-2 py-1.5 text-[10px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
+                  title="暂存所选文件"
+                >
+                  <Plus size={11} /> 暂存文件
+                </button>
+              )}
+              {selectedChange?.staged && (
+                <button
+                  type="button"
+                  onClick={() => void updateSelectedStage(false)}
+                  disabled={mutating}
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--lm-border-strong)] px-2 py-1.5 text-[10px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
+                  title="取消暂存所选文件"
+                >
+                  <Minus size={11} /> 取消暂存文件
+                </button>
+              )}
+              {hasUnstagedChanges && (
+                <button
+                  type="button"
+                  onClick={() => void updateAllStage(true)}
+                  disabled={mutating}
+                  className="rounded-md px-2 py-1.5 text-[10px] text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)] disabled:opacity-40"
+                >
+                  全部暂存
+                </button>
+              )}
+              {hasStagedChanges && (
+                <button
+                  type="button"
+                  onClick={() => void updateAllStage(false)}
+                  disabled={mutating}
+                  className="rounded-md px-2 py-1.5 text-[10px] text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)] disabled:opacity-40"
+                >
+                  全部取消暂存
+                </button>
+              )}
+              {selectedChange && (
+                <button
+                  type="button"
+                  onClick={() => setPendingDestructive({
+                    kind: 'file',
+                    filePath: selectedChange.path,
+                    scope: discardScope,
+                  })}
+                  disabled={mutating}
+                  className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] text-[var(--lm-error)] hover:bg-[var(--lm-accent-soft)] disabled:opacity-40"
+                  title="撤销所选文件在当前审查范围内的变更"
+                >
+                  <Trash2 size={11} /> 撤销文件
+                </button>
+              )}
+              {scope === 'all' && changeCount > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setPendingDestructive({ kind: 'all' })}
+                  disabled={mutating}
+                  className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] text-[var(--lm-error)] hover:bg-[var(--lm-accent-soft)] disabled:opacity-40"
+                >
+                  <Trash2 size={11} /> 撤销全部
+                </button>
+              )}
+              <div className="mx-1 h-5 w-px shrink-0 bg-[var(--lm-border)]" />
+              <input
+                value={commitMessage}
+                onChange={(event) => setCommitMessage(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && hasStagedChanges) void commitStagedChanges()
+                }}
+                maxLength={500}
+                placeholder={hasStagedChanges ? '提交说明…' : '先暂存变更后提交'}
+                disabled={!hasStagedChanges || mutating}
+                className="min-w-32 flex-1 rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[11px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent)] disabled:opacity-50"
+              />
               <button
-                onClick={() => void updateSelectedStage(false)}
-                disabled={mutating}
-                className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--lm-border-strong)] px-2 py-1.5 text-[10px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:opacity-40"
-                title="将所选文件移出暂存区，不修改工作区内容"
+                type="button"
+                onClick={() => void commitStagedChanges()}
+                disabled={!hasStagedChanges || !commitMessage.trim() || mutating}
+                className="flex shrink-0 items-center gap-1.5 rounded-md bg-[var(--lm-accent)] px-2.5 py-1.5 text-[10px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
+                title="提交所有已暂存变更"
               >
-                <Minus size={11} /> 取消暂存
+                {mutating ? <Loader2 size={11} className="lm-spin" /> : <GitCommitHorizontal size={11} />}
+                提交
               </button>
-            )}
-            <div className="mx-1 h-5 w-px shrink-0 bg-[var(--lm-border)]" />
-            <input
-              value={commitMessage}
-              onChange={(event) => setCommitMessage(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && hasStagedChanges) void commitStagedChanges()
-              }}
-              maxLength={500}
-              placeholder={hasStagedChanges ? '提交说明…' : '先暂存变更后提交'}
-              disabled={!hasStagedChanges || mutating}
-              className="min-w-0 flex-1 rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[11px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent)] disabled:opacity-50"
-            />
-            <button
-              onClick={() => void commitStagedChanges()}
-              disabled={!hasStagedChanges || !commitMessage.trim() || mutating}
-              className="flex shrink-0 items-center gap-1.5 rounded-md bg-[var(--lm-accent)] px-2.5 py-1.5 text-[10px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
-              title="提交所有已暂存变更"
-            >
-              {mutating ? <Loader2 size={11} className="lm-spin" /> : <GitCommitHorizontal size={11} />}
-              提交
-            </button>
-          </div>
+            </div>
+          </>
         )}
 
         {error && (
@@ -420,10 +642,18 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
               <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">当前项目没有未提交的文件变更。</p>
             </div>
           </div>
+        ) : snapshot && scopedChanges.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <FileCode2 size={25} className="text-[var(--lm-text-muted)]" />
+            <div>
+              <p className="text-[13px] font-medium text-[var(--lm-text-primary)]">没有{SCOPE_LABELS[scope]}文件</p>
+              <p className="mt-1 text-[11px] text-[var(--lm-text-muted)]">切换上方范围查看其他变更。</p>
+            </div>
+          </div>
         ) : snapshot ? (
           <div className="flex min-h-0 flex-1">
-            <nav className="w-60 shrink-0 overflow-y-auto border-r border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)]">
-              {snapshot.changes.map((change) => (
+            <nav className="w-60 shrink-0 overflow-y-auto border-r border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)]" aria-label="变更文件">
+              {scopedChanges.map((change) => (
                 <ChangeRow
                   key={change.path}
                   change={change}
@@ -438,10 +668,21 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
                   <Loader2 size={15} className="lm-spin" />
                   正在生成 diff…
                 </div>
-              ) : diff && diff.sections.length > 0 ? (
+              ) : diff && visibleSections.length > 0 ? (
                 <div className="min-w-max">
-                  {diff.sections.map((section) => (
-                    <DiffSectionView key={section.kind} section={section} />
+                  {visibleSections.map((section) => (
+                    <GitDiffView
+                      key={`${diff.path}:${section.kind}:${diffRevision}`}
+                      filePath={diff.path}
+                      section={section}
+                      comments={comments}
+                      disabled={mutating}
+                      onSaveComment={saveComment}
+                      onDeleteComment={(commentId) =>
+                        setComments((current) =>
+                          current.filter((comment) => comment.id !== commentId))}
+                      onHunkAction={(input) => void applyHunkAction(input)}
+                    />
                   ))}
                 </div>
               ) : (
@@ -455,6 +696,48 @@ export function GitReviewPanel({ open, onClose }: GitReviewPanelProps) {
         ) : (
           <div className="flex flex-1 items-center justify-center text-[12px] text-[var(--lm-text-muted)]">
             无法读取 Git 状态
+          </div>
+        )}
+
+        {pendingDestructive && pendingCopy && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 px-6 backdrop-blur-[1px]">
+            <div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="git-destructive-title"
+              className="w-full max-w-md rounded-xl border border-[var(--lm-border-strong)] bg-[var(--lm-bg-elevated)] p-4 shadow-[var(--lm-shadow-pop)]"
+            >
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 rounded-lg bg-[var(--lm-accent-soft)] p-2 text-[var(--lm-error)]">
+                  <AlertTriangle size={17} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 id="git-destructive-title" className="text-[14px] font-semibold text-[var(--lm-text-primary)]">
+                    {pendingCopy.title}
+                  </h3>
+                  <p className="mt-1.5 text-[11px] leading-5 text-[var(--lm-text-secondary)]">
+                    {pendingCopy.description}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingDestructive(null)}
+                  className="rounded-md border border-[var(--lm-border-strong)] px-3 py-1.5 text-[11px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]"
+                  autoFocus
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmDestructiveAction()}
+                  className="rounded-md bg-[var(--lm-error)] px-3 py-1.5 text-[11px] font-medium text-white hover:opacity-90"
+                >
+                  {pendingCopy.confirmation}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </aside>

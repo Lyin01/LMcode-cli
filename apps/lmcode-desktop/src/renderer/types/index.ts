@@ -21,6 +21,17 @@ export interface Message {
   toolCalls?: ToolCallInfo[]
   /** Visual flavor for system notices: an error (red) or a neutral notice. */
   variant?: 'error' | 'notice'
+  attachments?: readonly UserAttachment[]
+}
+
+export interface UserAttachment {
+  readonly id: string
+  readonly kind: 'text' | 'image'
+  readonly name: string
+  readonly filePath?: string
+  readonly sizeBytes?: number
+  readonly truncated?: boolean
+  readonly previewUrl?: string
 }
 
 export interface ToolCallInfo {
@@ -50,6 +61,7 @@ export interface QueuedUserMessage {
   readonly id: string
   readonly text: string
   readonly createdAt: number
+  readonly attachments: readonly UserAttachment[]
 }
 
 export type AgentEvent = Event

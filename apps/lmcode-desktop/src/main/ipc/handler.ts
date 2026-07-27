@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, dialog, Notification } from 'electron'
+import { app, ipcMain, BrowserWindow, dialog, Notification, shell } from 'electron'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { MemoryMemoStore } from '@lmcode/memory'
 import type { MemoryMemoSummary } from '@lmcode/memory'
@@ -28,15 +28,21 @@ import type {
 } from '../../shared/ipc-types.js'
 import type {
   GitCommitResult,
+  GitDiscardScope,
   GitFileDiff,
+  GitHunkActionInput,
   GitRepositorySnapshot,
 } from '../../shared/git-types.js'
 import type { ProjectTerminalInfo, TerminalOutputPayload } from '../../shared/terminal-types.js'
 import type { GitWorktreeInfo } from '../../shared/worktree-types.js'
 import {
+  applyGitHunkAction,
   commitGitChanges,
+  discardAllGitChanges,
+  discardGitFileChanges,
   inspectGitFileDiff,
   inspectGitRepository,
+  setAllGitFilesStaged,
   setGitFileStaged,
 } from '../git-review.js'
 import {
@@ -47,8 +53,17 @@ import {
 import { ProjectTerminalManager } from '../project-terminal.js'
 import { PendingInteractionRegistry } from './pending-interactions.js'
 import { isTrustedIpcSender } from '../security.js'
-import { readTextAttachment } from '../file-attachment.js'
-import type { TextAttachment } from '../../shared/file-types.js'
+import {
+  buildDesktopPromptInput,
+  readFileAttachment,
+  readInlineImageAttachment,
+  readTextAttachment,
+} from '../file-attachment.js'
+import type {
+  DesktopPromptRequest,
+  FileAttachmentPreview,
+  TextAttachment,
+} from '../../shared/file-types.js'
 import { scheduledSessionIds } from '../scheduled-sessions.js'
 
 interface SessionEntry {
@@ -388,15 +403,21 @@ export function registerAllHandlers(
 
   // ── Chat ────────────────────────────────────────────────────────
 
-  secureInvoke('lmcode:sendMessage', async (_event, sessionId: string, text: string): Promise<void> => {
-    const entry = await ensureActiveSession(sessionId)
-    await entry.session.prompt(text)
-  })
+  secureInvoke(
+    'lmcode:sendMessage',
+    async (_event, sessionId: string, request: DesktopPromptRequest): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.prompt(await buildDesktopPromptInput(request))
+    },
+  )
 
-  secureInvoke('lmcode:steerMessage', async (_event, sessionId: string, text: string): Promise<void> => {
-    const entry = await ensureActiveSession(sessionId)
-    await entry.session.steer(text)
-  })
+  secureInvoke(
+    'lmcode:steerMessage',
+    async (_event, sessionId: string, request: DesktopPromptRequest): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.steer(await buildDesktopPromptInput(request))
+    },
+  )
 
   secureInvoke('lmcode:cancelResponse', async (_event, sessionId: string): Promise<void> => {
     settleSessionInteractions(sessionId)
@@ -621,6 +642,20 @@ export function registerAllHandlers(
     return readTextAttachment(filePath)
   })
 
+  secureInvoke(
+    'lmcode:readFileAttachment',
+    async (_event, filePath: string): Promise<FileAttachmentPreview> => {
+      return readFileAttachment(filePath)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:readInlineImageAttachment',
+    async (_event, name: string, dataUrl: string): Promise<FileAttachmentPreview> => {
+      return readInlineImageAttachment(name, dataUrl)
+    },
+  )
+
   // ── Git review ─────────────────────────────────────────────────
 
   secureInvoke(
@@ -646,6 +681,47 @@ export function registerAllHandlers(
       staged: boolean,
     ): Promise<void> => {
       await setGitFileStaged(await getSessionWorkDir(sessionId), filePath, staged)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:setAllGitFilesStaged',
+    async (_event, sessionId: string, staged: boolean): Promise<void> => {
+      await setAllGitFilesStaged(await getSessionWorkDir(sessionId), staged)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:applyGitHunkAction',
+    async (_event, sessionId: string, input: GitHunkActionInput): Promise<void> => {
+      await applyGitHunkAction(await getSessionWorkDir(sessionId), input)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:discardGitFileChanges',
+    async (
+      _event,
+      sessionId: string,
+      filePath: string,
+      scope: GitDiscardScope,
+    ): Promise<void> => {
+      await discardGitFileChanges(
+        await getSessionWorkDir(sessionId),
+        filePath,
+        scope,
+        (target) => shell.trashItem(target),
+      )
+    },
+  )
+
+  secureInvoke(
+    'lmcode:discardAllGitChanges',
+    async (_event, sessionId: string): Promise<void> => {
+      await discardAllGitChanges(
+        await getSessionWorkDir(sessionId),
+        (target) => shell.trashItem(target),
+      )
     },
   )
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import {
   PanelLeftClose,
@@ -8,14 +8,22 @@ import {
   Trash2,
   Download,
   Check,
+  ChevronDown,
   X,
   BookOpen,
   Blocks,
+  Folder,
   FolderOpen,
 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
 import type { SessionInfo } from '@/types'
+import type { RenameConversationRequest } from '@/lib/menu-command'
+import {
+  collectProjects,
+  groupSessionsByProject,
+  truncateProjectPath,
+} from '@/lib/projects'
 
 interface SidebarProps {
   open: boolean
@@ -23,6 +31,8 @@ interface SidebarProps {
   onOpenSettings: () => void
   onOpenMemory: () => void
   onOpenExtensions: () => void
+  searchRequestNonce: number
+  renameRequest: RenameConversationRequest | null
 }
 
 /**
@@ -56,7 +66,15 @@ function SessionBadges({ sessionId, isCurrent }: { sessionId: string; isCurrent:
   return null
 }
 
-export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenExtensions }: SidebarProps) {
+export function Sidebar({
+  open,
+  onToggle,
+  onOpenSettings,
+  onOpenMemory,
+  onOpenExtensions,
+  searchRequestNonce,
+  renameRequest,
+}: SidebarProps) {
   const sessions = useSessionStore((s) => s.sessions)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const selectSession = useSessionStore((s) => s.selectSession)
@@ -68,7 +86,10 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [query, setQuery] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const handledRenameNonceRef = useRef(0)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -78,6 +99,34 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
       (s.title || s.workDir || '新会话').toLowerCase().includes(q),
     )
   }, [sessions, query])
+
+  const projects = useMemo(() => collectProjects(sessions), [sessions])
+  const groupedSessions = useMemo(
+    () => groupSessionsByProject(filtered, currentWorkDir),
+    [filtered, currentWorkDir],
+  )
+
+  const handleSelectProject = useCallback(
+    (workDir: string) => {
+      setProjectMenuOpen(false)
+      const state = useSessionStore.getState()
+      if (workDir === currentWorkDir) return
+      const latestInProject = state.sessions
+        .filter((session) => session.workDir === workDir)
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]
+      if (latestInProject) {
+        selectSession(latestInProject.id)
+      } else {
+        void createSession(workDir)
+      }
+    },
+    [createSession, currentWorkDir, selectSession],
+  )
+
+  const handleOpenProject = useCallback(() => {
+    setProjectMenuOpen(false)
+    void createSession()
+  }, [createSession])
 
   const refreshSessions = useCallback(async () => {
     const raw = await window.lmcodeAPI.listSessions()
@@ -119,15 +168,42 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
     }
   }
 
-  const startRename = useCallback((e: React.MouseEvent, session: { id: string; title?: string }) => {
-    e.stopPropagation()
+  const beginRename = useCallback((session: { id: string; title?: string }) => {
     setEditingId(session.id)
     setEditValue(session.title || '')
     requestAnimationFrame(() => {
-      inputRef.current?.focus()
-      inputRef.current?.select()
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
     })
   }, [])
+
+  const startRename = useCallback(
+    (e: React.MouseEvent, session: { id: string; title?: string }) => {
+      e.stopPropagation()
+      beginRename(session)
+    },
+    [beginRename],
+  )
+
+  useEffect(() => {
+    if (searchRequestNonce === 0) return
+    const animationFrame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(animationFrame)
+  }, [searchRequestNonce])
+
+  useEffect(() => {
+    if (
+      renameRequest === null ||
+      handledRenameNonceRef.current === renameRequest.nonce
+    ) return
+    const session = sessions.find((item) => item.id === renameRequest.sessionId)
+    if (!session) return
+    handledRenameNonceRef.current = renameRequest.nonce
+    beginRename(session)
+  }, [beginRename, renameRequest, sessions])
 
   const confirmRename = useCallback(async () => {
     const id = editingId
@@ -189,6 +265,81 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
           </button>
         </div>
 
+        {/* Project selector */}
+        <div className="relative px-3 pb-2">
+          <button
+            onClick={() => setProjectMenuOpen((open) => !open)}
+            title={currentWorkDir ?? '选择项目'}
+            aria-haspopup="menu"
+            aria-expanded={projectMenuOpen}
+            aria-label={currentWorkDir ? `当前项目：${currentWorkDir}` : '选择项目'}
+            className="flex w-full items-center gap-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+          >
+            <Folder size={14} className="shrink-0 text-[var(--lm-text-muted)]" />
+            <span className="min-w-0 flex-1 truncate text-left font-medium">
+              {currentWorkDir ? truncateProjectPath(currentWorkDir) : '选择项目'}
+            </span>
+            <ChevronDown
+              size={13}
+              className={cn('shrink-0 transition-transform', projectMenuOpen && 'rotate-180')}
+            />
+          </button>
+          {projectMenuOpen && (
+            <>
+              <button
+                className="fixed inset-0 z-40 cursor-default bg-transparent"
+                onClick={() => setProjectMenuOpen(false)}
+                aria-label="关闭项目列表"
+                tabIndex={-1}
+              />
+              <div
+                role="menu"
+                aria-label="项目列表"
+                className="absolute left-3 right-3 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl border border-[var(--lm-border-strong)] bg-[var(--lm-bg-elevated)] p-1 shadow-[var(--lm-shadow-soft)]"
+              >
+                {projects.length === 0 && (
+                  <p className="px-2.5 py-2 text-[11px] text-[var(--lm-text-muted)]">
+                    暂无最近项目
+                  </p>
+                )}
+                {projects.map((project) => (
+                  <button
+                    key={project.workDir}
+                    role="menuitem"
+                    onClick={() => handleSelectProject(project.workDir)}
+                    title={project.workDir}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors',
+                      project.workDir === currentWorkDir
+                        ? 'bg-[var(--lm-bg-active)] text-[var(--lm-text-primary)]'
+                        : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      {truncateProjectPath(project.workDir)}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-[var(--lm-text-muted)]">
+                      {project.sessionCount}
+                    </span>
+                    {project.workDir === currentWorkDir && (
+                      <Check size={13} className="shrink-0 text-[var(--lm-accent-text)]" />
+                    )}
+                  </button>
+                ))}
+                <div className="my-1 border-t border-[var(--lm-border)]" />
+                <button
+                  role="menuitem"
+                  onClick={handleOpenProject}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+                >
+                  <FolderOpen size={13} className="shrink-0" />
+                  <span>打开项目…</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
         {/* New chat */}
         <div className="flex gap-1.5 px-3 pb-2 pt-1">
           <button
@@ -218,26 +369,37 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--lm-text-muted)]"
             />
             <input
+              ref={searchInputRef}
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索对话"
+              aria-label="搜索对话"
               className="w-full rounded-lg border border-transparent bg-[var(--lm-bg-hover)] py-1.5 pl-8 pr-2.5 text-[13px] text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none transition-colors focus:border-[var(--lm-border-strong)] focus:bg-[var(--lm-bg-surface)]"
             />
           </div>
         </div>
 
-        {/* Session list */}
+        {/* Session list, grouped by project */}
         <nav className="flex-1 overflow-y-auto px-2 py-1">
-          <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
-            最近
-          </div>
           {filtered.length === 0 && (
             <p className="px-3 py-6 text-center text-[12px] text-[var(--lm-text-muted)]">
               {query.trim() ? '未找到匹配的对话' : '暂无对话'}
             </p>
           )}
-          {filtered.map((session) => (
+          {groupedSessions.map((group) => (
+            <div key={group.workDir || '__no_project__'} className="mb-1">
+              <div
+                className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[11px] font-medium text-[var(--lm-text-muted)]"
+                title={group.workDir || undefined}
+              >
+                <Folder size={11} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {group.workDir ? truncateProjectPath(group.workDir) : '未关联项目'}
+                </span>
+                <span className="shrink-0 text-[10px]">{group.sessions.length}</span>
+              </div>
+              {group.sessions.map((session) => (
             <div
               key={session.id}
               className={cn(
@@ -257,7 +419,7 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
               {editingId === session.id ? (
                 <div className="flex flex-1 items-center gap-1">
                   <input
-                    ref={inputRef}
+                    ref={renameInputRef}
                     type="text"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
@@ -301,6 +463,8 @@ export function Sidebar({ open, onToggle, onOpenSettings, onOpenMemory, onOpenEx
                   </button>
                 </>
               )}
+            </div>
+              ))}
             </div>
           ))}
         </nav>

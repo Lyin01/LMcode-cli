@@ -16,12 +16,22 @@ import type {
 } from '../../shared/ipc-types'
 import type {
   GitCommitResult,
+  GitDiscardScope,
   GitFileDiff,
+  GitHunkActionInput,
   GitRepositorySnapshot,
 } from '../../shared/git-types'
 import type { ProjectTerminalInfo, TerminalOutputPayload } from '../../shared/terminal-types'
 import type { GitWorktreeInfo } from '../../shared/worktree-types'
-import type { TextAttachment } from '../../shared/file-types'
+import type {
+  DesktopPromptRequest,
+  FileAttachmentPreview,
+  TextAttachment,
+} from '../../shared/file-types'
+import type {
+  DesktopMenuCommandPayload,
+  DesktopMenuState,
+} from '../../shared/menu-types'
 
 declare global {
 interface SessionSummary {
@@ -117,9 +127,9 @@ interface LmcodeAPI {
   listSessions: () => Promise<readonly SessionSummary[]>
 
   // Chat
-  sendMessage: (sessionId: string, text: string) => Promise<void>
+  sendMessage: (sessionId: string, request: DesktopPromptRequest) => Promise<void>
 
-  steerMessage: (sessionId: string, text: string) => Promise<void>
+  steerMessage: (sessionId: string, request: DesktopPromptRequest) => Promise<void>
 
   cancelResponse: (sessionId: string) => Promise<void>
 
@@ -186,6 +196,11 @@ interface LmcodeAPI {
   // File operations
   getPathForFile: (file: File) => string
   readFileContent: (filePath: string) => Promise<TextAttachment>
+  readFileAttachment: (filePath: string) => Promise<FileAttachmentPreview>
+  readInlineImageAttachment: (
+    name: string,
+    dataUrl: string,
+  ) => Promise<FileAttachmentPreview>
 
   // Git review
   getGitSnapshot: (sessionId: string) => Promise<GitRepositorySnapshot>
@@ -193,6 +208,18 @@ interface LmcodeAPI {
   getGitFileDiff: (sessionId: string, filePath: string) => Promise<GitFileDiff>
 
   setGitFileStaged: (sessionId: string, filePath: string, staged: boolean) => Promise<void>
+
+  setAllGitFilesStaged: (sessionId: string, staged: boolean) => Promise<void>
+
+  applyGitHunkAction: (sessionId: string, input: GitHunkActionInput) => Promise<void>
+
+  discardGitFileChanges: (
+    sessionId: string,
+    filePath: string,
+    scope: GitDiscardScope,
+  ) => Promise<void>
+
+  discardAllGitChanges: (sessionId: string) => Promise<void>
 
   commitGitChanges: (sessionId: string, message: string) => Promise<GitCommitResult>
 
@@ -232,8 +259,10 @@ interface LmcodeAPI {
 
   onTerminalOutput: (callback: (data: TerminalOutputPayload) => void) => () => void
 
-  // Navigation events (from tray menu)
-  onNavigate: (callback: (data: { route: string }) => void) => () => void
+  // Native application menu
+  onMenuCommand: (callback: (data: DesktopMenuCommandPayload) => void) => () => void
+
+  updateMenuState: (state: DesktopMenuState) => void
 
   // Memory
   listMemories: () => Promise<MemorySummary[]>

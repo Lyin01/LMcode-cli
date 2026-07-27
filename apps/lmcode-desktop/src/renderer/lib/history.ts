@@ -1,4 +1,5 @@
-import type { Message, ToolCallInfo } from '@/types'
+import { parseTextAttachmentPart } from '../../shared/file-types'
+import type { Message, ToolCallInfo, UserAttachment } from '@/types'
 
 /**
  * Map the SDK's persisted conversation history (`session.getContext().history`,
@@ -14,7 +15,12 @@ export function historyToMessages(history: unknown[]): Message[] {
   for (const raw of history) {
     const m = raw as {
       role?: string
-      content?: Array<{ type?: string; text?: string; think?: string }>
+      content?: Array<{
+        type?: string
+        text?: string
+        think?: string
+        imageUrl?: { url?: string; id?: string }
+      }>
       toolCalls?: Array<{ id?: string; name?: string; arguments?: string | null }>
       toolCallId?: string
       origin?: { kind?: string }
@@ -27,8 +33,40 @@ export function historyToMessages(history: unknown[]): Message[] {
       // Only real user prompts. Injected system reminders / tool notifications /
       // background-task wakes carry a non-"user" origin — keep them out of the UI.
       const isRealUser = !m.origin || m.origin.kind === 'user'
-      if (isRealUser && text.trim()) {
-        out.push({ id: nextId(), role: 'user', content: text, timestamp: 0 })
+      const visibleText: string[] = []
+      const attachments: UserAttachment[] = []
+      for (const part of parts) {
+        if (part.type === 'text') {
+          const parsed = parseTextAttachmentPart(part.text ?? '')
+          if (parsed) {
+            attachments.push({
+              id: nextId(),
+              kind: 'text',
+              name: parsed.metadata.name,
+              sizeBytes: parsed.metadata.sizeBytes,
+              truncated: parsed.metadata.truncated,
+            })
+          } else {
+            visibleText.push(part.text ?? '')
+          }
+        } else if (part.type === 'image_url' && part.imageUrl?.url) {
+          attachments.push({
+            id: nextId(),
+            kind: 'image',
+            name: part.imageUrl.id?.trim() || '图片附件',
+            previewUrl: part.imageUrl.url,
+          })
+        }
+      }
+      const userText = visibleText.join('')
+      if (isRealUser && (userText.trim() || attachments.length > 0)) {
+        out.push({
+          id: nextId(),
+          role: 'user',
+          content: userText,
+          timestamp: 0,
+          attachments,
+        })
       }
     } else if (m.role === 'assistant') {
       const toolCalls: ToolCallInfo[] = (m.toolCalls ?? []).map((tc) => ({

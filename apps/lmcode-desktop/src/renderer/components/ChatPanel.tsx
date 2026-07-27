@@ -1,6 +1,11 @@
 import { useSessionStore } from '@/stores/session-store'
 import { MessageList } from '@/components/MessageList'
 import { Composer } from '@/components/Composer'
+import type {
+  CommandPaletteRequest,
+  ComposerDraftRequest,
+  ConversationFindRequest,
+} from '@/lib/menu-command'
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -13,9 +18,23 @@ function greeting(): string {
 
 interface ChatPanelProps {
   onOpenSettings?: () => void
+  onOpenGitReview?: () => void
+  findRequest: ConversationFindRequest | null
+  commandPaletteRequest: CommandPaletteRequest | null
+  composerDraftRequest: ComposerDraftRequest | null
+  onCommandPaletteRequestConsumed: (nonce: number) => void
+  onComposerDraftRequestConsumed: (nonce: number) => void
 }
 
-export function ChatPanel({ onOpenSettings }: ChatPanelProps) {
+export function ChatPanel({
+  onOpenSettings,
+  onOpenGitReview,
+  findRequest,
+  commandPaletteRequest,
+  composerDraftRequest,
+  onCommandPaletteRequestConsumed,
+  onComposerDraftRequestConsumed,
+}: ChatPanelProps) {
   // Narrow boolean selector: subscribing to the whole `messages` array would
   // re-render this panel (and the heavy Composer subtree) on every stream delta.
   const isEmpty = useSessionStore((s) => s.messages.length === 0)
@@ -41,7 +60,16 @@ export function ChatPanel({ onOpenSettings }: ChatPanelProps) {
               LMCODE · AI Agent 桌面客户端
             </p>
           </div>
-          <Composer key={currentSessionId} autoFocus onOpenSettings={onOpenSettings} />
+          <Composer
+            key={currentSessionId}
+            autoFocus
+            onOpenSettings={onOpenSettings}
+            onOpenGitReview={onOpenGitReview}
+            commandPaletteRequest={commandPaletteRequest}
+            composerDraftRequest={composerDraftRequest}
+            onCommandPaletteRequestConsumed={onCommandPaletteRequestConsumed}
+            onComposerDraftRequestConsumed={onComposerDraftRequestConsumed}
+          />
         </div>
       </div>
     )
@@ -49,10 +77,18 @@ export function ChatPanel({ onOpenSettings }: ChatPanelProps) {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <MessageList />
+      <MessageList findRequest={findRequest} />
       <div className="shrink-0 px-4 pb-4">
         <div className="mx-auto max-w-3xl">
-          <Composer key={currentSessionId} onOpenSettings={onOpenSettings} />
+          <Composer
+            key={currentSessionId}
+            onOpenSettings={onOpenSettings}
+            onOpenGitReview={onOpenGitReview}
+            commandPaletteRequest={commandPaletteRequest}
+            composerDraftRequest={composerDraftRequest}
+            onCommandPaletteRequestConsumed={onCommandPaletteRequestConsumed}
+            onComposerDraftRequestConsumed={onComposerDraftRequestConsumed}
+          />
         </div>
       </div>
     </div>

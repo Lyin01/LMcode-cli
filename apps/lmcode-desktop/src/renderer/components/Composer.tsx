@@ -13,15 +13,28 @@ import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
+import { AttachmentStrip } from '@/components/AttachmentStrip'
 import { SlashCommandsDialog, type SlashCommand } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
-import { parseDesktopSlashCommand } from '@/lib/slash-command'
+import {
+  buildDesktopReviewPrompt,
+  parseDesktopSlashCommand,
+} from '@/lib/slash-command'
 import type { GoalSnapshotData } from '@lmcode-cli/lmcode-sdk'
-import type { QueuedUserMessage } from '@/types'
+import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
+import type { QueuedUserMessage, UserAttachment } from '@/types'
+import type { CommandPaletteRequest, ComposerDraftRequest } from '@/lib/menu-command'
+import { mergeComposerDraft } from '@/lib/composer-draft'
+import { defaultPastedImageName } from '@/lib/pasted-image-name'
 
 interface ComposerProps {
   autoFocus?: boolean
   onOpenSettings?: () => void
+  onOpenGitReview?: () => void
+  commandPaletteRequest?: CommandPaletteRequest | null
+  composerDraftRequest?: ComposerDraftRequest | null
+  onCommandPaletteRequestConsumed?: (nonce: number) => void
+  onComposerDraftRequestConsumed?: (nonce: number) => void
 }
 
 interface ElectronFile extends File {
@@ -35,6 +48,7 @@ const COMMAND_HELP = [
   '- `/plan` / `/plan off`：进入或退出规划模式。',
   '- `/compact [说明]`：压缩当前上下文。',
   '- `/revoke [轮数]`：撤销最近的用户轮次。',
+  '- `/review`：打开代码审查；支持 `uncommitted`、`base <分支>`、`commit <引用>`、`custom <重点>`。',
   '- `/model`：打开模型选择器。',
   '- `/mode`、`/config`：打开设置。',
   '- `/clear`：在当前项目中新建对话。',
@@ -50,7 +64,32 @@ function goalStatusText(goal: GoalSnapshotData | null): string {
   return `🎯 **${goal.objective}**\n\n状态：${goal.status} · 已执行 ${goal.turnsUsed} 轮${budget}`
 }
 
-export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
+function fileToDataUrl(file: File): Promise<string> {
+  const result = Promise.withResolvers<string>()
+  const reader = new FileReader()
+  reader.addEventListener('load', () => {
+    if (typeof reader.result === 'string') result.resolve(reader.result)
+    else result.reject(new Error('无法读取剪贴板图片'))
+  }, { once: true })
+  reader.addEventListener('error', () => {
+    result.reject(reader.error ?? new Error('无法读取剪贴板图片'))
+  }, { once: true })
+  reader.addEventListener('abort', () => {
+    result.reject(new Error('剪贴板图片读取已取消'))
+  }, { once: true })
+  reader.readAsDataURL(file)
+  return result.promise
+}
+
+export function Composer({
+  autoFocus,
+  onOpenSettings,
+  onOpenGitReview,
+  commandPaletteRequest,
+  composerDraftRequest,
+  onCommandPaletteRequestConsumed,
+  onComposerDraftRequestConsumed,
+}: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
@@ -77,13 +116,36 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [hasDraft, setHasDraft] = useState(false)
+  const [attachments, setAttachments] = useState<UserAttachment[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [attachmentLoadCount, setAttachmentLoadCount] = useState(0)
+  const attachmentsRef = useRef<UserAttachment[]>([])
+  const attachmentGenerationRef = useRef(0)
+  const mountedRef = useRef(true)
   const dragCounter = useRef(0)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if ((autoFocus || currentSessionId) && textareaRef.current) {
       textareaRef.current.focus()
     }
   }, [currentSessionId, autoFocus])
+
+  useEffect(() => {
+    attachmentGenerationRef.current += 1
+    attachmentsRef.current = []
+    setAttachments([])
+    setAttachmentError(null)
+    setAttachmentLoadCount(0)
+    setIsDragging(false)
+    dragCounter.current = 0
+  }, [currentSessionId])
 
   const autoGrow = useCallback(() => {
     const ta = textareaRef.current
@@ -92,34 +154,114 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
     ta.style.height = Math.min(ta.scrollHeight, 220) + 'px'
   }, [])
 
-  const insertAtCursor = useCallback((text: string) => {
-    const ta = textareaRef.current
-    if (!ta) return
-    const start = ta.selectionStart
-    ta.setRangeText(text, start, start, 'end')
+  useEffect(() => {
+    if (!commandPaletteRequest) return
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.value = '/'
+    textarea.setSelectionRange(1, 1)
+    setHasDraft(true)
+    setSlashQuery('')
+    setShowSlash(true)
+    setModelMenuOpen(false)
     autoGrow()
-    ta.focus()
-  }, [autoGrow])
+    textarea.focus()
+    onCommandPaletteRequestConsumed?.(commandPaletteRequest.nonce)
+  }, [autoGrow, commandPaletteRequest, onCommandPaletteRequestConsumed])
+
+  useEffect(() => {
+    if (!composerDraftRequest) return
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const next = mergeComposerDraft(textarea.value, composerDraftRequest)
+    textarea.value = next
+    textarea.setSelectionRange(next.length, next.length)
+    setHasDraft(Boolean(next.trim()))
+    setShowSlash(false)
+    setSlashQuery('')
+    setModelMenuOpen(false)
+    autoGrow()
+    textarea.focus()
+    onComposerDraftRequestConsumed?.(composerDraftRequest.nonce)
+  }, [autoGrow, composerDraftRequest, onComposerDraftRequestConsumed])
 
   // ── Attach a file (shared by drop + file picker) ───────────────────
+  const removeAttachment = useCallback((id: string) => {
+    const next = attachmentsRef.current.filter((attachment) => attachment.id !== id)
+    attachmentsRef.current = next
+    setAttachments(next)
+    setAttachmentError(null)
+  }, [])
+
   const attachFile = useCallback(
     async (file: File) => {
+      const attachmentGeneration = attachmentGenerationRef.current
       const filePath = window.lmcodeAPI.getPathForFile(file) || (file as ElectronFile).path
-      if (!filePath) {
-        insertAtCursor(`[拖入文件: ${file.name}]`)
+      if (
+        filePath &&
+        attachmentsRef.current.some((attachment) => attachment.filePath === filePath)
+      ) return
+      if (attachmentsRef.current.length >= MAX_PROMPT_ATTACHMENTS) {
+        setAttachmentError(`每条消息最多附加 ${MAX_PROMPT_ATTACHMENTS} 个文件`)
         return
       }
+
+      setAttachmentError(null)
+      setAttachmentLoadCount((count) => count + 1)
       try {
-        const attachment = await window.lmcodeAPI.readFileContent(filePath)
-        const suffix = attachment.truncated
-          ? `，已截断至 ${Math.round(attachment.content.length / 1024)} KB`
-          : ''
-        insertAtCursor(`[文件: ${file.name}${suffix}]\n\`\`\`\n${attachment.content}\n\`\`\`\n`)
-      } catch {
-        insertAtCursor(`[文件: ${file.name} (读取失败)]`)
+        let preview: FileAttachmentPreview
+        if (filePath) {
+          preview = await window.lmcodeAPI.readFileAttachment(filePath)
+        } else {
+          if (!file.type.startsWith('image/')) {
+            throw new Error(`无法读取“${file.name || '剪贴板文件'}”的本地路径`)
+          }
+          const dataUrl = await fileToDataUrl(file)
+          preview = await window.lmcodeAPI.readInlineImageAttachment(
+            file.name || defaultPastedImageName(file.type),
+            dataUrl,
+          )
+        }
+        if (
+          !mountedRef.current ||
+          attachmentGeneration !== attachmentGenerationRef.current
+        ) return
+        const attachment: UserAttachment = {
+          id: `attachment_${globalThis.crypto.randomUUID()}`,
+          kind: preview.kind,
+          name: preview.name,
+          filePath,
+          sizeBytes: preview.sizeBytes,
+          truncated: preview.kind === 'text' ? preview.truncated : false,
+          previewUrl: preview.kind === 'image' ? preview.dataUrl : undefined,
+        }
+        const current = attachmentsRef.current
+        const isDuplicate = filePath
+          ? current.some((item) => item.filePath === filePath)
+          : preview.kind === 'image' &&
+            current.some((item) => item.previewUrl === preview.dataUrl)
+        if (isDuplicate || current.length >= MAX_PROMPT_ATTACHMENTS) return
+        const next = [...current, attachment]
+        attachmentsRef.current = next
+        setAttachments(next)
+      } catch (error) {
+        if (
+          !mountedRef.current ||
+          attachmentGeneration !== attachmentGenerationRef.current
+        ) return
+        setAttachmentError(
+          error instanceof Error ? error.message : `无法附加“${file.name}”`,
+        )
+      } finally {
+        if (
+          mountedRef.current &&
+          attachmentGeneration === attachmentGenerationRef.current
+        ) {
+          setAttachmentLoadCount((count) => Math.max(0, count - 1))
+        }
       }
     },
-    [insertAtCursor],
+    [],
   )
 
   // ── Drag-and-drop ──────────────────────────────────────────────────
@@ -149,16 +291,39 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
       setIsDragging(false)
       dragCounter.current = 0
       const files = Array.from(e.dataTransfer.files)
-      if (files[0]) await attachFile(files[0])
+      for (const file of files.slice(0, MAX_PROMPT_ATTACHMENTS)) {
+        await attachFile(file)
+      }
     },
     [attachFile],
   )
 
   const handleFilePick = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (file) await attachFile(file)
+      const files = Array.from(e.target.files ?? [])
+      for (const file of files) await attachFile(file)
       e.target.value = ''
+    },
+    [attachFile],
+  )
+
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      let files = Array.from(event.clipboardData.files)
+      if (files.length === 0) {
+        // Some clipboard sources expose image data only through items.
+        files = Array.from(event.clipboardData.items)
+          .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => file !== null)
+      }
+      if (files.length === 0) return
+      if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+      void (async () => {
+        for (const file of files.slice(0, MAX_PROMPT_ATTACHMENTS)) {
+          await attachFile(file)
+        }
+      })()
     },
     [attachFile],
   )
@@ -273,6 +438,12 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
             showNotice(`已撤销最近 ${command.count} 轮对话。`)
             break
           }
+          case 'review-open':
+            onOpenGitReview?.()
+            break
+          case 'review-run':
+            await sendMessage(buildDesktopReviewPrompt(command))
+            break
           case 'model':
             setModelMenuOpen(true)
             break
@@ -306,6 +477,7 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
     [
       createSession,
       currentSessionId,
+      onOpenGitReview,
       onOpenSettings,
       sendMessage,
       setMessagesForSession,
@@ -318,22 +490,37 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
     const ta = textareaRef.current
     if (!ta) return
     const text = ta.value
-    if (!text.trim()) return
+    const pendingAttachments = attachmentsRef.current
+    if ((!text.trim() && pendingAttachments.length === 0) || attachmentLoadCount > 0) return
+    if (text.trim().startsWith('/') && pendingAttachments.length > 0) {
+      setAttachmentError('斜杠命令不能携带附件，请先移除附件或发送普通消息')
+      return
+    }
     ta.value = ''
     ta.style.height = 'auto'
     setHasDraft(false)
     setShowSlash(false)
     setSlashQuery('')
+    setAttachmentError(null)
+    attachmentsRef.current = []
+    setAttachments([])
     if (text.trim().startsWith('/')) {
       void executeSlashCommand(text)
     } else if (isStreaming && delivery === 'steer') {
-      void steerMessage(text)
+      void steerMessage(text, pendingAttachments)
     } else if (isStreaming) {
-      queueMessage(text)
+      queueMessage(text, pendingAttachments)
     } else {
-      void sendMessage(text)
+      void sendMessage(text, pendingAttachments)
     }
-  }, [executeSlashCommand, isStreaming, queueMessage, sendMessage, steerMessage])
+  }, [
+    attachmentLoadCount,
+    executeSlashCommand,
+    isStreaming,
+    queueMessage,
+    sendMessage,
+    steerMessage,
+  ])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -400,6 +587,9 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
     textareaRef.current?.focus()
   }, [])
 
+  const canSend = hasDraft || attachments.length > 0
+  const isAttaching = attachmentLoadCount > 0
+
   if (!currentSessionId) return null
 
   return (
@@ -415,7 +605,7 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
         <div className="absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] backdrop-blur-sm">
           <div className="flex flex-col items-center gap-2 text-[var(--lm-accent-text)]">
             <FileUp size={32} strokeWidth={1.5} />
-            <span className="text-sm font-medium">释放文件以添加到消息</span>
+            <span className="text-sm font-medium">释放文件以添加附件</span>
           </div>
         </div>
       )}
@@ -447,6 +637,7 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
                 </span>
                 <input
                   value={message.text}
+                  placeholder={message.attachments.length > 0 ? '仅发送附件' : undefined}
                   onChange={(event) => {
                     if (currentSessionId) {
                       updateQueuedMessage(currentSessionId, message.id, event.target.value)
@@ -455,26 +646,41 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
                   className="min-w-0 flex-1 bg-transparent text-[11px] text-[var(--lm-text-secondary)]"
                   aria-label={`编辑队列消息 ${index + 1}`}
                 />
+                {message.attachments.length > 0 && (
+                  <span
+                    className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[9px] text-[var(--lm-text-muted)]"
+                    title={message.attachments.map((attachment) => attachment.name).join('、')}
+                  >
+                    <Paperclip size={9} />
+                    {message.attachments.length}
+                  </span>
+                )}
                 <button
+                  type="button"
                   onClick={() => currentSessionId && moveQueuedMessage(currentSessionId, message.id, -1)}
                   disabled={index === 0}
                   className="rounded p-1 text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-25"
                   title="上移"
+                  aria-label={`上移队列消息 ${index + 1}`}
                 >
                   <ChevronUp size={12} />
                 </button>
                 <button
+                  type="button"
                   onClick={() => currentSessionId && moveQueuedMessage(currentSessionId, message.id, 1)}
                   disabled={index === queuedMessages.length - 1}
                   className="rounded p-1 text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-25"
                   title="下移"
+                  aria-label={`下移队列消息 ${index + 1}`}
                 >
                   <ChevronDown size={12} />
                 </button>
                 <button
+                  type="button"
                   onClick={() => currentSessionId && removeQueuedMessage(currentSessionId, message.id)}
                   className="rounded p-1 text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-error)]"
                   title="移除"
+                  aria-label={`移除队列消息 ${index + 1}`}
                 >
                   <X size={12} />
                 </button>
@@ -485,14 +691,30 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
       )}
 
       <div className="rounded-[20px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-colors focus-within:border-[var(--lm-accent)]">
+        {attachments.length > 0 && (
+          <div className="px-3 pt-3">
+            <AttachmentStrip attachments={attachments} onRemove={removeAttachment} />
+          </div>
+        )}
+        {(attachmentError || isAttaching) && (
+          <div
+            className={`px-4 pt-2 text-[10px] ${
+              attachmentError ? 'text-[var(--lm-error)]' : 'text-[var(--lm-text-muted)]'
+            }`}
+            role={attachmentError ? 'alert' : 'status'}
+          >
+            {attachmentError ?? '正在读取附件…'}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={
             isStreaming
               ? '继续输入…（Enter 排队，Ctrl+Enter 立即转向）'
-              : '给 LMCODE 发消息…  (Enter 发送，Shift+Enter 换行，/ 查看命令)'
+              : '给 LMCODE 发消息…（可粘贴截图，/ 查看命令）'
           }
           rows={1}
           className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-relaxed text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none"
@@ -501,9 +723,12 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
         {/* Toolbar */}
         <div className="flex items-center gap-1.5 px-2.5 pb-2.5 pt-0.5">
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
+            disabled={isAttaching || attachments.length >= MAX_PROMPT_ATTACHMENTS}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)]"
-            title="附加文件"
+            title="附加文本文件或图片"
+            aria-label="附加文本文件或图片"
           >
             <Paperclip size={17} />
           </button>
@@ -525,26 +750,33 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
                 Ctrl+Enter 转向
               </span>
               <button
+                type="button"
                 onClick={() => handleSend()}
-                disabled={!hasDraft}
+                disabled={!canSend || isAttaching}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:opacity-30"
                 title="加入待发送队列"
+                aria-label="加入待发送队列"
               >
                 <ArrowUp size={17} strokeWidth={2.4} />
               </button>
               <button
+                type="button"
                 onClick={cancel}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--lm-bg-active)] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-error)] hover:text-white"
                 title="停止"
+                aria-label="停止生成"
               >
                 <Square size={14} fill="currentColor" />
               </button>
             </div>
           ) : (
             <button
+              type="button"
               onClick={() => handleSend()}
+              disabled={!canSend || isAttaching}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
               title="发送"
+              aria-label="发送消息"
             >
               <ArrowUp size={17} strokeWidth={2.4} />
             </button>
@@ -555,6 +787,7 @@ export function Composer({ autoFocus, onOpenSettings }: ComposerProps) {
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         className="hidden"
         onChange={handleFilePick}
       />

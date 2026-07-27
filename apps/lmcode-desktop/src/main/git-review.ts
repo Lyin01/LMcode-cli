@@ -4,9 +4,11 @@ import * as path from 'node:path'
 import type {
   GitChangeKind,
   GitCommitResult,
+  GitDiscardScope,
   GitDiffSection,
   GitFileChange,
   GitFileDiff,
+  GitHunkActionInput,
   GitRepositorySnapshot,
 } from '../shared/git-types.js'
 
@@ -23,8 +25,16 @@ export interface GitCommandResult {
 }
 
 export function runGitCommand(workDir: string, args: readonly string[]): Promise<GitCommandResult> {
+  return runGitCommandWithInput(workDir, args)
+}
+
+function runGitCommandWithInput(
+  workDir: string,
+  args: readonly string[],
+  input?: string,
+): Promise<GitCommandResult> {
   const deferred = Promise.withResolvers<GitCommandResult>()
-  execFile(
+  const child = execFile(
     'git',
     [...args],
     {
@@ -43,6 +53,10 @@ export function runGitCommand(workDir: string, args: readonly string[]): Promise
       })
     },
   )
+  if (input !== undefined) {
+    child.stdin?.on('error', () => undefined)
+    child.stdin?.end(input)
+  }
   return deferred.promise
 }
 
@@ -247,6 +261,17 @@ async function readDiffSection(
   filePath: string,
   kind: 'staged' | 'unstaged',
 ): Promise<GitDiffSection | undefined> {
+  const patch = await readRawDiffPatch(root, filePath, kind)
+  if (!patch.trim()) return undefined
+  const limited = limitPatch(patch)
+  return { kind, patch: limited.patch, truncated: limited.truncated }
+}
+
+async function readRawDiffPatch(
+  root: string,
+  filePath: string,
+  kind: 'staged' | 'unstaged',
+): Promise<string> {
   const args = [
     'diff',
     '--no-color',
@@ -258,9 +283,7 @@ async function readDiffSection(
   ]
   const result = await runGitCommand(root, args)
   if (!result.ok) throw new Error(userFacingGitError(result))
-  if (!result.stdout.trim()) return undefined
-  const limited = limitPatch(result.stdout)
-  return { kind, patch: limited.patch, truncated: limited.truncated }
+  return result.stdout
 }
 
 export async function inspectGitFileDiff(
@@ -333,6 +356,196 @@ export async function setGitFileStaged(
   }
 
   if (!result.ok) throw new Error(userFacingGitError(result))
+}
+
+export async function setAllGitFilesStaged(
+  workDir: string,
+  staged: boolean,
+): Promise<void> {
+  const snapshot = await inspectGitRepository(workDir)
+  if (!snapshot.isRepository || !snapshot.root) {
+    throw new Error(snapshot.error || '当前项目不是 Git 仓库')
+  }
+
+  let result: GitCommandResult
+  if (staged) {
+    result = await runGitCommand(snapshot.root, ['add', '-A', '--', '.'])
+  } else {
+    result = await runGitCommand(snapshot.root, ['restore', '--staged', '--', '.'])
+    if (!result.ok) {
+      const hasHead = await runGitCommand(snapshot.root, ['rev-parse', '--verify', 'HEAD'])
+      if (!hasHead.ok) {
+        result = await runGitCommand(snapshot.root, [
+          'rm',
+          '--cached',
+          '-r',
+          '--ignore-unmatch',
+          '--',
+          '.',
+        ])
+      }
+    }
+  }
+  if (!result.ok) throw new Error(userFacingGitError(result))
+}
+
+function extractDiffHunk(patch: string, hunkIndex: number): string {
+  if (!Number.isSafeInteger(hunkIndex) || hunkIndex < 0) {
+    throw new Error('无效的 diff hunk 索引')
+  }
+  const lines = patch.split('\n')
+  const hunkStarts: number[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index]?.startsWith('@@')) hunkStarts.push(index)
+  }
+  const start = hunkStarts[hunkIndex]
+  const firstHunk = hunkStarts[0]
+  if (start === undefined || firstHunk === undefined) {
+    throw new Error('所选 diff hunk 已不存在，请刷新后重试')
+  }
+  const end = hunkStarts[hunkIndex + 1] ?? lines.length
+  const extracted = [...lines.slice(0, firstHunk), ...lines.slice(start, end)].join('\n')
+  return extracted.endsWith('\n') ? extracted : `${extracted}\n`
+}
+
+export async function applyGitHunkAction(
+  workDir: string,
+  input: GitHunkActionInput,
+): Promise<void> {
+  const { filePath, sectionKind, hunkIndex, action } = input
+  if (
+    !filePath ||
+    filePath.includes('\0') ||
+    (sectionKind !== 'staged' && sectionKind !== 'unstaged') ||
+    !Number.isSafeInteger(hunkIndex) ||
+    hunkIndex < 0
+  ) {
+    throw new Error('无效的 Git hunk 操作参数')
+  }
+  const actionAllowed =
+    (sectionKind === 'unstaged' && (action === 'stage' || action === 'revert')) ||
+    (sectionKind === 'staged' && action === 'unstage')
+  if (!actionAllowed) throw new Error('该 diff 区域不支持此操作')
+
+  const { root, change } = await resolveChange(workDir, filePath)
+  if (sectionKind === 'staged' && !change.staged) {
+    throw new Error('所选文件已没有暂存变更，请刷新后重试')
+  }
+  if (sectionKind === 'unstaged' && (!change.unstaged || change.kind === 'untracked')) {
+    throw new Error('所选文件已没有可操作的工作区 hunk，请刷新后重试')
+  }
+
+  const rawPatch = await readRawDiffPatch(root, filePath, sectionKind)
+  const hunkPatch = extractDiffHunk(rawPatch, hunkIndex)
+  const args = ['apply', '--recount', '--whitespace=nowarn']
+  if (action === 'stage') args.push('--cached')
+  if (action === 'unstage') args.push('--cached', '--reverse')
+  if (action === 'revert') args.push('--reverse')
+  args.push('-')
+
+  const result = await runGitCommandWithInput(root, args, hunkPatch)
+  if (!result.ok) {
+    const detail = userFacingGitError(result)
+    throw new Error(`无法应用所选 hunk：${detail}`)
+  }
+}
+
+export type TrashItem = (absolutePath: string) => Promise<void>
+
+function resolveWorktreeEntry(root: string, filePath: string): string {
+  const absolutePath = path.resolve(root, filePath)
+  const relativePath = path.relative(root, absolutePath)
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error('拒绝操作 Git 工作区之外的文件')
+  }
+  return absolutePath
+}
+
+async function pathExistsInHead(root: string, filePath: string): Promise<boolean> {
+  const result = await runGitCommand(root, [
+    'cat-file',
+    '-e',
+    `HEAD:${displayPath(filePath)}`,
+  ])
+  return result.ok
+}
+
+async function trashWorkingTreeEntry(
+  root: string,
+  filePath: string,
+  trashItem: TrashItem,
+): Promise<void> {
+  const absolutePath = resolveWorktreeEntry(root, filePath)
+  const exists = await fs.lstat(absolutePath).then(() => true, () => false)
+  if (exists) await trashItem(absolutePath)
+}
+
+export async function discardGitFileChanges(
+  workDir: string,
+  filePath: string,
+  scope: GitDiscardScope,
+  trashItem: TrashItem,
+): Promise<void> {
+  if (scope !== 'unstaged' && scope !== 'all') {
+    throw new Error('无效的 Git 撤销范围')
+  }
+  const { root, change } = await resolveChange(workDir, filePath)
+  const paths = change.originalPath ? [change.path, change.originalPath] : [change.path]
+
+  if (change.kind === 'untracked') {
+    await trashWorkingTreeEntry(root, change.path, trashItem)
+    return
+  }
+
+  if (scope === 'unstaged') {
+    if (!change.unstaged) return
+    const result = await runGitCommand(root, ['restore', '--worktree', '--', ...paths])
+    if (!result.ok) throw new Error(userFacingGitError(result))
+    return
+  }
+
+  const hasTrackedSource = change.originalPath !== undefined ||
+    await pathExistsInHead(root, change.path)
+  if (!hasTrackedSource) {
+    if (change.staged) {
+      const unstage = await runGitCommand(root, [
+        'rm',
+        '--cached',
+        '--ignore-unmatch',
+        '--',
+        change.path,
+      ])
+      if (!unstage.ok) throw new Error(userFacingGitError(unstage))
+    }
+    await trashWorkingTreeEntry(root, change.path, trashItem)
+    return
+  }
+
+  const result = await runGitCommand(root, [
+    'restore',
+    '--source=HEAD',
+    '--staged',
+    '--worktree',
+    '--',
+    ...paths,
+  ])
+  if (!result.ok) throw new Error(userFacingGitError(result))
+}
+
+export async function discardAllGitChanges(
+  workDir: string,
+  trashItem: TrashItem,
+): Promise<void> {
+  const snapshot = await inspectGitRepository(workDir)
+  if (!snapshot.isRepository || !snapshot.root) {
+    throw new Error(snapshot.error || '当前项目不是 Git 仓库')
+  }
+  const paths = snapshot.changes.map((change) => change.path)
+  for (const filePath of paths) {
+    const current = await inspectGitRepository(workDir)
+    if (!current.changes.some((change) => change.path === filePath)) continue
+    await discardGitFileChanges(workDir, filePath, 'all', trashItem)
+  }
 }
 
 export async function commitGitChanges(
