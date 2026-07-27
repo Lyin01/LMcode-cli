@@ -162,6 +162,22 @@ const redirectWorkspaceToVendor = {
 // 1. Vendor the workspace packages first (the redirect target must exist).
 await vendorAll()
 
+// 1b. Ship the icon assets inside out/ so electron-builder's `files: out/**`
+// picks them up for the packaged app (window icon + tray icon load from here).
+{
+  const resourcesOut = resolve(ROOT, 'out/resources')
+  rmSync(resourcesOut, { recursive: true, force: true })
+  mkdirSync(resourcesOut, { recursive: true })
+  for (const asset of ['icon.png', 'tray-icon.png']) {
+    const source = resolve(ROOT, 'resources', asset)
+    if (!existsSync(source)) {
+      throw new Error(`Missing icon asset ${source}`)
+    }
+    cpSync(source, join(resourcesOut, asset))
+  }
+  console.log('> copy icon assets to out/resources')
+}
+
 // 2. Build main (workspace packages redirected to their vendored bundle).
 console.log('> esbuild main')
 await build({

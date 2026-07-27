@@ -33,10 +33,6 @@ const { autoUpdater } = updaterPkg
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = join(__filename, '..')
 
-// Base64 encoded 16x16 indigo (#4F46E5) PNG for the tray icon
-const INDIGO_ICON_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGPwd3tKEmIY1TCqYfhqAABe7noQUrS/JQAAAABJRU5ErkJggg=='
-
 let mainWindow: BrowserWindow | null = null
 let harness: LmcodeHarness | null = null
 let tray: Tray | null = null
@@ -51,7 +47,13 @@ let menuStateListener: ((event: IpcMainEvent, state: unknown) => void) | null = 
 // ── Tray icon ─────────────────────────────────────────────────────────
 
 function createTrayIcon(): Electron.NativeImage {
-  const img = nativeImage.createFromDataURL(`data:image/png;base64,${INDIGO_ICON_BASE64}`)
+  // out/main/index.js → out/resources/tray-icon.png (copied by scripts/build.mjs).
+  const iconPath = join(__dirname, '../resources/tray-icon.png')
+  const img = nativeImage.createFromPath(iconPath)
+  if (img.isEmpty()) {
+    console.warn(`[tray] icon asset missing or unreadable: ${iconPath}`)
+    return nativeImage.createEmpty()
+  }
   return img.resize({ width: 16, height: 16 })
 }
 
@@ -345,7 +347,7 @@ function createWindow(): void {
     minHeight: 700,
     show: false,
     titleBarStyle: 'default',
-    icon: join(__dirname, '../../resources/icon.ico'),
+    icon: join(__dirname, '../resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
