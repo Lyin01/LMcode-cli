@@ -12,6 +12,7 @@ LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 
 - 项目工具：Codex 式代码审查（未暂存/已暂存范围、双侧行号、逐文件/逐 hunk 暂存与撤销、行内评论回填对话）、Git 提交、worktree 创建或接力、项目终端。
 - 自动化：在当前会话中创建、查看和删除 Cron 任务；桌面端运行时会自动恢复包含计划任务的持久化会话。
 - 生态能力：Skills、MCP、记忆浏览与搜索、系统托盘和桌面通知。
+- 秒退（0.3.4+）：退出时跳过逐会话的退出记忆提取（LLM 调用，单次最多 30s），关闭即时完成；记忆仍由压缩时提取和空闲 15 分钟提取保留。SDK 侧体现为 `LmcodeHarness.close({ extractMemories: false })`，CLI/TUI 的默认提取行为不变。
 
 ## 关键边界
 
@@ -69,6 +70,17 @@ Windows 安装包：
 ```powershell
 pnpm --dir apps/lmcode-desktop run build:win
 ```
+
+## 发布
+
+安装包与 `latest.yml` 发布到独立的 `Lyin01/LMcode-desktop` 仓库（与 CLI 发布线隔离，auto-updater 从该仓库的 latest release 拉取更新）。该仓库仅托管构建产物，其 tag 均指向同一占位提交，不与源码仓库的提交对应。
+
+```powershell
+# 交互式输入 GitHub Token 后打包发布（token 不落盘）
+apps/lmcode-desktop/发布.bat
+```
+
+已知问题：electron-builder 在上传资产之间可能重复创建 release 并因 422 `already_exists` 中断，导致资产不全。此时删除残缺 release（`gh release delete <tag> --repo Lyin01/LMcode-desktop --cleanup-tag`）重跑，或用 `gh release upload` 手动补齐缺失资产——注意 `latest.yml` 必须与本次安装包的 sha512 / size 一致。
 
 `build` 会先生成主进程、preload 和渲染进程产物，并将运行时需要的 workspace 包复制到 `out/vendor`。源码修改应始终发生在 `src/` 或 workspace 包中。
 
