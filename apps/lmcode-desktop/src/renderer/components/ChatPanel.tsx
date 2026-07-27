@@ -1,6 +1,7 @@
 import { useSessionStore } from '@/stores/session-store'
 import { MessageList } from '@/components/MessageList'
 import { Composer } from '@/components/Composer'
+import { ProjectPicker } from '@/components/ProjectPicker'
 import type {
   CommandPaletteRequest,
   ComposerDraftRequest,
@@ -60,6 +61,9 @@ export function ChatPanel({
               LMCODE · AI Agent 桌面客户端
             </p>
           </div>
+          <div className="mb-2 flex">
+            <ProjectPicker display="name" />
+          </div>
           <Composer
             key={currentSessionId}
             autoFocus
@@ -80,6 +84,9 @@ export function ChatPanel({
       <MessageList findRequest={findRequest} />
       <div className="shrink-0 px-4 pb-4">
         <div className="mx-auto max-w-3xl">
+          <div className="mb-1.5 flex">
+            <ProjectPicker display="name" />
+          </div>
           <Composer
             key={currentSessionId}
             onOpenSettings={onOpenSettings}

@@ -8,7 +8,6 @@ import {
   Trash2,
   Download,
   Check,
-  ChevronDown,
   X,
   BookOpen,
   Blocks,
@@ -17,11 +16,13 @@ import {
 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
+import { useProjectSwitcher } from '@/hooks/useProjectSwitcher'
+import { ProjectPicker } from '@/components/ProjectPicker'
 import type { SessionInfo } from '@/types'
 import type { RenameConversationRequest } from '@/lib/menu-command'
 import {
-  collectProjects,
   groupSessionsByProject,
+  projectDisplayName,
   truncateProjectPath,
 } from '@/lib/projects'
 
@@ -81,12 +82,12 @@ export function Sidebar({
   const setSessions = useSessionStore((s) => s.setSessions)
   const removeDeletedSession = useSessionStore((s) => s.removeDeletedSession)
   const { createSession } = useSession()
+  const { createSessionInProject } = useProjectSwitcher()
   const currentWorkDir = sessions.find((session) => session.id === currentSessionId)?.workDir
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [query, setQuery] = useState('')
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const handledRenameNonceRef = useRef(0)
@@ -100,33 +101,10 @@ export function Sidebar({
     )
   }, [sessions, query])
 
-  const projects = useMemo(() => collectProjects(sessions), [sessions])
   const groupedSessions = useMemo(
     () => groupSessionsByProject(filtered, currentWorkDir),
     [filtered, currentWorkDir],
   )
-
-  const handleSelectProject = useCallback(
-    (workDir: string) => {
-      setProjectMenuOpen(false)
-      const state = useSessionStore.getState()
-      if (workDir === currentWorkDir) return
-      const latestInProject = state.sessions
-        .filter((session) => session.workDir === workDir)
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]
-      if (latestInProject) {
-        selectSession(latestInProject.id)
-      } else {
-        void createSession(workDir)
-      }
-    },
-    [createSession, currentWorkDir, selectSession],
-  )
-
-  const handleOpenProject = useCallback(() => {
-    setProjectMenuOpen(false)
-    void createSession()
-  }, [createSession])
 
   const refreshSessions = useCallback(async () => {
     const raw = await window.lmcodeAPI.listSessions()
@@ -265,80 +243,8 @@ export function Sidebar({
           </button>
         </div>
 
-        {/* Project selector */}
-        <div className="relative px-3 pb-2">
-          <button
-            onClick={() => setProjectMenuOpen((open) => !open)}
-            title={currentWorkDir ?? '选择项目'}
-            aria-haspopup="menu"
-            aria-expanded={projectMenuOpen}
-            aria-label={currentWorkDir ? `当前项目：${currentWorkDir}` : '选择项目'}
-            className="flex w-full items-center gap-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-          >
-            <Folder size={14} className="shrink-0 text-[var(--lm-text-muted)]" />
-            <span className="min-w-0 flex-1 truncate text-left font-medium">
-              {currentWorkDir ? truncateProjectPath(currentWorkDir) : '选择项目'}
-            </span>
-            <ChevronDown
-              size={13}
-              className={cn('shrink-0 transition-transform', projectMenuOpen && 'rotate-180')}
-            />
-          </button>
-          {projectMenuOpen && (
-            <>
-              <button
-                className="fixed inset-0 z-40 cursor-default bg-transparent"
-                onClick={() => setProjectMenuOpen(false)}
-                aria-label="关闭项目列表"
-                tabIndex={-1}
-              />
-              <div
-                role="menu"
-                aria-label="项目列表"
-                className="absolute left-3 right-3 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl border border-[var(--lm-border-strong)] bg-[var(--lm-bg-elevated)] p-1 shadow-[var(--lm-shadow-soft)]"
-              >
-                {projects.length === 0 && (
-                  <p className="px-2.5 py-2 text-[11px] text-[var(--lm-text-muted)]">
-                    暂无最近项目
-                  </p>
-                )}
-                {projects.map((project) => (
-                  <button
-                    key={project.workDir}
-                    role="menuitem"
-                    onClick={() => handleSelectProject(project.workDir)}
-                    title={project.workDir}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors',
-                      project.workDir === currentWorkDir
-                        ? 'bg-[var(--lm-bg-active)] text-[var(--lm-text-primary)]'
-                        : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
-                    )}
-                  >
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {truncateProjectPath(project.workDir)}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-[var(--lm-text-muted)]">
-                      {project.sessionCount}
-                    </span>
-                    {project.workDir === currentWorkDir && (
-                      <Check size={13} className="shrink-0 text-[var(--lm-accent-text)]" />
-                    )}
-                  </button>
-                ))}
-                <div className="my-1 border-t border-[var(--lm-border)]" />
-                <button
-                  role="menuitem"
-                  onClick={handleOpenProject}
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-                >
-                  <FolderOpen size={13} className="shrink-0" />
-                  <span>打开项目…</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        {/* Project selector (shared with the composer chip) */}
+        <ProjectPicker display="path" className="px-3 pb-2" />
 
         {/* New chat */}
         <div className="flex gap-1.5 px-3 pb-2 pt-1">
@@ -390,14 +296,30 @@ export function Sidebar({
           {groupedSessions.map((group) => (
             <div key={group.workDir || '__no_project__'} className="mb-1">
               <div
-                className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[11px] font-medium text-[var(--lm-text-muted)]"
+                className="group/project flex items-center gap-1.5 px-2 pb-1 pt-2 text-[11px] font-medium text-[var(--lm-text-muted)]"
                 title={group.workDir || undefined}
               >
                 <Folder size={11} className="shrink-0" />
                 <span className="min-w-0 flex-1 truncate">
                   {group.workDir ? truncateProjectPath(group.workDir) : '未关联项目'}
                 </span>
-                <span className="shrink-0 text-[10px]">{group.sessions.length}</span>
+                <span className="shrink-0 text-[10px] group-hover/project:hidden">
+                  {group.sessions.length}
+                </span>
+                {group.workDir && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      createSessionInProject(group.workDir)
+                    }}
+                    className="hidden shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] group-hover/project:block"
+                    title={`在 ${projectDisplayName(group.workDir)} 中新建对话`}
+                    aria-label={`在项目 ${group.workDir} 中新建对话`}
+                  >
+                    <Plus size={12} />
+                  </button>
+                )}
               </div>
               {group.sessions.map((session) => (
             <div

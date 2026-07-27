@@ -111,3 +111,28 @@ export function groupSessionsByProject(
     return right.latestActivity - left.latestActivity
   })
 }
+
+/**
+ * The session a project switch should land on: the most recently active
+ * conversation inside the target working directory, or null when the project
+ * has no sessions yet (the caller then creates a fresh one there).
+ */
+export function latestSessionInProject(
+  sessions: readonly SessionInfo[],
+  workDir: string,
+): SessionInfo | null {
+  const normalized = workDir.trim()
+  if (!normalized) return null
+  let latest: SessionInfo | null = null
+  for (const session of sessions) {
+    if (session.workDir?.trim() !== normalized) continue
+    if (
+      latest === null ||
+      (session.updatedAt ?? session.createdAt ?? 0) >
+        (latest.updatedAt ?? latest.createdAt ?? 0)
+    ) {
+      latest = session
+    }
+  }
+  return latest
+}

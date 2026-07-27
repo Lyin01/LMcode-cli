@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   collectProjects,
   groupSessionsByProject,
+  latestSessionInProject,
   truncateProjectPath,
 } from '../src/renderer/lib/projects'
 import type { SessionInfo } from '../src/renderer/types'
@@ -88,5 +89,27 @@ describe('groupSessionsByProject', () => {
       session('s2', 'C:/repo-b', 30),
     ])
     expect(groups.map((group) => group.workDir)).toEqual(['C:/repo-b', 'C:/repo-a'])
+  })
+})
+
+describe('latestSessionInProject', () => {
+  const pool = [
+    session('s1', 'C:/repo-a', 10),
+    session('s2', 'C:/repo-a', 30),
+    session('s3', 'C:/repo-b', 20),
+  ]
+
+  it('returns the most recently active session of the target project', () => {
+    expect(latestSessionInProject(pool, 'C:/repo-a')?.id).toBe('s2')
+    expect(latestSessionInProject(pool, 'C:/repo-b')?.id).toBe('s3')
+  })
+
+  it('returns null when the project has no sessions', () => {
+    expect(latestSessionInProject(pool, 'C:/repo-c')).toBeNull()
+  })
+
+  it('tolerates whitespace padding and empty input', () => {
+    expect(latestSessionInProject(pool, '  C:/repo-a  ')?.id).toBe('s2')
+    expect(latestSessionInProject(pool, '   ')).toBeNull()
   })
 })

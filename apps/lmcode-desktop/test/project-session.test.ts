@@ -52,6 +52,28 @@ describe('desktop project session contract', () => {
     })
   })
 
+  it('creates a chat directly in a given project without opening the picker', async () => {
+    createDesktopSession.mockResolvedValue({
+      id: 'session-direct',
+      workDir: 'D:/other-repo',
+      sessionDir: 'C:/sessions/session-direct',
+      createdAt: 2,
+      updatedAt: 2,
+    })
+
+    await useSessionStore.getState().createSession('D:/other-repo')
+
+    expect(selectWorkDirectory).not.toHaveBeenCalled()
+    expect(createDesktopSession).toHaveBeenCalledWith({
+      workDir: 'D:/other-repo',
+      thinking: 'medium',
+    })
+    expect(useSessionStore.getState()).toMatchObject({
+      currentSessionId: 'session-direct',
+      sessions: [expect.objectContaining({ id: 'session-direct', workDir: 'D:/other-repo' })],
+    })
+  })
+
   it('does not create a phantom chat when project selection is cancelled', async () => {
     selectWorkDirectory.mockResolvedValue(undefined)
 
