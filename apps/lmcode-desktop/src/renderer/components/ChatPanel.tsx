@@ -2,6 +2,7 @@ import { useSessionStore } from '@/stores/session-store'
 import { MessageList } from '@/components/MessageList'
 import { Composer } from '@/components/Composer'
 import { ProjectPicker } from '@/components/ProjectPicker'
+import { StallIndicator } from '@/components/StallIndicator'
 import type {
   CommandPaletteRequest,
   ComposerDraftRequest,
@@ -64,6 +65,7 @@ export function ChatPanel({
           <div className="mb-2 flex">
             <ProjectPicker display="name" />
           </div>
+          <StallIndicator />
           <Composer
             key={currentSessionId}
             autoFocus
@@ -87,6 +89,7 @@ export function ChatPanel({
           <div className="mb-1.5 flex">
             <ProjectPicker display="name" />
           </div>
+          <StallIndicator />
           <Composer
             key={currentSessionId}
             onOpenSettings={onOpenSettings}

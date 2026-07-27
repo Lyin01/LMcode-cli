@@ -20,6 +20,7 @@ import type {
   ThinkingDeltaEvent,
   ToolCallStartedEvent,
   ToolCallDeltaEvent,
+  ToolProgressEvent,
   ToolResultEvent,
   AgentStatusUpdatedEvent,
   SessionMetaUpdatedEvent,
@@ -180,8 +181,30 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
       }
     }
 
-    case 'tool.progress':
-      return slice
+    case 'tool.progress': {
+      // Long-running tools can report interim updates; surface the latest one
+      // on the tool card instead of dropping the event on the floor.
+      const ev = event as ToolProgressEvent
+      const text =
+        ev.update.text ??
+        (typeof ev.update.percent === 'number'
+          ? `${Math.round(ev.update.percent)}%`
+          : undefined)
+      if (text === undefined) return slice
+      return {
+        ...slice,
+        messages: patchLastAssistant(msgs, (m) =>
+          m.toolCalls
+            ? {
+                ...m,
+                toolCalls: m.toolCalls.map((tc) =>
+                  tc.id === ev.toolCallId ? { ...tc, progress: text } : tc,
+                ),
+              }
+            : m,
+        ),
+      }
+    }
 
     case 'turn.ended': {
       const ev = event as TurnEndedEvent
