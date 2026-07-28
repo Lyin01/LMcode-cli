@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   BackgroundTaskInfo,
   CronJobInfo,
+  LmcodeConfig,
   LmcodeConfigPatch,
   SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
@@ -155,6 +156,12 @@ const lmcodeAPI = {
   getConfig: () => ipcRenderer.invoke('lmcode:getConfig'),
 
   setConfig: (patch: LmcodeConfigPatch) => ipcRenderer.invoke('lmcode:setConfig', patch),
+
+  removeProvider: (providerId: string): Promise<LmcodeConfig> =>
+    ipcRenderer.invoke('lmcode:removeProvider', providerId),
+
+  removeModel: (modelId: string): Promise<LmcodeConfig> =>
+    ipcRenderer.invoke('lmcode:removeModel', modelId),
 
   // ── File operations ─────────────────────────────────────────────
 

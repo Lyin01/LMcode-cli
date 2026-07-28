@@ -193,6 +193,10 @@ interface LmcodeAPI {
 
   setConfig: (patch: LmcodeConfigPatch) => Promise<LmcodeConfig>
 
+  removeProvider: (providerId: string) => Promise<LmcodeConfig>
+
+  removeModel: (modelId: string) => Promise<LmcodeConfig>
+
   // File operations
   getPathForFile: (file: File) => string
   readFileContent: (filePath: string) => Promise<TextAttachment>

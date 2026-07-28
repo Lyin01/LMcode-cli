@@ -636,6 +636,14 @@ export function registerAllHandlers(
     return harness.setConfig(patch)
   })
 
+  secureInvoke('lmcode:removeProvider', async (_event, providerId: string): Promise<LmcodeConfig> => {
+    return harness.removeProvider(providerId)
+  })
+
+  secureInvoke('lmcode:removeModel', async (_event, modelId: string): Promise<LmcodeConfig> => {
+    return harness.removeModel(modelId)
+  })
+
   // ── File operations ─────────────────────────────────────────────
 
   secureInvoke('lmcode:readFileContent', async (_event, filePath: string): Promise<TextAttachment> => {

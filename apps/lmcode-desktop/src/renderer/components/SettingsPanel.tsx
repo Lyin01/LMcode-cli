@@ -1,7 +1,10 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { X, Sun, Moon, Monitor } from 'lucide-react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import { X, Sun, Moon, Monitor, ChevronRight, ArrowLeft, Boxes } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { buildModelEntries } from '@/lib/models'
 import { useSessionStore } from '@/stores/session-store'
+import { useConfigStore } from '@/stores/config-store'
+import { ModelProvidersPanel } from '@/components/settings/ModelProvidersPanel'
 import type { ThemePref } from '@/lib/theme'
 import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 
@@ -31,12 +34,19 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const sessionThinkingLevel = useSessionStore((s) => s.thinkingLevel)
   const sessionPermission = useSessionStore((s) => s.permission)
+  const sessionModel = useSessionStore((s) => s.model)
   const setThinkingPreference = useSessionStore((s) => s.setThinkingPreference)
+  const config = useConfigStore((s) => s.config)
 
   const [permission, setPermission] = useState('manual')
   const [version, setVersion] = useState('')
   const [saving, setSaving] = useState<string | null>(null)
+  const [view, setView] = useState<'root' | 'providers'>('root')
   const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) setView('root')
+  }, [open])
 
   useEffect(() => {
     setPermission(sessionPermission)
@@ -90,6 +100,31 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
     await handleSessionSettingChange('permission', value, window.lmcodeAPI.setPermission)
   }
 
+  const models = useMemo(() => (config ? buildModelEntries(config) : []), [config])
+
+  // Before the first turn the session model is unknown; fall back to the
+  // configured default so the selector shows the active model immediately.
+  const effectiveModel = sessionModel || config?.defaultModel || ''
+  const modelOptions = useMemo(() => {
+    if (effectiveModel && !models.some((m) => m.id === effectiveModel)) {
+      return [{ id: effectiveModel, label: effectiveModel, provider: '' }, ...models]
+    }
+    return models
+  }, [models, effectiveModel])
+
+  const handleModelChange = async (value: string) => {
+    if (!currentSessionId) return
+    setSaving('model')
+    try {
+      await window.lmcodeAPI.setModel(currentSessionId, value)
+      useSessionStore.getState().updateSessionStatus({ model: value })
+    } catch (err) {
+      console.error('Failed to update model:', err)
+    } finally {
+      setSaving(null)
+    }
+  }
+
   if (!open) return null
 
   return (
@@ -101,7 +136,19 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
 
       <div className="relative z-10 ml-auto flex h-full w-[360px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]">
         <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3.5">
-          <h2 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">设置</h2>
+          <div className="flex items-center gap-1.5">
+            {view === 'providers' && (
+              <button
+                onClick={() => setView('root')}
+                className="rounded-md p-1 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+              >
+                <ArrowLeft size={15} />
+              </button>
+            )}
+            <h2 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">
+              {view === 'providers' ? '模型设置' : '设置'}
+            </h2>
+          </div>
           <button
             onClick={onClose}
             className="rounded-md p-1 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
@@ -110,6 +157,11 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
           </button>
         </div>
 
+        {view === 'providers' ? (
+          <div className="flex-1 overflow-y-auto p-4">
+            <ModelProvidersPanel />
+          </div>
+        ) : (
         <div className="flex-1 space-y-6 overflow-y-auto p-4">
           {/* Theme */}
           <section>
@@ -135,6 +187,44 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
                 )
               })}
             </div>
+          </section>
+
+          {/* Model */}
+          <section>
+            <label className="mb-1.5 block text-[12px] font-medium text-[var(--lm-text-secondary)]">模型</label>
+            <select
+              value={effectiveModel}
+              disabled={!currentSessionId || saving === 'model' || modelOptions.length === 0}
+              onChange={(e) => handleModelChange(e.target.value)}
+              className={selectClass}
+            >
+              {modelOptions.length === 0 && <option value="">未配置模型</option>}
+              {modelOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.provider ? `${entry.label} (${entry.provider})` : entry.label}
+                </option>
+              ))}
+            </select>
+            {!currentSessionId && (
+              <p className="mt-1.5 text-[11px] text-[var(--lm-text-muted)]">
+                开始会话后可切换模型。
+              </p>
+            )}
+          </section>
+
+          {/* Model Settings entry */}
+          <section>
+            <button
+              onClick={() => setView('providers')}
+              className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
+            >
+              <Boxes size={15} className="shrink-0 text-[var(--lm-text-muted)]" />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[13px] font-medium text-[var(--lm-text-primary)]">模型设置</span>
+                <span className="text-[11px] text-[var(--lm-text-muted)]">管理自定义模型供应商</span>
+              </div>
+              <ChevronRight size={14} className="shrink-0 text-[var(--lm-text-muted)]" />
+            </button>
           </section>
 
           {/* Thinking Level */}
@@ -165,11 +255,9 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-            <p className="mt-1.5 text-[11px] text-[var(--lm-text-muted)]">
-              模型可在输入框左下角的选择器中切换。
-            </p>
           </section>
         </div>
+        )}
 
         <div className="border-t border-[var(--lm-border)] px-4 py-3">
           <p className="text-[11px] text-[var(--lm-text-muted)]">

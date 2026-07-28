@@ -78,6 +78,7 @@ import type {
   RegisterToolPayload,
   ReloadPluginsResult,
   RemoveProviderPayload,
+  RemoveModelPayload,
   RemovePluginPayload,
   RenameSessionPayload,
   ResumeSessionPayload,
@@ -449,6 +450,23 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
 
     if (config.defaultProvider === input.providerId) {
       config.defaultProvider = undefined;
+    }
+
+    await writeConfigFile(this.configPath, config);
+    return this.config = loadRuntimeConfig(this.configPath);
+  }
+
+  async removeModel(input: RemoveModelPayload): Promise<LmcodeConfig> {
+    const config = readConfigFile(this.configPath);
+    if (config.models !== undefined) {
+      delete config.models[input.modelId];
+    }
+
+    if (config.defaultModel === input.modelId) {
+      config.defaultModel = undefined;
+    }
+    if (config.utilityModel === input.modelId) {
+      config.utilityModel = undefined;
     }
 
     await writeConfigFile(this.configPath, config);

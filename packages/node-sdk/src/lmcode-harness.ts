@@ -235,6 +235,10 @@ export class LmcodeHarness {
     return this.rpc.removeProvider(providerId);
   }
 
+  async removeModel(modelId: string): Promise<LmcodeConfig> {
+    return this.rpc.removeModel(modelId);
+  }
+
   /**
    * Idempotent: the first call's options win. Subsequent calls return the
    * in-flight close promise and silently ignore any new options.

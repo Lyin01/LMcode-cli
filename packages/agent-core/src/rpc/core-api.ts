@@ -305,6 +305,9 @@ export type SetGlobalConfigPayload = LmcodeConfigPatch;
 export interface RemoveProviderPayload {
   readonly providerId: string;
 }
+export interface RemoveModelPayload {
+  readonly modelId: string;
+}
 export interface UndoHistoryPayload {
   readonly count: number;
 }
@@ -428,6 +431,7 @@ export interface CoreAPI extends SessionAPIWithId {
   getGlobalConfig: (payload: GetGlobalConfigPayload) => LmcodeConfig;
   setGlobalConfig: (payload: SetGlobalConfigPayload) => LmcodeConfig;
   removeProvider: (payload: RemoveProviderPayload) => LmcodeConfig;
+  removeModel: (payload: RemoveModelPayload) => LmcodeConfig;
   createSession: (payload: CreateSessionPayload) => SessionSummary;
   closeSession: (payload: CloseSessionPayload) => void;
   deleteSession: (payload: DeleteSessionPayload) => void;

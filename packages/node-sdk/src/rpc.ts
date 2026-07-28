@@ -261,6 +261,11 @@ export class SDKRpcClient {
     return rpc.removeProvider({ providerId });
   }
 
+  async removeModel(modelId: string): Promise<LmcodeConfig> {
+    const rpc = await this.getRpc();
+    return rpc.removeModel({ modelId });
+  }
+
   async prompt(input: SessionPromptRpcInput): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.prompt({

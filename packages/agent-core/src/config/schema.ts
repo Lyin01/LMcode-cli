@@ -31,6 +31,8 @@ export const ProviderConfigSchema = z.object({
   oauth: OAuthRefSchema.optional(),
   env: StringRecordSchema.optional(),
   customHeaders: StringRecordSchema.optional(),
+  // `enabled: false` disables the provider; a missing field means enabled.
+  enabled: z.boolean().optional(),
 });
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
