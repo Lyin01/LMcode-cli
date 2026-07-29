@@ -253,6 +253,14 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
 
     case 'error': {
       const ev = event as ErrorEvent
+      const lastMessage = msgs.at(-1)
+      if (
+        lastMessage?.role === 'system' &&
+        lastMessage.variant === 'error' &&
+        lastMessage.content === `回合失败：${ev.message}`
+      ) {
+        return slice
+      }
       return {
         messages: [
           ...msgs,
