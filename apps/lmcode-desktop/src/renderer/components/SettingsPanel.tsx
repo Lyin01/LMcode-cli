@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { X, Sun, Moon, Monitor, ChevronRight, ArrowLeft, Boxes } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { buildModelEntries } from '@/lib/models'
@@ -36,21 +36,21 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
   const sessionPermission = useSessionStore((s) => s.permission)
   const sessionModel = useSessionStore((s) => s.model)
   const setThinkingPreference = useSessionStore((s) => s.setThinkingPreference)
+  const setPermissionPreference = useSessionStore((s) => s.setPermissionPreference)
   const config = useConfigStore((s) => s.config)
 
-  const [permission, setPermission] = useState('manual')
   const [version, setVersion] = useState('')
   const [saving, setSaving] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<'root' | 'providers'>('root')
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!open) setView('root')
+    if (!open) {
+      setView('root')
+      setError(null)
+    }
   }, [open])
-
-  useEffect(() => {
-    setPermission(sessionPermission)
-  }, [sessionPermission])
 
   useEffect(() => {
     if (!open || version) return
@@ -70,34 +70,30 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
     if (open && panelRef.current) panelRef.current.focus()
   }, [open])
 
-  const handleSessionSettingChange = useCallback(
-    async (key: string, value: string, sessionMethod: (id: string, val: string) => Promise<void>) => {
-      setSaving(key)
-      try {
-        if (currentSessionId) await sessionMethod(currentSessionId, value)
-      } catch (err) {
-        console.error(`Failed to update ${key}:`, err)
-      } finally {
-        setSaving(null)
-      }
-    },
-    [currentSessionId],
-  )
-
   const handleThinkingChange = async (value: ThinkingEffort) => {
     setSaving('thinkingLevel')
+    setError(null)
     try {
       await setThinkingPreference(value)
     } catch (err) {
       console.error('Failed to update thinkingLevel:', err)
+      setError(err instanceof Error ? err.message : '无法更新思考深度')
     } finally {
       setSaving(null)
     }
   }
 
   const handlePermissionChange = async (value: string) => {
-    setPermission(value)
-    await handleSessionSettingChange('permission', value, window.lmcodeAPI.setPermission)
+    setSaving('permission')
+    setError(null)
+    try {
+      await setPermissionPreference(value)
+    } catch (err) {
+      console.error('Failed to update permission:', err)
+      setError(err instanceof Error ? err.message : '无法更新权限模式')
+    } finally {
+      setSaving(null)
+    }
   }
 
   const models = useMemo(() => (config ? buildModelEntries(config) : []), [config])
@@ -115,11 +111,13 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
   const handleModelChange = async (value: string) => {
     if (!currentSessionId) return
     setSaving('model')
+    setError(null)
     try {
       await window.lmcodeAPI.setModel(currentSessionId, value)
       useSessionStore.getState().updateSessionStatus({ model: value })
     } catch (err) {
       console.error('Failed to update model:', err)
+      setError(err instanceof Error ? err.message : '无法更新模型')
     } finally {
       setSaving(null)
     }
@@ -215,7 +213,10 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
           {/* Model Settings entry */}
           <section>
             <button
-              onClick={() => setView('providers')}
+              onClick={() => {
+                setError(null)
+                setView('providers')
+              }}
               className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
             >
               <Boxes size={15} className="shrink-0 text-[var(--lm-text-muted)]" />
@@ -246,7 +247,7 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
           <section>
             <label className="mb-1.5 block text-[12px] font-medium text-[var(--lm-text-secondary)]">权限模式</label>
             <select
-              value={permission}
+              value={sessionPermission}
               disabled={saving === 'permission'}
               onChange={(e) => handlePermissionChange(e.target.value)}
               className={selectClass}
@@ -257,6 +258,15 @@ export function SettingsPanel({ open, onClose, theme, onThemeChange }: SettingsP
             </select>
           </section>
         </div>
+        )}
+
+        {view === 'root' && error && (
+          <div
+            role="alert"
+            className="mx-4 mb-3 rounded-lg border border-[var(--lm-error)]/30 bg-[var(--lm-error)]/10 px-3 py-2 text-[12px] text-[var(--lm-error)]"
+          >
+            设置保存失败：{error}
+          </div>
         )}
 
         <div className="border-t border-[var(--lm-border)] px-4 py-3">

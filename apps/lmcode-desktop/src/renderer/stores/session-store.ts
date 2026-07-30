@@ -355,6 +355,7 @@ export interface SessionStore {
   setThinkingPreference: (level: ThinkingEffort) => Promise<void>
   applyThinkingPreference: (sessionId: string) => Promise<void>
   hydrateThinkingPreference: () => void
+  setPermissionPreference: (permission: string) => Promise<void>
 
   enqueuePendingInteraction: (interaction: PendingInteraction) => void
   completePendingInteraction: (requestId: string) => void
@@ -689,15 +690,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setThinkingPreference: async (level) => {
-    setStoredThinking(level)
     const sessionId = get().currentSessionId
+    if (sessionId !== null) await window.lmcodeAPI.setThinking(sessionId, level)
+
+    setStoredThinking(level)
     set((state) => ({
       thinkingLevel: level,
       sessions: state.sessions.map((session) =>
         session.id === sessionId ? { ...session, thinkingLevel: level } : session,
       ),
     }))
-    if (sessionId !== null) await window.lmcodeAPI.setThinking(sessionId, level)
   },
 
   applyThinkingPreference: async (sessionId) => {
@@ -706,6 +708,22 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   hydrateThinkingPreference: () => {
     set({ thinkingLevel: getStoredThinking() })
+  },
+
+  setPermissionPreference: async (permission) => {
+    const sessionId = get().currentSessionId
+    if (sessionId === null) {
+      set({ permission })
+      return
+    }
+
+    await window.lmcodeAPI.setPermission(sessionId, permission)
+    set((state) => ({
+      ...(state.currentSessionId === sessionId ? { permission } : {}),
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId ? { ...session, permission } : session,
+      ),
+    }))
   },
 
   enqueuePendingInteraction: (interaction) =>
