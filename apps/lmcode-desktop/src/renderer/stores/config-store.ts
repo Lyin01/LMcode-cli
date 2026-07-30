@@ -10,49 +10,59 @@ export interface ConfigStore {
   removeModel: (modelId: string) => Promise<void>
 }
 
-export const useConfigStore = create<ConfigStore>((set) => ({
-  config: null,
-  homeDir: '',
+type ConfigMutation = () => Promise<LmcodeConfig>
 
-  loadConfig: async () => {
-    try {
-      const [config, homeDir] = await Promise.all([
-        window.lmcodeAPI.getConfig(),
-        window.lmcodeAPI.getHomeDir(),
-      ])
-      set({ config, homeDir })
-    } catch (err) {
-      console.error('Failed to load config:', err)
-    }
-  },
+export const useConfigStore = create<ConfigStore>((set) => {
+  let latestConfigRequest = 0
+  let latestHomeRequest = 0
+  let mutationQueue: Promise<void> = Promise.resolve()
 
-  updateConfig: async (patch) => {
-    try {
-      const config = await window.lmcodeAPI.setConfig(patch)
-      set({ config })
-    } catch (err) {
-      console.error('Failed to update config:', err)
-      throw err
-    }
-  },
+  const runMutation = (operation: ConfigMutation, action: string): Promise<void> => {
+    const requestId = ++latestConfigRequest
+    const result = mutationQueue.then(operation)
+    mutationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
 
-  removeProvider: async (providerId) => {
-    try {
-      const config = await window.lmcodeAPI.removeProvider(providerId)
-      set({ config })
-    } catch (err) {
-      console.error('Failed to remove provider:', err)
-      throw err
-    }
-  },
+    return result
+      .then((config) => {
+        if (requestId === latestConfigRequest) set({ config })
+      })
+      .catch((err: unknown) => {
+        console.error(`Failed to ${action} config:`, err)
+        throw err
+      })
+  }
 
-  removeModel: async (modelId) => {
-    try {
-      const config = await window.lmcodeAPI.removeModel(modelId)
-      set({ config })
-    } catch (err) {
-      console.error('Failed to remove model:', err)
-      throw err
-    }
-  },
-}))
+  return {
+    config: null,
+    homeDir: '',
+
+    loadConfig: async () => {
+      const configRequest = ++latestConfigRequest
+      const homeRequest = ++latestHomeRequest
+      try {
+        const [config, homeDir] = await Promise.all([
+          mutationQueue.then(() => window.lmcodeAPI.getConfig()),
+          window.lmcodeAPI.getHomeDir(),
+        ])
+        set((state) => ({
+          config: configRequest === latestConfigRequest ? config : state.config,
+          homeDir: homeRequest === latestHomeRequest ? homeDir : state.homeDir,
+        }))
+      } catch (err) {
+        console.error('Failed to load config:', err)
+      }
+    },
+
+    updateConfig: (patch) =>
+      runMutation(() => window.lmcodeAPI.setConfig(patch), 'update'),
+
+    removeProvider: (providerId) =>
+      runMutation(() => window.lmcodeAPI.removeProvider(providerId), 'remove provider from'),
+
+    removeModel: (modelId) =>
+      runMutation(() => window.lmcodeAPI.removeModel(modelId), 'remove model from'),
+  }
+})
