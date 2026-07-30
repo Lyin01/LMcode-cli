@@ -64,13 +64,17 @@ describe('desktop text attachments', () => {
   it('rejects credential and secret files even though they are valid UTF-8', async () => {
     const envPath = await temporaryFile('.env', 'API_KEY=secret')
     const envLocalPath = await temporaryFile('.env.local', 'API_KEY=secret')
+    const uppercaseEnvPath = await temporaryFile('.ENV.LOCAL', 'API_KEY=secret')
     const pemPath = await temporaryFile('server.pem', '-----BEGIN-----')
     const cookiesPath = await temporaryFile('site_cookies.json', '{}')
+    const browserCookiesPath = await temporaryFile('Cookies', '{}')
 
     await expect(readTextAttachment(envPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(envLocalPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(uppercaseEnvPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(pemPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(cookiesPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(browserCookiesPath)).rejects.toThrow('安全考虑')
   })
 
   it('rejects a symlink that points at a sensitive file', async () => {
@@ -208,6 +212,9 @@ describe('sensitive attachment path denylist', () => {
     expect(isSensitiveAttachmentPath(inHome('.gnupg', 'secring.gpg'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.aws', 'credentials'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.kube', 'config'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('Library', 'Browser', 'Cookies'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('project', '.ENV.PRODUCTION'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('project', 'CLIENT.P12'))).toBe(true)
   })
 
   it('does not over-block ordinary files, including non-secret files under ~/.lmcode', () => {

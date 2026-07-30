@@ -151,7 +151,7 @@ async function readTextAttachmentFile(
 export function isSensitiveAttachmentPath(filePath: string): boolean {
   const target = normalizeForCompare(filePath)
   const home = normalizeForCompare(os.homedir())
-  const base = path.basename(target)
+  const base = path.basename(target).toLowerCase()
 
   // ~/.lmcode/config.toml (+ its *.bak backups) stores provider API keys;
   // device_id identifies this install. The rest of ~/.lmcode (sessions,
