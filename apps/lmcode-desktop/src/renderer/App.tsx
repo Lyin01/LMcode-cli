@@ -25,6 +25,7 @@ import { historyToMessages } from '@/lib/history'
 import type { SessionInfo } from '@/types'
 import { FolderOpen } from 'lucide-react'
 import { isThinkingEffort } from '@/lib/thinking'
+import { getStoredSidebarOpen, setStoredSidebarOpen } from '@/lib/sidebar-preference'
 import {
   getAdjacentConversationIds,
   type CommandPaletteRequest,
@@ -63,7 +64,7 @@ export default function App() {
   const [showSubagents, setShowSubagents] = useState(false)
   const [showAutomations, setShowAutomations] = useState(false)
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => getStoredSidebarOpen())
   const [theme, setThemeState] = useState<ThemePref>(() => getStoredTheme())
   const [searchRequestNonce, setSearchRequestNonce] = useState(0)
   const [renameRequest, setRenameRequest] = useState<RenameConversationRequest | null>(null)
@@ -82,6 +83,10 @@ export default function App() {
     applyTheme(theme)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    setStoredSidebarOpen(sidebarOpen)
+  }, [sidebarOpen])
 
   const setTheme = useCallback((next: ThemePref) => {
     setThemeState(next)
