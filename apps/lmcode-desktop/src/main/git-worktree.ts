@@ -14,6 +14,22 @@ function comparablePath(value: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
 }
 
+async function comparableExistingPath(value: string): Promise<string> {
+  const resolved = await fs.realpath(value).catch(() => path.resolve(value))
+  return comparablePath(resolved)
+}
+
+async function findWorktreeByPath(
+  worktrees: readonly GitWorktreeInfo[],
+  requestedPath: string,
+): Promise<GitWorktreeInfo | undefined> {
+  const requested = await comparableExistingPath(requestedPath)
+  for (const worktree of worktrees) {
+    if (await comparableExistingPath(worktree.path) === requested) return worktree
+  }
+  return undefined
+}
+
 export function parseGitWorktrees(output: string, currentRoot: string): readonly GitWorktreeInfo[] {
   const blocks = output.trim().split(/\r?\n\r?\n/).filter(Boolean)
   return blocks.flatMap((block, index) => {
@@ -59,10 +75,7 @@ export async function resolveGitWorktree(
   requestedPath: string,
 ): Promise<GitWorktreeInfo> {
   if (!requestedPath || requestedPath.includes('\0')) throw new Error('工作树路径无效')
-  const requested = comparablePath(requestedPath)
-  const worktree = (await listGitWorktrees(workDir)).find(
-    (candidate) => comparablePath(candidate.path) === requested,
-  )
+  const worktree = await findWorktreeByPath(await listGitWorktrees(workDir), requestedPath)
   if (!worktree) throw new Error('目标目录不在当前仓库的 Git 工作树列表中')
   return worktree
 }
@@ -134,9 +147,7 @@ export async function createGitWorktree(
   }
 
   const worktrees = await listGitWorktrees(targetPath)
-  const created = worktrees.find(
-    (candidate) => comparablePath(candidate.path) === comparablePath(targetPath),
-  )
+  const created = await findWorktreeByPath(worktrees, targetPath)
   if (!created) throw new Error('Git 已创建工作树，但无法从列表中读取它')
   return created
 }

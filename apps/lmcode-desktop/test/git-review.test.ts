@@ -58,7 +58,7 @@ describe('desktop Git review', () => {
     const snapshot = await inspectGitRepository(workDir)
 
     expect(snapshot.isRepository).toBe(true)
-    expect(snapshot.root).toBe(workDir.replaceAll('\\', '/'))
+    expect(snapshot.root).toBe((await fs.realpath(workDir)).replaceAll('\\', '/'))
     expect(snapshot.changes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: 'staged.txt', kind: 'added', staged: true }),
@@ -216,6 +216,7 @@ describe('desktop Git review', () => {
     const untrackedPath = path.join(workDir, 'untracked.txt')
     await fs.writeFile(path.join(workDir, 'tracked.txt'), 'changed\n', 'utf8')
     await fs.writeFile(untrackedPath, 'recoverable\n', 'utf8')
+    const canonicalUntrackedPath = await fs.realpath(untrackedPath)
     const trashed: string[] = []
     const trashItem = async (target: string): Promise<void> => {
       trashed.push(target)
@@ -228,7 +229,7 @@ describe('desktop Git review', () => {
     expect(trashed).toEqual([])
 
     await discardGitFileChanges(workDir, 'untracked.txt', 'all', trashItem)
-    expect(trashed).toEqual([untrackedPath])
+    expect(trashed).toEqual([canonicalUntrackedPath])
     await expect(fs.stat(untrackedPath)).rejects.toThrow()
   })
 
