@@ -88,30 +88,36 @@ export function ModelProvidersPanel() {
       {providers.map(([id, provider]) => {
         const enabled = provider.enabled !== false
         return (
-          <button
+          <div
             key={id}
-            onClick={() => setView({ kind: 'edit', id })}
-            className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
+            className="flex w-full items-center gap-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2.5 transition-colors hover:bg-[var(--lm-bg-hover)]"
           >
-            <span
-              className={cn(
-                'h-1.5 w-1.5 shrink-0 rounded-full',
-                enabled ? 'bg-green-500' : 'bg-[var(--lm-text-muted)]',
-              )}
-              title={enabled ? '已启用' : '已禁用'}
-            />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
-                {id}
-              </span>
-              <span className="truncate text-[11px] text-[var(--lm-text-muted)]">
-                {providerTypeLabel(provider.type)}
-                {(modelCountByProvider[id] ?? 0) > 0 && ` · ${modelCountByProvider[id]} 个模型`}
-              </span>
-            </div>
             <button
-              onClick={(e) => {
-                e.stopPropagation()
+              type="button"
+              onClick={() => setView({ kind: 'edit', id })}
+              className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+            >
+              <span
+                className={cn(
+                  'h-1.5 w-1.5 shrink-0 rounded-full',
+                  enabled ? 'bg-green-500' : 'bg-[var(--lm-text-muted)]',
+                )}
+                title={enabled ? '已启用' : '已禁用'}
+              />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
+                  {id}
+                </span>
+                <span className="truncate text-[11px] text-[var(--lm-text-muted)]">
+                  {providerTypeLabel(provider.type)}
+                  {(modelCountByProvider[id] ?? 0) > 0 && ` · ${modelCountByProvider[id]} 个模型`}
+                </span>
+              </span>
+              <ChevronRight size={14} className="shrink-0 text-[var(--lm-text-muted)]" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 void updateConfig({ providers: { [id]: { enabled: !enabled } } })
               }}
               className={cn(
@@ -123,8 +129,7 @@ export function ModelProvidersPanel() {
             >
               {enabled ? '已启用' : '禁用'}
             </button>
-            <ChevronRight size={14} className="shrink-0 text-[var(--lm-text-muted)]" />
-          </button>
+          </div>
         )
       })}
       <button

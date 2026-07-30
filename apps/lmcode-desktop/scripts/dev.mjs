@@ -17,7 +17,7 @@
 import { spawn, execSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
-import { resolve, relative, delimiter, dirname } from 'node:path'
+import { resolve, relative, delimiter } from 'node:path'
 import { context } from 'esbuild'
 
 const ROOT = resolve(import.meta.dirname, '..')

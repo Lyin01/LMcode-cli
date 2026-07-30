@@ -498,10 +498,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       }
       if (!workDir) return
 
-      const thinkingLevel = get().thinkingLevel
+      const state = get()
+      const model = state.model.trim()
+      const permission =
+        state.permission === 'yolo' || state.permission === 'auto'
+          ? state.permission
+          : 'manual'
       const summary = await window.lmcodeAPI.createSession({
         workDir,
-        thinking: thinkingLevel,
+        model: model || undefined,
+        thinking: state.thinkingLevel,
+        permission,
       })
       get().adoptSession(summary)
     } catch (err) {

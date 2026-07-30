@@ -21,7 +21,9 @@ describe('desktop project session contract', () => {
       streamStatus: null,
       bg: {},
       pendingInteractions: [],
+      model: '',
       thinkingLevel: 'medium',
+      permission: 'manual',
     })
   })
 
@@ -44,7 +46,9 @@ describe('desktop project session contract', () => {
     expect(selectWorkDirectory).toHaveBeenCalledWith(undefined)
     expect(createDesktopSession).toHaveBeenCalledWith({
       workDir: 'C:/repo',
+      model: undefined,
       thinking: 'medium',
+      permission: 'manual',
     })
     expect(useSessionStore.getState()).toMatchObject({
       currentSessionId: 'session-project',
@@ -66,7 +70,9 @@ describe('desktop project session contract', () => {
     expect(selectWorkDirectory).not.toHaveBeenCalled()
     expect(createDesktopSession).toHaveBeenCalledWith({
       workDir: 'D:/other-repo',
+      model: undefined,
       thinking: 'medium',
+      permission: 'manual',
     })
     expect(useSessionStore.getState()).toMatchObject({
       currentSessionId: 'session-direct',
@@ -82,6 +88,36 @@ describe('desktop project session contract', () => {
     expect(createDesktopSession).not.toHaveBeenCalled()
     expect(useSessionStore.getState().currentSessionId).toBeNull()
     expect(useSessionStore.getState().sessions).toEqual([])
+  })
+
+  it('starts a new chat with the model and permission shown in the composer', async () => {
+    useSessionStore.setState({
+      model: 'k3',
+      thinkingLevel: 'high',
+      permission: 'auto',
+    })
+    createDesktopSession.mockResolvedValue({
+      id: 'session-settings',
+      workDir: 'C:/repo',
+      sessionDir: 'C:/sessions/session-settings',
+      createdAt: 3,
+      updatedAt: 3,
+    })
+
+    await useSessionStore.getState().createSession('C:/repo')
+
+    expect(createDesktopSession).toHaveBeenCalledWith({
+      workDir: 'C:/repo',
+      model: 'k3',
+      thinking: 'high',
+      permission: 'auto',
+    })
+    expect(useSessionStore.getState()).toMatchObject({
+      currentSessionId: 'session-settings',
+      model: 'k3',
+      thinkingLevel: 'high',
+      permission: 'auto',
+    })
   })
 
   it('clears the active chat atomically when its final persisted session is deleted', () => {

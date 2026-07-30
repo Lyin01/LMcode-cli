@@ -146,8 +146,9 @@ function registerShortcuts(): void {
 
 // ── Application menu (localized) ────────────────────────────────────────
 
-const GITHUB_REPO = 'Lyin01/LMcode-cli'
-const GITHUB_URL = `https://github.com/${GITHUB_REPO}`
+const SOURCE_GITHUB_REPO = 'Lyin01/LMcode-cli'
+const SOURCE_GITHUB_URL = `https://github.com/${SOURCE_GITHUB_REPO}`
+const DESKTOP_RELEASES_URL = 'https://github.com/Lyin01/LMcode-desktop/releases'
 
 function showAndFocus(): void {
   mainWindow?.show()
@@ -294,7 +295,7 @@ function showAbout(): void {
     detail:
       `版本 v${app.getVersion()}\n` +
       `Electron ${process.versions.electron} · Chromium ${process.versions.chrome} · Node ${process.versions.node}\n\n` +
-      `基于 LMCODE CLI 的桌面客户端。\n${GITHUB_URL}`,
+      `基于 LMCODE CLI 的桌面客户端。\n${SOURCE_GITHUB_URL}`,
     buttons: ['确定'],
   })
 }
@@ -320,9 +321,9 @@ function installApplicationMenu(): void {
       checkForUpdates: () => void checkForUpdates(true),
       showAbout,
       openDocumentation: () =>
-        openExternal(`${GITHUB_URL}/tree/main/apps/lmcode-desktop`),
-      openChangelog: () => openExternal(`${GITHUB_URL}/releases`),
-      reportIssue: () => openExternal(`${GITHUB_URL}/issues/new`),
+        openExternal(`${SOURCE_GITHUB_URL}/tree/main/apps/lmcode-desktop`),
+      openChangelog: () => openExternal(DESKTOP_RELEASES_URL),
+      reportIssue: () => openExternal(`${SOURCE_GITHUB_URL}/issues/new`),
       openDataDirectory: () => void shell.openPath(app.getPath('userData')),
     },
   })
