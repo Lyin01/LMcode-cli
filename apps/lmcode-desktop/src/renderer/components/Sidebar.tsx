@@ -81,6 +81,7 @@ export function Sidebar({
   const selectSession = useSessionStore((s) => s.selectSession)
   const setSessions = useSessionStore((s) => s.setSessions)
   const removeDeletedSession = useSessionStore((s) => s.removeDeletedSession)
+  const addMessageToSession = useSessionStore((s) => s.addMessageToSession)
   const { createSession } = useSession()
   const { createSessionInProject } = useProjectSwitcher()
   const currentWorkDir = sessions.find((session) => session.id === currentSessionId)?.workDir
@@ -140,9 +141,22 @@ export function Sidebar({
     e.stopPropagation()
     try {
       const zipPath = await window.lmcodeAPI.exportSession(id)
-      if (zipPath) console.log('Session exported to:', zipPath)
+      addMessageToSession(id, {
+        id: `sidebar_export_${globalThis.crypto.randomUUID()}`,
+        role: 'system',
+        variant: 'notice',
+        content: `会话已导出到：\n\n\`${zipPath}\``,
+        timestamp: Date.now(),
+      })
     } catch (err) {
       console.error('Failed to export session:', err)
+      addMessageToSession(id, {
+        id: `sidebar_export_error_${globalThis.crypto.randomUUID()}`,
+        role: 'system',
+        variant: 'error',
+        content: `导出会话失败：${err instanceof Error ? err.message : String(err)}`,
+        timestamp: Date.now(),
+      })
     }
   }
 
