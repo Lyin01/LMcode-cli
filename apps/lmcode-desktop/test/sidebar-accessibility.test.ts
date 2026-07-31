@@ -67,4 +67,31 @@ describe('desktop sidebar accessibility contract', () => {
     expect(html).toContain('role="status"')
     expect(html).toContain('aria-label="正在生成"')
   })
+
+  it('renders project groups expanded by default with a collapse toggle', () => {
+    const html = renderToStaticMarkup(createElement(Sidebar, sidebarProps))
+
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain('aria-label="折叠项目 work 的对话"')
+    expect(html).toContain('发布检查')
+  })
+
+  it('restores collapsed project groups from storage and hides their sessions', () => {
+    const values = new Map<string, string>([
+      ['lmcode-sidebar-collapsed-projects', JSON.stringify(['C:/work'])],
+    ])
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((key: string) => values.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
+    })
+
+    const html = renderToStaticMarkup(createElement(Sidebar, sidebarProps))
+
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('aria-label="展开项目 work 的对话"')
+    // The collapsed group header (and its count) stays visible; sessions do not.
+    expect(html).not.toContain('发布检查')
+    // The current session lives in the collapsed group: surface a locator hint.
+    expect(html).toContain('title="当前对话在此项目中"')
+  })
 })

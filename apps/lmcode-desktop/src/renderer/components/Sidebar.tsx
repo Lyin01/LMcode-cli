@@ -11,6 +11,7 @@ import {
   X,
   BookOpen,
   Blocks,
+  ChevronRight,
   Folder,
   FolderOpen,
 } from 'lucide-react'
@@ -30,6 +31,10 @@ import {
   projectDisplayName,
   truncateProjectPath,
 } from '@/lib/projects'
+import {
+  getStoredCollapsedProjects,
+  setStoredCollapsedProjects,
+} from '@/lib/sidebar-preference'
 
 interface SidebarProps {
   open: boolean
@@ -106,6 +111,9 @@ export function Sidebar({
   const [query, setQuery] = useState('')
   const [pendingDeletion, setPendingDeletion] = useState<PendingSessionDeletion | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [collapsedProjects, setCollapsedProjects] = useState<ReadonlySet<string>>(() =>
+    getStoredCollapsedProjects(),
+  )
   const renameInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const handledRenameNonceRef = useRef(0)
@@ -123,6 +131,52 @@ export function Sidebar({
     () => groupSessionsByProject(filtered, currentWorkDir, noProjectWorkDir),
     [filtered, currentWorkDir, noProjectWorkDir],
   )
+
+  // Prune collapsed keys for projects that no longer have any sessions, so
+  // the stored preference cannot grow unbounded. Computed from the full
+  // session list (not the search-filtered one) to survive active searches.
+  const existingGroupKeys = useMemo(
+    () =>
+      new Set(
+        groupSessionsByProject(sessions, undefined, noProjectWorkDir).map(
+          (group) => group.workDir || '__no_project__',
+        ),
+      ),
+    [sessions, noProjectWorkDir],
+  )
+
+  useEffect(() => {
+    setCollapsedProjects((current) => {
+      if (current.size === 0) return current
+      const next = new Set([...current].filter((key) => existingGroupKeys.has(key)))
+      if (next.size === current.size) return current
+      setStoredCollapsedProjects(next)
+      return next
+    })
+  }, [existingGroupKeys])
+
+  // Collapse only applies to browsing; search results always stay visible.
+  const searching = query.trim().length > 0
+
+  const toggleProjectCollapsed = useCallback((key: string) => {
+    setCollapsedProjects((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      setStoredCollapsedProjects(next)
+      return next
+    })
+  }, [])
+
+  const expandProject = useCallback((key: string) => {
+    setCollapsedProjects((current) => {
+      if (!current.has(key)) return current
+      const next = new Set(current)
+      next.delete(key)
+      setStoredCollapsedProjects(next)
+      return next
+    })
+  }, [])
 
   const refreshSessions = useCallback(async () => {
     const raw = await window.lmcodeAPI.listSessions()
@@ -348,24 +402,55 @@ export function Sidebar({
               {query.trim() ? '未找到匹配的对话' : '暂无对话'}
             </p>
           )}
-          {groupedSessions.map((group) => (
-            <div key={group.workDir || '__no_project__'} className="mb-1">
+          {groupedSessions.map((group) => {
+            const groupKey = group.workDir || '__no_project__'
+            const isCollapsed = !searching && collapsedProjects.has(groupKey)
+            const groupName = group.workDir ? projectDisplayName(group.workDir) : '未关联项目'
+            const hasCurrentSession = group.sessions.some((session) => session.id === currentSessionId)
+            return (
+            <div key={groupKey} className="mb-1">
               <div
                 className="group/project flex items-center gap-1.5 px-2 pb-1 pt-2 text-[11px] font-medium text-[var(--lm-text-muted)]"
                 title={group.workDir || undefined}
               >
-                <Folder size={11} className="shrink-0" />
-                <span className="min-w-0 flex-1 truncate">
-                  {group.workDir ? truncateProjectPath(group.workDir) : '未关联项目'}
-                </span>
-                <span className="shrink-0 text-[10px] group-hover/project:hidden group-focus-within/project:hidden">
-                  {group.sessions.length}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleProjectCollapsed(groupKey)}
+                  aria-expanded={!isCollapsed}
+                  aria-label={isCollapsed ? `展开项目 ${groupName} 的对话` : `折叠项目 ${groupName} 的对话`}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left transition-colors hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
+                >
+                  <ChevronRight
+                    size={11}
+                    className={cn('shrink-0 transition-transform', !isCollapsed && 'rotate-90')}
+                  />
+                  <Folder size={11} className="shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {group.workDir ? truncateProjectPath(group.workDir) : '未关联项目'}
+                  </span>
+                  {isCollapsed && hasCurrentSession && (
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--lm-accent)]"
+                      title="当前对话在此项目中"
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      'shrink-0 text-[10px]',
+                      // Collapsed groups have no visible sessions, so the count
+                      // is their only size signal — keep it even on hover.
+                      !isCollapsed && 'group-hover/project:hidden group-focus-within/project:hidden',
+                    )}
+                  >
+                    {group.sessions.length}
+                  </span>
+                </button>
                 {group.workDir && (
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation()
+                      expandProject(groupKey)
                       createSessionInProject(group.workDir)
                     }}
                     className="pointer-events-none shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] opacity-0 transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
@@ -376,7 +461,7 @@ export function Sidebar({
                   </button>
                 )}
               </div>
-              {group.sessions.map((session) => (
+              {!isCollapsed && group.sessions.map((session) => (
             <div
               key={session.id}
               className={cn(
@@ -478,7 +563,8 @@ export function Sidebar({
             </div>
               ))}
             </div>
-          ))}
+            )
+          })}
         </nav>
 
         {/* Footer */}
