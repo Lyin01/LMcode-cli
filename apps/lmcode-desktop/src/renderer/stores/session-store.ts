@@ -314,9 +314,23 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
   }
 }
 
+/**
+ * Where a brand-new session should live when the welcome screen submits its
+ * first message: an explicit project directory, or the main-process
+ * no-project sentinel workspace.
+ */
+export type NewSessionTarget =
+  | { readonly kind: 'project'; readonly workDir: string }
+  | { readonly kind: 'no-project' }
+
 export interface SessionStore {
   currentSessionId: string | null
   sessions: SessionInfo[]
+  /**
+   * Main-process sentinel directory backing "不在项目中工作" sessions. Loaded
+   * once at startup via IPC; null until then (nothing is treated as sentinel).
+   */
+  noProjectWorkDir: string | null
   // ── Active (in-view) session slice ──
   messages: Message[]
   isStreaming: boolean
@@ -335,9 +349,27 @@ export interface SessionStore {
   messageQueue: Record<string, QueuedUserMessage[]>
 
   setSessions: (sessions: SessionInfo[]) => void
+  setNoProjectWorkDir: (workDir: string) => void
   removeDeletedSession: (deletedId: string, remaining: SessionInfo[]) => void
   selectSession: (id: string) => void
-  createSession: (workDir?: string) => Promise<void>
+  /**
+   * Leave the current session and return to the welcome screen. The session
+   * keeps living (and streaming) in the background slice, exactly as if the
+   * user had switched to another session.
+   */
+  clearCurrentSession: () => void
+  createSession: (workDir?: string, options?: { noProject?: boolean }) => Promise<void>
+  /**
+   * Welcome-screen entry point: create a session for the chosen target, then
+   * queue the first message. The message rides the normal send pipeline — the
+   * composer's queue drain in `useSession` ships it as soon as the new session
+   * mounts, so creation always settles before anything is sent.
+   */
+  startSessionWithMessage: (
+    target: NewSessionTarget,
+    text: string,
+    attachments?: readonly UserAttachment[],
+  ) => Promise<void>
   adoptSession: (summary: SessionSummary) => void
   addMessage: (msg: Message) => void
   addMessageToSession: (sessionId: string, msg: Message) => void
@@ -390,6 +422,7 @@ function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): 
 export const useSessionStore = create<SessionStore>((set, get) => ({
   currentSessionId: null,
   sessions: [],
+  noProjectWorkDir: null,
   messages: [],
   isStreaming: false,
   streamStatus: null,
@@ -405,6 +438,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   messageQueue: {},
 
   setSessions: (sessions) => set({ sessions }),
+
+  setNoProjectWorkDir: (workDir) => set({ noProjectWorkDir: workDir }),
 
   removeDeletedSession: (deletedId, remaining) =>
     set((state) => {
@@ -490,14 +525,40 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })
   },
 
-  createSession: async (requestedWorkDir) => {
+  clearCurrentSession: () => {
+    const state = get()
+    if (state.currentSessionId === null) return
+    // Park the session we're leaving so its in-flight stream keeps
+    // accumulating and is restored intact when the user comes back.
+    const bg = { ...state.bg }
+    bg[state.currentSessionId] = {
+      messages: state.messages,
+      isStreaming: state.isStreaming,
+      streamStatus: state.streamStatus,
+      unread: false,
+    }
+    set({
+      bg,
+      currentSessionId: null,
+      messages: [],
+      isStreaming: false,
+      streamStatus: null,
+      model: '',
+      permission: 'manual',
+      contextTokens: 0,
+      maxContextTokens: 128000,
+    })
+  },
+
+  createSession: async (requestedWorkDir, options) => {
     try {
+      const noProject = options?.noProject === true
       let workDir = requestedWorkDir?.trim()
-      if (!workDir) {
+      if (!noProject && !workDir) {
         const current = get().sessions.find((session) => session.id === get().currentSessionId)
         workDir = await window.lmcodeAPI.selectWorkDirectory(current?.workDir)
       }
-      if (!workDir) return
+      if (!noProject && !workDir) return
 
       const state = get()
       const model = state.model.trim()
@@ -506,7 +567,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           ? state.permission
           : 'manual'
       const summary = await window.lmcodeAPI.createSession({
-        workDir,
+        // The main process resolves the no-project sentinel directory itself;
+        // the renderer never supplies a path for it.
+        workDir: noProject ? undefined : workDir,
+        noProject: noProject || undefined,
         model: model || undefined,
         thinking: state.thinkingLevel,
         permission,
@@ -515,6 +579,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     } catch (err) {
       console.error('Failed to create session:', err)
     }
+  },
+
+  startSessionWithMessage: async (target, text, attachments = []) => {
+    if (target.kind === 'no-project') {
+      await get().createSession(undefined, { noProject: true })
+    } else {
+      await get().createSession(target.workDir)
+    }
+    const sessionId = get().currentSessionId
+    if (sessionId === null) return
+    const normalized = text.trim()
+    if (!normalized && attachments.length === 0) return
+    get().enqueueMessage(sessionId, normalized, attachments)
   },
 
   adoptSession: (summary) => {

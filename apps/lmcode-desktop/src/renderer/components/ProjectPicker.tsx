@@ -5,6 +5,7 @@ import { useSessionStore } from '@/stores/session-store'
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher'
 import {
   collectProjects,
+  isNoProjectWorkDir,
   projectDisplayName,
   truncateProjectPath,
 } from '@/lib/projects'
@@ -27,18 +28,26 @@ interface ProjectPickerProps {
 export function ProjectPicker({ display, className }: ProjectPickerProps) {
   const sessions = useSessionStore((s) => s.sessions)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
-  const currentWorkDir = sessions.find(
+  const noProjectWorkDir = useSessionStore((s) => s.noProjectWorkDir)
+  const rawWorkDir = sessions.find(
     (session) => session.id === currentSessionId,
   )?.workDir
-  const projects = useMemo(() => collectProjects(sessions), [sessions])
+  const isNoProject = isNoProjectWorkDir(rawWorkDir, noProjectWorkDir)
+  const currentWorkDir = isNoProject ? undefined : rawWorkDir
+  const projects = useMemo(
+    () => collectProjects(sessions, noProjectWorkDir),
+    [sessions, noProjectWorkDir],
+  )
   const { switchProject, openProject } = useProjectSwitcher()
   const [open, setOpen] = useState(false)
 
-  const label = currentWorkDir
-    ? display === 'path'
-      ? truncateProjectPath(currentWorkDir)
-      : projectDisplayName(currentWorkDir)
-    : '选择项目'
+  const label = isNoProject
+    ? '不在项目中工作'
+    : currentWorkDir
+      ? display === 'path'
+        ? truncateProjectPath(currentWorkDir)
+        : projectDisplayName(currentWorkDir)
+      : '选择项目'
 
   const handleSelect = (workDir: string): void => {
     setOpen(false)

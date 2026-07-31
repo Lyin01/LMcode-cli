@@ -44,17 +44,33 @@ export interface ProjectSummary {
 }
 
 /**
+ * True when `workDir` is the main-process sentinel directory used by sessions
+ * that are not tied to a project. Such sessions exist (terminal etc. still
+ * works there) but the directory must never surface as a "project" in the UI.
+ */
+export function isNoProjectWorkDir(
+  workDir: string | null | undefined,
+  noProjectWorkDir: string | null | undefined,
+): boolean {
+  const sentinel = noProjectWorkDir?.trim()
+  if (!sentinel) return false
+  return workDir?.trim() === sentinel
+}
+
+/**
  * Derive the known project list from the sessions that live in each working
  * directory. Desktop sessions always have a workDir, so sessions are the
- * source of truth for "recently opened projects".
+ * source of truth for "recently opened projects". Sessions living in the
+ * no-project sentinel directory are not projects and are excluded.
  */
 export function collectProjects(
   sessions: readonly SessionInfo[],
+  noProjectWorkDir?: string | null,
 ): readonly ProjectSummary[] {
   const byWorkDir = new Map<string, { sessionCount: number; latestActivity: number }>()
   for (const session of sessions) {
     const workDir = session.workDir?.trim()
-    if (!workDir) continue
+    if (!workDir || isNoProjectWorkDir(workDir, noProjectWorkDir)) continue
     const activity = session.updatedAt ?? session.createdAt ?? 0
     const existing = byWorkDir.get(workDir)
     if (existing) {
@@ -84,10 +100,15 @@ export interface ProjectGroup {
 export function groupSessionsByProject(
   sessions: readonly SessionInfo[],
   activeWorkDir?: string,
+  noProjectWorkDir?: string | null,
 ): readonly ProjectGroup[] {
   const groups = new Map<string, SessionInfo[]>()
   for (const session of sessions) {
-    const workDir = session.workDir?.trim() ?? ''
+    // No-project sessions join the same "未关联项目" bucket as sessions
+    // without a working directory instead of grouping under the sentinel path.
+    const workDir = isNoProjectWorkDir(session.workDir, noProjectWorkDir)
+      ? ''
+      : (session.workDir?.trim() ?? '')
     const bucket = groups.get(workDir)
     if (bucket) bucket.push(session)
     else groups.set(workDir, [session])
@@ -102,7 +123,9 @@ export function groupSessionsByProject(
     ),
   }))
 
-  const normalizedActive = activeWorkDir?.trim()
+  const normalizedActive = isNoProjectWorkDir(activeWorkDir, noProjectWorkDir)
+    ? undefined
+    : activeWorkDir?.trim()
   return summarized.sort((left, right) => {
     if (normalizedActive) {
       if (left.workDir === normalizedActive && right.workDir !== normalizedActive) return -1

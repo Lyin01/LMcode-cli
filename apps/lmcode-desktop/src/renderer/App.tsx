@@ -7,6 +7,7 @@ import { useEvents } from '@/hooks/useEvents'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
 import { ChatPanel } from '@/components/ChatPanel'
+import { WelcomeScreen } from '@/components/WelcomeScreen'
 import { ApprovalDialog } from '@/components/dialogs/ApprovalDialog'
 import { QuestionDialog } from '@/components/dialogs/QuestionDialog'
 import { SettingsPanel } from '@/components/SettingsPanel'
@@ -22,8 +23,8 @@ import { KeyboardShortcutsPanel } from '@/components/KeyboardShortcutsPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
 import { historyToMessages } from '@/lib/history'
+import { isNoProjectWorkDir } from '@/lib/projects'
 import type { SessionInfo } from '@/types'
-import { FolderOpen } from 'lucide-react'
 import { isThinkingEffort } from '@/lib/thinking'
 import { getStoredSidebarOpen, setStoredSidebarOpen } from '@/lib/sidebar-preference'
 import {
@@ -51,7 +52,6 @@ export default function App() {
   const sessions = useSessionStore((s) => s.sessions)
   const messageCount = useSessionStore((s) => s.messages.length)
   const setSessions = useSessionStore((s) => s.setSessions)
-  const selectSession = useSessionStore((s) => s.selectSession)
   const createSession = useSessionStore((s) => s.createSession)
 
   const [showSettings, setShowSettings] = useState(false)
@@ -129,6 +129,18 @@ export default function App() {
   useEffect(() => {
     void loadConfig()
   }, [loadConfig])
+
+  // Resolve the no-project sentinel directory once so the UI can recognize
+  // sessions that are not tied to a project.
+  useEffect(() => {
+    void window.lmcodeAPI.getNoProjectWorkDir()
+      .then((workDir) => {
+        if (typeof workDir === 'string' && workDir.trim()) {
+          useSessionStore.getState().setNoProjectWorkDir(workDir)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Re-hydrate a session's conversation from disk whenever it becomes active
   // (selecting it, or after an app restart) so messages don't vanish.
@@ -221,11 +233,9 @@ export default function App() {
         }))
         setSessions(mapped)
 
-        if (mapped.length > 0) {
-          // Open the most recently used session on launch.
-          const latest = [...mapped].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]!
-          selectSession(latest.id)
-        }
+        // Deliberately do NOT auto-resume the most recent session: launch
+        // lands on the welcome screen, and the sidebar remains the way to
+        // pick a previous conversation.
       } catch (err) {
         console.error('Failed to load sessions:', err)
       }
@@ -282,6 +292,11 @@ export default function App() {
   }, [])
 
   const handleOpenGitReview = useCallback(() => {
+    // No-project sessions live in the sentinel workspace, which is not a git
+    // repository — the review/worktree surfaces stay closed for them.
+    const store = useSessionStore.getState()
+    const current = store.sessions.find((s) => s.id === store.currentSessionId)
+    if (isNoProjectWorkDir(current?.workDir, store.noProjectWorkDir)) return
     setShowSettings(false)
     setShowMemory(false)
     setShowTasks(false)
@@ -306,6 +321,9 @@ export default function App() {
   }, [])
 
   const handleOpenWorktrees = useCallback(() => {
+    const store = useSessionStore.getState()
+    const current = store.sessions.find((s) => s.id === store.currentSessionId)
+    if (isNoProjectWorkDir(current?.workDir, store.noProjectWorkDir)) return
     setShowSettings(false)
     setShowMemory(false)
     setShowTasks(false)
@@ -350,10 +368,9 @@ export default function App() {
       const state = useSessionStore.getState()
       switch (command) {
         case 'new-conversation': {
-          const currentWorkDir = state.sessions.find(
-            (session) => session.id === state.currentSessionId,
-          )?.workDir
-          void createSession(currentWorkDir)
+          // Land on the welcome screen; the session is created when the first
+          // message is submitted there.
+          state.clearCurrentSession()
           break
         }
         case 'open-project':
@@ -510,28 +527,9 @@ export default function App() {
             />
           </ErrorBoundary>
         ) : (
-          <div className="flex flex-1 items-center justify-center px-6 text-center">
-            <div className="flex max-w-md flex-col items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)]">
-                <FolderOpen size={28} strokeWidth={1.6} />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold text-[var(--lm-text-primary)]">
-                  打开一个项目开始工作
-                </h2>
-                <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--lm-text-muted)]">
-                  LMCODE 会把会话、工具权限和文件操作限定到你选择的工作目录。
-                </p>
-              </div>
-              <button
-                onClick={() => void createSession()}
-                className="flex items-center gap-2 rounded-lg bg-[var(--lm-accent)] px-4 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] shadow-[var(--lm-shadow-soft)] transition-colors hover:bg-[var(--lm-accent-hover)]"
-              >
-                <FolderOpen size={16} />
-                选择项目文件夹
-              </button>
-            </div>
-          </div>
+          <ErrorBoundary name="欢迎">
+            <WelcomeScreen />
+          </ErrorBoundary>
         )}
       </div>
 

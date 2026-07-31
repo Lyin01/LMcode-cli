@@ -15,6 +15,7 @@ import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
 import { resolveTheme, type ThemePref } from '@/lib/theme'
+import { isNoProjectWorkDir } from '@/lib/projects'
 
 interface TopBarProps {
   sidebarOpen: boolean
@@ -58,7 +59,9 @@ export function TopBar({
   ).length
 
   const current = sessions.find((s) => s.id === currentSessionId)
-  const title = current?.title || current?.workDir || '新对话'
+  const noProjectWorkDir = useSessionStore((s) => s.noProjectWorkDir)
+  const isNoProject = isNoProjectWorkDir(current?.workDir, noProjectWorkDir)
+  const title = current?.title || (isNoProject ? '不在项目中工作' : current?.workDir) || '新对话'
 
   const pct =
     maxContextTokens > 0
@@ -125,9 +128,9 @@ export function TopBar({
 
       <button
         onClick={onOpenGitReview}
-        disabled={!currentSessionId}
+        disabled={!currentSessionId || isNoProject}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-        title="Git 变更审阅"
+        title={isNoProject ? 'Git 变更审阅（无项目会话不可用）' : 'Git 变更审阅'}
       >
         <GitCompareArrows size={18} />
       </button>
@@ -143,9 +146,9 @@ export function TopBar({
 
       <button
         onClick={onOpenWorktrees}
-        disabled={!currentSessionId}
+        disabled={!currentSessionId || isNoProject}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-        title="Git 工作树"
+        title={isNoProject ? 'Git 工作树（无项目会话不可用）' : 'Git 工作树'}
       >
         <GitFork size={18} />
       </button>

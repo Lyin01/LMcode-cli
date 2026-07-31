@@ -16,6 +16,14 @@ describe('desktop runtime environment isolation', () => {
       isDevelopment: false,
       userDataDir: path.join('C:', 'Users', 'owner', 'AppData', 'LMCODE'),
       configPath: path.join('C:', 'Users', 'owner', 'AppData', 'LMCODE', 'config.toml'),
+      noProjectWorkDir: path.join(
+        'C:',
+        'Users',
+        'owner',
+        'AppData',
+        'LMCODE',
+        'no-project-workspace',
+      ),
       rendererUrl: undefined,
       devToolsEnabled: false,
     })

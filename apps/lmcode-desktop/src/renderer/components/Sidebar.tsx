@@ -26,6 +26,7 @@ import {
 } from '@/lib/session-deletion'
 import {
   groupSessionsByProject,
+  isNoProjectWorkDir,
   projectDisplayName,
   truncateProjectPath,
 } from '@/lib/projects'
@@ -90,9 +91,15 @@ export function Sidebar({
   const setSessions = useSessionStore((s) => s.setSessions)
   const removeDeletedSession = useSessionStore((s) => s.removeDeletedSession)
   const addMessageToSession = useSessionStore((s) => s.addMessageToSession)
+  const clearCurrentSession = useSessionStore((s) => s.clearCurrentSession)
+  const noProjectWorkDir = useSessionStore((s) => s.noProjectWorkDir)
   const { createSession } = useSession()
   const { createSessionInProject } = useProjectSwitcher()
-  const currentWorkDir = sessions.find((session) => session.id === currentSessionId)?.workDir
+  const rawWorkDir = sessions.find((session) => session.id === currentSessionId)?.workDir
+  // No-project sessions have no real project: treat them like "no directory".
+  const currentWorkDir = isNoProjectWorkDir(rawWorkDir, noProjectWorkDir)
+    ? undefined
+    : rawWorkDir
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -113,8 +120,8 @@ export function Sidebar({
   }, [sessions, query])
 
   const groupedSessions = useMemo(
-    () => groupSessionsByProject(filtered, currentWorkDir),
-    [filtered, currentWorkDir],
+    () => groupSessionsByProject(filtered, currentWorkDir, noProjectWorkDir),
+    [filtered, currentWorkDir, noProjectWorkDir],
   )
 
   const refreshSessions = useCallback(async () => {
@@ -296,25 +303,23 @@ export function Sidebar({
         {/* Project selector (shared with the composer chip) */}
         <ProjectPicker display="path" className="px-3 pb-2" />
 
-        {/* New chat */}
+        {/* New chat → welcome screen (the session is created on first send) */}
         <div className="flex gap-1.5 px-3 pb-2 pt-1">
           <button
-            onClick={() => void createSession(currentWorkDir)}
+            onClick={clearCurrentSession}
             className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-[var(--lm-accent)] px-3 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] shadow-[var(--lm-shadow-soft)] transition-colors hover:bg-[var(--lm-accent-hover)]"
           >
             <Plus size={16} />
-            <span>{currentWorkDir ? '新建对话' : '打开项目'}</span>
+            <span>新建对话</span>
           </button>
-          {currentWorkDir && (
-            <button
-              onClick={() => void createSession()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-              title="打开其他项目"
-              aria-label="打开其他项目"
-            >
-              <FolderOpen size={16} />
-            </button>
-          )}
+          <button
+            onClick={() => void createSession()}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            title="打开其他项目"
+            aria-label="打开其他项目"
+          >
+            <FolderOpen size={16} />
+          </button>
         </div>
 
         {/* Search */}

@@ -35,6 +35,14 @@ describe('desktop preload bridge', () => {
       exportSession(id: string): Promise<string>
       getPathForFile(file: File): string
       selectWorkDirectory(initialDirectory?: string): Promise<string | undefined>
+      getNoProjectWorkDir(): Promise<string>
+      createSession(opts: {
+        workDir?: string
+        noProject?: boolean
+        model?: string
+        thinking?: string
+        permission?: 'yolo' | 'manual' | 'auto'
+      }): Promise<unknown>
       createGoal(sessionId: string, objective: string, replace?: boolean): Promise<unknown>
       getGitSnapshot(sessionId: string): Promise<unknown>
       getGitFileDiff(sessionId: string, filePath: string): Promise<unknown>
@@ -89,6 +97,8 @@ describe('desktop preload bridge', () => {
     expect(api.getPathForFile(file)).toBe('C:/work/file.txt')
     await api.exportSession('session-1')
     await api.selectWorkDirectory('C:/work')
+    await api.getNoProjectWorkDir()
+    await api.createSession({ noProject: true })
     await api.createGoal('session-1', 'ship desktop', true)
     await api.getGitSnapshot('session-1')
     await api.getGitFileDiff('session-1', 'src/app.ts')
@@ -170,6 +180,8 @@ describe('desktop preload bridge', () => {
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:exportSession', 'session-1')
     expect(electron.getPathForFile).toHaveBeenCalledWith(file)
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:selectWorkDirectory', 'C:/work')
+    expect(electron.invoke).toHaveBeenCalledWith('lmcode:getNoProjectWorkDir')
+    expect(electron.invoke).toHaveBeenCalledWith('lmcode:createSession', { noProject: true })
     expect(electron.invoke).toHaveBeenCalledWith(
       'lmcode:createGoal',
       'session-1',

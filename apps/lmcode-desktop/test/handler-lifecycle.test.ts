@@ -201,6 +201,56 @@ describe('desktop handler lifecycle', () => {
     await registration.close()
   })
 
+  it('routes no-project sessions to the main-process sentinel workspace', async () => {
+    const session = {
+      id: 'session-noproject',
+      summary: {
+        id: 'session-noproject',
+        workDir: 'C:/Users/test/.lmcode/no-project-workspace',
+      },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+    }
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      createSession: vi.fn(async () => session),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+      undefined,
+      'C:/Users/test/.lmcode/no-project-workspace',
+    )
+
+    const summary = await invoke('lmcode:createSession', { noProject: true })
+    expect(summary).toEqual(session.summary)
+    expect(harness.createSession).toHaveBeenCalledWith({
+      workDir: 'C:/Users/test/.lmcode/no-project-workspace',
+      model: undefined,
+      thinking: undefined,
+      permission: undefined,
+    })
+
+    // The sentinel directory is resolved by the main process only — a
+    // renderer cannot combine `noProject` with a path of its own.
+    await expect(
+      invoke('lmcode:createSession', { noProject: true, workDir: 'C:/elsewhere' }),
+    ).rejects.toThrow('no-project')
+
+    // Without `noProject`, an empty workDir is still rejected.
+    await expect(invoke('lmcode:createSession', { workDir: '   ' })).rejects.toThrow(
+      'project directory is required',
+    )
+
+    await expect(invoke('lmcode:getNoProjectWorkDir')).resolves.toBe(
+      'C:/Users/test/.lmcode/no-project-workspace',
+    )
+
+    await registration.close()
+  })
+
   it('bridges goal, plan, compaction, and history controls to the active SDK session', async () => {
     const goal = {
       goalId: 'goal-1',

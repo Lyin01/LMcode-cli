@@ -9,6 +9,7 @@ import type {
 import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
+  DesktopCreateSessionOptions,
   InteractionSettledPayload,
   QuestionRequestPayload,
   QuestionResponsePayload,
@@ -30,12 +31,8 @@ import type { GitDiscardScope, GitHunkActionInput } from '../shared/git-types.js
 const lmcodeAPI = {
   // ── Session management ──────────────────────────────────────────
 
-  createSession: (opts: {
-    workDir: string
-    model?: string
-    thinking?: string
-    permission?: 'yolo' | 'manual' | 'auto'
-  }) => ipcRenderer.invoke('lmcode:createSession', opts),
+  createSession: (opts: DesktopCreateSessionOptions) =>
+    ipcRenderer.invoke('lmcode:createSession', opts),
 
   resumeSession: (id: string) =>
     ipcRenderer.invoke('lmcode:resumeSession', id),
@@ -53,6 +50,9 @@ const lmcodeAPI = {
 
   selectWorkDirectory: (initialDirectory?: string) =>
     ipcRenderer.invoke('lmcode:selectWorkDirectory', initialDirectory),
+
+  getNoProjectWorkDir: (): Promise<string> =>
+    ipcRenderer.invoke('lmcode:getNoProjectWorkDir'),
 
   // ── Chat ────────────────────────────────────────────────────────
 

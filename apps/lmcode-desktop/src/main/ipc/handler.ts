@@ -21,9 +21,10 @@ import type {
   Logger,
 } from '@lmcode-cli/lmcode-sdk'
 import { randomUUID } from 'node:crypto'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import type {
   ApprovalRequestPayload,
+  DesktopCreateSessionOptions,
   InteractionSettledPayload,
   QuestionRequestPayload,
 } from '../../shared/ipc-types.js'
@@ -123,6 +124,7 @@ export function registerAllHandlers(
   mainWindow: BrowserWindow,
   trustedRendererUrl: string,
   logger: Logger | undefined = undefined,
+  noProjectWorkDir: string | undefined = undefined,
 ): DesktopHandlerRegistration {
   const invokeChannels: string[] = []
   const eventListeners: Array<{
@@ -144,6 +146,18 @@ export function registerAllHandlers(
       // Renderer teardown can race the destroyed check.
     }
   })
+
+  // The no-project sentinel directory is resolved by the main process only.
+  // The renderer can ask for it (to recognize such sessions) but can never
+  // steer it — `noProject` session requests never accept a caller path.
+  function resolveNoProjectWorkDir(): string {
+    if (noProjectWorkDir) return noProjectWorkDir
+    const homeDir = harness.homeDir
+    if (typeof homeDir === 'string' && homeDir.trim().length > 0) {
+      return join(homeDir, 'no-project-workspace')
+    }
+    throw new Error('The no-project workspace directory is not configured')
+  }
 
   function settleSessionInteractions(sessionId: string): void {
     pendingApprovals.settleSession(sessionId, CANCELLED_APPROVAL)
@@ -344,17 +358,21 @@ export function registerAllHandlers(
 
   // ── Session management ──────────────────────────────────────────
 
-  secureInvoke('lmcode:createSession', async (_event, opts: {
-    workDir: string
-    model?: string
-    thinking?: string
-    permission?: 'yolo' | 'manual' | 'auto'
-  }): Promise<SessionSummary> => {
-    const workDir = opts.workDir.trim()
+  secureInvoke('lmcode:createSession', async (_event, opts: DesktopCreateSessionOptions): Promise<SessionSummary> => {
+    const requestedWorkDir = opts.workDir?.trim() ?? ''
+    if (opts.noProject === true && requestedWorkDir) {
+      throw new Error('A no-project session cannot also specify a project directory')
+    }
+    const workDir = opts.noProject === true ? resolveNoProjectWorkDir() : requestedWorkDir
     if (!workDir) {
       throw new Error('A project directory is required to create a desktop session')
     }
-    const session = await harness.createSession({ ...opts, workDir })
+    const session = await harness.createSession({
+      workDir,
+      model: opts.model,
+      thinking: opts.thinking,
+      permission: opts.permission,
+    })
     setupSessionListeners(session)
     if (!session.summary) {
       throw new Error('The desktop session was created without a summary')
@@ -854,6 +872,10 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:getHomeDir', (): string => {
     return harness.homeDir
+  })
+
+  secureInvoke('lmcode:getNoProjectWorkDir', (): string => {
+    return resolveNoProjectWorkDir()
   })
 
   // ── Approval / Question responses ──────────────────────────────

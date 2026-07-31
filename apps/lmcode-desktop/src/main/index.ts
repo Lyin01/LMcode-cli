@@ -10,6 +10,7 @@ import {
   Tray,
 } from 'electron'
 import type { IpcMainEvent } from 'electron'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import updaterPkg from 'electron-updater'
@@ -494,6 +495,10 @@ function createWindow(): void {
 // ── Harness ────────────────────────────────────────────────────────────
 
 async function initHarness(): Promise<void> {
+  // Sentinel workspace for "不在项目中工作" sessions: ensure it exists before
+  // any no-project session can be pointed at it.
+  await mkdir(runtimeEnvironment.noProjectWorkDir, { recursive: true })
+
   // Every runtime profile owns one complete data boundary: provider credentials,
   // sessions/SQLite, memories and logs all live below the same profile-specific
   // userData directory. Never fall back to the CLI config or another profile.
@@ -548,7 +553,13 @@ async function attachHandlersToCurrentWindow(): Promise<void> {
     trustedRendererUrl === null ||
     isQuitting
   ) return
-  handlerRegistration = registerAllHandlers(harness, mainWindow, trustedRendererUrl, log)
+  handlerRegistration = registerAllHandlers(
+    harness,
+    mainWindow,
+    trustedRendererUrl,
+    log,
+    runtimeEnvironment.noProjectWorkDir,
+  )
 }
 
 const closeRuntime = onceAsync(async (options?: HarnessCloseOptions): Promise<void> => {

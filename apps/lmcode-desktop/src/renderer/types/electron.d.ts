@@ -9,6 +9,7 @@ import type {
 import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
+  DesktopCreateSessionOptions,
   InteractionSettledPayload,
   QuestionRequestPayload,
   QuestionResponsePayload,
@@ -104,14 +105,11 @@ interface McpServerInfo {
 
 interface LmcodeAPI {
   // Session management
-  createSession: (opts: {
-    workDir: string
-    model?: string
-    thinking?: string
-    permission?: 'yolo' | 'manual' | 'auto'
-  }) => Promise<SessionSummary>
+  createSession: (opts: DesktopCreateSessionOptions) => Promise<SessionSummary>
 
   selectWorkDirectory: (initialDirectory?: string) => Promise<string | undefined>
+
+  getNoProjectWorkDir: () => Promise<string>
 
   resumeSession: (id: string) => Promise<{
     summary: SessionSummary

@@ -38,6 +38,19 @@ export interface InteractionSettledPayload {
   readonly requestId: string
 }
 
+/**
+ * Options for `lmcode:createSession`. `noProject` and `workDir` are mutually
+ * exclusive: a no-project session never carries a renderer-supplied path —
+ * the main process resolves its own sentinel workspace directory instead.
+ */
+export interface DesktopCreateSessionOptions {
+  readonly workDir?: string
+  readonly noProject?: boolean
+  readonly model?: string
+  readonly thinking?: string
+  readonly permission?: 'yolo' | 'manual' | 'auto'
+}
+
 export type PendingInteraction =
   | { readonly kind: 'approval'; readonly payload: ApprovalRequestPayload }
   | { readonly kind: 'question'; readonly payload: QuestionRequestPayload }

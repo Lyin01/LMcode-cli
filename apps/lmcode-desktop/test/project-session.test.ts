@@ -21,6 +21,7 @@ describe('desktop project session contract', () => {
       streamStatus: null,
       bg: {},
       pendingInteractions: [],
+      messageQueue: {},
       model: '',
       thinkingLevel: 'medium',
       permission: 'manual',
@@ -88,6 +89,81 @@ describe('desktop project session contract', () => {
     expect(createDesktopSession).not.toHaveBeenCalled()
     expect(useSessionStore.getState().currentSessionId).toBeNull()
     expect(useSessionStore.getState().sessions).toEqual([])
+  })
+
+  it('creates a no-project session without opening the directory picker', async () => {
+    createDesktopSession.mockResolvedValue({
+      id: 'session-noproject',
+      workDir: 'C:/data/no-project-workspace',
+      sessionDir: 'C:/sessions/session-noproject',
+      createdAt: 4,
+      updatedAt: 4,
+    })
+
+    await useSessionStore.getState().createSession(undefined, { noProject: true })
+
+    expect(selectWorkDirectory).not.toHaveBeenCalled()
+    expect(createDesktopSession).toHaveBeenCalledWith({
+      workDir: undefined,
+      noProject: true,
+      model: undefined,
+      thinking: 'medium',
+      permission: 'manual',
+    })
+    expect(useSessionStore.getState()).toMatchObject({
+      currentSessionId: 'session-noproject',
+      sessions: [
+        expect.objectContaining({
+          id: 'session-noproject',
+          workDir: 'C:/data/no-project-workspace',
+        }),
+      ],
+    })
+  })
+
+  it('queues the welcome-screen first message only after the session exists', async () => {
+    const created = Promise.withResolvers<{
+      id: string
+      workDir: string
+      sessionDir: string
+      createdAt: number
+      updatedAt: number
+    }>()
+    createDesktopSession.mockReturnValue(created.promise)
+
+    const pending = useSessionStore
+      .getState()
+      .startSessionWithMessage({ kind: 'no-project' }, '写一首诗')
+
+    // The message must not be queued (and therefore never sent) before the
+    // session creation has settled.
+    expect(useSessionStore.getState().messageQueue['session-first']).toBeUndefined()
+
+    created.resolve({
+      id: 'session-first',
+      workDir: 'C:/data/no-project-workspace',
+      sessionDir: 'C:/sessions/session-first',
+      createdAt: 5,
+      updatedAt: 5,
+    })
+    await pending
+
+    const state = useSessionStore.getState()
+    expect(state.currentSessionId).toBe('session-first')
+    expect(state.messageQueue['session-first']).toEqual([
+      expect.objectContaining({ text: '写一首诗' }),
+    ])
+  })
+
+  it('drops the welcome-screen message when session creation fails', async () => {
+    createDesktopSession.mockRejectedValue(new Error('harness unavailable'))
+
+    await useSessionStore
+      .getState()
+      .startSessionWithMessage({ kind: 'project', workDir: 'C:/repo' }, '你好')
+
+    expect(useSessionStore.getState().currentSessionId).toBeNull()
+    expect(useSessionStore.getState().messageQueue).toEqual({})
   })
 
   it('starts a new chat with the model and permission shown in the composer', async () => {

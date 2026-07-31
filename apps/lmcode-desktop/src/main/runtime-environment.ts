@@ -7,6 +7,8 @@ export interface DesktopRuntimeEnvironment {
   readonly isDevelopment: boolean
   readonly userDataDir: string
   readonly configPath: string
+  /** Sentinel workspace for sessions that are not tied to a project directory. */
+  readonly noProjectWorkDir: string
   readonly rendererUrl: string | undefined
   readonly devToolsEnabled: boolean
 }
@@ -37,6 +39,7 @@ export function resolveDesktopRuntimeEnvironment(
     isDevelopment,
     userDataDir,
     configPath: path.join(userDataDir, 'config.toml'),
+    noProjectWorkDir: path.join(userDataDir, 'no-project-workspace'),
     rendererUrl: launchedByDevelopmentScript
       ? validateDevelopmentRendererUrl(input.rendererUrl)
       : undefined,

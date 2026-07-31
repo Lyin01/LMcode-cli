@@ -3,20 +3,12 @@ import { MessageList } from '@/components/MessageList'
 import { Composer } from '@/components/Composer'
 import { ProjectPicker } from '@/components/ProjectPicker'
 import { StallIndicator } from '@/components/StallIndicator'
+import { greeting } from '@/lib/greeting'
 import type {
   CommandPaletteRequest,
   ComposerDraftRequest,
   ConversationFindRequest,
 } from '@/lib/menu-command'
-
-function greeting(): string {
-  const h = new Date().getHours()
-  if (h < 5) return '夜深了'
-  if (h < 11) return '早上好'
-  if (h < 13) return '中午好'
-  if (h < 18) return '下午好'
-  return '晚上好'
-}
 
 interface ChatPanelProps {
   onOpenSettings?: () => void
