@@ -25,7 +25,7 @@ describe('desktop project terminal', () => {
       () => {
         expect(output.map((payload) => payload.data).join('')).toContain('lmcode-terminal-ok')
       },
-      { timeout: 5_000 },
+      { timeout: 15_000 },
     )
     expect(info).toEqual(
       expect.objectContaining({

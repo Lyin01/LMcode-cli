@@ -24,7 +24,7 @@ import {
 } from '@lmcode-cli/agent-core';
 import { createLmcodeDefaultHeaders } from '@lmcode-cli/config';
 
-import type { ApprovalHandler, QuestionHandler } from '#/events';
+import type { ApprovalHandler, QuestionHandler } from './events';
 import type {
   BackgroundTaskInfo,
   CreateSessionOptions,
@@ -56,7 +56,7 @@ import type {
   SkillSummary,
   Unsubscribe,
   LmcodeHostIdentity,
-} from '#/types';
+} from './types';
 
 const MAIN_AGENT_ID = 'main';
 

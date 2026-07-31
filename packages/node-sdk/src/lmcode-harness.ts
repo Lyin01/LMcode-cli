@@ -10,9 +10,9 @@ import {
 } from '@lmcode-cli/agent-core';
 import { assertLmcodeHostIdentity } from '@lmcode-cli/config';
 
-import { LmcodeAuthFacade } from '#/auth';
-import { SDKRpcClient } from '#/rpc';
-import { Session } from '#/session';
+import { LmcodeAuthFacade } from './auth';
+import { SDKRpcClient } from './rpc';
+import { Session } from './session';
 import type {
   CreateSessionOptions,
   ExportSessionInput,
@@ -28,7 +28,7 @@ import type {
   RenameSessionInput,
   ResumeSessionInput,
   SessionSummary,
-} from '#/types';
+} from './types';
 
 export class LmcodeHarness {
   readonly homeDir: string;
