@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@lmcode-cli/lmcode-sdk": ["../packages/node-sdk/dist/index.mjs"]
+    }
+  }
+}
