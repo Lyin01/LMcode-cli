@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { useSessionStore, type NewSessionTarget } from '@/stores/session-store'
 import { collectProjects, truncateProjectPath } from '@/lib/projects'
 import { greeting } from '@/lib/greeting'
+import { ModelSwitcher } from '@/components/ModelSwitcher'
 
 const NO_PROJECT_LABEL = '不在项目中工作'
 
@@ -212,6 +213,7 @@ export function WelcomeScreen() {
                 ? '会话不绑定项目目录'
                 : `在 ${targetLabel} 中开始`}
             </span>
+            <ModelSwitcher />
             <div className="flex-1" />
             <button
               type="button"

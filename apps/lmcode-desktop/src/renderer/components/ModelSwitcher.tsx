@@ -33,7 +33,13 @@ export function ModelSwitcher({ open: controlledOpen, onOpenChange }: ModelSwitc
 
   const handleSelect = useCallback(
     async (modelId: string) => {
-      if (!currentSessionId) return
+      // On the welcome screen there is no session yet: remember the pick in
+      // the store so `createSession` starts the new conversation with it.
+      if (!currentSessionId) {
+        useSessionStore.getState().updateSessionStatus({ model: modelId })
+        setOpen(false)
+        return
+      }
       try {
         await window.lmcodeAPI.setModel(currentSessionId, modelId)
         useSessionStore.getState().updateSessionStatus({ model: modelId })
