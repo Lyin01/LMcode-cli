@@ -14,6 +14,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import updaterPkg from 'electron-updater'
+import type { NsisUpdater } from 'electron-updater'
 import { LmcodeHarness, log } from '@lmcode-cli/lmcode-sdk'
 import type { HarnessCloseOptions } from '@lmcode-cli/lmcode-sdk'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
@@ -25,6 +26,7 @@ import {
   isTrustedIpcSender,
 } from './security.js'
 import { resolveDesktopRuntimeEnvironment } from './runtime-environment.js'
+import { verifyWindowsUpdateCodeSignature } from './update-signature.js'
 import {
   DEFAULT_DESKTOP_MENU_STATE,
   isDesktopMenuState,
@@ -221,6 +223,10 @@ function setupAutoUpdater(): void {
 
   autoUpdater.autoDownload = false // ask the user before pulling the package
   autoUpdater.autoInstallOnAppQuit = true
+  if (process.platform === 'win32') {
+    const windowsUpdater = autoUpdater as NsisUpdater
+    windowsUpdater.verifyUpdateCodeSignature = verifyWindowsUpdateCodeSignature
+  }
 
   autoUpdater.on('update-available', async (info) => {
     const { response } = await messageBox({
