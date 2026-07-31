@@ -362,6 +362,10 @@ function ProviderModels({ providerId }: { providerId: string }) {
             maxContextSize: parsedContext,
           },
         },
+        // The desktop has no separate "default model" setting, so the first
+        // model added becomes the default; otherwise new sessions created
+        // before any manual model pick start with no model and fail.
+        ...(config?.defaultModel?.trim() ? {} : { defaultModel: aliasTrimmed }),
       })
       setAlias('')
       setModelName('')

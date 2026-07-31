@@ -13,6 +13,8 @@ import {
   setStoredThinking,
   type ThinkingEffort,
 } from '@/lib/thinking'
+import { buildModelEntries } from '@/lib/models'
+import { useConfigStore } from '@/stores/config-store'
 import type {
   Event,
   TurnEndedEvent,
@@ -561,7 +563,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (!noProject && !workDir) return
 
       const state = get()
-      const model = state.model.trim()
+      // A fresh session inherits the model of whatever session was current,
+      // which is '' on the welcome screen. Fall back to the configured
+      // default model, then to any configured model, so a new conversation
+      // never starts without a model and fails its first turn.
+      const config = useConfigStore.getState().config
+      const fallbackModel = config
+        ? config.defaultModel?.trim() || buildModelEntries(config)[0]?.id || ''
+        : ''
+      const model = state.model.trim() || fallbackModel
       const permission =
         state.permission === 'yolo' || state.permission === 'auto'
           ? state.permission
