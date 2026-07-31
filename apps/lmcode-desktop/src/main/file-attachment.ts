@@ -31,13 +31,19 @@ interface ResolvedAttachmentFile {
   readonly sizeBytes: number
 }
 
-async function resolveAttachmentFile(filePath: string): Promise<ResolvedAttachmentFile> {
+async function resolveAttachmentFile(
+  filePath: string,
+  credentialRoots: readonly string[],
+): Promise<ResolvedAttachmentFile> {
   if (!filePath || filePath.includes('\0') || !path.isAbsolute(filePath)) {
     throw new Error('附件路径无效')
   }
 
   const realPath = await fs.realpath(filePath).catch(() => filePath)
-  if (isSensitiveAttachmentPath(filePath) || isSensitiveAttachmentPath(realPath)) {
+  if (
+    isSensitiveAttachmentPath(filePath, credentialRoots) ||
+    isSensitiveAttachmentPath(realPath, credentialRoots)
+  ) {
     throw new Error('出于安全考虑，不能附加此文件')
   }
 
@@ -148,17 +154,26 @@ async function readTextAttachmentFile(
  * keys into a model prompt. It is intentionally a denylist on top of the
  * explicit user file pick — not a full sandbox.
  */
-export function isSensitiveAttachmentPath(filePath: string): boolean {
+export function isSensitiveAttachmentPath(
+  filePath: string,
+  credentialRoots: readonly string[] = [],
+): boolean {
   const target = normalizeForCompare(filePath)
   const home = normalizeForCompare(os.homedir())
   const base = path.basename(target).toLowerCase()
 
-  // ~/.lmcode/config.toml (+ its *.bak backups) stores provider API keys;
-  // device_id identifies this install. The rest of ~/.lmcode (sessions,
-  // memory, logs) stays attachable on purpose.
-  const lmcodeDir = path.join(home, '.lmcode') + path.sep
-  if (target.startsWith(lmcodeDir)) {
-    if (base === 'device_id' || base.startsWith('config.toml')) return true
+  // Each runtime profile owns its own provider keys and device identity. The
+  // rest of those roots (sessions, memory, logs) stays attachable on purpose.
+  const protectedRoots = [path.join(home, '.lmcode'), ...credentialRoots]
+  for (const root of protectedRoots) {
+    if (root.trim().length === 0) continue
+    const normalizedRoot = normalizeForCompare(root)
+    const insideRoot =
+      target === normalizedRoot || target.startsWith(`${normalizedRoot}${path.sep}`)
+    if (
+      insideRoot &&
+      (base === 'device_id' || base.startsWith('config.toml'))
+    ) return true
   }
 
   for (const dir of SENSITIVE_HOME_DIRS) {
@@ -174,12 +189,18 @@ export function isSensitiveAttachmentPath(filePath: string): boolean {
   return false
 }
 
-export async function readTextAttachment(filePath: string): Promise<TextAttachment> {
-  return readTextAttachmentFile(await resolveAttachmentFile(filePath))
+export async function readTextAttachment(
+  filePath: string,
+  credentialRoots: readonly string[] = [],
+): Promise<TextAttachment> {
+  return readTextAttachmentFile(await resolveAttachmentFile(filePath, credentialRoots))
 }
 
-export async function readFileAttachment(filePath: string): Promise<FileAttachmentPreview> {
-  const file = await resolveAttachmentFile(filePath)
+export async function readFileAttachment(
+  filePath: string,
+  credentialRoots: readonly string[] = [],
+): Promise<FileAttachmentPreview> {
+  const file = await resolveAttachmentFile(filePath, credentialRoots)
   const handle = await fs.open(file.realPath, 'r')
   let header: Buffer
   try {
@@ -204,7 +225,10 @@ export async function readFileAttachment(filePath: string): Promise<FileAttachme
   return preview
 }
 
-export async function buildDesktopPromptInput(value: unknown): Promise<PromptInput> {
+export async function buildDesktopPromptInput(
+  value: unknown,
+  credentialRoots: readonly string[] = [],
+): Promise<PromptInput> {
   if (!isDesktopPromptRequest(value)) throw new Error('消息附件参数无效')
   const request: DesktopPromptRequest = value
   if (request.attachments.length > MAX_PROMPT_ATTACHMENTS) {
@@ -222,7 +246,7 @@ export async function buildDesktopPromptInput(value: unknown): Promise<PromptInp
       const pathKey = normalizeForCompare(input.filePath)
       if (seenPaths.has(pathKey)) continue
       seenPaths.add(pathKey)
-      attachment = await readFileAttachment(input.filePath)
+      attachment = await readFileAttachment(input.filePath, credentialRoots)
       if (attachment.kind !== input.kind) {
         throw new Error(`附件“${attachment.name}”的类型已变化，请重新添加`)
       }

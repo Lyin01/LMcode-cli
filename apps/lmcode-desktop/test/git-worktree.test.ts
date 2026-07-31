@@ -10,6 +10,7 @@ import {
 } from '../src/main/git-worktree'
 
 const temporaryDirectories: string[] = []
+const GIT_INTEGRATION_TEST_TIMEOUT_MS = 30_000
 
 function git(workDir: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -48,12 +49,17 @@ async function createRepository(): Promise<{
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
-      fs.rm(directory, { recursive: true, force: true }),
+      fs.rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: process.platform === 'win32' ? 5 : 0,
+        retryDelay: 100,
+      }),
     ),
   )
 })
 
-describe('desktop Git worktrees', () => {
+describe('desktop Git worktrees', { timeout: GIT_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it('creates an isolated branch and returns it as the current worktree', async () => {
     const { repository, storage } = await createRepository()
     const initial = await listGitWorktrees(repository)

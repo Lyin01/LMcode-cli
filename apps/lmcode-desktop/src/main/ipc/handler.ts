@@ -18,6 +18,7 @@ import type {
   CronJobInfo,
   BackgroundTaskInfo,
   SessionStatus,
+  Logger,
 } from '@lmcode-cli/lmcode-sdk'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
@@ -65,6 +66,10 @@ import type {
   TextAttachment,
 } from '../../shared/file-types.js'
 import { scheduledSessionIds } from '../scheduled-sessions.js'
+import {
+  restoreRedactedConfigPatch,
+  sanitizeConfigForRenderer,
+} from '../config-security.js'
 
 interface SessionEntry {
   session: Session
@@ -117,6 +122,7 @@ export function registerAllHandlers(
   harness: LmcodeHarness,
   mainWindow: BrowserWindow,
   trustedRendererUrl: string,
+  logger: Logger | undefined = undefined,
 ): DesktopHandlerRegistration {
   const invokeChannels: string[] = []
   const eventListeners: Array<{
@@ -126,6 +132,8 @@ export function registerAllHandlers(
   const activeSessions = new Map<string, SessionEntry>()
   const pendingApprovals = new PendingInteractionRegistry<ApprovalResponse>()
   const pendingQuestions = new PendingInteractionRegistry<QuestionResult>()
+  const credentialRoots = [harness.homeDir, dirname(harness.configPath)]
+  const auditLog = logger?.createChild({ surface: 'desktop-ipc' })
   let closing = false
   let closePromise: Promise<void> | undefined
   const terminalManager = new ProjectTerminalManager((payload: TerminalOutputPayload) => {
@@ -237,12 +245,20 @@ export function registerAllHandlers(
     channel: string,
     listener: (event: IpcMainInvokeEvent, ...args: Args) => Result | Promise<Result>,
   ): void {
-    ipcMain.handle(channel, (event, ...args) => {
+    ipcMain.handle(channel, async (event, ...args) => {
       if (closing) throw new Error(`Desktop IPC registration is closed on "${channel}"`)
       if (!isTrustedIpcSender(event, mainWindow.webContents, trustedRendererUrl)) {
         throw new Error(`Rejected IPC from an untrusted renderer on "${channel}"`)
       }
-      return listener(event, ...(args as Args))
+      try {
+        return await listener(event, ...(args as Args))
+      } catch (error) {
+        auditLog?.warn('desktop IPC operation failed', {
+          channel,
+          errorKind: error instanceof Error ? 'error' : typeof error,
+        })
+        throw error
+      }
     })
     invokeChannels.push(channel)
   }
@@ -343,6 +359,9 @@ export function registerAllHandlers(
     if (!session.summary) {
       throw new Error('The desktop session was created without a summary')
     }
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'session.create',
+    })
     return session.summary
   })
 
@@ -383,6 +402,9 @@ export function registerAllHandlers(
     settleSessionInteractions(id)
     try {
       await harness.deleteSession(id)
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'session.delete',
+      })
     } finally {
       settleSessionInteractions(id)
     }
@@ -407,7 +429,7 @@ export function registerAllHandlers(
     'lmcode:sendMessage',
     async (_event, sessionId: string, request: DesktopPromptRequest): Promise<void> => {
       const entry = await ensureActiveSession(sessionId)
-      await entry.session.prompt(await buildDesktopPromptInput(request))
+      await entry.session.prompt(await buildDesktopPromptInput(request, credentialRoots))
     },
   )
 
@@ -415,7 +437,7 @@ export function registerAllHandlers(
     'lmcode:steerMessage',
     async (_event, sessionId: string, request: DesktopPromptRequest): Promise<void> => {
       const entry = await ensureActiveSession(sessionId)
-      await entry.session.steer(await buildDesktopPromptInput(request))
+      await entry.session.steer(await buildDesktopPromptInput(request, credentialRoots))
     },
   )
 
@@ -629,31 +651,40 @@ export function registerAllHandlers(
   // ── Config ──────────────────────────────────────────────────────
 
   secureInvoke('lmcode:getConfig', async (): Promise<LmcodeConfig> => {
-    return harness.getConfig()
+    return sanitizeConfigForRenderer(await harness.getConfig())
   })
 
   secureInvoke('lmcode:setConfig', async (_event, patch: LmcodeConfigPatch): Promise<LmcodeConfig> => {
-    return harness.setConfig(patch)
+    const current = await harness.getConfig()
+    const config = await harness.setConfig(restoreRedactedConfigPatch(patch, current))
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'provider-config.update',
+    })
+    return sanitizeConfigForRenderer(config)
   })
 
   secureInvoke('lmcode:removeProvider', async (_event, providerId: string): Promise<LmcodeConfig> => {
-    return harness.removeProvider(providerId)
+    const config = await harness.removeProvider(providerId)
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'provider-config.remove',
+    })
+    return sanitizeConfigForRenderer(config)
   })
 
   secureInvoke('lmcode:removeModel', async (_event, modelId: string): Promise<LmcodeConfig> => {
-    return harness.removeModel(modelId)
+    return sanitizeConfigForRenderer(await harness.removeModel(modelId))
   })
 
   // ── File operations ─────────────────────────────────────────────
 
   secureInvoke('lmcode:readFileContent', async (_event, filePath: string): Promise<TextAttachment> => {
-    return readTextAttachment(filePath)
+    return readTextAttachment(filePath, credentialRoots)
   })
 
   secureInvoke(
     'lmcode:readFileAttachment',
     async (_event, filePath: string): Promise<FileAttachmentPreview> => {
-      return readFileAttachment(filePath)
+      return readFileAttachment(filePath, credentialRoots)
     },
   )
 
@@ -720,6 +751,9 @@ export function registerAllHandlers(
         scope,
         (target) => shell.trashItem(target),
       )
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'git.discard-file',
+      })
     },
   )
 
@@ -730,13 +764,20 @@ export function registerAllHandlers(
         await getSessionWorkDir(sessionId),
         (target) => shell.trashItem(target),
       )
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'git.discard-all',
+      })
     },
   )
 
   secureInvoke(
     'lmcode:commitGitChanges',
     async (_event, sessionId: string, message: string): Promise<GitCommitResult> => {
-      return commitGitChanges(await getSessionWorkDir(sessionId), message)
+      const result = await commitGitChanges(await getSessionWorkDir(sessionId), message)
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'git.commit',
+      })
+      return result
     },
   )
 
@@ -843,8 +884,8 @@ export function registerAllHandlers(
 
   // ── Memory store ───────────────────────────────────────────────
 
-  // Share the user's existing memory store (~/.lmcode/memory), same dir as the
-  // shared config, so the desktop sees the memories the CLI recorded.
+  // Keep memory in the same profile boundary as this runtime's config. This is
+  // intentionally isolated from the CLI and from the other desktop profile.
   const memoryStore = new MemoryMemoStore(dirname(harness.configPath))
 
   secureInvoke('lmcode:listMemories', async (): Promise<MemoryMemoSummary[]> => {
@@ -859,6 +900,9 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:deleteMemory', async (_event, id: string): Promise<void> => {
     await memoryStore.delete(id)
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'memory.delete',
+    })
   })
 
   // ── Background task operations ─────────────────────────────────

@@ -15,6 +15,7 @@ import {
 } from '../src/main/git-review'
 
 const temporaryDirectories: string[] = []
+const GIT_INTEGRATION_TEST_TIMEOUT_MS = 30_000
 
 function git(workDir: string, ...args: string[]): void {
   execFileSync('git', args, { cwd: workDir, stdio: 'ignore', windowsHide: true })
@@ -42,12 +43,17 @@ async function createRepository(): Promise<string> {
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
-      fs.rm(directory, { recursive: true, force: true }),
+      fs.rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: process.platform === 'win32' ? 5 : 0,
+        retryDelay: 100,
+      }),
     ),
   )
 })
 
-describe('desktop Git review', () => {
+describe('desktop Git review', { timeout: GIT_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it('reports staged, unstaged, and untracked files with reviewable patches', async () => {
     const workDir = await createRepository()
     await fs.writeFile(path.join(workDir, 'tracked.txt'), 'before\nafter\n', 'utf8')

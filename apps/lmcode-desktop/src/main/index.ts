@@ -11,16 +11,19 @@ import {
 } from 'electron'
 import type { IpcMainEvent } from 'electron'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { is } from '@electron-toolkit/utils'
 import updaterPkg from 'electron-updater'
-import { LmcodeHarness } from '@lmcode-cli/lmcode-sdk'
+import { LmcodeHarness, log } from '@lmcode-cli/lmcode-sdk'
 import type { HarnessCloseOptions } from '@lmcode-cli/lmcode-sdk'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
 import { onceAsync, ShutdownCoordinator, withTimeoutBudget } from './lifecycle.js'
 import { createAppMenuTemplate } from './app-menu.js'
-import { classifyNavigation, isTrustedIpcSender } from './security.js'
+import {
+  classifyNavigation,
+  createRendererContentSecurityPolicy,
+  isTrustedIpcSender,
+} from './security.js'
+import { resolveDesktopRuntimeEnvironment } from './runtime-environment.js'
 import {
   DEFAULT_DESKTOP_MENU_STATE,
   isDesktopMenuState,
@@ -33,6 +36,25 @@ const { autoUpdater } = updaterPkg
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = join(__filename, '..')
+
+const defaultUserDataDir = app.getPath('userData')
+const runtimeEnvironment = resolveDesktopRuntimeEnvironment({
+  isPackaged: app.isPackaged,
+  defaultUserDataDir,
+  nodeEnv: process.env['NODE_ENV'],
+  rendererUrl: process.env['ELECTRON_RENDERER_URL'],
+})
+if (runtimeEnvironment.userDataDir !== defaultUserDataDir) {
+  app.setPath('userData', runtimeEnvironment.userDataDir)
+}
+if (!runtimeEnvironment.isDevelopment) {
+  process.env['NODE_ENV'] = 'production'
+  delete process.env['ELECTRON_RENDERER_URL']
+  app.commandLine.removeSwitch('remote-debugging-port')
+  app.commandLine.removeSwitch('inspect')
+  app.commandLine.removeSwitch('inspect-brk')
+  app.commandLine.appendSwitch('disable-extensions')
+}
 
 let mainWindow: BrowserWindow | null = null
 let harness: LmcodeHarness | null = null
@@ -60,7 +82,7 @@ let shutdownWatchdog: NodeJS.Timeout | null = null
 function armShutdownWatchdog(): void {
   if (shutdownWatchdog !== null) return
   shutdownWatchdog = setTimeout(() => {
-    console.warn('[shutdown] cleanup exceeded the watchdog limit; forcing exit')
+    log.warn('desktop shutdown watchdog exceeded')
     app.exit(0)
   }, SHUTDOWN_WATCHDOG_MS)
   // Never let the watchdog itself keep the process alive.
@@ -74,7 +96,7 @@ function createTrayIcon(): Electron.NativeImage {
   const iconPath = join(__dirname, '../resources/tray-icon.png')
   const img = nativeImage.createFromPath(iconPath)
   if (img.isEmpty()) {
-    console.warn(`[tray] icon asset missing or unreadable: ${iconPath}`)
+    log.warn('desktop tray icon unavailable')
     return nativeImage.createEmpty()
   }
   return img.resize({ width: 16, height: 16 })
@@ -308,7 +330,7 @@ function installApplicationMenu(): void {
     appName: app.name,
     // The unpackaged one-click build is still a user-facing app. Only expose
     // reload/devtools when the dedicated development launcher opts in.
-    isDevelopment: process.env['NODE_ENV'] === 'development',
+    isDevelopment: runtimeEnvironment.devToolsEnabled,
     isMac: process.platform === 'darwin',
     state: desktopMenuState,
     actions: {
@@ -377,6 +399,11 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      devTools: runtimeEnvironment.devToolsEnabled,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
+      navigateOnDragDrop: false,
       // Keep the renderer fully active while hidden in the tray so streaming
       // responses and event updates are not throttled/paused.
       backgroundThrottling: false,
@@ -384,10 +411,30 @@ function createWindow(): void {
   })
 
   const rendererFile = join(__dirname, '../renderer/index.html')
-  const rendererUrl = is.dev && process.env['ELECTRON_RENDERER_URL']
-    ? process.env['ELECTRON_RENDERER_URL']
-    : pathToFileURL(rendererFile).href
+  const rendererUrl = runtimeEnvironment.rendererUrl ?? pathToFileURL(rendererFile).href
   trustedRendererUrl = rendererUrl
+
+  const rendererSession = mainWindow.webContents.session
+  const contentSecurityPolicy = createRendererContentSecurityPolicy(
+    rendererUrl,
+    runtimeEnvironment.isDevelopment,
+  )
+  rendererSession.webRequest.onHeadersReceived((details, callback) => {
+    if (details.resourceType !== 'mainFrame') {
+      callback({ responseHeaders: details.responseHeaders })
+      return
+    }
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [contentSecurityPolicy],
+      },
+    })
+  })
+  rendererSession.setPermissionCheckHandler(() => false)
+  rendererSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false)
+  })
 
   const openExternal = (url: string): void => {
     void shell.openExternal(url).catch(() => {})
@@ -411,15 +458,18 @@ function createWindow(): void {
   })
   mainWindow.webContents.on('will-navigate', handleNavigation)
   mainWindow.webContents.on('will-redirect', handleNavigation)
+  mainWindow.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault()
+  })
 
   // Load renderer
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']).catch((error: unknown) => {
-      console.error('Failed to load the desktop renderer URL:', error)
+  if (runtimeEnvironment.rendererUrl !== undefined) {
+    void mainWindow.loadURL(runtimeEnvironment.rendererUrl).catch((error: unknown) => {
+      log.error('desktop renderer URL failed to load', error)
     })
   } else {
     void mainWindow.loadFile(rendererFile).catch((error: unknown) => {
-      console.error('Failed to load the desktop renderer file:', error)
+      log.error('desktop renderer file failed to load', error)
     })
   }
 
@@ -444,19 +494,21 @@ function createWindow(): void {
 // ── Harness ────────────────────────────────────────────────────────────
 
 async function initHarness(): Promise<void> {
-  // Share the user's existing LMCODE config (providers / models / API keys) that
-  // the CLI already set up in `~/.lmcode/config.toml`, so model access works out
-  // of the box. Sessions, memory and logs stay isolated under Electron's userData
-  // so the desktop doesn't intermix with CLI session history.
-  const lmcodeHome = process.env['LMCODE_HOME'] ?? join(homedir(), '.lmcode')
+  // Every runtime profile owns one complete data boundary: provider credentials,
+  // sessions/SQLite, memories and logs all live below the same profile-specific
+  // userData directory. Never fall back to the CLI config or another profile.
   harness = new LmcodeHarness({
-    homeDir: app.getPath('userData'),
-    configPath: join(lmcodeHome, 'config.toml'),
+    homeDir: runtimeEnvironment.userDataDir,
+    configPath: runtimeEnvironment.configPath,
     uiMode: 'desktop',
   })
 
   // Ensure config file exists
   await harness.ensureConfigFile()
+  log.info('desktop runtime initialized', {
+    environment: runtimeEnvironment.name,
+    version: app.getVersion(),
+  })
 
   // Register all IPC handlers
   await attachHandlersToCurrentWindow()
@@ -486,7 +538,7 @@ function closeHandlerRegistration(): Promise<void> {
 async function attachHandlersToCurrentWindow(): Promise<void> {
   if (handlerCleanup !== null) {
     await handlerCleanup.catch((error: unknown) => {
-      console.error('Failed to dispose handlers for the previous window:', error)
+      log.error('desktop previous window cleanup failed', error)
     })
   }
   if (
@@ -496,7 +548,7 @@ async function attachHandlersToCurrentWindow(): Promise<void> {
     trustedRendererUrl === null ||
     isQuitting
   ) return
-  handlerRegistration = registerAllHandlers(harness, mainWindow, trustedRendererUrl)
+  handlerRegistration = registerAllHandlers(harness, mainWindow, trustedRendererUrl, log)
 }
 
 const closeRuntime = onceAsync(async (options?: HarnessCloseOptions): Promise<void> => {
@@ -548,12 +600,14 @@ async function cleanupApplication(): Promise<void> {
   // budget in case something hangs — the underlying close keeps running in
   // the background and its errors are still logged.
   const closing = closeRuntime({ extractMemories: false }).catch((error: unknown) => {
-    console.error('Failed to close desktop runtime:', error)
+    log.error('desktop runtime close failed', error)
     errors.push(error)
   })
   const outcome = await withTimeoutBudget(closing, RUNTIME_CLOSE_BUDGET_MS)
   if (outcome === 'budget-exceeded') {
-    console.warn(`[shutdown] runtime cleanup exceeded ${RUNTIME_CLOSE_BUDGET_MS}ms budget; exiting anyway`)
+    log.warn('desktop runtime close budget exceeded', {
+      budgetMs: RUNTIME_CLOSE_BUDGET_MS,
+    })
   }
   if (errors.length > 0) throw new AggregateError(errors, 'Failed to clean up desktop application')
 }
@@ -561,7 +615,7 @@ async function cleanupApplication(): Promise<void> {
 const shutdownCoordinator = new ShutdownCoordinator(
   cleanupApplication,
   () => app.quit(),
-  (error) => console.error('Failed to shut down LMCODE cleanly:', error),
+  (error) => log.error('desktop shutdown failed', error),
 )
 
 // Single-instance: launching the app again must NOT spin up a second harness
@@ -598,14 +652,14 @@ if (!gotSingleInstanceLock) {
     // newer release exists). Dedicated repo → no false positives from the CLI.
     setTimeout(() => void checkForUpdates(false), 5000)
   }).catch((error: unknown) => {
-    console.error('Failed to initialize LMCODE Desktop:', error)
+    log.error('desktop initialization failed', error)
     app.quit()
   })
 }
 
 app.on('window-all-closed', () => {
   void closeHandlerRegistration().catch((error: unknown) => {
-    console.error('Failed to close desktop window resources:', error)
+    log.error('desktop window resource cleanup failed', error)
   })
   // Don't quit — the app keeps running in the tray
   // Only quit explicitly via tray menu or app.quit()

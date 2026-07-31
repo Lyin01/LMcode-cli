@@ -306,3 +306,15 @@ h1, h2, h3, h4, h5, h6 {
 /* Thinking shimmer */
 @keyframes lmPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 .lm-pulse { animation: lmPulse 1.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

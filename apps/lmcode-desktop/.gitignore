@@ -6,3 +6,8 @@ tmp/
 node_modules/
 *.tsbuildinfo
 .vite/
+
+# Runtime credentials and per-environment overrides
+.env
+.env.*
+!.env.example

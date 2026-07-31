@@ -9,6 +9,7 @@
     "build:packages": "pnpm -r --filter \"./packages/*\" run build",
     "dev:cli": "pnpm -C apps/lmcode run dev",
     "typecheck": "pnpm run build:packages && pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" --if-present run typecheck",
+    "security:secrets": "node apps/lmcode-desktop/scripts/check-secrets.mjs",
     "audit:prod": "pnpm audit --prod",
     "lint": "oxlint --type-aware --deny-warnings",
     "lint:fix": "pnpm run lint --fix",
@@ -20,7 +21,7 @@
     "eval:test": "vitest run --config evals/vitest.config.ts",
     "test:coverage": "vitest run --coverage",
     "clean": "pnpm -r run clean",
-    "publish": "pnpm run audit:prod && pnpm run typecheck && pnpm run lint && pnpm run sherif && pnpm run test && pnpm run build && pnpm run lint:pkg && npm publish ./apps/lmcode",
+    "publish": "pnpm run security:secrets && pnpm run audit:prod && pnpm run typecheck && pnpm run lint && pnpm run sherif && pnpm run test && pnpm run eval:test && pnpm run eval smoke-plumbing && pnpm run build && pnpm run lint:pkg && npm publish ./apps/lmcode",
     "prepare": "node scripts/prepare.mjs"
   },
   "devDependencies": {

@@ -217,6 +217,16 @@ describe('sensitive attachment path denylist', () => {
     expect(isSensitiveAttachmentPath(inHome('project', 'CLIENT.P12'))).toBe(true)
   })
 
+  it('blocks credentials inside profile-specific desktop data directories', async () => {
+    const desktopData = await fs.mkdtemp(path.join(os.tmpdir(), 'lmcode-desktop-data-'))
+    temporaryDirectories.push(desktopData)
+    const configPath = path.join(desktopData, 'config.toml')
+    await fs.writeFile(configPath, 'api_key = "runtime-secret"')
+
+    expect(isSensitiveAttachmentPath(configPath, [desktopData])).toBe(true)
+    await expect(readTextAttachment(configPath, [desktopData])).rejects.toThrow('安全考虑')
+  })
+
   it('does not over-block ordinary files, including non-secret files under ~/.lmcode', () => {
     expect(isSensitiveAttachmentPath(inHome('.lmcode', 'sessions', 'abc', 'events.jsonl'))).toBe(false)
     expect(isSensitiveAttachmentPath(inHome('.lmcode', 'memory', 'note.md'))).toBe(false)

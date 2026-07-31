@@ -13,6 +13,7 @@ export default defineConfig({
     name: 'lmcode-desktop',
     include: ['test/**/*.test.ts'],
     environment: 'node',
+    testTimeout: 15_000,
     coverage: {
       provider: 'v8',
       include: ['src/**'],

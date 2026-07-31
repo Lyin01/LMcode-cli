@@ -1,6 +1,7 @@
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as timers from 'node:timers/promises';
 
 import { LocalJian } from '#/local';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -138,6 +139,42 @@ describe('e2e: process lifecycle', () => {
       // SIGKILL cannot be caught - process is terminated
       expect(exitCode).not.toBe(0);
     });
+
+    it.skipIf(process.platform !== 'win32')(
+      'SIGKILL terminates the complete Windows process tree',
+      async () => {
+        const code = `
+          const { spawn } = require('node:child_process');
+          const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+            stdio: 'ignore',
+            windowsHide: true,
+          });
+          process.stdout.write(String(child.pid) + '\\n');
+          setInterval(() => {}, 1000);
+        `;
+        const proc = await jian.exec('node', '-e', code);
+        const childPid = Number(await readFirstLine(proc.stdout));
+
+        expect(Number.isInteger(childPid)).toBe(true);
+        expect(processExists(childPid)).toBe(true);
+
+        try {
+          await proc.kill('SIGKILL');
+          await proc.wait();
+          await waitForProcessExit(childPid);
+          expect(processExists(childPid)).toBe(false);
+        } finally {
+          if (proc.exitCode === null) await proc.kill('SIGKILL');
+          if (processExists(childPid)) {
+            try {
+              process.kill(childPid);
+            } catch {
+              // The process exited between the existence check and cleanup.
+            }
+          }
+        }
+      },
+    );
 
     it('multiple wait() calls return same exit code', async () => {
       const proc = await jian.exec('node', '-e', 'process.exit(7)');
@@ -350,3 +387,49 @@ describe('e2e: process lifecycle', () => {
     });
   });
 });
+
+function readFirstLine(stream: NodeJS.ReadableStream): Promise<string> {
+  const { promise, resolve, reject } = Promise.withResolvers<string>();
+  let buffered = '';
+  const timeout = setTimeout(() => finish(new Error('Timed out waiting for child PID')), 5_000);
+
+  const finish = (error?: Error): void => {
+    clearTimeout(timeout);
+    stream.off('data', onData);
+    stream.off('error', onError);
+    stream.off('end', onEnd);
+    if (error === undefined) resolve(buffered.trim());
+    else reject(error);
+  };
+  const onData = (chunk: string | Buffer): void => {
+    buffered += chunk.toString();
+    const newline = buffered.indexOf('\n');
+    if (newline >= 0) {
+      buffered = buffered.slice(0, newline);
+      finish();
+    }
+  };
+  const onError = (error: Error): void => finish(error);
+  const onEnd = (): void => finish();
+
+  stream.on('data', onData);
+  stream.once('error', onError);
+  stream.once('end', onEnd);
+  return promise;
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (processExists(pid) && Date.now() < deadline) {
+    await timers.setTimeout(50);
+  }
+}

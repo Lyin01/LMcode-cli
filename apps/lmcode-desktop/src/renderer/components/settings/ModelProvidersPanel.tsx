@@ -3,6 +3,7 @@ import { Plus, Trash2, Eye, EyeOff, ChevronRight, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores/config-store'
 import type { LmcodeConfig } from '@lmcode-cli/lmcode-sdk'
+import { REDACTED_SECRET_VALUE } from '../../../shared/security'
 
 type ProviderType = LmcodeConfig['providers'][string]['type']
 
@@ -158,7 +159,12 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
   const [id, setId] = useState(providerId ?? '')
   const [type, setType] = useState<ProviderType>(provider?.type ?? 'anthropic')
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '')
-  const [apiKey, setApiKey] = useState(provider?.apiKey ?? '')
+  const [apiKey, setApiKey] = useState(
+    provider?.apiKey === REDACTED_SECRET_VALUE ? '' : (provider?.apiKey ?? ''),
+  )
+  const [preserveStoredApiKey, setPreserveStoredApiKey] = useState(
+    provider?.apiKey === REDACTED_SECRET_VALUE,
+  )
   const [showApiKey, setShowApiKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -176,16 +182,21 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
     setError('')
     try {
       const trimmedId = id.trim()
+      const nextApiKey = preserveStoredApiKey
+        ? REDACTED_SECRET_VALUE
+        : apiKey.trim()
       await updateConfig({
         providers: {
           [trimmedId]: {
             type,
             baseUrl: baseUrl.trim(),
-            apiKey: apiKey.trim(),
+            apiKey: nextApiKey,
             enabled: provider?.enabled ?? true,
           },
         },
       })
+      setApiKey('')
+      setPreserveStoredApiKey(nextApiKey.length > 0)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
       onSaved(trimmedId)
@@ -273,8 +284,11 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
           <input
             value={apiKey}
             type={showApiKey ? 'text' : 'password'}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-..."
+            onChange={(e) => {
+              setApiKey(e.target.value)
+              setPreserveStoredApiKey(false)
+            }}
+            placeholder={preserveStoredApiKey ? '已安全保存；输入新密钥可替换' : 'sk-...'}
             className={cn(inputClass, 'pr-9')}
           />
           <button
@@ -285,6 +299,15 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
             {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
           </button>
         </div>
+        {preserveStoredApiKey && (
+          <button
+            type="button"
+            onClick={() => setPreserveStoredApiKey(false)}
+            className="mt-1 text-[11px] text-[var(--lm-text-muted)] transition-colors hover:text-red-500"
+          >
+            清除已保存密钥
+          </button>
+        )}
       </section>
 
       {error && <p className="text-[11px] text-red-500">{error}</p>}

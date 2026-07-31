@@ -34,6 +34,16 @@ describe('DreamTracker', () => {
     expect(new Date(parsed.state.lastDreamAt).getTime()).toBeGreaterThan(0);
   });
 
+  it('supports an in-memory tracker when no persistence home is supplied', async () => {
+    const tracker = new DreamTracker();
+
+    await tracker.init();
+    await tracker.recordNewSession();
+    await tracker.recordDream();
+
+    expect(tracker.shouldSuggest()).toBe(false);
+  });
+
   it('loads persisted state across tracker restarts', async () => {
     const first = new DreamTracker(tmpDir);
     await first.init();
