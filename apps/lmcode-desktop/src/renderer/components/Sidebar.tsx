@@ -21,6 +21,10 @@ import { ProjectPicker } from '@/components/ProjectPicker'
 import type { SessionInfo } from '@/types'
 import type { RenameConversationRequest } from '@/lib/menu-command'
 import {
+  requestSessionDeletion,
+  type PendingSessionDeletion,
+} from '@/lib/session-deletion'
+import {
   groupSessionsByProject,
   projectDisplayName,
   truncateProjectPath,
@@ -93,6 +97,8 @@ export function Sidebar({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [query, setQuery] = useState('')
+  const [pendingDeletion, setPendingDeletion] = useState<PendingSessionDeletion | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const handledRenameNonceRef = useRef(0)
@@ -132,12 +138,26 @@ export function Sidebar({
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
+    const decision = requestSessionDeletion(pendingDeletion, id, Date.now())
+    setPendingDeletion(decision.pending)
+    if (!decision.confirmed || deletingId !== null) return
+
+    setDeletingId(id)
     try {
       await window.lmcodeAPI.deleteSession(id)
       const mapped = await refreshSessions()
       removeDeletedSession(id, mapped)
     } catch (err) {
       console.error('Failed to delete session:', err)
+      addMessageToSession(id, {
+        id: `sidebar_delete_error_${globalThis.crypto.randomUUID()}`,
+        role: 'system',
+        variant: 'error',
+        content: `删除会话失败：${err instanceof Error ? err.message : String(err)}`,
+        timestamp: Date.now(),
+      })
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -189,6 +209,15 @@ export function Sidebar({
     })
     return () => cancelAnimationFrame(animationFrame)
   }, [searchRequestNonce])
+
+  useEffect(() => {
+    if (pendingDeletion === null) return
+    const delay = Math.max(0, pendingDeletion.expiresAt - Date.now())
+    const timeout = globalThis.setTimeout(() => {
+      setPendingDeletion((current) => current === pendingDeletion ? null : current)
+    }, delay)
+    return () => globalThis.clearTimeout(timeout)
+  }, [pendingDeletion])
 
   useEffect(() => {
     if (
@@ -409,11 +438,35 @@ export function Sidebar({
                   <button
                     type="button"
                     onClick={(e) => handleDelete(e, session.id)}
-                    aria-label={`删除会话：${session.title || session.workDir || '新会话'}`}
-                    className="pointer-events-none shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] opacity-0 transition-opacity hover:text-[var(--lm-error)] group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--lm-error)]"
-                    title="删除会话"
+                    disabled={deletingId !== null}
+                    aria-label={
+                      deletingId === session.id
+                        ? `正在删除会话：${session.title || session.workDir || '新会话'}`
+                        : pendingDeletion?.sessionId === session.id
+                          ? `确认删除会话：${session.title || session.workDir || '新会话'}`
+                          : `删除会话：${session.title || session.workDir || '新会话'}`
+                    }
+                    className={cn(
+                      'shrink-0 rounded p-0.5 transition-opacity focus-visible:outline-2 focus-visible:outline-[var(--lm-error)] disabled:cursor-not-allowed',
+                      pendingDeletion?.sessionId === session.id || deletingId === session.id
+                        ? 'pointer-events-auto bg-[var(--lm-error)]/10 text-[var(--lm-error)] opacity-100'
+                        : 'pointer-events-none text-[var(--lm-text-muted)] opacity-0 hover:text-[var(--lm-error)] group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100',
+                    )}
+                    title={
+                      deletingId === session.id
+                        ? '正在删除会话'
+                        : pendingDeletion?.sessionId === session.id
+                          ? '再次点击确认删除'
+                          : '删除会话'
+                    }
                   >
-                    <Trash2 size={13} />
+                    {pendingDeletion?.sessionId === session.id || deletingId === session.id ? (
+                      <span className="px-0.5 text-[10px] font-medium">
+                        {deletingId === session.id ? '删除中' : '确认'}
+                      </span>
+                    ) : (
+                      <Trash2 size={13} />
+                    )}
                   </button>
                 </>
               )}
