@@ -51,6 +51,8 @@ function SessionBadges({ sessionId, isCurrent }: { sessionId: string; isCurrent:
   if (isStreaming) {
     return (
       <span
+        role="status"
+        aria-label="正在生成"
         className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--lm-accent)]"
         title="正在生成…"
       />
@@ -59,6 +61,8 @@ function SessionBadges({ sessionId, isCurrent }: { sessionId: string; isCurrent:
   if (hasUnread) {
     return (
       <span
+        role="status"
+        aria-label="有新结果"
         className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--lm-accent)]"
         title="有新结果"
       />
@@ -234,6 +238,7 @@ export function Sidebar({
 
   return (
     <aside
+      aria-label="会话侧栏"
       className={cn(
         'flex h-full shrink-0 flex-col overflow-hidden bg-[var(--lm-bg-sidebar)] transition-[width] duration-200 ease-out',
         open ? 'w-[264px]' : 'w-0',
@@ -249,7 +254,9 @@ export function Sidebar({
             <span className="text-[15px] font-semibold tracking-tight">LMCODE</span>
           </div>
           <button
+            type="button"
             onClick={onToggle}
+            aria-label="收起侧栏"
             className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
             title="收起侧栏"
           >
@@ -317,7 +324,7 @@ export function Sidebar({
                 <span className="min-w-0 flex-1 truncate">
                   {group.workDir ? truncateProjectPath(group.workDir) : '未关联项目'}
                 </span>
-                <span className="shrink-0 text-[10px] group-hover/project:hidden">
+                <span className="shrink-0 text-[10px] group-hover/project:hidden group-focus-within/project:hidden">
                   {group.sessions.length}
                 </span>
                 {group.workDir && (
@@ -327,7 +334,7 @@ export function Sidebar({
                       event.stopPropagation()
                       createSessionInProject(group.workDir)
                     }}
-                    className="hidden shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] group-hover/project:block"
+                    className="pointer-events-none shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] opacity-0 transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
                     title={`在 ${projectDisplayName(group.workDir)} 中新建对话`}
                     aria-label={`在项目 ${group.workDir} 中新建对话`}
                   >
@@ -339,17 +346,11 @@ export function Sidebar({
             <div
               key={session.id}
               className={cn(
-                'group mb-0.5 flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors',
+                'group mb-0.5 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors',
                 session.id === currentSessionId
                   ? 'bg-[var(--lm-bg-active)] text-[var(--lm-text-primary)]'
                   : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
               )}
-              onClick={() => {
-                if (editingId !== session.id) selectSession(session.id)
-              }}
-              onDoubleClick={(e) => {
-                if (editingId !== session.id) startRename(e, session)
-              }}
               title={session.workDir}
             >
               {editingId === session.id ? (
@@ -361,17 +362,22 @@ export function Sidebar({
                     onChange={(e) => setEditValue(e.target.value)}
                     onKeyDown={handleRenameKeyDown}
                     onBlur={confirmRename}
+                    aria-label="对话名称"
                     className="min-w-0 flex-1 rounded border border-[var(--lm-accent)] bg-[var(--lm-bg-surface)] px-1.5 py-0.5 text-[12px] text-[var(--lm-text-primary)] outline-none"
                     placeholder="对话名称"
                   />
                   <button
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); void confirmRename() }}
+                    aria-label="保存对话名称"
                     className="shrink-0 rounded p-0.5 text-[var(--lm-accent-text)]"
                   >
                     <Check size={13} />
                   </button>
                   <button
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); cancelRename() }}
+                    aria-label="取消重命名"
                     className="shrink-0 rounded p-0.5 text-[var(--lm-text-muted)]"
                   >
                     <X size={13} />
@@ -379,20 +385,32 @@ export function Sidebar({
                 </div>
               ) : (
                 <>
-                  <SessionBadges sessionId={session.id} isCurrent={session.id === currentSessionId} />
-                  <span className="flex-1 truncate">
-                    {session.title || session.workDir || '新会话'}
-                  </span>
                   <button
+                    type="button"
+                    onClick={() => selectSession(session.id)}
+                    onDoubleClick={(e) => startRename(e, session)}
+                    aria-current={session.id === currentSessionId ? 'page' : undefined}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:rounded-md focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--lm-accent)]"
+                  >
+                    <SessionBadges sessionId={session.id} isCurrent={session.id === currentSessionId} />
+                    <span className="flex-1 truncate">
+                      {session.title || session.workDir || '新会话'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={(e) => handleExport(e, session.id)}
-                    className="shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] opacity-0 transition-opacity hover:text-[var(--lm-accent-text)] group-hover:opacity-100"
+                    aria-label={`导出会话：${session.title || session.workDir || '新会话'}`}
+                    className="pointer-events-none shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] opacity-0 transition-opacity hover:text-[var(--lm-accent-text)] group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
                     title="导出会话"
                   >
                     <Download size={13} />
                   </button>
                   <button
+                    type="button"
                     onClick={(e) => handleDelete(e, session.id)}
-                    className="shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] opacity-0 transition-opacity hover:text-[var(--lm-error)] group-hover:opacity-100"
+                    aria-label={`删除会话：${session.title || session.workDir || '新会话'}`}
+                    className="pointer-events-none shrink-0 rounded p-0.5 text-[var(--lm-text-muted)] opacity-0 transition-opacity hover:text-[var(--lm-error)] group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--lm-error)]"
                     title="删除会话"
                   >
                     <Trash2 size={13} />
