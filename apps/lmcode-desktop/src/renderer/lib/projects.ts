@@ -43,6 +43,16 @@ export interface ProjectSummary {
   readonly latestActivity: number
 }
 
+function comparableWorkDir(workDir: string): string {
+  const normalized = workDir.trim().replaceAll('\\', '/').replace(/\/+$/, '') || '/'
+  // Drive-letter and UNC paths are case-insensitive even when the renderer is
+  // comparing values produced by different Windows APIs. POSIX paths retain
+  // their case-sensitive semantics.
+  return /^[a-z]:\//i.test(normalized) || normalized.startsWith('//')
+    ? normalized.toLocaleLowerCase('en-US')
+    : normalized
+}
+
 /**
  * True when `workDir` is the main-process sentinel directory used by sessions
  * that are not tied to a project. Such sessions exist (terminal etc. still
@@ -54,7 +64,8 @@ export function isNoProjectWorkDir(
 ): boolean {
   const sentinel = noProjectWorkDir?.trim()
   if (!sentinel) return false
-  return workDir?.trim() === sentinel
+  if (!workDir?.trim()) return false
+  return comparableWorkDir(workDir) === comparableWorkDir(sentinel)
 }
 
 /**

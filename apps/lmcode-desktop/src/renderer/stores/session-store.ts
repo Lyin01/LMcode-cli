@@ -722,6 +722,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })),
 
   handleEvent: (sessionId, event) => {
+    // Activity drives sidebar ordering. Keep it live instead of waiting for a
+    // full listSessions refresh, which may not happen again until restart.
+    if (event.type === 'turn.started' || event.type === 'turn.ended') {
+      const isStreaming = event.type === 'turn.started'
+      const updatedAt = Date.now()
+      set((state) => ({
+        sessions: state.sessions.map((session) =>
+          session.id === sessionId ? { ...session, updatedAt, isStreaming } : session,
+        ),
+      }))
+    }
+
     // ── Session-scoped status/meta: update the sessions list (and the active
     // scalars when it's the in-view session), regardless of which tab is open.
     if (event.type === 'agent.status.updated') {

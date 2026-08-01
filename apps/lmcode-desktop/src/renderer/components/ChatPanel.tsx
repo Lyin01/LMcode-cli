@@ -1,9 +1,8 @@
 import { useSessionStore } from '@/stores/session-store'
 import { MessageList } from '@/components/MessageList'
 import { Composer } from '@/components/Composer'
-import { ProjectPicker } from '@/components/ProjectPicker'
 import { StallIndicator } from '@/components/StallIndicator'
-import { greeting } from '@/lib/greeting'
+import { AgentWelcome } from '@/components/AgentWelcome'
 import type {
   CommandPaletteRequest,
   ComposerDraftRequest,
@@ -39,24 +38,8 @@ export function ChatPanel({
   if (isEmpty) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
-        <div className="w-full max-w-2xl pb-10">
-          <div className="mb-7 flex flex-col items-center gap-3 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--lm-accent-soft)] text-2xl font-bold text-[var(--lm-accent-text)]">
-              L
-            </div>
-            <h2
-              className="text-3xl font-normal tracking-tight text-[var(--lm-text-primary)]"
-              style={{ fontFamily: 'var(--lm-font-serif)' }}
-            >
-              {greeting()}，今天想做点什么？
-            </h2>
-            <p className="text-[13px] text-[var(--lm-text-muted)]">
-              LMCODE · AI Agent 桌面客户端
-            </p>
-          </div>
-          <div className="mb-2 flex">
-            <ProjectPicker display="name" />
-          </div>
+        <div className="w-full max-w-[720px] pb-10">
+          <AgentWelcome />
           <StallIndicator />
           <Composer
             key={currentSessionId}
@@ -78,9 +61,6 @@ export function ChatPanel({
       <MessageList findRequest={findRequest} />
       <div className="shrink-0 px-4 pb-4">
         <div className="mx-auto max-w-3xl">
-          <div className="mb-1.5 flex">
-            <ProjectPicker display="name" />
-          </div>
           <StallIndicator />
           <Composer
             key={currentSessionId}

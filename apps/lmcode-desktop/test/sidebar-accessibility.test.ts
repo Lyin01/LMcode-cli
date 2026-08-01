@@ -49,14 +49,13 @@ describe('desktop sidebar accessibility contract', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders session navigation and icon actions with accessible names', () => {
+  it('renders task navigation and the consolidated action menu with accessible names', () => {
     const html = renderToStaticMarkup(createElement(Sidebar, sidebarProps))
 
-    expect(html).toContain('aria-label="会话侧栏"')
+    expect(html).toContain('aria-label="任务侧栏"')
     expect(html).toContain('aria-label="收起侧栏"')
     expect(html).toContain('aria-current="page"')
-    expect(html).toContain('aria-label="导出会话：发布检查"')
-    expect(html).toContain('aria-label="删除会话：发布检查"')
+    expect(html).toContain('aria-label="打开任务操作：发布检查"')
   })
 
   it('exposes the active generation state to assistive technology', () => {
@@ -72,7 +71,7 @@ describe('desktop sidebar accessibility contract', () => {
     const html = renderToStaticMarkup(createElement(Sidebar, sidebarProps))
 
     expect(html).toContain('aria-expanded="true"')
-    expect(html).toContain('aria-label="折叠项目 work 的对话"')
+    expect(html).toContain('aria-label="折叠项目 work 的任务"')
     expect(html).toContain('发布检查')
   })
 
@@ -88,10 +87,10 @@ describe('desktop sidebar accessibility contract', () => {
     const html = renderToStaticMarkup(createElement(Sidebar, sidebarProps))
 
     expect(html).toContain('aria-expanded="false"')
-    expect(html).toContain('aria-label="展开项目 work 的对话"')
+    expect(html).toContain('aria-label="展开项目 work 的任务"')
     // The collapsed group header (and its count) stays visible; sessions do not.
     expect(html).not.toContain('发布检查')
     // The current session lives in the collapsed group: surface a locator hint.
-    expect(html).toContain('title="当前对话在此项目中"')
+    expect(html).toContain('title="当前任务在此项目中"')
   })
 })

@@ -13,6 +13,7 @@ import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
+import { ProjectPicker } from '@/components/ProjectPicker'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
 import { SlashCommandsDialog, type SlashCommand } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
@@ -690,7 +691,7 @@ export function Composer({
         </div>
       )}
 
-      <div className="rounded-[20px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-colors focus-within:border-[var(--lm-accent)]">
+      <div className="rounded-[18px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-[border-color,box-shadow] focus-within:border-[var(--lm-text-muted)] focus-within:shadow-[var(--lm-shadow-composer)]">
         {attachments.length > 0 && (
           <div className="px-3 pt-3">
             <AttachmentStrip attachments={attachments} onRemove={removeAttachment} />
@@ -733,6 +734,7 @@ export function Composer({
             <Paperclip size={17} />
           </button>
 
+          <ProjectPicker display="name" />
           <ModelSwitcher open={modelMenuOpen} onOpenChange={setModelMenuOpen} />
           <ThinkingSwitcher />
 

@@ -46,6 +46,18 @@ function appendMenuNotice(sessionId: string, content: string, isError = false): 
   })
 }
 
+type ActivePanel =
+  | 'settings'
+  | 'memory'
+  | 'tasks'
+  | 'extensions'
+  | 'git-review'
+  | 'terminal'
+  | 'worktrees'
+  | 'subagents'
+  | 'automations'
+  | 'keyboard-shortcuts'
+
 export default function App() {
   const loadConfig = useConfigStore((s) => s.loadConfig)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
@@ -54,16 +66,7 @@ export default function App() {
   const setSessions = useSessionStore((s) => s.setSessions)
   const createSession = useSessionStore((s) => s.createSession)
 
-  const [showSettings, setShowSettings] = useState(false)
-  const [showMemory, setShowMemory] = useState(false)
-  const [showTasks, setShowTasks] = useState(false)
-  const [showExtensions, setShowExtensions] = useState(false)
-  const [showGitReview, setShowGitReview] = useState(false)
-  const [showTerminal, setShowTerminal] = useState(false)
-  const [showWorktrees, setShowWorktrees] = useState(false)
-  const [showSubagents, setShowSubagents] = useState(false)
-  const [showAutomations, setShowAutomations] = useState(false)
-  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
+  const [activePanel, setActivePanel] = useState<ActivePanel | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(() => getStoredSidebarOpen())
   const [theme, setThemeState] = useState<ThemePref>(() => getStoredTheme())
   const [searchRequestNonce, setSearchRequestNonce] = useState(0)
@@ -244,51 +247,19 @@ export default function App() {
   }, [])
 
   const handleOpenSettings = useCallback(() => {
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowSettings(true)
+    setActivePanel('settings')
   }, [])
 
   const handleOpenMemory = useCallback(() => {
-    setShowSettings(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowMemory(true)
+    setActivePanel('memory')
   }, [])
 
   const handleOpenExtensions = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowExtensions(true)
+    setActivePanel('extensions')
   }, [])
 
   const handleToggleTasks = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowTasks((prev) => !prev)
+    setActivePanel((current) => current === 'tasks' ? null : 'tasks')
   }, [])
 
   const handleOpenGitReview = useCallback(() => {
@@ -297,70 +268,26 @@ export default function App() {
     const store = useSessionStore.getState()
     const current = store.sessions.find((s) => s.id === store.currentSessionId)
     if (isNoProjectWorkDir(current?.workDir, store.noProjectWorkDir)) return
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowGitReview(true)
+    setActivePanel('git-review')
   }, [])
 
   const handleOpenTerminal = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowTerminal(true)
+    setActivePanel('terminal')
   }, [])
 
   const handleOpenWorktrees = useCallback(() => {
     const store = useSessionStore.getState()
     const current = store.sessions.find((s) => s.id === store.currentSessionId)
     if (isNoProjectWorkDir(current?.workDir, store.noProjectWorkDir)) return
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowWorktrees(true)
+    setActivePanel('worktrees')
   }, [])
 
   const handleOpenSubagents = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowAutomations(false)
-    setShowSubagents(true)
+    setActivePanel('subagents')
   }, [])
 
   const handleOpenAutomations = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(true)
-  }, [])
-
-  const handleCloseKeyboardShortcuts = useCallback(() => {
-    setShowKeyboardShortcuts(false)
+    setActivePanel('automations')
   }, [])
 
   const handleMenuCommand = useCallback(
@@ -371,9 +298,11 @@ export default function App() {
           // Land on the welcome screen; the session is created when the first
           // message is submitted there.
           state.clearCurrentSession()
+          setActivePanel(null)
           break
         }
         case 'open-project':
+          setActivePanel(null)
           void createSession()
           break
         case 'rename-conversation':
@@ -457,7 +386,7 @@ export default function App() {
           setTheme(theme === 'dark' ? 'light' : 'dark')
           break
         case 'show-keyboard-shortcuts':
-          setShowKeyboardShortcuts(true)
+          setActivePanel('keyboard-shortcuts')
           break
         default: {
           const unreachable: never = command
@@ -536,44 +465,44 @@ export default function App() {
       {/* Overlays */}
       <ErrorBoundary name="设置">
         <SettingsPanel
-          open={showSettings}
-          onClose={() => setShowSettings(false)}
+          open={activePanel === 'settings'}
+          onClose={() => setActivePanel(null)}
           theme={theme}
           onThemeChange={setTheme}
         />
       </ErrorBoundary>
       <ErrorBoundary name="记忆库">
-        <MemoryBrowser open={showMemory} onClose={() => setShowMemory(false)} />
+        <MemoryBrowser open={activePanel === 'memory'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="任务">
-        <TasksPanel open={showTasks} onClose={() => setShowTasks(false)} />
+        <TasksPanel open={activePanel === 'tasks'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="扩展">
-        <ExtensionsPanel open={showExtensions} onClose={() => setShowExtensions(false)} />
+        <ExtensionsPanel open={activePanel === 'extensions'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="Git 审查">
         <GitReviewPanel
-          open={showGitReview}
-          onClose={() => setShowGitReview(false)}
+          open={activePanel === 'git-review'}
+          onClose={() => setActivePanel(null)}
           onAddCommentsToChat={handleAddReviewCommentsToChat}
         />
       </ErrorBoundary>
       <ErrorBoundary name="终端">
-        <TerminalPanel open={showTerminal} onClose={() => setShowTerminal(false)} />
+        <TerminalPanel open={activePanel === 'terminal'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="Worktrees">
-        <WorktreesPanel open={showWorktrees} onClose={() => setShowWorktrees(false)} />
+        <WorktreesPanel open={activePanel === 'worktrees'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="子代理">
-        <SubagentsPanel open={showSubagents} onClose={() => setShowSubagents(false)} />
+        <SubagentsPanel open={activePanel === 'subagents'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="自动化">
-        <AutomationsPanel open={showAutomations} onClose={() => setShowAutomations(false)} />
+        <AutomationsPanel open={activePanel === 'automations'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="键盘快捷键">
         <KeyboardShortcutsPanel
-          open={showKeyboardShortcuts}
-          onClose={handleCloseKeyboardShortcuts}
+          open={activePanel === 'keyboard-shortcuts'}
+          onClose={() => setActivePanel(null)}
         />
       </ErrorBoundary>
 

@@ -1,12 +1,15 @@
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import type { ReactNode } from 'react'
 import {
-  GitCompareArrows,
-  GitFork,
   Bot,
   CalendarClock,
+  GitCompareArrows,
+  GitFork,
   ListTodo,
   Moon,
+  MoreHorizontal,
   PanelLeftOpen,
-  SlidersHorizontal,
+  Settings,
   SquareTerminal,
   Sun,
 } from 'lucide-react'
@@ -15,7 +18,7 @@ import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
 import { resolveTheme, type ThemePref } from '@/lib/theme'
-import { isNoProjectWorkDir } from '@/lib/projects'
+import { isNoProjectWorkDir, projectDisplayName } from '@/lib/projects'
 
 interface TopBarProps {
   sidebarOpen: boolean
@@ -31,6 +34,42 @@ interface TopBarProps {
   onToggleTheme: () => void
 }
 
+const menuItemClass =
+  'flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)] data-[disabled]:opacity-40'
+
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}M`
+  }
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 100_000 ? 0 : 1)}k`
+  return String(tokens)
+}
+
+function TopBarAction({
+  label,
+  disabled = false,
+  onClick,
+  children,
+}: {
+  readonly label: string
+  readonly disabled?: boolean
+  readonly onClick: () => void
+  readonly children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-35"
+    >
+      {children}
+    </button>
+  )
+}
+
 export function TopBar({
   sidebarOpen,
   onToggleSidebar,
@@ -44,166 +83,187 @@ export function TopBar({
   theme,
   onToggleTheme,
 }: TopBarProps) {
-  const sessions = useSessionStore((s) => s.sessions)
-  const currentSessionId = useSessionStore((s) => s.currentSessionId)
-  const permission = useSessionStore((s) => s.permission)
-  const contextTokens = useSessionStore((s) => s.contextTokens)
-  const maxContextTokens = useSessionStore((s) => s.maxContextTokens)
+  const currentSessionId = useSessionStore((state) => state.currentSessionId)
+  const current = useSessionStore((state) =>
+    state.sessions.find((session) => session.id === state.currentSessionId),
+  )
+  const permission = useSessionStore((state) => state.permission)
+  const contextTokens = useSessionStore((state) => state.contextTokens)
+  const maxContextTokens = useSessionStore((state) => state.maxContextTokens)
+  const noProjectWorkDir = useSessionStore((state) => state.noProjectWorkDir)
 
-  const tasks = useTaskStore((s) => s.tasks)
-  const runningCount = tasks.filter(
-    (t) => t.status === 'running' || t.status === 'awaiting_approval',
-  ).length
-  const runningAgents = useSubagentStore((state) => state.agents).filter(
-    (agent) => agent.sessionId === currentSessionId && agent.status === 'running',
-  ).length
+  const runningCount = useTaskStore(
+    (state) => state.tasks.filter(
+      (task) => task.status === 'running' || task.status === 'awaiting_approval',
+    ).length,
+  )
+  const runningAgents = useSubagentStore(
+    (state) => state.agents.filter(
+      (agent) => agent.sessionId === currentSessionId && agent.status === 'running',
+    ).length,
+  )
 
-  const current = sessions.find((s) => s.id === currentSessionId)
-  const noProjectWorkDir = useSessionStore((s) => s.noProjectWorkDir)
   const isNoProject = isNoProjectWorkDir(current?.workDir, noProjectWorkDir)
-  const title = current?.title || (isNoProject ? '不在项目中工作' : current?.workDir) || '新对话'
+  const title = current?.title?.trim() || '新任务'
+  const locationLabel = !currentSessionId
+    ? '选择项目后开始'
+    : isNoProject
+      ? '未关联项目'
+      : current?.workDir
+        ? projectDisplayName(current.workDir)
+        : '正在加载项目'
 
-  const pct =
+  const contextPercentage =
     maxContextTokens > 0
       ? Math.min((contextTokens / maxContextTokens) * 100, 100)
       : 0
-
-  const fmtTokens = (n: number): string => {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
-    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}k`
-    return String(n)
-  }
-
   const permissionLabel =
     permission === 'yolo' ? 'YOLO' : permission === 'auto' ? '自动' : '手动'
   const permissionColor =
     permission === 'yolo'
-      ? 'text-[var(--lm-error)]'
+      ? 'bg-[var(--lm-error)]'
       : permission === 'auto'
-        ? 'text-[var(--lm-success)]'
-        : 'text-[var(--lm-warning)]'
-
+        ? 'bg-[var(--lm-success)]'
+        : 'bg-[var(--lm-warning)]'
   const isDark = resolveTheme(theme) === 'dark'
+  const attentionCount = runningCount + runningAgents
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-base)] px-3">
+    <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-base)] px-3">
       {!sidebarOpen && (
-        <button
-          onClick={onToggleSidebar}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-          title="展开侧栏"
-        >
+        <TopBarAction label="展开侧栏" onClick={onToggleSidebar}>
           <PanelLeftOpen size={18} />
-        </button>
+        </TopBarAction>
       )}
 
-      <h1 className="min-w-0 flex-1 truncate text-[14px] font-medium text-[var(--lm-text-primary)]">
-        {title}
-      </h1>
+      <div className="min-w-0 flex-1 leading-tight">
+        <h1 className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
+          {title}
+        </h1>
+        <p className="mt-0.5 truncate text-[10px] text-[var(--lm-text-muted)]">
+          {locationLabel}
+        </p>
+      </div>
 
-      {/* Context meter */}
-      {maxContextTokens > 0 && (
+      {currentSessionId && maxContextTokens > 0 && (
         <div
-          className="hidden items-center gap-2 rounded-full bg-[var(--lm-bg-hover)] px-3 py-1 sm:flex"
-          title={`上下文 ${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens（${Math.round(pct)}%）`}
+          className="hidden items-center gap-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1.5 lg:flex"
+          title={`上下文 ${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens（${Math.round(contextPercentage)}%）`}
         >
-          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--lm-border-strong)]">
+          <div className="h-1 w-12 overflow-hidden rounded-full bg-[var(--lm-bg-active)]">
             <div
-              className="h-full rounded-full bg-[var(--lm-accent)] transition-all duration-300"
-              style={{ width: `${pct}%` }}
+              className="h-full rounded-full bg-[var(--lm-accent-text)] transition-[width] duration-300"
+              style={{ width: `${contextPercentage}%` }}
             />
           </div>
-          <span className="font-mono text-[11px] text-[var(--lm-text-secondary)]">
-            {fmtTokens(contextTokens)} / {fmtTokens(maxContextTokens)}
-            <span className="ml-1 text-[var(--lm-text-muted)]">({Math.round(pct)}%)</span>
+          <span className="font-mono text-[10px] tabular-nums text-[var(--lm-text-muted)]">
+            {formatTokens(contextTokens)} / {formatTokens(maxContextTokens)}
           </span>
         </div>
       )}
 
-      <span className={cn('text-[12px] font-medium', permissionColor)} title="权限模式">
-        {permissionLabel}
-      </span>
+      {currentSessionId && (
+        <span
+          className="hidden items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-[var(--lm-text-secondary)] sm:flex"
+          title="当前权限模式"
+        >
+          <span className={cn('h-1.5 w-1.5 rounded-full', permissionColor)} />
+          {permissionLabel}
+        </span>
+      )}
 
       <div className="mx-0.5 h-5 w-px bg-[var(--lm-border)]" />
 
-      <button
+      <TopBarAction
+        label={isNoProject ? '审查 Git 变更（未关联项目时不可用）' : '审查 Git 变更'}
+        disabled={!currentSessionId || isNoProject}
         onClick={onOpenGitReview}
-        disabled={!currentSessionId || isNoProject}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-        title={isNoProject ? 'Git 变更审阅（无项目会话不可用）' : 'Git 变更审阅'}
       >
-        <GitCompareArrows size={18} />
-      </button>
-
-      <button
+        <GitCompareArrows size={17} />
+      </TopBarAction>
+      <TopBarAction
+        label="打开项目终端"
+        disabled={!currentSessionId}
         onClick={onOpenTerminal}
-        disabled={!currentSessionId}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-        title="项目终端"
       >
-        <SquareTerminal size={18} />
-      </button>
+        <SquareTerminal size={17} />
+      </TopBarAction>
 
-      <button
-        onClick={onOpenWorktrees}
-        disabled={!currentSessionId || isNoProject}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-        title={isNoProject ? 'Git 工作树（无项目会话不可用）' : 'Git 工作树'}
-      >
-        <GitFork size={18} />
-      </button>
-
-      <button
-        onClick={onOpenSubagents}
-        disabled={!currentSessionId}
-        className="relative flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-        title="子 Agent"
-      >
-        <Bot size={18} />
-        {runningAgents > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--lm-accent)] px-1 text-[10px] font-semibold text-[var(--lm-accent-fg)]">
-            {runningAgents}
-          </span>
-        )}
-      </button>
-
-      <button
-        onClick={onOpenAutomations}
-        disabled={!currentSessionId}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-        title="自动化"
-      >
-        <CalendarClock size={18} />
-      </button>
-
-      <button
-        onClick={onOpenTasks}
-        className="relative flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-        title="后台任务"
-      >
-        <ListTodo size={18} />
-        {runningCount > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--lm-accent)] px-1 text-[10px] font-semibold text-[var(--lm-accent-fg)]">
-            {runningCount}
-          </span>
-        )}
-      </button>
-
-      <button
-        onClick={onToggleTheme}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-        title={isDark ? '切换到亮色' : '切换到暗色'}
-      >
-        {isDark ? <Sun size={18} /> : <Moon size={18} />}
-      </button>
-
-      <button
-        onClick={onOpenSettings}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-        title="设置"
-      >
-        <SlidersHorizontal size={17} />
-      </button>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            aria-label="更多工作区工具"
+            title="更多工作区工具"
+            className="relative flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] outline-none transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
+          >
+            <MoreHorizontal size={18} />
+            {attentionCount > 0 && (
+              <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-[var(--lm-accent-text)]" />
+            )}
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            side="bottom"
+            align="end"
+            sideOffset={6}
+            className="z-50 min-w-52 rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] p-1 shadow-[var(--lm-shadow-pop)]"
+          >
+            <DropdownMenu.Label className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--lm-text-muted)]">
+              工作区工具
+            </DropdownMenu.Label>
+            <DropdownMenu.Item
+              disabled={!currentSessionId || isNoProject}
+              onSelect={onOpenWorktrees}
+              className={menuItemClass}
+            >
+              <GitFork size={15} />
+              <span className="flex-1">工作树</span>
+              <span className="text-[9px] text-[var(--lm-text-muted)]">隔离任务</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={!currentSessionId}
+              onSelect={onOpenSubagents}
+              className={menuItemClass}
+            >
+              <Bot size={15} />
+              <span className="flex-1">子 Agent</span>
+              {runningAgents > 0 && (
+                <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--lm-accent-text)]">
+                  {runningAgents} 运行中
+                </span>
+              )}
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={!currentSessionId}
+              onSelect={onOpenAutomations}
+              className={menuItemClass}
+            >
+              <CalendarClock size={15} />
+              <span className="flex-1">自动化</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={onOpenTasks} className={menuItemClass}>
+              <ListTodo size={15} />
+              <span className="flex-1">后台任务</span>
+              {runningCount > 0 && (
+                <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--lm-accent-text)]">
+                  {runningCount}
+                </span>
+              )}
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="my-1 h-px bg-[var(--lm-border)]" />
+            <DropdownMenu.Item onSelect={onToggleTheme} className={menuItemClass}>
+              {isDark ? <Sun size={15} /> : <Moon size={15} />}
+              <span className="flex-1">{isDark ? '切换到亮色' : '切换到暗色'}</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={onOpenSettings} className={menuItemClass}>
+              <Settings size={15} />
+              <span className="flex-1">设置</span>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </header>
   )
 }

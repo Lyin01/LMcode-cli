@@ -1,43 +1,43 @@
 @import "tailwindcss";
 
 /* ══════════════════════════════════════════════════════════════════
-   LMCODE Desktop — Claude Desktop inspired theme
-   Warm "ivory + clay" palette. Light is the default; dark is warm too.
-   All colors are CSS variables so components stay theme-agnostic.
+   LMCODE Desktop — focused agent workspace
+   Neutral surfaces keep long-running work readable; a restrained green
+   activity color is reserved for state, progress and successful actions.
    ════════════════════════════════════════════════════════════════ */
 
 :root,
 [data-theme='light'] {
-  /* Surfaces (warm ivory) */
-  --lm-bg-base: #faf9f5;       /* main conversation canvas */
-  --lm-bg-sidebar: #f0eee6;    /* left rail */
-  --lm-bg-surface: #ffffff;    /* cards, composer */
-  --lm-bg-elevated: #ffffff;   /* popovers, dialogs */
-  --lm-bg-hover: #ece9df;
-  --lm-bg-active: #e4e0d3;
-  --lm-bg-bubble: #f0eee6;     /* user message bubble */
-  --lm-bg-code: #f5f3ec;
+  /* Surfaces */
+  --lm-bg-base: #fbfbfa;
+  --lm-bg-sidebar: #f4f4f2;
+  --lm-bg-surface: #ffffff;
+  --lm-bg-elevated: #ffffff;
+  --lm-bg-hover: #ececea;
+  --lm-bg-active: #e5e5e1;
+  --lm-bg-bubble: #f1f1ee;
+  --lm-bg-code: #f5f5f3;
 
   /* Borders */
-  --lm-border: #e7e3d7;
-  --lm-border-strong: #d8d3c2;
+  --lm-border: #e4e4df;
+  --lm-border-strong: #d2d2cc;
 
   /* Text */
-  --lm-text-primary: #2a2824;
-  --lm-text-secondary: #6b6860;
-  --lm-text-muted: #98948a;
+  --lm-text-primary: #1d1e1c;
+  --lm-text-secondary: #62635f;
+  --lm-text-muted: #90928c;
 
-  /* Accent — Claude "clay" */
-  --lm-accent: #c96442;
-  --lm-accent-hover: #b5573a;
+  /* Primary actions stay neutral; green is reserved for live activity. */
+  --lm-accent: #252724;
+  --lm-accent-hover: #3a3d39;
   --lm-accent-fg: #ffffff;
-  --lm-accent-soft: rgba(201, 100, 66, 0.12);
-  --lm-accent-text: #b5573a;
+  --lm-accent-soft: rgba(47, 118, 84, 0.11);
+  --lm-accent-text: #2f7654;
 
   /* Status */
-  --lm-success: #4f9d69;
-  --lm-warning: #bd8b3e;
-  --lm-error: #c0503e;
+  --lm-success: #2f7a55;
+  --lm-warning: #a36b1b;
+  --lm-error: #b7473a;
 
   /* Typography */
   --lm-font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
@@ -46,41 +46,43 @@
   --lm-font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono',
     Menlo, Consolas, 'Liberation Mono', monospace;
 
-  --lm-shadow-soft: 0 1px 2px rgba(40, 35, 25, 0.04), 0 4px 16px rgba(40, 35, 25, 0.06);
-  --lm-shadow-pop: 0 8px 28px rgba(40, 35, 25, 0.14);
+  --lm-shadow-soft: 0 1px 2px rgba(20, 24, 21, 0.04), 0 5px 18px rgba(20, 24, 21, 0.05);
+  --lm-shadow-composer: 0 1px 2px rgba(20, 24, 21, 0.05), 0 8px 28px rgba(20, 24, 21, 0.07);
+  --lm-shadow-pop: 0 10px 34px rgba(20, 24, 21, 0.14);
 
   color-scheme: light;
 }
 
 [data-theme='dark'] {
-  --lm-bg-base: #262624;
-  --lm-bg-sidebar: #1f1e1d;
-  --lm-bg-surface: #30302e;
-  --lm-bg-elevated: #34332f;
-  --lm-bg-hover: #3a3834;
-  --lm-bg-active: #423f3a;
-  --lm-bg-bubble: #34332f;
-  --lm-bg-code: #1b1a18;
+  --lm-bg-base: #191a19;
+  --lm-bg-sidebar: #141514;
+  --lm-bg-surface: #222321;
+  --lm-bg-elevated: #272825;
+  --lm-bg-hover: #2d2f2c;
+  --lm-bg-active: #353733;
+  --lm-bg-bubble: #272825;
+  --lm-bg-code: #111210;
 
-  --lm-border: #3c3a35;
-  --lm-border-strong: #4a463f;
+  --lm-border: #30322f;
+  --lm-border-strong: #41443f;
 
-  --lm-text-primary: #f4f2ec;
-  --lm-text-secondary: #c0bbb0;
-  --lm-text-muted: #8b877d;
+  --lm-text-primary: #f1f2ee;
+  --lm-text-secondary: #b7bab3;
+  --lm-text-muted: #81857e;
 
-  --lm-accent: #d97757;
-  --lm-accent-hover: #e2876a;
-  --lm-accent-fg: #1f1e1d;
-  --lm-accent-soft: rgba(217, 119, 87, 0.16);
-  --lm-accent-text: #e09276;
+  --lm-accent: #eff0eb;
+  --lm-accent-hover: #d9dbd4;
+  --lm-accent-fg: #171817;
+  --lm-accent-soft: rgba(119, 200, 157, 0.14);
+  --lm-accent-text: #77c89d;
 
-  --lm-success: #6cb98a;
-  --lm-warning: #d6a657;
-  --lm-error: #e0705e;
+  --lm-success: #77c89d;
+  --lm-warning: #d4a558;
+  --lm-error: #e47769;
 
-  --lm-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.25), 0 4px 16px rgba(0, 0, 0, 0.3);
-  --lm-shadow-pop: 0 8px 30px rgba(0, 0, 0, 0.5);
+  --lm-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.24), 0 5px 18px rgba(0, 0, 0, 0.24);
+  --lm-shadow-composer: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 32px rgba(0, 0, 0, 0.28);
+  --lm-shadow-pop: 0 10px 36px rgba(0, 0, 0, 0.5);
 
   color-scheme: dark;
 }
@@ -128,6 +130,10 @@ textarea:focus-visible,
 select:focus-visible {
   outline: none;
   outline-offset: 0;
+}
+
+input[type='search']::-webkit-search-cancel-button {
+  display: none;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -259,6 +265,13 @@ h1, h2, h3, h4, h5, h6 {
 [data-radix-scroll-area-viewport] {
   scrollbar-width: thin;
   scrollbar-color: var(--lm-border-strong) transparent;
+}
+
+/* Long project histories remain cheap to scroll without a virtualization
+   dependency; Chromium skips paint/layout work for offscreen task rows. */
+.lm-session-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36px;
 }
 
 /* ─── Dialog ─────────────────────────────────────────────────── */

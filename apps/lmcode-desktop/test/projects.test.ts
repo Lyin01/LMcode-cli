@@ -76,6 +76,21 @@ describe('collectProjects', () => {
       { workDir: 'C:/repo-a', sessionCount: 1, latestActivity: 10 },
     ])
   })
+
+  it('recognizes Windows sentinel paths across separator and case variants', () => {
+    const projects = collectProjects(
+      [
+        session(
+          's1',
+          'C:/Users/Owner/AppData/Roaming/LMCODE/no-project-workspace/',
+          10,
+        ),
+      ],
+      'c:\\users\\owner\\appdata\\roaming\\lmcode\\no-project-workspace',
+    )
+
+    expect(projects).toEqual([])
+  })
 })
 
 describe('groupSessionsByProject', () => {
