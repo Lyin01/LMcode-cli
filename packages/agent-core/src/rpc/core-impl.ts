@@ -209,30 +209,32 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
       metadata: options.metadata,
     };
 
-    await this.pluginsReady;
-    const pluginSessionStarts = this.plugins.enabledSessionStarts();
-    const mcpConfig = this.mergePluginMcpConfig(baseMcpConfig);
-
-    // Session ctor attaches its own log sink. If anything in the setup-after-
-    // ctor block throws, `session.close()` releases the sink (and mcp).
-    const runtime = await this.resolveRuntime(config);
-    const session = new Session({
-      jian: (await this.jian).withCwd(workDir),
-      toolServices: runtime,
-      config,
-      id,
-      homedir: summary.sessionDir,
-      lmcodeHomeDir: this.homeDir,
-      rpc: proxyWithExtraPayload(await this.sdk, { sessionId: summary.id }),
-      providerManager: this.resolveProviderManager(summary.id),
-      background: config.background,
-      hooks: config.hooks,
-      permissionRules: config.permission?.rules,
-      skills: this.resolveSessionSkillConfig(config),
-      mcpConfig,
-      pluginSessionStarts,
-    });
+    let session: Session | undefined;
     try {
+      await this.pluginsReady;
+      const pluginSessionStarts = this.plugins.enabledSessionStarts();
+      const mcpConfig = this.mergePluginMcpConfig(baseMcpConfig);
+
+      // Session ctor attaches its own log sink. The encompassing transaction
+      // also covers failures before construction (runtime/shell/SDK startup),
+      // so a failed create never leaves a half-created persisted session.
+      const runtime = await this.resolveRuntime(config);
+      session = new Session({
+        jian: (await this.jian).withCwd(workDir),
+        toolServices: runtime,
+        config,
+        id,
+        homedir: summary.sessionDir,
+        lmcodeHomeDir: this.homeDir,
+        rpc: proxyWithExtraPayload(await this.sdk, { sessionId: summary.id }),
+        providerManager: this.resolveProviderManager(summary.id),
+        background: config.background,
+        hooks: config.hooks,
+        permissionRules: config.permission?.rules,
+        skills: this.resolveSessionSkillConfig(config),
+        mcpConfig,
+        pluginSessionStarts,
+      });
       session.metadata = {
         ...session.metadata,
         createdAt: new Date(summary.createdAt).toISOString(),
@@ -260,12 +262,13 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
       }
       await session.writeMetadata();
       await session.flushMetadata();
+      this.sessions.set(id, session);
+      return result;
     } catch (error) {
-      await session.close().catch(() => {});
+      await session?.close().catch(() => {});
+      await this.sessionStore.delete(id);
       throw error;
     }
-    this.sessions.set(id, session);
-    return result;
   }
 
   getCoreInfo(): CoreInfo {

@@ -52,6 +52,7 @@ export class Session {
 
   private readonly rpc: SDKRpcClient;
   private readonly onClose?: (() => void | Promise<void>) | undefined;
+  private readonly eventSubscriptions = new Set<Unsubscribe>();
   private closed = false;
   private closing: Promise<void> | undefined;
 
@@ -62,11 +63,10 @@ export class Session {
     this.resumeState = options.resumeState ?? resumeStateFromSummary(options.summary);
     this.rpc = options.rpc;
     this.onClose = options.onClose;
-    const resumedMeta = this.resumeState?.sessionMetadata as Record<string, unknown> | undefined;
-    this.metadata = resumedMeta ?? (options.summary?.metadata as Record<string, unknown>) ?? {};
-    if (!this.metadata['custom']) {
-      this.metadata['custom'] = {};
-    }
+    const resumedCustom = this.resumeState?.sessionMetadata.custom;
+    this.metadata = {
+      ...(resumedCustom ?? options.summary?.metadata),
+    };
   }
 
   getResumeState(): ResumedSessionState | undefined {
@@ -76,11 +76,20 @@ export class Session {
 
   onEvent(listener: (event: Event) => void): Unsubscribe {
     this.ensureOpen();
-    return this.rpc.onEvent((event) => {
+    const unsubscribeRpc = this.rpc.onEvent((event) => {
       if (event.sessionId === this.id) {
         listener(event);
       }
     });
+    let subscribed = true;
+    const unsubscribe = (): void => {
+      if (!subscribed) return;
+      subscribed = false;
+      this.eventSubscriptions.delete(unsubscribe);
+      unsubscribeRpc();
+    };
+    this.eventSubscriptions.add(unsubscribe);
+    return unsubscribe;
   }
 
   setApprovalHandler(handler: ApprovalHandler | undefined): void {
@@ -510,9 +519,22 @@ export class Session {
     try {
       await this.rpc.closeSession({ sessionId: this.id });
     } finally {
+      this.clearEventSubscriptions();
       this.rpc.clearSessionHandlers(this.id);
       await this.onClose?.();
     }
+  }
+
+  private clearEventSubscriptions(): void {
+    for (const unsubscribe of Array.from(this.eventSubscriptions)) {
+      try {
+        unsubscribe();
+      } catch {
+        // Listener teardown is best-effort; handler and session cleanup below
+        // must still run even if a third-party unsubscribe implementation fails.
+      }
+    }
+    this.eventSubscriptions.clear();
   }
 
   /** @internal */

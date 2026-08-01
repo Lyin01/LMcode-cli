@@ -2,6 +2,7 @@ import {
   createRPC,
   ErrorCodes,
   LmcodeCore,
+  log,
   makeErrorPayload,
   resolveLmcodeHome,
   type AgentContextData,
@@ -680,8 +681,21 @@ export class SDKRpcClient {
   }
 
   receiveEvent(event: Event): void {
-    for (const listener of this.eventListeners) {
-      listener(event);
+    // Host observers are outside the agent's trust boundary. Snapshot the set
+    // so subscriptions added while dispatching start with the next event, and
+    // isolate each callback so one broken UI/plugin listener cannot starve the
+    // remaining observers or reject the core's reverse-RPC notification.
+    for (const listener of Array.from(this.eventListeners)) {
+      try {
+        listener(event);
+      } catch (error) {
+        log.warn('SDK event listener failed', {
+          error,
+          eventType: event.type,
+          sessionId: event.sessionId,
+          agentId: event.agentId,
+        });
+      }
     }
   }
 

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LmcodeHarness } from '../src/lmcode-harness';
+import type { Event } from '../src/events';
 import type { SDKRpcClient } from '../src/rpc';
 import type { ResumedSessionSummary, SessionSummary } from '../src/types';
 
@@ -184,6 +185,68 @@ describe('LmcodeHarness lifecycle', () => {
 
     expect(extractMemoriesOnExit).not.toHaveBeenCalled();
     expect(closeSession).toHaveBeenCalledWith({ sessionId: summary.id });
+    expect(harness.sessions.size).toBe(0);
+  });
+
+  it('isolates event observers so one failing listener cannot starve the others', async () => {
+    const { harness, rpc } = await createHarness();
+    const event = {
+      type: 'warning',
+      sessionId: 'ses_listener_isolation',
+      agentId: 'main',
+      code: 'test.listener_failure',
+      message: 'listener isolation probe',
+    } as Event;
+    const failing = vi.fn(() => {
+      throw new Error('host listener failed');
+    });
+    const healthy = vi.fn();
+    rpc.onEvent(failing);
+    rpc.onEvent(healthy);
+
+    expect(() => rpc.receiveEvent(event)).not.toThrow();
+
+    expect(failing).toHaveBeenCalledWith(event);
+    expect(healthy).toHaveBeenCalledWith(event);
+    await harness.close({ extractMemories: false });
+  });
+
+  it('waits for every active session to close before reporting teardown failures', async () => {
+    const { harness, rpc, root } = await createHarness();
+    const slowClose = deferred<void>();
+    vi.spyOn(rpc, 'createSession').mockImplementation(async (input) =>
+      sessionSummary(root, input.id!),
+    );
+    const closeSession = vi.spyOn(rpc, 'closeSession').mockImplementation(async (input) => {
+      if (input.sessionId === 'ses_close_failure') {
+        throw new Error('close failed');
+      }
+      await slowClose.promise;
+    });
+    await harness.createSession({ id: 'ses_close_failure', workDir: root });
+    await harness.createSession({ id: 'ses_close_slow', workDir: root });
+
+    let settled = false;
+    const result = harness.close({ extractMemories: false }).then(
+      () => ({ status: 'fulfilled' as const }),
+      (error: unknown) => ({ status: 'rejected' as const, error }),
+    );
+    void result.then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => {
+      expect(closeSession).toHaveBeenCalledTimes(2);
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    slowClose.resolve();
+    const outcome = await result;
+
+    expect(outcome.status).toBe('rejected');
+    if (outcome.status === 'rejected') {
+      expect(outcome.error).toBeInstanceOf(AggregateError);
+    }
     expect(harness.sessions.size).toBe(0);
   });
 });

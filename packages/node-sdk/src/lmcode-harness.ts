@@ -254,13 +254,19 @@ export class LmcodeHarness {
 
   private async closeInternal(): Promise<void> {
     await Promise.allSettled(this.pendingSessionStarts);
-    await Promise.all(
+    const results = await Promise.allSettled(
       Array.from(this.activeSessions.values(), (session) => session.close(this.closeOptions)),
     );
     try {
       await getRootLogger().flush();
     } catch {
       // never let logger flush block process exit
+    }
+    const errors = results
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'Failed to close one or more LMcode sessions');
     }
   }
 
