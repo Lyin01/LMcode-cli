@@ -258,6 +258,10 @@ export default function App() {
     setActivePanel('extensions')
   }, [])
 
+  const handleOpenKeyboardShortcuts = useCallback(() => {
+    setActivePanel('keyboard-shortcuts')
+  }, [])
+
   const handleToggleTasks = useCallback(() => {
     setActivePanel((current) => current === 'tasks' ? null : 'tasks')
   }, [])
@@ -467,6 +471,8 @@ export default function App() {
         <SettingsPanel
           open={activePanel === 'settings'}
           onClose={() => setActivePanel(null)}
+          onOpenExtensions={handleOpenExtensions}
+          onOpenKeyboardShortcuts={handleOpenKeyboardShortcuts}
           theme={theme}
           onThemeChange={setTheme}
         />

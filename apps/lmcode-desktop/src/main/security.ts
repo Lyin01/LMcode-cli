@@ -1,6 +1,10 @@
 export type NavigationAction = 'allow-local' | 'open-external' | 'deny'
 
 const PRODUCTION_CONNECT_SOURCE = "'none'"
+// @vitejs/plugin-react injects this exact Fast Refresh preamble in development.
+// Keep a hash allowlist instead of weakening script-src with unsafe-inline.
+const DEVELOPMENT_REACT_REFRESH_SCRIPT_HASH =
+  "'sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk='"
 
 interface SenderFrameLike {
   readonly url: string
@@ -80,10 +84,13 @@ export function createRendererContentSecurityPolicy(
   const connectSource = isDevelopment && renderer !== null
     ? developmentConnectSource(renderer)
     : PRODUCTION_CONNECT_SOURCE
+  const scriptSource = isDevelopment
+    ? `'self' ${DEVELOPMENT_REACT_REFRESH_SCRIPT_HASH}`
+    : "'self'"
 
   return [
     "default-src 'self'",
-    "script-src 'self'",
+    `script-src ${scriptSource}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",

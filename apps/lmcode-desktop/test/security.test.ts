@@ -1,5 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { createHash } from 'node:crypto'
+import react from '@vitejs/plugin-react'
 import { describe, expect, it } from 'vitest'
 import {
   classifyNavigation,
@@ -51,9 +53,14 @@ describe('desktop content security policy', () => {
 
   it('allows development HMR only on the trusted renderer origin', () => {
     const policy = createRendererContentSecurityPolicy('http://localhost:5173/', true)
+    const reactRefreshHash = createHash('sha256')
+      .update(react.preambleCode.replace('__BASE__', '/'))
+      .digest('base64')
 
     expect(policy).toContain("connect-src 'self' ws://localhost:5173")
+    expect(policy).toContain(`script-src 'self' 'sha256-${reactRefreshHash}'`)
     expect(policy).not.toContain('ws://*')
+    expect(policy).not.toContain("script-src 'self' 'unsafe-inline'")
   })
 
   it('keeps startup scripts external so production does not need unsafe-inline scripts', () => {
