@@ -24,6 +24,7 @@ describe('desktop project session contract', () => {
       messageQueue: {},
       model: '',
       thinkingLevel: 'medium',
+      permissionPreference: 'manual',
       permission: 'manual',
     })
   })
@@ -166,11 +167,12 @@ describe('desktop project session contract', () => {
     expect(useSessionStore.getState().messageQueue).toEqual({})
   })
 
-  it('starts a new chat with the model and permission shown in the composer', async () => {
+  it('starts a new chat with the model and persisted global permission preference', async () => {
     useSessionStore.setState({
       model: 'k3',
       thinkingLevel: 'high',
-      permission: 'auto',
+      permissionPreference: 'auto',
+      permission: 'manual',
     })
     createDesktopSession.mockResolvedValue({
       id: 'session-settings',

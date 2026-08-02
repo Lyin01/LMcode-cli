@@ -13,6 +13,10 @@ import {
   setStoredThinking,
   type ThinkingEffort,
 } from '@/lib/thinking'
+import {
+  getStoredPermissionPreference,
+  setStoredPermissionPreference,
+} from '@/lib/permission-preference'
 import { buildModelEntries } from '@/lib/models'
 import { useConfigStore } from '@/stores/config-store'
 import type {
@@ -344,6 +348,9 @@ export interface SessionStore {
 
   model: string
   thinkingLevel: ThinkingEffort
+  /** Persisted app-wide default; also applied to the active session when changed. */
+  permissionPreference: PermissionMode
+  /** Permission mode currently reported for the active session. */
   permission: PermissionMode
   contextTokens: number
   maxContextTokens: number
@@ -391,6 +398,7 @@ export interface SessionStore {
   applyThinkingPreference: (sessionId: string) => Promise<void>
   hydrateThinkingPreference: () => void
   setPermissionPreference: (permission: PermissionMode) => Promise<void>
+  applyPermissionPreference: (sessionId: string) => Promise<void>
 
   enqueuePendingInteraction: (interaction: PendingInteraction) => void
   completePendingInteraction: (requestId: string) => void
@@ -422,6 +430,8 @@ function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): 
   }
 }
 
+const initialPermissionPreference = getStoredPermissionPreference()
+
 export const useSessionStore = create<SessionStore>((set, get) => ({
   currentSessionId: null,
   sessions: [],
@@ -433,7 +443,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   model: '',
   thinkingLevel: DEFAULT_THINKING_EFFORT,
-  permission: 'manual',
+  permissionPreference: initialPermissionPreference,
+  permission: initialPermissionPreference,
   contextTokens: 0,
   maxContextTokens: 128000,
 
@@ -470,7 +481,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           isStreaming: false,
           streamStatus: null,
           model: '',
-          permission: 'manual',
+          permission: state.permissionPreference,
           contextTokens: 0,
           maxContextTokens: 128000,
         }
@@ -547,7 +558,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       isStreaming: false,
       streamStatus: null,
       model: '',
-      permission: 'manual',
+      permission: state.permissionPreference,
       contextTokens: 0,
       maxContextTokens: 128000,
     })
@@ -573,10 +584,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         ? config.defaultModel?.trim() || buildModelEntries(config)[0]?.id || ''
         : ''
       const model = state.model.trim() || fallbackModel
-      const permission =
-        state.permission === 'yolo' || state.permission === 'auto'
-          ? state.permission
-          : 'manual'
+      const permission = state.permissionPreference
       const summary = await window.lmcodeAPI.createSession({
         // The main process resolves the no-project sentinel directory itself;
         // the renderer never supplies a path for it.
@@ -614,7 +622,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       updatedAt: summary.updatedAt,
       model: state.model,
       thinkingLevel: state.thinkingLevel,
-      permission: state.permission,
+      permission: state.permissionPreference,
     })
     set((current) => {
       const bg = { ...current.bg }
@@ -812,11 +820,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   setPermissionPreference: async (permission) => {
     const sessionId = get().currentSessionId
-    if (sessionId === null) {
-      set({ permission })
-      return
-    }
+    if (sessionId !== null) await window.lmcodeAPI.setPermission(sessionId, permission)
 
+    setStoredPermissionPreference(permission)
+    set((state) => ({
+      permissionPreference: permission,
+      ...(state.currentSessionId === sessionId ? { permission } : {}),
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId ? { ...session, permission } : session,
+      ),
+    }))
+  },
+
+  applyPermissionPreference: async (sessionId) => {
+    const permission = get().permissionPreference
     await window.lmcodeAPI.setPermission(sessionId, permission)
     set((state) => ({
       ...(state.currentSessionId === sessionId ? { permission } : {}),

@@ -457,7 +457,7 @@ function PermissionsSettingsPage({
     <>
       <SettingsPageHeader
         title="权限"
-        description="决定 Agent 在执行工具和修改工作区时何时需要你的确认。"
+        description="设置应用级默认权限，并立即同步到当前任务。新建或重新打开任务时会自动应用。"
       />
       <SettingsSection title="审批策略">
         <SettingsCard>
@@ -613,7 +613,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const currentSessionId = useSessionStore((state) => state.currentSessionId)
   const sessionThinkingLevel = useSessionStore((state) => state.thinkingLevel)
-  const sessionPermission = useSessionStore((state) => state.permission)
+  const permissionPreference = useSessionStore((state) => state.permissionPreference)
   const sessionModel = useSessionStore((state) => state.model)
   const setThinkingPreference = useSessionStore((state) => state.setThinkingPreference)
   const setPermissionPreference = useSessionStore((state) => state.setPermissionPreference)
@@ -753,7 +753,7 @@ export function SettingsPanel({
       case 'permissions':
         page = (
           <PermissionsSettingsPage
-            permission={sessionPermission}
+            permission={permissionPreference}
             saving={saving}
             onPermissionChange={handlePermissionChange}
           />

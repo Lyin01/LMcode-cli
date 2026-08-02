@@ -26,6 +26,7 @@ import { historyToMessages } from '@/lib/history'
 import { isNoProjectWorkDir } from '@/lib/projects'
 import type { SessionInfo } from '@/types'
 import { isThinkingEffort } from '@/lib/thinking'
+import { registerPermissionModeShortcut } from '@/lib/permission-shortcut'
 import { getStoredSidebarOpen, setStoredSidebarOpen } from '@/lib/sidebar-preference'
 import {
   getAdjacentConversationIds,
@@ -35,6 +36,7 @@ import {
   type RenameConversationRequest,
 } from '@/lib/menu-command'
 import type { DesktopMenuCommand } from '../shared/menu-types'
+import { nextPermissionMode } from '../shared/permission-mode'
 
 function appendMenuNotice(sessionId: string, content: string, isError = false): void {
   useSessionStore.getState().addMessageToSession(sessionId, {
@@ -77,6 +79,7 @@ export default function App() {
   const [composerDraftRequest, setComposerDraftRequest] =
     useState<ComposerDraftRequest | null>(null)
   const menuRequestNonceRef = useRef(0)
+  const permissionSwitchingRef = useRef(false)
 
   useEvents()
 
@@ -90,6 +93,27 @@ export default function App() {
   useEffect(() => {
     setStoredSidebarOpen(sidebarOpen)
   }, [sidebarOpen])
+
+  // Shift+Tab is an application shortcut, so listen once at the window capture
+  // phase instead of relying on whichever control currently owns focus.
+  useEffect(() => {
+    return registerPermissionModeShortcut(window, () => {
+      if (permissionSwitchingRef.current) return
+      permissionSwitchingRef.current = true
+
+      const state = useSessionStore.getState()
+      const sessionId = state.currentSessionId
+      void state.setPermissionPreference(nextPermissionMode(state.permissionPreference))
+        .catch((error: unknown) => {
+          if (sessionId === null) return
+          const message = error instanceof Error ? error.message : String(error)
+          appendMenuNotice(sessionId, `权限模式切换失败：${message}`, true)
+        })
+        .finally(() => {
+          permissionSwitchingRef.current = false
+        })
+    })
+  }, [])
 
   const setTheme = useCallback((next: ThemePref) => {
     setThemeState(next)
@@ -183,12 +207,18 @@ export default function App() {
           const thinkingLevel = isThinkingEffort(status.thinkingLevel)
             ? status.thinkingLevel
             : useSessionStore.getState().thinkingLevel
-          useSessionStore.getState().updateSessionStatus({
+          const state = useSessionStore.getState()
+          state.updateSessionStatus({
             model: status.model,
             thinkingLevel,
             permission: status.permission,
             contextTokens: status.contextTokens,
             maxContextTokens: status.maxContextTokens,
+          })
+          void state.applyPermissionPreference(currentSessionId).catch((error: unknown) => {
+            if (cancelled) return
+            const message = error instanceof Error ? error.message : String(error)
+            appendMenuNotice(currentSessionId, `无法应用全局权限模式：${message}`, true)
           })
         }
       })
