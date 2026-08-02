@@ -71,6 +71,9 @@ import {
   restoreRedactedConfigPatch,
   sanitizeConfigForRenderer,
 } from '../config-security.js'
+import { ProviderUsageService } from '../provider-usage.js'
+import { isPermissionMode } from '../../shared/permission-mode.js'
+import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types.js'
 
 interface SessionEntry {
   session: Session
@@ -136,6 +139,7 @@ export function registerAllHandlers(
   const pendingQuestions = new PendingInteractionRegistry<QuestionResult>()
   const credentialRoots = [harness.homeDir, dirname(harness.configPath)]
   const auditLog = logger?.createChild({ surface: 'desktop-ipc' })
+  const providerUsage = new ProviderUsageService({ loadConfig: () => harness.getConfig() })
   let closing = false
   let closePromise: Promise<void> | undefined
   const terminalManager = new ProjectTerminalManager((payload: TerminalOutputPayload) => {
@@ -500,9 +504,10 @@ export function registerAllHandlers(
     await entry.session.setThinking(level)
   })
 
-  secureInvoke('lmcode:setPermission', async (_event, sessionId: string, mode: string): Promise<void> => {
+  secureInvoke('lmcode:setPermission', async (_event, sessionId: string, mode: unknown): Promise<void> => {
+    if (!isPermissionMode(mode)) throw new Error('Invalid permission mode')
     const entry = await ensureActiveSession(sessionId)
-    await entry.session.setPermission(mode as 'yolo' | 'manual' | 'auto')
+    await entry.session.setPermission(mode)
   })
 
   secureInvoke(
@@ -672,9 +677,17 @@ export function registerAllHandlers(
     return sanitizeConfigForRenderer(await harness.getConfig())
   })
 
+  secureInvoke(
+    'lmcode:getProviderUsage',
+    async (_event, force: unknown): Promise<ProviderUsageSnapshot> => {
+      return providerUsage.get(force === true)
+    },
+  )
+
   secureInvoke('lmcode:setConfig', async (_event, patch: LmcodeConfigPatch): Promise<LmcodeConfig> => {
     const current = await harness.getConfig()
     const config = await harness.setConfig(restoreRedactedConfigPatch(patch, current))
+    providerUsage.invalidate()
     auditLog?.info('desktop critical operation completed', {
       operation: 'provider-config.update',
     })
@@ -683,6 +696,7 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:removeProvider', async (_event, providerId: string): Promise<LmcodeConfig> => {
     const config = await harness.removeProvider(providerId)
+    providerUsage.invalidate()
     auditLog?.info('desktop critical operation completed', {
       operation: 'provider-config.remove',
     })

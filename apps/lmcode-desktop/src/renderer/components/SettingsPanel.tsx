@@ -30,6 +30,7 @@ import type { ThemePref } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores/config-store'
 import { useSessionStore } from '@/stores/session-store'
+import type { PermissionMode } from '@lmcode-cli/lmcode-sdk'
 
 interface SettingsPanelProps {
   open: boolean
@@ -40,7 +41,6 @@ interface SettingsPanelProps {
   onThemeChange: (theme: ThemePref) => void
 }
 
-type PermissionMode = 'manual' | 'auto' | 'yolo'
 type SavingField = 'model' | 'thinkingLevel' | 'permission' | null
 type SettingsGroup = '设置' | '集成' | '支持'
 type SettingsSectionId =
@@ -446,7 +446,7 @@ function PermissionsSettingsPage({
   saving,
   onPermissionChange,
 }: {
-  permission: string
+  permission: PermissionMode
   saving: SavingField
   onPermissionChange: (value: PermissionMode) => Promise<void>
 }) {

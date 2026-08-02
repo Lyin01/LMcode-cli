@@ -165,7 +165,8 @@ export function TopBar({
       {currentSessionId && (
         <span
           className="hidden items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-[var(--lm-text-secondary)] sm:flex"
-          title="当前权限模式"
+          title="当前权限模式（Shift+Tab 切换）"
+          aria-live="polite"
         >
           <span className={cn('h-1.5 w-1.5 rounded-full', permissionColor)} />
           {permissionLabel}

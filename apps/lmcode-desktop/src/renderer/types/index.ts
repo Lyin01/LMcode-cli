@@ -1,4 +1,4 @@
-import type { Event } from '@lmcode-cli/lmcode-sdk'
+import type { Event, PermissionMode } from '@lmcode-cli/lmcode-sdk'
 import type { ThinkingEffort } from '@/lib/thinking'
 
 export type {
@@ -51,7 +51,7 @@ export interface SessionInfo {
   updatedAt: number
   model?: string
   thinkingLevel: ThinkingEffort
-  permission: string
+  permission: PermissionMode
   contextTokens: number
   maxContextTokens: number
   isStreaming: boolean

@@ -4,6 +4,7 @@ import type {
   GoalSnapshotData,
   LmcodeConfig,
   LmcodeConfigPatch,
+  PermissionMode,
   SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
 import type {
@@ -33,6 +34,7 @@ import type {
   DesktopMenuCommandPayload,
   DesktopMenuState,
 } from '../../shared/menu-types'
+import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types'
 
 declare global {
 interface SessionSummary {
@@ -149,7 +151,7 @@ interface LmcodeAPI {
 
   setThinking: (sessionId: string, level: string) => Promise<void>
 
-  setPermission: (sessionId: string, mode: string) => Promise<void>
+  setPermission: (sessionId: string, mode: PermissionMode) => Promise<void>
 
   createGoal: (
     sessionId: string,
@@ -188,6 +190,8 @@ interface LmcodeAPI {
 
   // Config
   getConfig: () => Promise<LmcodeConfig>
+
+  getProviderUsage: (force?: boolean) => Promise<ProviderUsageSnapshot>
 
   setConfig: (patch: LmcodeConfigPatch) => Promise<LmcodeConfig>
 

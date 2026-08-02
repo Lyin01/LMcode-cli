@@ -77,6 +77,8 @@ describe('desktop preload bridge', () => {
       readFileAttachment(filePath: string): Promise<unknown>
       readInlineImageAttachment(name: string, dataUrl: string): Promise<unknown>
       getSessionStatus(sessionId: string): Promise<unknown>
+      setPermission(sessionId: string, mode: 'yolo' | 'manual' | 'auto'): Promise<void>
+      getProviderUsage(force?: boolean): Promise<unknown>
       onInteractionSettled(callback: (payload: unknown) => void): () => void
       onTerminalOutput(callback: (payload: unknown) => void): () => void
       onMenuCommand(callback: (payload: unknown) => void): () => void
@@ -138,6 +140,8 @@ describe('desktop preload bridge', () => {
     await api.readFileAttachment('C:/work/screen.png')
     await api.readInlineImageAttachment('clipboard.png', 'data:image/png;base64,abc=')
     await api.getSessionStatus('session-1')
+    await api.setPermission('session-1', 'auto')
+    await api.getProviderUsage(true)
     await api.respondApproval(approval)
     await api.respondQuestion(question)
 
@@ -276,6 +280,8 @@ describe('desktop preload bridge', () => {
       'data:image/png;base64,abc=',
     )
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:getSessionStatus', 'session-1')
+    expect(electron.invoke).toHaveBeenCalledWith('lmcode:setPermission', 'session-1', 'auto')
+    expect(electron.invoke).toHaveBeenCalledWith('lmcode:getProviderUsage', true)
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:respondApproval', approval)
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:respondQuestion', question)
     expect(onSettled).toHaveBeenCalledWith(settledPayload)

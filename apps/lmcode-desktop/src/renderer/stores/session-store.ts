@@ -30,6 +30,7 @@ import type {
   WarningEvent,
   TurnStepRetryingEvent,
   TurnStepInterruptedEvent,
+  PermissionMode,
 } from '@lmcode-cli/lmcode-sdk'
 
 let msgCounter = 0
@@ -343,7 +344,7 @@ export interface SessionStore {
 
   model: string
   thinkingLevel: ThinkingEffort
-  permission: string
+  permission: PermissionMode
   contextTokens: number
   maxContextTokens: number
 
@@ -389,7 +390,7 @@ export interface SessionStore {
   setThinkingPreference: (level: ThinkingEffort) => Promise<void>
   applyThinkingPreference: (sessionId: string) => Promise<void>
   hydrateThinkingPreference: () => void
-  setPermissionPreference: (permission: string) => Promise<void>
+  setPermissionPreference: (permission: PermissionMode) => Promise<void>
 
   enqueuePendingInteraction: (interaction: PendingInteraction) => void
   completePendingInteraction: (requestId: string) => void

@@ -32,6 +32,7 @@ const SHORTCUT_SECTIONS: readonly ShortcutSection[] = [
     shortcuts: [
       { label: '在对话中查找', keys: ['mod', 'F'] },
       { label: '查找下一个', keys: ['mod', 'G'] },
+      { label: '切换权限模式', keys: ['Shift', 'Tab'] },
       { label: '重命名对话', keys: ['F2'] },
       { label: '导出对话', keys: ['mod', 'Shift', 'E'] },
     ],

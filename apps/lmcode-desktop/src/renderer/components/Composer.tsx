@@ -15,6 +15,7 @@ import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
 import { ProjectPicker } from '@/components/ProjectPicker'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
+import { UsageFooter } from '@/components/UsageFooter'
 import { SlashCommandsDialog, type SlashCommand } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
 import {
@@ -27,6 +28,7 @@ import type { QueuedUserMessage, UserAttachment } from '@/types'
 import type { CommandPaletteRequest, ComposerDraftRequest } from '@/lib/menu-command'
 import { mergeComposerDraft } from '@/lib/composer-draft'
 import { defaultPastedImageName } from '@/lib/pasted-image-name'
+import { nextPermissionMode } from '../../shared/permission-mode'
 
 interface ComposerProps {
   autoFocus?: boolean
@@ -124,6 +126,7 @@ export function Composer({
   const attachmentGenerationRef = useRef(0)
   const mountedRef = useRef(true)
   const dragCounter = useRef(0)
+  const permissionSwitchingRef = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
@@ -367,6 +370,20 @@ export function Composer({
     [addMessageToSession, currentSessionId],
   )
 
+  const cyclePermissionMode = useCallback(async () => {
+    if (permissionSwitchingRef.current) return
+    permissionSwitchingRef.current = true
+    try {
+      const state = useSessionStore.getState()
+      await state.setPermissionPreference(nextPermissionMode(state.permission))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      showNotice(`权限模式切换失败：${message}`, 'error')
+    } finally {
+      permissionSwitchingRef.current = false
+    }
+  }, [showNotice])
+
   const executeSlashCommand = useCallback(
     async (input: string): Promise<boolean> => {
       const command = parseDesktopSlashCommand(input)
@@ -525,6 +542,11 @@ export function Composer({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        if (!e.repeat) void cyclePermissionMode()
+        return
+      }
       if (showSlash) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
           e.preventDefault()
@@ -554,7 +576,7 @@ export function Composer({
         handleSend(isStreaming && (e.ctrlKey || e.metaKey) ? 'steer' : 'default')
       }
     },
-    [handleSend, isStreaming, showSlash],
+    [cyclePermissionMode, handleSend, isStreaming, showSlash],
   )
 
   const handleInput = useCallback(() => {
@@ -784,6 +806,7 @@ export function Composer({
             </button>
           )}
         </div>
+        <UsageFooter />
       </div>
 
       <input

@@ -4,6 +4,7 @@ import type {
   CronJobInfo,
   LmcodeConfig,
   LmcodeConfigPatch,
+  PermissionMode,
   SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
 import type {
@@ -26,6 +27,7 @@ import type {
   DesktopMenuState,
 } from '../shared/menu-types.js'
 import type { GitDiscardScope, GitHunkActionInput } from '../shared/git-types.js'
+import type { ProviderUsageSnapshot } from '../shared/provider-usage-types.js'
 
 // Custom API exposed as window.lmcodeAPI
 const lmcodeAPI = {
@@ -79,7 +81,7 @@ const lmcodeAPI = {
   setThinking: (sessionId: string, level: string) =>
     ipcRenderer.invoke('lmcode:setThinking', sessionId, level),
 
-  setPermission: (sessionId: string, mode: string) =>
+  setPermission: (sessionId: string, mode: PermissionMode) =>
     ipcRenderer.invoke('lmcode:setPermission', sessionId, mode),
 
   createGoal: (sessionId: string, objective: string, replace = false) =>
@@ -154,6 +156,9 @@ const lmcodeAPI = {
   // ── Config ──────────────────────────────────────────────────────
 
   getConfig: () => ipcRenderer.invoke('lmcode:getConfig'),
+
+  getProviderUsage: (force = false): Promise<ProviderUsageSnapshot> =>
+    ipcRenderer.invoke('lmcode:getProviderUsage', force),
 
   setConfig: (patch: LmcodeConfigPatch) => ipcRenderer.invoke('lmcode:setConfig', patch),
 

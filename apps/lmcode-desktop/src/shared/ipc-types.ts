@@ -4,6 +4,7 @@ import type {
   Event,
   QuestionRequest,
   QuestionResult,
+  PermissionMode,
 } from '@lmcode-cli/lmcode-sdk'
 
 export interface SessionEventPayload {
@@ -48,7 +49,7 @@ export interface DesktopCreateSessionOptions {
   readonly noProject?: boolean
   readonly model?: string
   readonly thinking?: string
-  readonly permission?: 'yolo' | 'manual' | 'auto'
+  readonly permission?: PermissionMode
 }
 
 export type PendingInteraction =
