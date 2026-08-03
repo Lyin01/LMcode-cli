@@ -16,6 +16,9 @@ const GIT_COMMAND_TIMEOUT_MS = 15_000
 const GIT_OUTPUT_LIMIT_BYTES = 8 * 1024 * 1024
 const DIFF_PREVIEW_LIMIT_CHARS = 1_000_000
 const UNTRACKED_PREVIEW_LIMIT_LINES = 5_000
+// Untracked files are read fully into memory to build their preview patch, so
+// refuse anything beyond this size up front instead of buffering it first.
+export const UNTRACKED_PREVIEW_LIMIT_BYTES = 8 * 1024 * 1024
 
 export interface GitCommandResult {
   readonly ok: boolean
@@ -224,6 +227,14 @@ async function createUntrackedPatch(root: string, filePath: string): Promise<Git
       kind: 'untracked',
       patch: `Symbolic link ${displayPath(filePath)} is untracked`,
       truncated: false,
+    }
+  }
+
+  if (stat.size > UNTRACKED_PREVIEW_LIMIT_BYTES) {
+    return {
+      kind: 'untracked',
+      patch: `File ${displayPath(filePath)} is untracked and too large to preview (${stat.size} bytes)`,
+      truncated: true,
     }
   }
 

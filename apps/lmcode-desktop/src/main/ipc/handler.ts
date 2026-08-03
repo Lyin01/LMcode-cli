@@ -416,6 +416,12 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:deleteSession', async (_event, id: string): Promise<void> => {
     await terminalManager.stop(id)
+    // A resume still in flight for this session would re-attach it to
+    // activeSessions after the delete (the SDK reads the store once at the
+    // start of resumeSession, so it cannot observe a mid-flight deletion).
+    // Let it settle first so the delete below unregisters the session.
+    const inflightResume = resumingSessions.get(id)
+    if (inflightResume) await inflightResume.catch(() => {})
     const entry = activeSessions.get(id)
     if (entry) {
       entry.unsubscribeEvent()
@@ -985,8 +991,10 @@ export function registerAllHandlers(
 
   // A reload or renderer crash destroys the UI that owns the dialogs. Resolve
   // every reverse-RPC request immediately so agent turns cannot hang forever.
-  const handleNavigation = (_event: Electron.Event, _url: string, _isInPlace: boolean, isMainFrame: boolean): void => {
-    if (isMainFrame) cancelAllPendingInteractions()
+  // In-page navigations (pushState/hash) keep the document and its dialogs
+  // alive, so pending interactions must survive them.
+  const handleNavigation = (_event: Electron.Event, _url: string, isInPlace: boolean, isMainFrame: boolean): void => {
+    if (isMainFrame && !isInPlace) cancelAllPendingInteractions()
   }
   const handleRenderProcessGone = (): void => {
     cancelAllPendingInteractions()

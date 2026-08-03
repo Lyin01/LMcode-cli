@@ -16,17 +16,24 @@ import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
 import { ProjectPicker } from '@/components/ProjectPicker'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
 import { UsageFooter } from '@/components/UsageFooter'
-import { SlashCommandsDialog, type SlashCommand } from '@/components/SlashCommandsDialog'
+import { SlashCommandsDialog, SLASH_COMMANDS, type SlashCommand } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
 import {
   buildDesktopReviewPrompt,
+  filterSlashCommands,
   parseDesktopSlashCommand,
+  shouldHandleSlashKeys,
 } from '@/lib/slash-command'
 import type { GoalSnapshotData } from '@lmcode-cli/lmcode-sdk'
 import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
 import type { QueuedUserMessage, UserAttachment } from '@/types'
 import type { CommandPaletteRequest, ComposerDraftRequest } from '@/lib/menu-command'
 import { mergeComposerDraft } from '@/lib/composer-draft'
+import {
+  clearComposerDraft,
+  getComposerDraft,
+  saveComposerDraft,
+} from '@/lib/composer-drafts'
 import { defaultPastedImageName } from '@/lib/pasted-image-name'
 
 interface ComposerProps {
@@ -155,6 +162,28 @@ export function Composer({
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 220) + 'px'
   }, [])
+
+  // Restore the per-session text draft. The textarea is uncontrolled and
+  // ChatPanel remounts the composer keyed by session id, so without this the
+  // unsent text would be silently discarded on every session switch.
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta || !currentSessionId) return
+    const draft = getComposerDraft(currentSessionId)
+    ta.value = draft
+    setHasDraft(Boolean(draft.trim()))
+    autoGrow()
+  }, [currentSessionId, autoGrow])
+
+  // Save the draft for the outgoing session before switching away or
+  // unmounting; the cleanup runs before the restore effect above re-runs.
+  useEffect(() => {
+    return () => {
+      if (currentSessionId) {
+        saveComposerDraft(currentSessionId, textareaRef.current?.value ?? '')
+      }
+    }
+  }, [currentSessionId])
 
   useEffect(() => {
     if (!commandPaletteRequest) return
@@ -506,6 +535,7 @@ export function Composer({
     setAttachmentError(null)
     attachmentsRef.current = []
     setAttachments([])
+    if (currentSessionId) clearComposerDraft(currentSessionId)
     if (text.trim().startsWith('/')) {
       void executeSlashCommand(text)
     } else if (isStreaming && delivery === 'steer') {
@@ -517,6 +547,7 @@ export function Composer({
     }
   }, [
     attachmentLoadCount,
+    currentSessionId,
     executeSlashCommand,
     isStreaming,
     queueMessage,
@@ -524,16 +555,24 @@ export function Composer({
     steerMessage,
   ])
 
+  // Match count the slash dialog will show; with zero matches the dialog
+  // renders nothing, so the composer must not swallow navigation keys.
+  const slashMatchCount = showSlash
+    ? filterSlashCommands(SLASH_COMMANDS, slashQuery).length
+    : 0
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (showSlash) {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
-          e.preventDefault()
-          return
-        }
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault()
-          return
+        if (shouldHandleSlashKeys(showSlash, slashMatchCount)) {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
+            e.preventDefault()
+            return
+          }
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            return
+          }
         }
         if (e.key === 'Escape') {
           e.preventDefault()
@@ -555,7 +594,7 @@ export function Composer({
         handleSend(isStreaming && (e.ctrlKey || e.metaKey) ? 'steer' : 'default')
       }
     },
-    [handleSend, isStreaming, showSlash],
+    [handleSend, isStreaming, showSlash, slashMatchCount],
   )
 
   const handleInput = useCallback(() => {

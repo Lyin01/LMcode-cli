@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   X, Blocks, Zap, Server, RefreshCw, Square, Trash2, Plus,
   Loader2, AlertTriangle, CheckCircle2, Play,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createLatestRequestGate } from '@/lib/latest-request'
 import { useSessionStore } from '@/stores/session-store'
 
 interface ExtensionsPanelProps {
@@ -39,6 +40,9 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  // Latest-wins guard: a slow resolve from a superseded refresh (session or
+  // tab switch, manual refresh) must not overwrite newer data.
+  const refreshGateRef = useRef(createLatestRequestGate())
 
   // Add-server form
   const [showAdd, setShowAdd] = useState(false)
@@ -47,18 +51,28 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   const [newTarget, setNewTarget] = useState('')
 
   const refresh = useCallback(async () => {
+    const gate = refreshGateRef.current
+    // Begin before the null check: when the session is deleted
+    // (sessionId -> null) the old ticket must still be invalidated so a
+    // slow in-flight resolve cannot write the deleted session's data.
+    const ticket = gate.begin()
     if (!sessionId) return
     setLoading(true)
     try {
       if (tab === 'skills') {
-        setSkills(await window.lmcodeAPI.listSkills(sessionId))
+        const next = await window.lmcodeAPI.listSkills(sessionId)
+        if (!gate.isCurrent(ticket)) return
+        setSkills(next)
       } else {
-        setServers(await window.lmcodeAPI.listMcpServers(sessionId))
+        const next = await window.lmcodeAPI.listMcpServers(sessionId)
+        if (!gate.isCurrent(ticket)) return
+        setServers(next)
       }
     } catch (err) {
+      if (!gate.isCurrent(ticket)) return
       console.error('Failed to load extensions:', err)
     } finally {
-      setLoading(false)
+      if (gate.isCurrent(ticket)) setLoading(false)
     }
   }, [sessionId, tab])
 

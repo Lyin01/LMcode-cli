@@ -28,8 +28,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useSessionStore } from '@/stores/session-store'
-import { useSession } from '@/hooks/useSession'
+import { mergeRefreshedSessions, useSessionStore } from '@/stores/session-store'
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher'
 import { ProjectPicker } from '@/components/ProjectPicker'
 import type { SessionInfo } from '@/types'
@@ -374,7 +373,9 @@ export function Sidebar({
   const addMessageToSession = useSessionStore((state) => state.addMessageToSession)
   const clearCurrentSession = useSessionStore((state) => state.clearCurrentSession)
   const noProjectWorkDir = useSessionStore((state) => state.noProjectWorkDir)
-  const { createSession } = useSession()
+  // Take the action straight from the store: mounting the whole useSession
+  // hook here would add nothing else the sidebar needs.
+  const createSession = useSessionStore((state) => state.createSession)
   const { createSessionInProject } = useProjectSwitcher()
 
   const [query, setQuery] = useState('')
@@ -503,20 +504,12 @@ export function Sidebar({
 
   const refreshSessions = useCallback(async () => {
     const raw = await window.lmcodeAPI.listSessions()
-    const thinkingLevel = useSessionStore.getState().thinkingLevel
-    const mapped: SessionInfo[] = raw.map((session) => ({
-      id: session.id,
-      title: session.title,
-      workDir: session.workDir,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-      thinkingLevel,
-      permission: 'manual',
-      contextTokens: 0,
-      maxContextTokens: 128_000,
-      isStreaming: false,
-    }))
-    useSessionStore.getState().setSessions(mapped)
+    const state = useSessionStore.getState()
+    // Merge instead of remap: sessions that survived the refresh keep the
+    // runtime metadata (model, permission, token counters, streaming flag)
+    // the store already accumulated for them.
+    const mapped = mergeRefreshedSessions(raw, state.sessions, state.thinkingLevel)
+    state.setSessions(mapped)
     return mapped
   }, [])
 

@@ -12,6 +12,7 @@ import {
   inspectGitRepository,
   setAllGitFilesStaged,
   setGitFileStaged,
+  UNTRACKED_PREVIEW_LIMIT_BYTES,
 } from '../src/main/git-review'
 
 const temporaryDirectories: string[] = []
@@ -86,6 +87,26 @@ describe('desktop Git review', { timeout: GIT_INTEGRATION_TEST_TIMEOUT_MS }, () 
     expect(untracked.sections).toEqual([
       expect.objectContaining({ kind: 'untracked', patch: expect.stringContaining('+untracked content') }),
     ])
+  })
+
+  it('returns a placeholder patch for an oversized untracked file instead of reading it fully', async () => {
+    const workDir = await createRepository()
+    await fs.writeFile(
+      path.join(workDir, 'huge.txt'),
+      'x'.repeat(UNTRACKED_PREVIEW_LIMIT_BYTES + 4096),
+      'utf8',
+    )
+
+    const diff = await inspectGitFileDiff(workDir, 'huge.txt')
+
+    expect(diff.sections).toEqual([
+      expect.objectContaining({
+        kind: 'untracked',
+        patch: expect.stringContaining('too large'),
+        truncated: true,
+      }),
+    ])
+    expect(diff.sections[0]?.patch.length ?? 0).toBeLessThan(1024)
   })
 
   it('returns a user-facing non-repository state instead of throwing', async () => {

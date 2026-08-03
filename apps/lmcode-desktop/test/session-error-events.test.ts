@@ -38,7 +38,7 @@ describe('desktop session error events', () => {
       type: 'turn.started',
       turnId: 1,
       origin: { kind: 'user' },
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
     store.handleEvent('session-a', {
@@ -46,13 +46,13 @@ describe('desktop session error events', () => {
       turnId: 1,
       reason: 'failed',
       error: failure,
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
     store.handleEvent('session-a', {
       type: 'error',
       ...failure,
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
 
@@ -77,7 +77,7 @@ describe('desktop session error events', () => {
       name: 'LmcodeError',
       retryable: true,
       details: {},
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
 

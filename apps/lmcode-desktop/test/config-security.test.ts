@@ -16,6 +16,10 @@ const storedConfig: LmcodeConfig = {
         'X-Private-Value': 'sensitive-header',
       },
       oauth: { storage: 'keyring', key: 'provider-oauth-record' },
+      env: {
+        ANTHROPIC_API_KEY: 'sk-env-secret',
+        CUSTOM_ENDPOINT_TOKEN: 'env-token',
+      },
     },
   },
   services: {
@@ -39,6 +43,10 @@ describe('desktop config secret boundary', () => {
       'X-Private-Value': REDACTED_SECRET_VALUE,
     })
     expect(config.providers.private?.oauth?.key).toBe(REDACTED_SECRET_VALUE)
+    expect(config.providers.private?.env).toEqual({
+      ANTHROPIC_API_KEY: REDACTED_SECRET_VALUE,
+      CUSTOM_ENDPOINT_TOKEN: REDACTED_SECRET_VALUE,
+    })
     expect(config.services?.lmcodeCliSearch?.apiKey).toBe(REDACTED_SECRET_VALUE)
     expect(config.services?.lmcodeCliSearch?.customHeaders).toEqual({
       Authorization: REDACTED_SECRET_VALUE,
@@ -55,6 +63,10 @@ describe('desktop config secret boundary', () => {
             apiKey: REDACTED_SECRET_VALUE,
             customHeaders: { Authorization: REDACTED_SECRET_VALUE },
             oauth: { storage: 'keyring', key: REDACTED_SECRET_VALUE },
+            env: {
+              ANTHROPIC_API_KEY: REDACTED_SECRET_VALUE,
+              CUSTOM_ENDPOINT_TOKEN: 'rotated-token',
+            },
           },
         },
         services: {
@@ -72,6 +84,10 @@ describe('desktop config secret boundary', () => {
       Authorization: 'Bearer provider-token',
     })
     expect(patch.providers?.private?.oauth?.key).toBe('provider-oauth-record')
+    expect(patch.providers?.private?.env).toEqual({
+      ANTHROPIC_API_KEY: 'sk-env-secret',
+      CUSTOM_ENDPOINT_TOKEN: 'rotated-token',
+    })
     expect(patch.services?.lmcodeCliSearch?.apiKey).toBe('test-service')
   })
 })

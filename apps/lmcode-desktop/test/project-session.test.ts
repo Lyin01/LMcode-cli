@@ -3,6 +3,7 @@ import { useSessionStore } from '../src/renderer/stores/session-store'
 
 const selectWorkDirectory = vi.fn<() => Promise<string | undefined>>()
 const createDesktopSession = vi.fn()
+const sendMessage = vi.fn()
 
 describe('desktop project session contract', () => {
   beforeEach(() => {
@@ -11,6 +12,7 @@ describe('desktop project session contract', () => {
       lmcodeAPI: {
         selectWorkDirectory,
         createSession: createDesktopSession,
+        sendMessage,
       },
     })
     useSessionStore.setState({
@@ -122,7 +124,7 @@ describe('desktop project session contract', () => {
     })
   })
 
-  it('queues the welcome-screen first message only after the session exists', async () => {
+  it('queues the welcome-screen first message only after the session exists, then drains it', async () => {
     const created = Promise.withResolvers<{
       id: string
       workDir: string
@@ -139,6 +141,7 @@ describe('desktop project session contract', () => {
     // The message must not be queued (and therefore never sent) before the
     // session creation has settled.
     expect(useSessionStore.getState().messageQueue['session-first']).toBeUndefined()
+    expect(sendMessage).not.toHaveBeenCalled()
 
     created.resolve({
       id: 'session-first',
@@ -148,12 +151,76 @@ describe('desktop project session contract', () => {
       updatedAt: 5,
     })
     await pending
+    // The store-level queue drain ships the queued first message as soon as
+    // the session exists — it no longer waits for a composer to mount.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
 
     const state = useSessionStore.getState()
     expect(state.currentSessionId).toBe('session-first')
-    expect(state.messageQueue['session-first']).toEqual([
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledWith(
+      'session-first',
       expect.objectContaining({ text: '写一首诗' }),
+    )
+    expect(state.messageQueue['session-first'] ?? []).toEqual([])
+    expect(state.messages).toEqual([
+      expect.objectContaining({ role: 'user', content: '写一首诗' }),
     ])
+  })
+
+  it('ignores a concurrent startSessionWithMessage while one is already in flight', async () => {
+    const created = Promise.withResolvers<{
+      id: string
+      workDir: string
+      sessionDir: string
+      createdAt: number
+      updatedAt: number
+    }>()
+    createDesktopSession.mockReturnValue(created.promise)
+
+    const first = useSessionStore
+      .getState()
+      .startSessionWithMessage({ kind: 'no-project' }, '第一条')
+    // A second caller (e.g. a future entry point without a UI `starting`
+    // flag) must not race the in-flight creation into two sessions.
+    const second = useSessionStore
+      .getState()
+      .startSessionWithMessage({ kind: 'no-project' }, '第二条')
+    await second
+
+    expect(createDesktopSession).toHaveBeenCalledTimes(1)
+
+    created.resolve({
+      id: 'session-first',
+      workDir: 'C:/data/no-project-workspace',
+      sessionDir: 'C:/sessions/session-first',
+      createdAt: 5,
+      updatedAt: 5,
+    })
+    await first
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+    const state = useSessionStore.getState()
+    expect(state.sessions).toHaveLength(1)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledWith(
+      'session-first',
+      expect.objectContaining({ text: '第一条' }),
+    )
+
+    // The latch releases once creation settles, so a later start works again.
+    createDesktopSession.mockResolvedValue({
+      id: 'session-second',
+      workDir: 'C:/data/no-project-workspace',
+      sessionDir: 'C:/sessions/session-second',
+      createdAt: 6,
+      updatedAt: 6,
+    })
+    await useSessionStore
+      .getState()
+      .startSessionWithMessage({ kind: 'no-project' }, '下一轮')
+    expect(createDesktopSession).toHaveBeenCalledTimes(2)
+    expect(useSessionStore.getState().currentSessionId).toBe('session-second')
   })
 
   it('drops the welcome-screen message when session creation fails', async () => {

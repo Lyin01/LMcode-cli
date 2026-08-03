@@ -176,19 +176,14 @@ export default function App() {
     let cancelled = false
     void (async () => {
       try {
+        // The store tracks which sessions were already hydrated — a slow
+        // fetch must not be dropped just because the user typed (or a live
+        // event landed) while it was in flight, and must never run twice.
+        if (useSessionStore.getState().hydratedSessions[currentSessionId]) return
         const raw = await window.lmcodeAPI.getSessionHistory(currentSessionId)
         if (cancelled) return
-        const st = useSessionStore.getState()
-        // Only apply if we're still on this session and not mid-stream, and the
-        // UI hasn't already accumulated live messages for it.
-        if (
-          st.currentSessionId === currentSessionId &&
-          !st.isStreaming &&
-          st.messages.length === 0
-        ) {
-          const mapped = historyToMessages(raw as unknown[])
-          if (mapped.length > 0) st.setMessages(mapped)
-        }
+        const mapped = historyToMessages(raw as unknown[])
+        useSessionStore.getState().hydrateSessionHistory(currentSessionId, mapped)
       } catch (err) {
         console.error('Failed to load session history:', err)
       }

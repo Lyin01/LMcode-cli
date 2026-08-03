@@ -71,6 +71,9 @@ function sanitizeProvider(provider: ProviderConfig): ProviderConfig {
     oauth: provider.oauth === undefined
       ? undefined
       : { ...provider.oauth, key: REDACTED_SECRET_VALUE },
+    // `env` is a legitimate API-key store (provider-usage reads keys from it),
+    // so its values get the same mask/restore treatment as custom headers.
+    env: maskHeaderValues(provider.env),
     customHeaders: maskHeaderValues(provider.customHeaders),
   }
 }
@@ -101,6 +104,7 @@ function restoreProviderPatch(
           key: restoreRequiredSecret(patch.oauth.key, current?.oauth?.key),
         },
     customHeaders: restoreHeaderValues(patch.customHeaders, current?.customHeaders),
+    env: restoreHeaderValues(patch.env, current?.env),
   }
 }
 

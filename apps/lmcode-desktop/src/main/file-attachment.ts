@@ -212,6 +212,11 @@ export async function readFileAttachment(
 
   const mimeType = detectSupportedImageMime(header)
   if (mimeType !== null) {
+    // Pre-check the size from stat so an oversized image is rejected before
+    // the whole file is pulled into memory (and base64-encoded on top).
+    if (file.sizeBytes > IMAGE_ATTACHMENT_LIMIT_BYTES) {
+      throw new Error('图片超过 10 MB 限制')
+    }
     const data = await fs.readFile(file.realPath)
     return imagePreviewFromData(file.name, data, mimeType)
   }

@@ -1,15 +1,21 @@
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildDesktopPromptInput,
+  IMAGE_ATTACHMENT_LIMIT_BYTES,
   isSensitiveAttachmentPath,
   readFileAttachment,
   readInlineImageAttachment,
   readTextAttachment,
   TEXT_ATTACHMENT_LIMIT_BYTES,
 } from '../src/main/file-attachment'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, readFile: vi.fn(actual.readFile) }
+})
 import { MAX_PROMPT_ATTACHMENTS, parseTextAttachmentPart } from '../src/shared/file-types'
 
 const temporaryDirectories: string[] = []
@@ -105,6 +111,20 @@ describe('desktop multimodal attachments', () => {
       sizeBytes: png.byteLength,
       dataUrl: `data:image/png;base64,${Buffer.from(png).toString('base64')}`,
     })
+  })
+
+  it('rejects an oversized image from its size before reading the whole file', async () => {
+    const pngHeader = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+    const oversized = Buffer.concat([
+      pngHeader,
+      Buffer.alloc(IMAGE_ATTACHMENT_LIMIT_BYTES + 1 - pngHeader.length),
+    ])
+    const filePath = await temporaryFile('huge.png', oversized)
+    const readFileMock = vi.mocked(fs.readFile)
+    readFileMock.mockClear()
+
+    await expect(readFileAttachment(filePath)).rejects.toThrow('超过 10 MB')
+    expect(readFileMock).not.toHaveBeenCalled()
   })
 
   it('builds one typed SDK prompt containing user text, text files, and images', async () => {

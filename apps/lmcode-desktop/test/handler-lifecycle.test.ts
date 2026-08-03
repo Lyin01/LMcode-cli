@@ -101,6 +101,7 @@ function createWindow() {
     removeListener: vi.fn((channel: string) => {
       windowListeners.delete(channel)
     }),
+    listeners: { webContents: webContentsListeners, window: windowListeners },
   }
 }
 
@@ -466,6 +467,106 @@ describe('desktop handler lifecycle', () => {
     expect(session.setApprovalHandler).not.toHaveBeenCalled()
     expect(session.setQuestionHandler).not.toHaveBeenCalled()
     expect(session.getContext).not.toHaveBeenCalled()
+  })
+
+  it('keeps pending interactions across in-page navigation but cancels on cross-document navigation', async () => {
+    const handlers: FakeSessionHandlers = { approval: undefined, question: undefined }
+    const session = {
+      id: 'session-nav',
+      summary: { id: 'session-nav' },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn((handler) => {
+        handlers.approval = handler
+      }),
+      setQuestionHandler: vi.fn((handler) => {
+        handlers.question = handler
+      }),
+    }
+    const mainWindow = createWindow()
+    const registration = registerAllHandlers(
+      {
+        configPath: 'C:/Users/test/.lmcode/config.toml',
+        createSession: vi.fn(async () => session),
+      } as never,
+      mainWindow as never,
+      'file:///renderer/index.html',
+    )
+    await invoke('lmcode:createSession', { workDir: 'C:/work' })
+
+    const approvalPromise = handlers.approval?.({ action: 'needs approval' })
+    let settled = false
+    void approvalPromise?.then(() => {
+      settled = true
+    })
+    const navigation = mainWindow.listeners.webContents.get('did-start-navigation')
+    expect(navigation).toBeDefined()
+    const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+    // In-page navigations (pushState/hash) keep the UI and its dialogs alive.
+    navigation?.({}, 'file:///renderer/index.html#section', true, true)
+    await flush()
+    expect(settled).toBe(false)
+
+    // Subframe navigations never cancel main-window dialogs either.
+    navigation?.({}, 'https://example.com/frame', false, false)
+    await flush()
+    expect(settled).toBe(false)
+
+    // A cross-document main-frame navigation destroys the UI: settle now.
+    navigation?.({}, 'file:///renderer/index.html', false, true)
+    await expect(approvalPromise).resolves.toEqual({ decision: 'cancelled' })
+
+    await registration.close()
+  })
+
+  it('serializes session deletion against an in-flight resume of the same session', async () => {
+    const unsubscribeEvent = vi.fn()
+    const session = {
+      id: 'session-race',
+      summary: { id: 'session-race', workDir: 'C:/work' },
+      onEvent: vi.fn(() => unsubscribeEvent),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+      getResumeState: vi.fn(() => undefined),
+    }
+    const resume = Promise.withResolvers<typeof session>()
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      listSessions: vi.fn(async () => []),
+      resumeSession: vi.fn(() => resume.promise),
+      deleteSession: vi.fn(async () => undefined),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+
+    const resumed = invoke('lmcode:resumeSession', 'session-race')
+    await vi.waitFor(() => {
+      expect(harness.resumeSession).toHaveBeenCalledWith({ id: 'session-race' })
+    })
+
+    const deleted = invoke('lmcode:deleteSession', 'session-race')
+    // The delete must wait for the in-flight resume before touching the store,
+    // otherwise the resume would re-attach the deleted session afterwards.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(harness.deleteSession).not.toHaveBeenCalled()
+
+    resume.resolve(session)
+    await expect(resumed).resolves.toEqual({
+      summary: session.summary,
+      resumeState: undefined,
+    })
+    await expect(deleted).resolves.toBeUndefined()
+    expect(harness.deleteSession).toHaveBeenCalledWith('session-race')
+    expect(unsubscribeEvent).toHaveBeenCalledOnce()
+
+    // The deleted session must not remain active: selecting it again resumes anew.
+    await invoke('lmcode:resumeSession', 'session-race')
+    expect(harness.resumeSession).toHaveBeenCalledTimes(2)
+
+    await registration.close()
   })
 
   it('expires an unanswered reverse-RPC request and dismisses its renderer interaction', async () => {

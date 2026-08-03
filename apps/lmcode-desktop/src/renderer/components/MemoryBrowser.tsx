@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { X, Search, Trash2, BookOpen, Tag, Clock, AlertTriangle } from 'lucide-react'
+import { createLatestRequestGate } from '@/lib/latest-request'
 
 interface MemoryBrowserProps {
   open: boolean
@@ -24,27 +25,40 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
   const [error, setError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  // Latest-wins guard: the opening full fetch and debounced search fetches
+  // may resolve out of order; a stale resolve must not overwrite newer results.
+  const fetchGateRef = useRef(createLatestRequestGate())
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchMemories = useCallback(async (query?: string) => {
+    const gate = fetchGateRef.current
+    const ticket = gate.begin()
     setLoading(true)
     setError(null)
     try {
       const result = query?.trim()
         ? await window.lmcodeAPI.searchMemories(query.trim())
         : await window.lmcodeAPI.listMemories()
+      if (!gate.isCurrent(ticket)) return
       setMemos(result as MemorySummary[])
     } catch (err) {
+      if (!gate.isCurrent(ticket)) return
       console.error('Failed to fetch memories:', err)
       setError('无法加载记忆，请检查是否已安装 @lmcode/memory 包')
     } finally {
-      setLoading(false)
+      if (gate.isCurrent(ticket)) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    if (open) {
-      void fetchMemories()
-      setTimeout(() => searchRef.current?.focus(), 100)
+    if (!open) return
+    void fetchMemories()
+    focusTimerRef.current = setTimeout(() => searchRef.current?.focus(), 100)
+    return () => {
+      if (focusTimerRef.current !== null) {
+        clearTimeout(focusTimerRef.current)
+        focusTimerRef.current = null
+      }
     }
   }, [open, fetchMemories])
 

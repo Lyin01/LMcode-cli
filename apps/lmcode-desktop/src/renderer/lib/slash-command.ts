@@ -129,3 +129,38 @@ function parseGoalCommand(args: string): ParsedDesktopSlashCommand {
   }
   return { kind: 'goal-create', objective, replace }
 }
+
+/** Minimal shape needed to filter the slash command list. */
+export interface SlashCommandLike {
+  readonly id: string
+  readonly label: string
+  readonly description: string
+}
+
+/**
+ * Filters the command list for the slash dialog. Kept in the lib layer so the
+ * dialog and the composer agree on the match count — the composer needs it to
+ * decide whether navigation keys belong to the dialog.
+ */
+export function filterSlashCommands<T extends SlashCommandLike>(
+  commands: readonly T[],
+  query: string,
+): T[] {
+  if (!query) return [...commands]
+  const lowered = query.toLowerCase()
+  return commands.filter(
+    (cmd) =>
+      cmd.id.includes(lowered) ||
+      cmd.label.includes(lowered) ||
+      cmd.description.includes(query),
+  )
+}
+
+/**
+ * Whether the composer may intercept Enter/ArrowUp/ArrowDown/Tab on behalf of
+ * the slash dialog. With zero matches the dialog renders nothing, so the keys
+ * must fall through to the textarea — otherwise Enter becomes a dead key.
+ */
+export function shouldHandleSlashKeys(showSlash: boolean, matchCount: number): boolean {
+  return showSlash && matchCount > 0
+}

@@ -10,6 +10,10 @@ import type {
 
 const TERMINAL_INPUT_LIMIT_CHARS = 65_536
 const TERMINAL_STOP_TIMEOUT_MS = 1_500
+const TERMINAL_OUTPUT_FLUSH_INTERVAL_MS = 16
+const TERMINAL_OUTPUT_BUFFER_LIMIT_CHARS = 1024 * 1024
+export const TERMINAL_OUTPUT_TRUNCATED_NOTICE =
+  '\n[终端输出过快，已丢弃部分最早的内容]\n'
 
 interface ShellCommand {
   readonly command: string
@@ -23,6 +27,87 @@ interface ProjectTerminalEntry {
   readonly shell: string
   readonly child: ChildProcessWithoutNullStreams
   readonly exited: Promise<void>
+  readonly batcher: TerminalOutputBatcher
+}
+
+export interface TerminalOutputBatcherOptions {
+  /** Chunks arriving within one interval are merged into a single send. */
+  readonly flushIntervalMs: number
+  /** Per-session pending cap; the oldest buffered output is dropped beyond it. */
+  readonly bufferLimitChars: number
+}
+
+export interface ProjectTerminalOptions {
+  readonly outputFlushIntervalMs?: number
+  readonly outputBufferLimitChars?: number
+}
+
+/**
+ * Aggregates child-process stdout/stderr chunks and emits them on a fixed
+ * throttle instead of one IPC message per chunk. The pending buffer is capped
+ * per session: beyond the cap the oldest output is dropped and a single
+ * truncation notice is emitted on the next flush.
+ */
+export class TerminalOutputBatcher {
+  private readonly pending: Record<'stdout' | 'stderr', string> = { stdout: '', stderr: '' }
+  private truncated = false
+  private timer: NodeJS.Timeout | undefined
+
+  constructor(
+    private readonly emit: (stream: TerminalOutputStream, data: string) => void,
+    private readonly options: TerminalOutputBatcherOptions,
+  ) {}
+
+  push(stream: 'stdout' | 'stderr', chunk: Buffer | string): void {
+    this.pending[stream] += chunk.toString()
+    const total = this.pending.stdout.length + this.pending.stderr.length
+    if (total > this.options.bufferLimitChars) {
+      // Truncation drops from stdout first and only then stderr, i.e. in
+      // arbitrary per-stream order rather than strict chronological order;
+      // the slice can also split a multi-byte character boundary and produce
+      // U+FFFD in the first surviving chunk. Both are accepted presentation-
+      // layer trade-offs for keeping the hot path simple.
+      let excess = total - this.options.bufferLimitChars
+      const dropStdout = Math.min(excess, this.pending.stdout.length)
+      this.pending.stdout = this.pending.stdout.slice(dropStdout)
+      excess -= dropStdout
+      if (excess > 0) this.pending.stderr = this.pending.stderr.slice(excess)
+      this.truncated = true
+    }
+    this.schedule()
+  }
+
+  flush(): void {
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer)
+      this.timer = undefined
+    }
+    for (const stream of ['stdout', 'stderr'] as const) {
+      const data = this.pending[stream]
+      if (data.length === 0) continue
+      this.pending[stream] = ''
+      this.emit(stream, data)
+    }
+    if (this.truncated) {
+      this.truncated = false
+      this.emit('system', TERMINAL_OUTPUT_TRUNCATED_NOTICE)
+    }
+  }
+
+  dispose(): void {
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer)
+      this.timer = undefined
+    }
+  }
+
+  private schedule(): void {
+    if (this.timer !== undefined) return
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      this.flush()
+    }, this.options.flushIntervalMs)
+  }
 }
 
 function isOnPath(command: string): boolean {
@@ -85,6 +170,7 @@ export class ProjectTerminalManager {
 
   constructor(
     private readonly emitOutput: (payload: TerminalOutputPayload) => void,
+    private readonly options: ProjectTerminalOptions = {},
   ) {}
 
   start(sessionId: string, workDir: string): ProjectTerminalInfo {
@@ -104,17 +190,33 @@ export class ProjectTerminalManager {
       windowsHide: true,
     })
     const exit = Promise.withResolvers<void>()
+    const batcher = new TerminalOutputBatcher(
+      (stream, data) => this.emitOutput({ sessionId, stream, data }),
+      {
+        flushIntervalMs:
+          this.options.outputFlushIntervalMs ?? TERMINAL_OUTPUT_FLUSH_INTERVAL_MS,
+        bufferLimitChars:
+          this.options.outputBufferLimitChars ?? TERMINAL_OUTPUT_BUFFER_LIMIT_CHARS,
+      },
+    )
     const entry: ProjectTerminalEntry = {
       sessionId,
       workDir,
       shell: shell.label,
       child,
       exited: exit.promise,
+      batcher,
     }
     this.terminals.set(sessionId, entry)
 
     const forward = (stream: TerminalOutputStream, chunk: Buffer | string): void => {
-      this.emitOutput({ sessionId, stream, data: chunk.toString() })
+      if (stream === 'system') {
+        // Flush first so buffered output is never reordered after a system line.
+        batcher.flush()
+        this.emitOutput({ sessionId, stream, data: chunk.toString() })
+        return
+      }
+      batcher.push(stream, chunk)
     }
     child.stdout.on('data', (chunk: Buffer | string) => forward('stdout', chunk))
     child.stderr.on('data', (chunk: Buffer | string) => forward('stderr', chunk))
@@ -129,6 +231,7 @@ export class ProjectTerminalManager {
     child.once('close', (code) => {
       if (this.terminals.get(sessionId) === entry) this.terminals.delete(sessionId)
       forward('system', `\n[终端已退出，代码 ${code ?? 'unknown'}]\n`)
+      batcher.dispose()
       exit.resolve()
     })
 

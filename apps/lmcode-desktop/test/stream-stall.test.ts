@@ -1,10 +1,55 @@
-import { describe, expect, it } from 'vitest'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it, vi } from 'vitest'
+import { StallIndicator } from '@/components/StallIndicator'
+import * as sessionStoreModule from '@/stores/session-store'
+import type { SessionStore } from '@/stores/session-store'
 import {
   buildStallNotice,
   runningToolName,
   STALL_THRESHOLD_MS,
 } from '../src/renderer/lib/stream-stall'
 import type { Message } from '../src/renderer/types'
+
+/**
+ * Renders the indicator against a mocked store and records every selector
+ * result, so the test can tell which store slices the component subscribes to.
+ */
+function captureStallIndicatorSelectors(state: SessionStore): unknown[] {
+  const captured: unknown[] = []
+  vi.spyOn(sessionStoreModule, 'useSessionStore').mockImplementation(
+    ((selector: (store: SessionStore) => unknown) => {
+      const value = selector(state)
+      captured.push(value)
+      return value
+    }) as typeof sessionStoreModule.useSessionStore,
+  )
+  renderToStaticMarkup(createElement(StallIndicator))
+  vi.restoreAllMocks()
+  return captured
+}
+
+describe('StallIndicator stall-clock subscription', () => {
+  it('subscribes to streamStatus so retry/interrupted updates reset the clock', () => {
+    const base = {
+      ...sessionStoreModule.useSessionStore.getState(),
+      currentSessionId: 'session-a',
+      messages: [],
+      isStreaming: true,
+      streamStatus: null,
+    }
+    const idle = captureStallIndicatorSelectors(base)
+    const retrying = captureStallIndicatorSelectors({
+      ...base,
+      streamStatus: '网络/模型异常，正在重试（1/3）…',
+    })
+
+    // Retry/backoff transitions only touch streamStatus — the component must
+    // observe that slice, otherwise the stall clock keeps accumulating.
+    expect(retrying.length).toBe(idle.length)
+    expect(retrying.some((value, index) => value !== idle[index])).toBe(true)
+  })
+})
 
 function assistantMessage(toolCalls?: Message['toolCalls']): Message {
   return { id: 'm1', role: 'assistant', content: '', timestamp: 1, toolCalls }

@@ -9,6 +9,8 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createLatestRequestGate } from '@/lib/latest-request'
+import { launchTerminal } from '@/lib/terminal-session'
 import { normalizeTerminalText } from '@/lib/terminal-text'
 import { useSessionStore } from '@/stores/session-store'
 import type {
@@ -69,6 +71,9 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
   const nextChunkId = useRef(1)
   const activeSession = useRef<string | null>(null)
   const autoStartSession = useRef<string | null>(null)
+  // Latest-wins guard: a start() that resolves after the session switched
+  // must not land its stale state (the launch helper also reclaims the shell).
+  const startGateRef = useRef(createLatestRequestGate())
   const outputRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -82,18 +87,22 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
 
   const start = useCallback(async () => {
     if (!sessionId) return
+    const gate = startGateRef.current
+    const ticket = gate.begin()
     setStarting(true)
     setError(null)
     try {
-      const next = await window.lmcodeAPI.startTerminal(sessionId)
-      setInfo(next)
-      setRunning(next.running)
+      const result = await launchTerminal(window.lmcodeAPI, gate, ticket, sessionId)
+      if (!result.adopted) return
+      setInfo(result.info)
+      setRunning(result.info.running)
       activeSession.current = sessionId
     } catch (reason) {
+      if (!gate.isCurrent(ticket)) return
       setRunning(false)
       setError(errorMessage(reason))
     } finally {
-      setStarting(false)
+      if (gate.isCurrent(ticket)) setStarting(false)
     }
   }, [sessionId])
 
@@ -112,6 +121,9 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
     if (prior && prior !== sessionId) void window.lmcodeAPI.stopTerminal(prior)
     activeSession.current = sessionId
     autoStartSession.current = null
+    // Invalidate any in-flight start for the previous session: its resolve
+    // would otherwise overwrite this session's state and leak its shell.
+    startGateRef.current.begin()
     setInfo(null)
     setChunks([])
     setCommand('')

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CronJobInfo } from '@lmcode-cli/lmcode-sdk'
 import {
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
+import { createLatestRequestGate } from '@/lib/latest-request'
 
 interface AutomationsPanelProps {
   readonly open: boolean
@@ -50,18 +51,28 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
   const [creating, setCreating] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Latest-wins guard: cron.fired events, create/delete follow-ups and manual
+  // refreshes may overlap; a slow stale resolve must not overwrite the list.
+  const refreshGateRef = useRef(createLatestRequestGate())
 
   const refresh = useCallback(async () => {
+    const gate = refreshGateRef.current
+    // Begin before the null check so a deleted session (sessionId -> null)
+    // still invalidates its in-flight refresh.
+    const ticket = gate.begin()
     if (!sessionId) return
     setLoading(true)
     setError(null)
     try {
-      setJobs(await window.lmcodeAPI.listCronJobs(sessionId))
+      const next = await window.lmcodeAPI.listCronJobs(sessionId)
+      if (!gate.isCurrent(ticket)) return
+      setJobs(next)
     } catch (reason) {
+      if (!gate.isCurrent(ticket)) return
       setJobs([])
       setError(errorMessage(reason))
     } finally {
-      setLoading(false)
+      if (gate.isCurrent(ticket)) setLoading(false)
     }
   }, [sessionId])
 

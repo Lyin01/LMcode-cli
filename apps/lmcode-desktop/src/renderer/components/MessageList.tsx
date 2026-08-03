@@ -15,6 +15,7 @@ interface MessageListProps {
 
 export function MessageList({ findRequest }: MessageListProps) {
   const messages = useSessionStore((s) => s.messages)
+  const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const scrollRef = useRef<HTMLDivElement>(null)
   const findInputRef = useRef<HTMLInputElement>(null)
   const messageRefs = useRef(new Map<string, HTMLDivElement>())
@@ -69,6 +70,14 @@ export function MessageList({ findRequest }: MessageListProps) {
   const closeFind = useCallback(() => {
     setFindOpen(false)
   }, [])
+
+  useEffect(() => {
+    // Session switch replaces messages wholesale: re-stick to the bottom so a
+    // scrolled-up position (and the jump button) never leaks into the new
+    // session. Declared before the messages effect so it runs first.
+    stickToBottomRef.current = true
+    setShowJumpToBottom(false)
+  }, [currentSessionId])
 
   useEffect(() => {
     const el = scrollRef.current

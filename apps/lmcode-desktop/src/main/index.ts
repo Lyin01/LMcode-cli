@@ -20,6 +20,8 @@ import type { HarnessCloseOptions } from '@lmcode-cli/lmcode-sdk'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
 import { onceAsync, ShutdownCoordinator, withTimeoutBudget } from './lifecycle.js'
 import { createAppMenuTemplate } from './app-menu.js'
+import { MenuCommandDispatcher } from './menu-dispatch.js'
+import { UpdateCheckCoordinator } from './update-check.js'
 import {
   classifyNavigation,
   createRendererContentSecurityPolicy,
@@ -188,27 +190,20 @@ function messageBox(
     : dialog.showMessageBox(options)
 }
 
+const menuCommandDispatcher = new MenuCommandDispatcher()
+
 function dispatchMenuCommand(command: DesktopMenuCommand): void {
   showAndFocus()
   const targetWindow = mainWindow
   if (targetWindow === null || targetWindow.isDestroyed()) return
-
-  const send = (): void => {
-    if (!targetWindow.isDestroyed()) {
-      targetWindow.webContents.send('lmcode:menuCommand', { command })
-    }
-  }
-
-  if (targetWindow.webContents.isLoadingMainFrame()) {
-    targetWindow.webContents.once('did-finish-load', send)
-  } else {
-    send()
-  }
+  menuCommandDispatcher.dispatch(targetWindow, command)
 }
 
-// Whether the in-flight update check was user-initiated (so we know whether to
-// pop a "已是最新" / error dialog vs. staying silent on a background check).
-let manualUpdateCheck = false
+// Whether the in-flight update check round was user-initiated (so we know
+// whether to pop a "已是最新" / error dialog vs. staying silent on a background
+// check). Tracked per round so overlapping manual/background checks cannot
+// overwrite each other's attribute.
+const updateChecks = new UpdateCheckCoordinator(() => autoUpdater.checkForUpdates())
 let updaterWired = false
 
 /**
@@ -246,7 +241,7 @@ function setupAutoUpdater(): void {
   })
 
   autoUpdater.on('update-not-available', () => {
-    if (manualUpdateCheck) {
+    if (updateChecks.isManual) {
       void messageBox({
         type: 'info',
         title: '检测更新',
@@ -280,7 +275,7 @@ function setupAutoUpdater(): void {
 
   autoUpdater.on('error', (err) => {
     mainWindow?.setProgressBar(-1)
-    if (manualUpdateCheck) {
+    if (updateChecks.isManual) {
       void messageBox({
         type: 'error',
         title: '检测更新',
@@ -310,10 +305,9 @@ async function checkForUpdates(manual: boolean): Promise<void> {
     }
     return
   }
-  manualUpdateCheck = manual
-  // Errors surface via the 'error' event handler; swallow the rejection here to
-  // avoid an unhandled promise + a duplicate dialog.
-  autoUpdater.checkForUpdates().catch(() => {})
+  // Errors surface via the 'error' event handler; the coordinator swallows
+  // the rejection to avoid an unhandled promise + a duplicate dialog.
+  updateChecks.check(manual)
 }
 
 function showAbout(): void {
@@ -690,7 +684,9 @@ app.on('activate', () => {
     mainWindow.show()
     mainWindow.focus()
   }
-  void attachHandlersToCurrentWindow()
+  void attachHandlersToCurrentWindow().catch((error: unknown) => {
+    log.error('desktop handler attach after window activation failed', error)
+  })
 })
 
 app.on('before-quit', (event) => {
