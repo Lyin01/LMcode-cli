@@ -19,6 +19,7 @@ import { LmcodeHarness, log } from '@lmcode-cli/lmcode-sdk'
 import type { HarnessCloseOptions } from '@lmcode-cli/lmcode-sdk'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
 import { onceAsync, ShutdownCoordinator, withTimeoutBudget } from './lifecycle.js'
+import { loadRendererAfterReady } from './renderer-startup-sequence.js'
 import { createAppMenuTemplate } from './app-menu.js'
 import { MenuCommandDispatcher } from './menu-dispatch.js'
 import { UpdateCheckCoordinator } from './update-check.js'
@@ -386,7 +387,7 @@ function unregisterMenuStateListener(): void {
 
 // ── Window ─────────────────────────────────────────────────────────────
 
-function createWindow(): void {
+function createWindow(): () => Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -463,15 +464,22 @@ function createWindow(): void {
     event.preventDefault()
   })
 
-  // Load renderer
-  if (runtimeEnvironment.rendererUrl !== undefined) {
-    void mainWindow.loadURL(runtimeEnvironment.rendererUrl).catch((error: unknown) => {
-      log.error('desktop renderer URL failed to load', error)
-    })
-  } else {
-    void mainWindow.loadFile(rendererFile).catch((error: unknown) => {
-      log.error('desktop renderer file failed to load', error)
-    })
+  // Do not load the renderer yet: its first IPC invocations would race the
+  // handler registration in initHarness(). The loader is returned to the
+  // caller, which runs it through loadRendererAfterReady() once the runtime
+  // is up.
+  const windowToLoad = mainWindow
+  const loadRenderer = async (): Promise<void> => {
+    if (windowToLoad.isDestroyed()) return
+    if (runtimeEnvironment.rendererUrl !== undefined) {
+      await windowToLoad.loadURL(runtimeEnvironment.rendererUrl).catch((error: unknown) => {
+        log.error('desktop renderer URL failed to load', error)
+      })
+    } else {
+      await windowToLoad.loadFile(rendererFile).catch((error: unknown) => {
+        log.error('desktop renderer file failed to load', error)
+      })
+    }
   }
 
   // Show window when ready to avoid visual flash
@@ -490,6 +498,7 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+  return loadRenderer
 }
 
 // ── Harness ────────────────────────────────────────────────────────────
@@ -647,11 +656,11 @@ if (!gotSingleInstanceLock) {
   void app.whenReady().then(async () => {
     registerMenuStateListener()
     installApplicationMenu()
-    createWindow()
+    const loadRenderer = createWindow()
     const initialization = initHarness()
     harnessInitialization = initialization
     try {
-      await initialization
+      await loadRendererAfterReady(initialization, loadRenderer, () => isQuitting)
     } finally {
       if (harnessInitialization === initialization) harnessInitialization = null
     }
@@ -679,11 +688,20 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   // macOS: re-create or show window when dock icon clicked
   if (mainWindow === null) {
-    createWindow()
-  } else {
-    mainWindow.show()
-    mainWindow.focus()
+    const loadRenderer = createWindow()
+    // Re-created windows go through the same startup barrier: the renderer
+    // only loads after the handlers have been re-attached to it.
+    void loadRendererAfterReady(
+      attachHandlersToCurrentWindow(),
+      loadRenderer,
+      () => isQuitting,
+    ).catch((error: unknown) => {
+      log.error('desktop handler attach after window activation failed', error)
+    })
+    return
   }
+  mainWindow.show()
+  mainWindow.focus()
   void attachHandlersToCurrentWindow().catch((error: unknown) => {
     log.error('desktop handler attach after window activation failed', error)
   })
