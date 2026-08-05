@@ -50,10 +50,10 @@ function defaultCancel(token: unknown): void {
   globalThis.clearTimeout(token as number)
 }
 
-function identityPart(value: unknown): string {
+function identityPart(value: string | number | null | undefined): string {
   if (value === undefined) return 'undefined'
   if (value === null) return 'null'
-  return `${typeof value}:${String(value)}`
+  return `${typeof value}:${value}`
 }
 
 /**
