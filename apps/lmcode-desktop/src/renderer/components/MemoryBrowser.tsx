@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { X, Search, Trash2, BookOpen, Tag, Clock, AlertTriangle } from 'lucide-react'
 import { createLatestRequestGate } from '@/lib/latest-request'
+import { activateModalPanel } from '@/lib/modal-panel-controller'
 
 interface MemoryBrowserProps {
   open: boolean
@@ -24,11 +25,14 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
   // Latest-wins guard: the opening full fetch and debounced search fetches
   // may resolve out of order; a stale resolve must not overwrite newer results.
   const fetchGateRef = useRef(createLatestRequestGate())
-  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Stable close callback for the modal controller: the effect below must not
+  // tear down (and wrongly restore focus) just because the parent re-rendered
+  // and produced a new onClose identity while the panel is open.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   const fetchMemories = useCallback(async (query?: string) => {
     const gate = fetchGateRef.current
@@ -53,13 +57,6 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
   useEffect(() => {
     if (!open) return
     void fetchMemories()
-    focusTimerRef.current = setTimeout(() => searchRef.current?.focus(), 100)
-    return () => {
-      if (focusTimerRef.current !== null) {
-        clearTimeout(focusTimerRef.current)
-        focusTimerRef.current = null
-      }
-    }
   }, [open, fetchMemories])
 
   useEffect(() => {
@@ -70,14 +67,13 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
     return () => clearTimeout(timer)
   }, [searchQuery, fetchMemories, open])
 
+  // Modal lifecycle: initial focus lands on the search box (data-lm-autofocus),
+  // Escape closes, Tab rings inside the panel, and closing restores focus to
+  // the sidebar trigger that opened the drawer.
   useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+    if (!open || !panelRef.current) return
+    return activateModalPanel(panelRef.current, { onClose: () => onCloseRef.current() })
+  }, [open])
 
   const handleDelete = async (id: string) => {
     try {
@@ -93,6 +89,7 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
   return (
     <div className="fixed inset-0 z-40 flex">
       <div
+        aria-hidden="true"
         className="absolute inset-0 bg-black/30 backdrop-blur-sm"
         onClick={onClose}
       />
@@ -100,15 +97,21 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
       <div
         ref={panelRef}
         tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lm-memory-panel-title"
         className="relative z-10 ml-auto flex h-full w-[420px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3.5">
           <div className="flex items-center gap-2">
             <BookOpen size={16} className="text-[var(--lm-accent-text)]" />
-            <h2 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">记忆库</h2>
+            <h2 id="lm-memory-panel-title" className="text-[15px] font-semibold text-[var(--lm-text-primary)]">记忆库</h2>
           </div>
           <button
+            type="button"
+            aria-label="关闭记忆库"
+            title="关闭记忆库"
             onClick={onClose}
             className="rounded-md p-1 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >
@@ -121,8 +124,9 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
           <div className="relative">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--lm-text-muted)]" />
             <input
-              ref={searchRef}
               type="text"
+              aria-label="搜索记忆"
+              data-lm-autofocus="true"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索记忆..."
