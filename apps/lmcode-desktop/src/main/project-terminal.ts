@@ -7,6 +7,7 @@ import type {
   TerminalOutputPayload,
   TerminalOutputStream,
 } from '../shared/terminal-types.js'
+import { terminateChildProcessTree } from './process-tree.js'
 
 const TERMINAL_INPUT_LIMIT_CHARS = 65_536
 const TERMINAL_STOP_TIMEOUT_MS = 1_500
@@ -153,18 +154,6 @@ function resolveShell(): ShellCommand {
   return { command, args: [], label: path.basename(command) }
 }
 
-function waitTimeout(milliseconds: number): {
-  readonly promise: Promise<void>
-  readonly cancel: () => void
-} {
-  const deferred = Promise.withResolvers<void>()
-  const timer: NodeJS.Timeout = setTimeout(deferred.resolve, milliseconds)
-  return {
-    promise: deferred.promise,
-    cancel: () => clearTimeout(timer),
-  }
-}
-
 export class ProjectTerminalManager {
   private readonly terminals = new Map<string, ProjectTerminalEntry>()
 
@@ -188,6 +177,10 @@ export class ProjectTerminalManager {
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      // On POSIX, lead a dedicated process group so stop() can signal every
+      // descendant at once via the negative PID. Windows reaches the tree
+      // through taskkill /T instead.
+      detached: process.platform !== 'win32',
     })
     const exit = Promise.withResolvers<void>()
     const batcher = new TerminalOutputBatcher(
@@ -250,13 +243,13 @@ export class ProjectTerminalManager {
   async stop(sessionId: string): Promise<void> {
     const entry = this.terminals.get(sessionId)
     if (!entry) return
-    entry.child.stdin.end()
-    entry.child.kill()
-
-    const timeout = waitTimeout(TERMINAL_STOP_TIMEOUT_MS)
-    await Promise.race([entry.exited, timeout.promise])
-    timeout.cancel()
-    if (entry.child.exitCode === null) entry.child.kill('SIGKILL')
+    // Terminate the whole process tree — not just the shell — and only
+    // resolve after the child truly closed; a tree that survives the forced
+    // phase surfaces as an error instead of a silent leak.
+    await terminateChildProcessTree(entry.child, entry.exited, {
+      gracefulTimeoutMs: TERMINAL_STOP_TIMEOUT_MS,
+      forceTimeoutMs: TERMINAL_STOP_TIMEOUT_MS,
+    })
   }
 
   async close(): Promise<void> {
