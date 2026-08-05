@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { toDisplayAttachment, useSessionStore } from '@/stores/session-store'
+import { cancelResponseSafely } from '@/lib/cancel-response'
 import { createDesktopPromptRequest } from '@/lib/prompt-request'
 import type { UserAttachment } from '@/types'
 
@@ -56,13 +57,23 @@ export function useSession() {
 
   const cancel = useCallback(async () => {
     if (!currentSessionId) return
-    try {
-      await window.lmcodeAPI.cancelResponse(currentSessionId)
-    } catch (err) {
-      console.error('Failed to cancel:', err)
-    }
-    setSessionStreaming(currentSessionId, false)
-  }, [currentSessionId, setSessionStreaming])
+    // Streaming state is owned by the turn.ended event: a successful cancel
+    // waits for it, and a failed one leaves the still-running session marked
+    // as streaming. Only the failure is surfaced here — as a visible error
+    // message, after which the stop button can be retried.
+    await cancelResponseSafely(currentSessionId, {
+      cancelResponse: (sessionId) => window.lmcodeAPI.cancelResponse(sessionId),
+      onError: (message) =>
+        addMessageToSession(currentSessionId, {
+          id: `msg_cancel_err_${Date.now()}`,
+          role: 'system',
+          variant: 'error',
+          content: `停止失败：${message}`,
+          timestamp: Date.now(),
+        }),
+      logError: (err) => console.error('Failed to cancel:', err),
+    })
+  }, [currentSessionId, addMessageToSession])
 
   const steerMessage = useCallback(async (
     text: string,
