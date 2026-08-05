@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { ToolCallInfo } from '@/types'
+import { artifactIdForToolCall, useArtifactsStore } from '@/stores/artifacts-store'
 import {
   Loader2,
   CheckCircle2,
@@ -8,6 +9,7 @@ import {
   Clock,
   ChevronDown,
   ChevronRight,
+  FileText,
   Wrench,
 } from 'lucide-react'
 
@@ -26,6 +28,10 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
   const cfg = statusConfig[toolCall.status]
   const Icon = cfg.icon
   const [expanded, setExpanded] = useState(false)
+  // 该工具调用产出的可审阅文档（plan / markdown 报告），有则提供审阅入口。
+  const artifactId = useArtifactsStore((state) =>
+    artifactIdForToolCall(state.artifacts, toolCall.id),
+  )
 
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[12px]">
@@ -64,6 +70,19 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
             </div>
           )}
         </>
+      )}
+
+      {artifactId !== null && (
+        <button
+          type="button"
+          aria-label="打开文档审阅"
+          title="打开文档审阅"
+          onClick={() => useArtifactsStore.getState().openPanel(artifactId)}
+          className="flex w-full items-center gap-1.5 border-t border-[var(--lm-border)] px-3 py-1.5 text-left text-[11px] text-[var(--lm-accent-text)] transition-colors hover:bg-[var(--lm-bg-hover)]"
+        >
+          <FileText size={12} />
+          打开文档审阅
+        </button>
       )}
 
       {toolCall.progress && toolCall.status === 'running' && (

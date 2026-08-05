@@ -11,6 +11,7 @@ export type InboxItemType =
   | 'subagent-finished'
   | 'task-finished'
   | 'goal-update'
+  | 'artifact-updated'
 
 export type InboxOutcome = 'success' | 'failure' | 'info'
 

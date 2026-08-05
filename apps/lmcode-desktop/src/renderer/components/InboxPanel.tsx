@@ -5,6 +5,7 @@ import {
   Bot,
   CheckCheck,
   CheckCircle2,
+  FileText,
   MessageSquare,
   Target,
   Terminal,
@@ -20,6 +21,7 @@ import {
   type InboxItem,
   type InboxItemType,
 } from '@/stores/inbox-store'
+import { useArtifactsStore } from '@/stores/artifacts-store'
 import { useSessionStore } from '@/stores/session-store'
 import { formatSessionActivity, sessionDisplayTitle } from '@/lib/session-list'
 
@@ -34,6 +36,7 @@ const TYPE_ICON: Record<InboxItemType, typeof MessageSquare> = {
   'subagent-finished': Bot,
   'task-finished': Terminal,
   'goal-update': Target,
+  'artifact-updated': FileText,
 }
 
 function outcomeClass(item: InboxItem): string {
@@ -135,6 +138,11 @@ export function InboxPanel({ open, onClose }: InboxPanelProps) {
     useInboxStore.getState().markRead(item.id)
     if (item.sessionId) {
       useSessionStore.getState().selectSession(item.sessionId)
+    }
+    // artifact 条目的 id 编码了 artifactId（`artifact:<id>`，见 artifact-feed），
+    // 点击时直接打开文档审阅面板。
+    if (item.type === 'artifact-updated' && item.id.startsWith('artifact:')) {
+      useArtifactsStore.getState().openPanel(item.id.slice('artifact:'.length))
     }
     onClose()
   }

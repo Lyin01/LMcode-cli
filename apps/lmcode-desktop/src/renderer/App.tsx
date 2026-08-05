@@ -5,6 +5,7 @@ import { useSubagentStore } from '@/stores/subagent-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useEvents } from '@/hooks/useEvents'
 import { useInbox } from '@/hooks/useInbox'
+import { useArtifacts } from '@/hooks/useArtifacts'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
 import { ChatPanel } from '@/components/ChatPanel'
@@ -21,6 +22,7 @@ import { WorktreesPanel } from '@/components/WorktreesPanel'
 import { SubagentsPanel } from '@/components/SubagentsPanel'
 import { AutomationsPanel } from '@/components/AutomationsPanel'
 import { InboxPanel } from '@/components/InboxPanel'
+import { ArtifactPanel } from '@/components/ArtifactPanel'
 import { KeyboardShortcutsPanel } from '@/components/KeyboardShortcutsPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
@@ -86,6 +88,7 @@ export default function App() {
 
   useEvents()
   useInbox()
+  useArtifacts()
 
   // Apply stored theme once on mount (index.html already set the attribute,
   // this keeps React state and the document in sync).
@@ -541,6 +544,9 @@ export default function App() {
       </ErrorBoundary>
       <ErrorBoundary name="通知中心">
         <InboxPanel open={activePanel === 'inbox'} onClose={() => setActivePanel(null)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="文档审阅">
+        <ArtifactPanel onSendFeedback={handleAddReviewCommentsToChat} />
       </ErrorBoundary>
       <ErrorBoundary name="键盘快捷键">
         <KeyboardShortcutsPanel
