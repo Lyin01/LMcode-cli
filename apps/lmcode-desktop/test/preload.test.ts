@@ -89,6 +89,12 @@ describe('desktop preload bridge', () => {
         canGoPrevious: boolean
         canGoNext: boolean
       }): void
+      sendDesktopNotification(payload: {
+        kind: 'turn-completed'
+        sessionId: string
+        title: string
+        body?: string
+      }): void
       respondApproval(payload: unknown): Promise<void>
       respondQuestion(payload: unknown): Promise<void>
     }
@@ -180,6 +186,14 @@ describe('desktop preload bridge', () => {
       canGoNext: false,
     }
     api.updateMenuState(menuState)
+
+    const turnNotification = {
+      kind: 'turn-completed' as const,
+      sessionId: 'session-1',
+      title: '后台任务',
+      body: '后台任务的回合已完成',
+    }
+    api.sendDesktopNotification(turnNotification)
 
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:exportSession', 'session-1')
     expect(electron.getPathForFile).toHaveBeenCalledWith(file)
@@ -294,5 +308,6 @@ describe('desktop preload bridge', () => {
       menuCommandListener,
     )
     expect(electron.send).toHaveBeenCalledWith('lmcode:updateMenuState', menuState)
+    expect(electron.send).toHaveBeenCalledWith('lmcode:sendNotification', turnNotification)
   })
 })

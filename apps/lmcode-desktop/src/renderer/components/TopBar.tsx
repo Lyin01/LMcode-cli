@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import type { ReactNode } from 'react'
 import {
+  Bell,
   Bot,
   CalendarClock,
   GitCompareArrows,
@@ -17,12 +18,14 @@ import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
+import { totalUnreadCount, useInboxStore } from '@/stores/inbox-store'
 import { resolveTheme, type ThemePref } from '@/lib/theme'
 import { isNoProjectWorkDir, projectDisplayName } from '@/lib/projects'
 
 interface TopBarProps {
   sidebarOpen: boolean
   onToggleSidebar: () => void
+  onOpenInbox: () => void
   onOpenTasks: () => void
   onOpenGitReview: () => void
   onOpenTerminal: () => void
@@ -73,6 +76,7 @@ function TopBarAction({
 export function TopBar({
   sidebarOpen,
   onToggleSidebar,
+  onOpenInbox,
   onOpenTasks,
   onOpenGitReview,
   onOpenTerminal,
@@ -102,6 +106,7 @@ export function TopBar({
       (agent) => agent.sessionId === currentSessionId && agent.status === 'running',
     ).length,
   )
+  const inboxUnread = useInboxStore((state) => totalUnreadCount(state.items))
 
   const isNoProject = isNoProjectWorkDir(current?.workDir, noProjectWorkDir)
   const title = current?.title?.trim() || '新任务'
@@ -188,6 +193,19 @@ export function TopBar({
         onClick={onOpenTerminal}
       >
         <SquareTerminal size={17} />
+      </TopBarAction>
+      <TopBarAction
+        label={inboxUnread > 0 ? `通知中心（${inboxUnread} 条未读）` : '通知中心'}
+        onClick={onOpenInbox}
+      >
+        <span className="relative">
+          <Bell size={17} />
+          {inboxUnread > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--lm-accent-text)] px-0.5 text-[8px] font-semibold text-[var(--lm-bg-base)]">
+              {inboxUnread > 99 ? '99+' : inboxUnread}
+            </span>
+          )}
+        </span>
       </TopBarAction>
 
       <DropdownMenu.Root>

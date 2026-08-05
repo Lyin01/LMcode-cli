@@ -11,6 +11,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
   DesktopCreateSessionOptions,
+  DesktopNotificationPayload,
   InteractionSettledPayload,
   QuestionRequestPayload,
   QuestionResponsePayload,
@@ -296,6 +297,12 @@ const lmcodeAPI = {
 
   updateMenuState: (state: DesktopMenuState) => {
     ipcRenderer.send('lmcode:updateMenuState', state)
+  },
+
+  // ── Desktop notifications ──────────────────────────────────────
+
+  sendDesktopNotification: (payload: DesktopNotificationPayload) => {
+    ipcRenderer.send('lmcode:sendNotification', payload)
   },
 
   // ── Approval / Question responses ───────────────────────────────

@@ -11,6 +11,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
   DesktopCreateSessionOptions,
+  DesktopNotificationPayload,
   InteractionSettledPayload,
   QuestionRequestPayload,
   QuestionResponsePayload,
@@ -269,6 +270,9 @@ interface LmcodeAPI {
   onMenuCommand: (callback: (data: DesktopMenuCommandPayload) => void) => () => void
 
   updateMenuState: (state: DesktopMenuState) => void
+
+  // Desktop notifications (fire-and-forget; main decides whether to show)
+  sendDesktopNotification: (payload: DesktopNotificationPayload) => void
 
   // Memory
   listMemories: () => Promise<MemorySummary[]>

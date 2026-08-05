@@ -29,6 +29,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mergeRefreshedSessions, useSessionStore } from '@/stores/session-store'
+import { unreadCountForSession, useInboxStore } from '@/stores/inbox-store'
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher'
 import { ProjectPicker } from '@/components/ProjectPicker'
 import type { SessionInfo } from '@/types'
@@ -86,6 +87,9 @@ function SessionStatusIndicator({
   const hasUnread = useSessionStore(
     (state) => !isCurrent && state.bg[sessionId]?.unread === true,
   )
+  const inboxUnread = useInboxStore((state) =>
+    isCurrent ? 0 : unreadCountForSession(state.items, sessionId),
+  )
 
   if (isStreaming) {
     return (
@@ -96,6 +100,20 @@ function SessionStatusIndicator({
         title="正在生成"
       >
         <LoaderCircle size={12} className="lm-spin" />
+      </span>
+    )
+  }
+  if (inboxUnread > 0) {
+    return (
+      <span
+        role="status"
+        aria-label={`有 ${inboxUnread} 条未读通知`}
+        title={`有 ${inboxUnread} 条未读通知`}
+        className="flex h-4 w-4 shrink-0 items-center justify-center"
+      >
+        <span className="flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--lm-accent-soft)] px-0.5 text-[8px] font-semibold text-[var(--lm-accent-text)]">
+          {inboxUnread > 9 ? '9+' : inboxUnread}
+        </span>
       </span>
     )
   }

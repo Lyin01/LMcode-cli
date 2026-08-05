@@ -4,6 +4,7 @@ import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useEvents } from '@/hooks/useEvents'
+import { useInbox } from '@/hooks/useInbox'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
 import { ChatPanel } from '@/components/ChatPanel'
@@ -19,6 +20,7 @@ import { TerminalPanel } from '@/components/TerminalPanel'
 import { WorktreesPanel } from '@/components/WorktreesPanel'
 import { SubagentsPanel } from '@/components/SubagentsPanel'
 import { AutomationsPanel } from '@/components/AutomationsPanel'
+import { InboxPanel } from '@/components/InboxPanel'
 import { KeyboardShortcutsPanel } from '@/components/KeyboardShortcutsPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
@@ -58,6 +60,7 @@ type ActivePanel =
   | 'worktrees'
   | 'subagents'
   | 'automations'
+  | 'inbox'
   | 'keyboard-shortcuts'
 
 export default function App() {
@@ -82,6 +85,7 @@ export default function App() {
   const permissionSwitchingRef = useRef(false)
 
   useEvents()
+  useInbox()
 
   // Apply stored theme once on mount (index.html already set the attribute,
   // this keeps React state and the document in sync).
@@ -319,6 +323,10 @@ export default function App() {
     setActivePanel('automations')
   }, [])
 
+  const handleOpenInbox = useCallback(() => {
+    setActivePanel((current) => current === 'inbox' ? null : 'inbox')
+  }, [])
+
   const handleMenuCommand = useCallback(
     (command: DesktopMenuCommand): void => {
       const state = useSessionStore.getState()
@@ -461,6 +469,7 @@ export default function App() {
         <TopBar
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
+          onOpenInbox={handleOpenInbox}
           onOpenTasks={handleToggleTasks}
           onOpenGitReview={handleOpenGitReview}
           onOpenTerminal={handleOpenTerminal}
@@ -529,6 +538,9 @@ export default function App() {
       </ErrorBoundary>
       <ErrorBoundary name="自动化">
         <AutomationsPanel open={activePanel === 'automations'} onClose={() => setActivePanel(null)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="通知中心">
+        <InboxPanel open={activePanel === 'inbox'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="键盘快捷键">
         <KeyboardShortcutsPanel

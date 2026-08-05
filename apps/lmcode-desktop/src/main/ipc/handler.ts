@@ -25,6 +25,7 @@ import { dirname, join } from 'node:path'
 import type {
   ApprovalRequestPayload,
   DesktopCreateSessionOptions,
+  DesktopNotificationPayload,
   InteractionSettledPayload,
   QuestionRequestPayload,
 } from '../../shared/ipc-types.js'
@@ -922,6 +923,20 @@ export function registerAllHandlers(
 
   secureOn('lmcode:quit', () => {
     app.quit()
+  })
+
+  // ── Desktop notifications ──────────────────────────────────────
+
+  // Renderer-originated notifications (currently: a background session's
+  // turn finished). The renderer sees everything while the window is
+  // focused, so only escalate to the OS when the user is looking
+  // elsewhere. Approval notifications keep their own main-side path.
+  secureOn('lmcode:sendNotification', (_event, payload: DesktopNotificationPayload) => {
+    if (mainWindow.isDestroyed() || mainWindow.isFocused()) return
+    if (payload?.kind !== 'turn-completed' || typeof payload.title !== 'string') return
+    const title = payload.title.trim().slice(0, 120) || '新任务'
+    const body = (payload.body ?? '后台任务的回合已完成').slice(0, 200)
+    sendNotification(`LMCODE - ${title}`, body)
   })
 
   // ── Memory store ───────────────────────────────────────────────
