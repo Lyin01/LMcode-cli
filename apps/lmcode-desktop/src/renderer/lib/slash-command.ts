@@ -18,6 +18,7 @@ export type ParsedDesktopSlashCommand =
   | { readonly kind: 'config' }
   | { readonly kind: 'clear' }
   | { readonly kind: 'export' }
+  | { readonly kind: 'dream' }
   | { readonly kind: 'help' }
   | { readonly kind: 'error'; readonly message: string }
 
@@ -56,6 +57,7 @@ export function parseDesktopSlashCommand(input: string): ParsedDesktopSlashComma
     case 'config':
     case 'clear':
     case 'export':
+    case 'dream':
     case 'help':
       if (args) return { kind: 'error', message: `命令 \`/${name}\` 不接受参数。` }
       return { kind: name }

@@ -17,6 +17,12 @@ import {
 } from '@/lib/projects'
 import { AgentWelcome } from '@/components/AgentWelcome'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
+import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
+import { AttachmentStrip } from '@/components/AttachmentStrip'
+import { defaultPastedImageName } from '@/lib/pasted-image-name'
+import { fileToDataUrl } from '@/lib/file-to-data-url'
+import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
+import type { UserAttachment } from '@/types'
 
 const NO_PROJECT_LABEL = '不关联项目'
 const targetMenuItemClass =
@@ -39,6 +45,9 @@ export function WelcomeScreen() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [starting, setStarting] = useState(false)
+  const [attachments, setAttachments] = useState<UserAttachment[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const attachmentsRef = useRef<UserAttachment[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const target: NewSessionTarget =
@@ -62,11 +71,85 @@ export function WelcomeScreen() {
     if (workDir) setChosenTarget({ kind: 'project', workDir })
   }
 
+  const attachPastedFile = async (file: File): Promise<void> => {
+    if (attachmentsRef.current.length >= MAX_PROMPT_ATTACHMENTS) {
+      setAttachmentError(`每条消息最多附加 ${MAX_PROMPT_ATTACHMENTS} 个文件`)
+      return
+    }
+    setAttachmentError(null)
+    try {
+      const filePath = window.lmcodeAPI.getPathForFile(file) || undefined
+      let preview: FileAttachmentPreview
+      if (filePath) {
+        if (attachmentsRef.current.some((item) => item.filePath === filePath)) return
+        preview = await window.lmcodeAPI.readFileAttachment(filePath)
+      } else {
+        if (!file.type.startsWith('image/')) return
+        const dataUrl = await fileToDataUrl(file)
+        preview = await window.lmcodeAPI.readInlineImageAttachment(
+          file.name || defaultPastedImageName(file.type),
+          dataUrl,
+        )
+      }
+      const attachment: UserAttachment = {
+        id: `attachment_${globalThis.crypto.randomUUID()}`,
+        kind: preview.kind,
+        name: preview.name,
+        filePath,
+        sizeBytes: preview.sizeBytes,
+        truncated: preview.kind === 'text' ? preview.truncated : false,
+        previewUrl: preview.kind === 'image' ? preview.dataUrl : undefined,
+      }
+      const current = attachmentsRef.current
+      const isDuplicate = filePath
+        ? current.some((item) => item.filePath === filePath)
+        : preview.kind === 'image' &&
+          current.some((item) => item.previewUrl === attachment.previewUrl)
+      if (isDuplicate || current.length >= MAX_PROMPT_ATTACHMENTS) return
+      const next = [...current, attachment]
+      attachmentsRef.current = next
+      setAttachments(next)
+    } catch (error) {
+      setAttachmentError(
+        error instanceof Error ? error.message : `无法附加“${file.name || '剪贴板文件'}”`,
+      )
+    }
+  }
+
+  const removeAttachment = (id: string): void => {
+    const next = attachmentsRef.current.filter((attachment) => attachment.id !== id)
+    attachmentsRef.current = next
+    setAttachments(next)
+    setAttachmentError(null)
+  }
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    let files = Array.from(event.clipboardData.files)
+    if (files.length === 0) {
+      // Some clipboard sources expose image data only through items.
+      files = Array.from(event.clipboardData.items)
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null)
+    }
+    if (files.length === 0) return
+    if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+    void (async () => {
+      for (const file of files.slice(0, MAX_PROMPT_ATTACHMENTS)) {
+        await attachPastedFile(file)
+      }
+    })()
+  }
+
   const handleSubmit = (): void => {
     const text = draft.trim()
-    if (!text || starting) return
+    const pendingAttachments = attachmentsRef.current
+    if ((!text && pendingAttachments.length === 0) || starting) return
     setStarting(true)
-    void startSessionWithMessage(target, text).finally(() => setStarting(false))
+    attachmentsRef.current = []
+    setAttachments([])
+    setAttachmentError(null)
+    void startSessionWithMessage(target, text, pendingAttachments).finally(() => setStarting(false))
   }
 
   return (
@@ -89,10 +172,17 @@ export function WelcomeScreen() {
                 handleSubmit()
               }
             }}
+            onPaste={handlePaste}
             placeholder="描述你想交给 Agent 完成的任务…"
             rows={2}
             className="block max-h-[220px] min-h-[78px] w-full resize-none bg-transparent px-4 pb-2 pt-3.5 text-[14px] leading-relaxed text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)]"
           />
+
+          {attachments.length > 0 && (
+            <div className="px-3 pb-1">
+              <AttachmentStrip attachments={attachments} onRemove={removeAttachment} />
+            </div>
+          )}
 
           <div className="flex items-center gap-1 border-t border-transparent px-2.5 pb-2.5 pt-1">
             <DropdownMenu.Root open={pickerOpen} onOpenChange={setPickerOpen}>
@@ -182,6 +272,7 @@ export function WelcomeScreen() {
             </DropdownMenu.Root>
 
             <ModelSwitcher />
+            <ThinkingSwitcher />
             <div className="flex-1" />
             <span className="hidden text-[9px] text-[var(--lm-text-muted)] sm:inline">
               Enter 发送 · Shift+Enter 换行
@@ -189,7 +280,7 @@ export function WelcomeScreen() {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={!draft.trim() || starting}
+              disabled={(!draft.trim() && attachments.length === 0) || starting}
               className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:opacity-30"
               title={starting ? '正在创建任务…' : '开始任务'}
               aria-label="开始任务"
@@ -198,6 +289,12 @@ export function WelcomeScreen() {
             </button>
           </div>
         </div>
+
+        {attachmentError && (
+          <p className="mt-2 text-center text-[11px] text-[var(--lm-error)]">
+            {attachmentError}
+          </p>
+        )}
 
         <p className="mt-3 text-center text-[10px] text-[var(--lm-text-muted)]">
           Agent 默认只在所选工作区内操作，需要额外权限时会向你确认。

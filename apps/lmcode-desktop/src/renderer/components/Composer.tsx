@@ -35,6 +35,7 @@ import {
   saveComposerDraft,
 } from '@/lib/composer-drafts'
 import { defaultPastedImageName } from '@/lib/pasted-image-name'
+import { fileToDataUrl } from '@/lib/file-to-data-url'
 
 interface ComposerProps {
   autoFocus?: boolean
@@ -62,6 +63,7 @@ const COMMAND_HELP = [
   '- `/mode`、`/config`：打开设置。',
   '- `/clear`：在当前项目中新建对话。',
   '- `/export`：导出当前会话。',
+  '- `/dream`：整理记忆库（合并重复、清理过期条目）。',
 ].join('\n')
 
 const EMPTY_QUEUED_MESSAGES: readonly QueuedUserMessage[] = []
@@ -71,23 +73,6 @@ function goalStatusText(goal: GoalSnapshotData | null): string {
   const remaining = goal.budget.remainingTokens
   const budget = remaining === null ? '' : ` · 剩余 ${remaining.toLocaleString()} tokens`
   return `🎯 **${goal.objective}**\n\n状态：${goal.status} · 已执行 ${goal.turnsUsed} 轮${budget}`
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  const result = Promise.withResolvers<string>()
-  const reader = new FileReader()
-  reader.addEventListener('load', () => {
-    if (typeof reader.result === 'string') result.resolve(reader.result)
-    else result.reject(new Error('无法读取剪贴板图片'))
-  }, { once: true })
-  reader.addEventListener('error', () => {
-    result.reject(reader.error ?? new Error('无法读取剪贴板图片'))
-  }, { once: true })
-  reader.addEventListener('abort', () => {
-    result.reject(new Error('剪贴板图片读取已取消'))
-  }, { once: true })
-  reader.readAsDataURL(file)
-  return result.promise
 }
 
 export function Composer({
@@ -495,6 +480,10 @@ export function Composer({
             showNotice(`会话已导出到：\n\n\`${zipPath}\``)
             break
           }
+          case 'dream':
+            await window.lmcodeAPI.activateSkill(currentSessionId, 'dream')
+            showNotice('已开始整理记忆库，Agent 会在对话中给出整理方案。')
+            break
           case 'help':
             showNotice(COMMAND_HELP)
             break

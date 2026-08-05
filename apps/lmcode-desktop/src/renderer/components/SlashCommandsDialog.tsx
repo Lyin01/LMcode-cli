@@ -14,6 +14,7 @@ import {
   Undo2,
   CircleOff,
   ScanSearch,
+  Sparkles,
 } from 'lucide-react'
 
 export interface SlashCommand {
@@ -101,6 +102,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     label: '/export',
     description: '导出会话',
     icon: <Download size={14} />,
+  },
+  {
+    id: 'dream',
+    label: '/dream',
+    description: '整理记忆库：合并重复、清理过期条目',
+    icon: <Sparkles size={14} />,
   },
   {
     id: 'help',
