@@ -21,6 +21,7 @@ import type {
   Logger,
 } from '@lmcode-cli/lmcode-sdk'
 import { randomUUID } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
   ApprovalRequestPayload,
@@ -443,6 +444,22 @@ export function registerAllHandlers(
     const result = await harness.exportSession({ id, version: app.getVersion() })
     return result.zipPath
   })
+
+  secureInvoke(
+    'lmcode:saveTextFile',
+    async (
+      _event,
+      input: { readonly suggestedName: string; readonly content: string },
+    ): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: '导出为文件',
+        defaultPath: input.suggestedName.trim() || 'export.txt',
+      })
+      if (result.canceled || !result.filePath) return null
+      await writeFile(result.filePath, input.content, 'utf8')
+      return result.filePath
+    },
+  )
 
   secureInvoke('lmcode:listSessions', async (): Promise<readonly SessionSummary[]> => {
     return harness.listSessions()

@@ -33,6 +33,13 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
     artifactIdForToolCall(state.artifacts, toolCall.id),
   )
 
+  const duration =
+    toolCall.startedAt !== undefined && toolCall.endedAt !== undefined
+      ? toolCall.endedAt - toolCall.startedAt
+      : null
+  const durationLabel =
+    duration !== null ? (duration < 1000 ? `${duration}ms` : `${(duration / 1000).toFixed(1)}s`) : null
+
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[12px]">
       <button
@@ -49,6 +56,9 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
         <span className="ml-auto flex items-center gap-1.5">
           <Icon size={13} className={cn(cfg.color, toolCall.status === 'running' && 'lm-spin')} />
           <span className={cn('text-[11px]', cfg.color)}>{cfg.label}</span>
+          {durationLabel && (
+            <span className="font-mono text-[10px] text-[var(--lm-text-muted)]">{durationLabel}</span>
+          )}
         </span>
       </button>
 

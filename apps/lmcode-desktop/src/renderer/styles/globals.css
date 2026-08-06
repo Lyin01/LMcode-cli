@@ -882,6 +882,10 @@ h1, h2, h3, h4, h5, h6 {
   margin-left: 1px;
 }
 
+.lm-cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
 /* Thinking shimmer */
 @keyframes lmPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 .lm-pulse { animation: lmPulse 1.4s ease-in-out infinite; }

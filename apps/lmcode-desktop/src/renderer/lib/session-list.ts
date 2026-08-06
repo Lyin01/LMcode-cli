@@ -16,13 +16,20 @@ export function sessionDisplayTitle(session: SessionInfo): string {
  * Search the fields users can see in the sidebar. Every whitespace-separated
  * term must match, so queries such as "desktop release" stay useful even when
  * the words occur in different parts of a title or project path.
+ *
+ * `pinnedIds` (optional) moves pinned sessions above everything else while
+ * keeping each group's activity ordering intact.
  */
 export function filterAndSortSessions(
   sessions: readonly SessionInfo[],
   query: string,
+  pinnedIds?: ReadonlySet<string>,
 ): readonly SessionInfo[] {
   const terms = normalizeSearchText(query).split(' ').filter(Boolean)
   const sorted = [...sessions].sort((left, right) => {
+    const leftPinned = pinnedIds?.has(left.id) ?? false
+    const rightPinned = pinnedIds?.has(right.id) ?? false
+    if (leftPinned !== rightPinned) return leftPinned ? -1 : 1
     const activityDifference =
       (right.updatedAt || right.createdAt) - (left.updatedAt || left.createdAt)
     if (activityDifference !== 0) return activityDifference
@@ -32,7 +39,7 @@ export function filterAndSortSessions(
   if (terms.length === 0) return sorted
   return sorted.filter((session) => {
     const searchable = normalizeSearchText(
-      `${sessionDisplayTitle(session)}\n${session.workDir ?? ''}`,
+      `${sessionDisplayTitle(session)}\n${session.workDir ?? ''}\n${session.lastPrompt ?? ''}`,
     )
     return terms.every((term) => searchable.includes(term))
   })

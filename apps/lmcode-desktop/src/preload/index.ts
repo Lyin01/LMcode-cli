@@ -46,6 +46,9 @@ const lmcodeAPI = {
   exportSession: (id: string) =>
     ipcRenderer.invoke('lmcode:exportSession', id),
 
+  saveTextFile: (input: { readonly suggestedName: string; readonly content: string }) =>
+    ipcRenderer.invoke('lmcode:saveTextFile', input),
+
   renameSession: (id: string, title: string) =>
     ipcRenderer.invoke('lmcode:renameSession', id, title),
 

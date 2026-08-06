@@ -123,6 +123,11 @@ interface LmcodeAPI {
 
   exportSession: (id: string) => Promise<string>
 
+  saveTextFile: (input: {
+    readonly suggestedName: string
+    readonly content: string
+  }) => Promise<string | null>
+
   renameSession: (id: string, title: string) => Promise<void>
 
   listSessions: () => Promise<readonly SessionSummary[]>

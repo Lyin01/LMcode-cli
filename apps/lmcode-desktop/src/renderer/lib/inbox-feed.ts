@@ -98,12 +98,17 @@ export function startInboxFeed(deps: InboxFeedDeps): () => void {
       }
     }
 
-    // 回合完成只进收件箱的条件：发生在后台会话。当前正在看的会话
-    // 完成时用户已经看在眼里，不进收件箱、也不发系统通知。
+    // 回合完成的收件箱投影：后台会话完成时进收件箱并通知；当前会话
+    // 完成且窗口不可见（最小化/被遮挡）时只发桌面通知，不进收件箱。
     const nextStreaming = streamingSnapshot(state)
+    const pageHidden =
+      typeof document !== 'undefined' && document.visibilityState === 'hidden'
     for (const [sessionId, isStreaming] of nextStreaming) {
-      if (streaming.get(sessionId) === true && !isStreaming && sessionId !== state.currentSessionId) {
-        const title = sessionTitle(state, sessionId)
+      if (streaming.get(sessionId) !== true || isStreaming) continue
+      const isBackground = sessionId !== state.currentSessionId
+      if (!isBackground && !pageHidden) continue
+      const title = sessionTitle(state, sessionId)
+      if (isBackground) {
         inboxStore.getState().add({
           type: 'turn-completed',
           sessionId,
@@ -117,6 +122,13 @@ export function startInboxFeed(deps: InboxFeedDeps): () => void {
           sessionId,
           title,
           body: '后台任务的回合已完成',
+        })
+      } else {
+        deps.notifyTurnCompleted?.({
+          kind: 'turn-completed',
+          sessionId,
+          title,
+          body: '当前任务已完成',
         })
       }
     }

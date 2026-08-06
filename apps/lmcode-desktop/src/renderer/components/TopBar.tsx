@@ -21,6 +21,7 @@ import { useSubagentStore } from '@/stores/subagent-store'
 import { totalUnreadCount, useInboxStore } from '@/stores/inbox-store'
 import { resolveTheme, type ThemePref } from '@/lib/theme'
 import { isNoProjectWorkDir, projectDisplayName } from '@/lib/projects'
+import { GoalChip } from '@/components/GoalChip'
 
 interface TopBarProps {
   sidebarOpen: boolean
@@ -166,6 +167,8 @@ export function TopBar({
           </span>
         </div>
       )}
+
+      <GoalChip />
 
       {currentSessionId && (
         <span

@@ -41,6 +41,10 @@ export interface ToolCallInfo {
   status: 'pending' | 'running' | 'completed' | 'failed'
   result?: string
   progress?: string
+  /** 工具调用开始时间（tool.call.started 事件），用于耗时显示。 */
+  startedAt?: number
+  /** 工具调用结束时间（tool.result 事件）。 */
+  endedAt?: number
 }
 
 export interface SessionInfo {
@@ -49,6 +53,8 @@ export interface SessionInfo {
   workDir: string
   createdAt: number
   updatedAt: number
+  /** 最近一次用户提问，用于侧栏搜索。 */
+  lastPrompt?: string
   model?: string
   thinkingLevel: ThinkingEffort
   permission: PermissionMode

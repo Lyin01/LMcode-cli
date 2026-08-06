@@ -23,6 +23,7 @@ import { clearComposerDraft } from '@/lib/composer-drafts'
 import { useConfigStore } from '@/stores/config-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
+import { useGoalStore } from '@/stores/goal-store'
 import type {
   Event,
   TurnEndedEvent,
@@ -133,6 +134,7 @@ export function mergeRefreshedSessions(
       workDir: summary.workDir,
       createdAt: summary.createdAt,
       updatedAt: summary.updatedAt,
+      lastPrompt: summary.lastPrompt,
       model: prior?.model,
       thinkingLevel: prior?.thinkingLevel ?? thinkingLevel,
       permission: prior?.permission ?? 'manual',
@@ -205,6 +207,7 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
         toolName: ev.name,
         args: JSON.stringify(ev.args, null, 2),
         status: 'running',
+        startedAt: Date.now(),
       }
       return {
         ...slice,
@@ -255,6 +258,7 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
                           typeof ev.output === 'string'
                             ? ev.output
                             : JSON.stringify(ev.output, null, 2),
+                        endedAt: Date.now(),
                       }
                     : tc,
                 ),
@@ -628,6 +632,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     // for the rest of the renderer's lifetime.
     useTaskStore.getState().removeBySession(deletedId)
     useSubagentStore.getState().removeBySession(deletedId)
+    useGoalStore.getState().removeBySession(deletedId)
     clearComposerDraft(deletedId)
   },
 

@@ -15,12 +15,15 @@ import {
   Check,
   ChevronRight,
   Download,
+  FileJson,
+  FileText,
   Folder,
   FolderOpen,
   LoaderCircle,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
+  Pin,
   Plus,
   Search,
   Settings,
@@ -48,6 +51,11 @@ import {
   getStoredCollapsedProjects,
   setStoredCollapsedProjects,
 } from '@/lib/sidebar-preference'
+import {
+  getPinnedSessions,
+  setSessionPinned,
+} from '@/lib/pinned-sessions'
+import { historyToMessages } from '@/lib/history'
 
 interface SidebarProps {
   open: boolean
@@ -62,6 +70,7 @@ interface SidebarProps {
 interface SessionListItemProps {
   readonly session: SessionInfo
   readonly isCurrent: boolean
+  readonly isPinned: boolean
   readonly activityLabel: string
   readonly renameRequestNonce: number | null
   readonly pendingDeletion: PendingSessionDeletion | null
@@ -69,6 +78,8 @@ interface SessionListItemProps {
   readonly onSelect: (id: string) => void
   readonly onRename: (id: string, title: string) => Promise<void>
   readonly onExport: (id: string) => void
+  readonly onExportText: (id: string, format: 'markdown' | 'json') => void
+  readonly onTogglePin: (id: string) => void
   readonly onDelete: (id: string) => void
   readonly onNavigateKey: (event: KeyboardEvent<HTMLButtonElement>, id: string) => void
   readonly registerButton: (id: string, node: HTMLButtonElement | null) => void
@@ -183,6 +194,7 @@ function CollapsedProjectActivity({
 const SessionListItem = memo(function SessionListItem({
   session,
   isCurrent,
+  isPinned,
   activityLabel,
   renameRequestNonce,
   pendingDeletion,
@@ -190,6 +202,8 @@ const SessionListItem = memo(function SessionListItem({
   onSelect,
   onRename,
   onExport,
+  onExportText,
+  onTogglePin,
   onDelete,
   onNavigateKey,
   registerButton,
@@ -297,6 +311,9 @@ const SessionListItem = memo(function SessionListItem({
             title={`${title}\n${session.workDir}`}
           >
             <SessionStatusIndicator sessionId={session.id} isCurrent={isCurrent} />
+            {isPinned && (
+              <Pin size={11} className="shrink-0 text-[var(--lm-accent-text)]" aria-label="已置顶" />
+            )}
             <span className={cn('min-w-0 flex-1 truncate text-[12.5px]', isCurrent && 'font-medium')}>
               {title}
             </span>
@@ -348,6 +365,27 @@ const SessionListItem = memo(function SessionListItem({
                 >
                   <Download size={14} />
                   导出任务
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  onSelect={() => onExportText(session.id, 'markdown')}
+                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
+                >
+                  <FileText size={14} />
+                  导出为 Markdown
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  onSelect={() => onExportText(session.id, 'json')}
+                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
+                >
+                  <FileJson size={14} />
+                  导出为 JSON
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  onSelect={() => onTogglePin(session.id)}
+                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
+                >
+                  <Pin size={14} className={isPinned ? 'text-[var(--lm-accent-text)]' : undefined} />
+                  {isPinned ? '取消置顶' : '置顶任务'}
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator className="my-1 h-px bg-[var(--lm-border)]" />
                 <DropdownMenu.Item
@@ -404,12 +442,15 @@ export function Sidebar({
   const [collapsedProjects, setCollapsedProjects] = useState<ReadonlySet<string>>(() =>
     getStoredCollapsedProjects(),
   )
+  const [pinnedSessions, setPinnedSessions] = useState<ReadonlySet<string>>(() =>
+    getPinnedSessions(),
+  )
   const searchInputRef = useRef<HTMLInputElement>(null)
   const sessionButtonRefs = useRef(new Map<string, HTMLButtonElement>())
 
   const filtered = useMemo(
-    () => filterAndSortSessions(sessions, deferredQuery),
-    [deferredQuery, sessions],
+    () => filterAndSortSessions(sessions, deferredQuery, pinnedSessions),
+    [deferredQuery, pinnedSessions, sessions],
   )
   // Keep project ordering stable while users move between tasks. Activity —
   // not selection — determines where a project appears in the list.
@@ -583,6 +624,69 @@ export function Sidebar({
       },
     )
   }, [addMessageToSession])
+
+  const handleExportText = useCallback(
+    async (id: string, format: 'markdown' | 'json') => {
+      try {
+        const history = await window.lmcodeAPI.getSessionHistory(id)
+        const messages = historyToMessages(history)
+        const session = useSessionStore.getState().sessions.find((s) => s.id === id)
+        const baseName = (session?.title?.trim() || 'session').replace(/[\\/:*?"<>|\n]/g, '_')
+        let content: string
+        let ext: string
+        if (format === 'markdown') {
+          ext = 'md'
+          content = messages
+            .map((message) => {
+              const who =
+                message.role === 'user'
+                  ? 'User'
+                  : message.role === 'assistant'
+                    ? 'Assistant'
+                    : 'System'
+              return `## ${who}\n\n${message.content ?? ''}`
+            })
+            .join('\n\n---\n\n')
+        } else {
+          ext = 'json'
+          content = JSON.stringify(messages, null, 2)
+        }
+        const filePath = await window.lmcodeAPI.saveTextFile({
+          suggestedName: `${baseName}.${ext}`,
+          content,
+        })
+        if (filePath) {
+          addMessageToSession(id, {
+            id: `sidebar_export_text_${globalThis.crypto.randomUUID()}`,
+            role: 'system',
+            variant: 'notice',
+            content: `已导出为 ${format === 'markdown' ? 'Markdown' : 'JSON'}：\n\n\`${filePath}\``,
+            timestamp: Date.now(),
+          })
+        }
+      } catch (error) {
+        console.error('Failed to export session text:', error)
+        addMessageToSession(id, {
+          id: `sidebar_export_text_error_${globalThis.crypto.randomUUID()}`,
+          role: 'system',
+          variant: 'error',
+          content: `导出失败：${error instanceof Error ? error.message : String(error)}`,
+          timestamp: Date.now(),
+        })
+      }
+    },
+    [addMessageToSession],
+  )
+
+  const handleTogglePin = useCallback((id: string) => {
+    setPinnedSessions((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      setSessionPinned(id, next.has(id))
+      return next
+    })
+  }, [])
 
   const handleRename = useCallback(
     async (id: string, title: string) => {
@@ -762,6 +866,7 @@ export function Sidebar({
                     key={session.id}
                     session={session}
                     isCurrent={session.id === currentSessionId}
+                    isPinned={pinnedSessions.has(session.id)}
                     activityLabel={formatSessionActivity(
                       session.updatedAt || session.createdAt,
                       activityNow,
@@ -774,6 +879,8 @@ export function Sidebar({
                     onSelect={selectSession}
                     onRename={handleRename}
                     onExport={handleExport}
+                    onExportText={handleExportText}
+                    onTogglePin={handleTogglePin}
                     onDelete={handleDelete}
                     onNavigateKey={handleSessionNavigateKey}
                     registerButton={registerSessionButton}

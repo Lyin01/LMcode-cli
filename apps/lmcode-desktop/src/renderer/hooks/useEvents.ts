@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
+import { useGoalStore } from '@/stores/goal-store'
 import { createSessionEventBatcher } from '@/lib/session-event-batcher'
 import type {
   ApprovalRequestPayload,
@@ -14,6 +15,7 @@ export function useEvents() {
   const enqueuePendingInteraction = useSessionStore((s) => s.enqueuePendingInteraction)
   const discardPendingInteraction = useSessionStore((s) => s.discardPendingInteraction)
   const addOrUpdateTask = useTaskStore((s) => s.addOrUpdateTask)
+  const setGoal = useGoalStore((s) => s.setGoal)
   const subagentSpawned = useSubagentStore((s) => s.spawned)
   const subagentCompleted = useSubagentStore((s) => s.completed)
   const subagentFailed = useSubagentStore((s) => s.failed)
@@ -38,6 +40,10 @@ export function useEvents() {
         addOrUpdateTask(sessionId, event.info)
       } else if (event?.type === 'background.task.terminated' && event?.info) {
         addOrUpdateTask(sessionId, event.info)
+      } else if (event?.type === 'goal.updated') {
+        // Keep the goal chip in sync with every goal transition; the event
+        // snapshot and the RPC `GoalSnapshotData` shape are compatible.
+        setGoal(sessionId, event.snapshot)
       } else if (event?.type === 'subagent.spawned') {
         subagentSpawned(sessionId, event)
       } else if (event?.type === 'subagent.completed') {
@@ -72,6 +78,7 @@ export function useEvents() {
     enqueuePendingInteraction,
     discardPendingInteraction,
     addOrUpdateTask,
+    setGoal,
     subagentSpawned,
     subagentCompleted,
     subagentFailed,
