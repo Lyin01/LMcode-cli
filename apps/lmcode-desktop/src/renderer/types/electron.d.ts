@@ -36,6 +36,7 @@ import type {
   DesktopMenuState,
 } from '../../shared/menu-types'
 import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types'
+import type { RemoteState } from '../../shared/remote-types'
 
 declare global {
 interface SessionSummary {
@@ -295,6 +296,17 @@ interface LmcodeAPI {
   respondApproval: (payload: ApprovalResponsePayload) => Promise<void>
 
   respondQuestion: (payload: QuestionResponsePayload) => Promise<void>
+
+  // Remote service
+  getRemoteState: () => Promise<RemoteState>
+
+  setRemoteEnabled: (enabled: boolean) => Promise<RemoteState>
+
+  setRemotePort: (port: number) => Promise<RemoteState>
+
+  regenerateRemoteToken: () => Promise<RemoteState>
+
+  onRemoteStateChanged: (callback: (state: RemoteState) => void) => () => void
 
   // App control
   quit: () => void

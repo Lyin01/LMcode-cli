@@ -20,10 +20,12 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Wifi,
   X,
   type LucideIcon,
 } from 'lucide-react'
 import { ModelProvidersPanel } from '@/components/settings/ModelProvidersPanel'
+import { RemotePanel } from '@/components/settings/RemotePanel'
 import { buildModelEntries } from '@/lib/models'
 import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 import type { ThemePref } from '@/lib/theme'
@@ -50,6 +52,7 @@ type SettingsSectionId =
   | 'permissions'
   | 'shortcuts'
   | 'extensions'
+  | 'remote'
   | 'about'
 
 interface SettingsSectionDefinition {
@@ -145,6 +148,14 @@ const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
     keywords: '插件 skill 技能 mcp 工具 集成',
     group: '集成',
     icon: Puzzle,
+  },
+  {
+    id: 'remote',
+    label: '远程连接',
+    description: '手机与远程设备连接控制',
+    keywords: '远程 手机 局域网 令牌 token 二维码 lan 外网 穿透',
+    group: '集成',
+    icon: Wifi,
   },
   {
     id: 'about',
@@ -764,6 +775,9 @@ export function SettingsPanel({
         break
       case 'extensions':
         page = <ExtensionsSettingsPage onOpenExtensions={onOpenExtensions} />
+        break
+      case 'remote':
+        page = <RemotePanel />
         break
       case 'about':
         page = (

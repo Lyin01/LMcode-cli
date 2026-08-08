@@ -29,6 +29,7 @@ import type {
 } from '../shared/menu-types.js'
 import type { GitDiscardScope, GitHunkActionInput } from '../shared/git-types.js'
 import type { ProviderUsageSnapshot } from '../shared/provider-usage-types.js'
+import type { RemoteState } from '../shared/remote-types.js'
 
 // Custom API exposed as window.lmcodeAPI
 const lmcodeAPI = {
@@ -236,6 +237,27 @@ const lmcodeAPI = {
 
   stopTerminal: (sessionId: string) =>
     ipcRenderer.invoke('lmcode:stopTerminal', sessionId),
+
+  // ── Remote service ────────────────────────────────────────────────
+
+  getRemoteState: () => ipcRenderer.invoke('lmcode:getRemoteState'),
+
+  setRemoteEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('lmcode:setRemoteEnabled', enabled),
+
+  setRemotePort: (port: number) =>
+    ipcRenderer.invoke('lmcode:setRemotePort', port),
+
+  regenerateRemoteToken: () =>
+    ipcRenderer.invoke('lmcode:regenerateRemoteToken'),
+
+  onRemoteStateChanged: (callback: (state: RemoteState) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: RemoteState) => callback(state)
+    ipcRenderer.on('lmcode:remoteStateChanged', handler)
+    return () => {
+      ipcRenderer.removeListener('lmcode:remoteStateChanged', handler)
+    }
+  },
 
   // ── Version ─────────────────────────────────────────────────────
 

@@ -901,3 +901,117 @@ h1, h2, h3, h4, h5, h6 {
     transition-delay: 0ms !important;
   }
 }
+
+/* ── Remote connection panel ─────────────────────────────────────── */
+.lm-remote-surface .lm-settings-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.lm-remote-urls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.lm-remote-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lm-remote-url-row .lm-settings-path {
+  flex: 1;
+  min-width: 0;
+}
+
+.lm-remote-empty {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--lm-text-secondary);
+}
+
+.lm-remote-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 8px;
+  border-top: 1px solid var(--lm-border);
+}
+
+.lm-remote-qr img {
+  border-radius: 8px;
+  border: 1px solid var(--lm-border);
+}
+
+.lm-remote-qr p {
+  font-size: 12px;
+  color: var(--lm-text-secondary);
+}
+
+.lm-remote-token-control {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.lm-remote-token-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--lm-border-strong);
+  background: var(--lm-bg-surface);
+  color: var(--lm-text-secondary);
+  font-size: 12px;
+}
+
+.lm-remote-token-box code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--lm-text-primary);
+}
+
+.lm-remote-token-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.lm-remote-port-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.lm-remote-port-control input {
+  width: 140px;
+}
+
+.lm-remote-tunnel-list {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--lm-text-secondary);
+  list-style: disc;
+}
+
+.lm-remote-tunnel-list code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--lm-text-primary);
+}
+
+.lm-remote-error {
+  margin-top: 12px;
+  border-color: color-mix(in srgb, var(--lm-danger, #dc2626) 40%, transparent);
+}

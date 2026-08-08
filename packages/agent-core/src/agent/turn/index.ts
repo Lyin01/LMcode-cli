@@ -6,6 +6,9 @@ import {
   type TokenUsage,
 } from '@lmcode-cli/ltod';
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { Agent } from '..';
 import {
   ErrorCodes,
@@ -173,7 +176,7 @@ export class TurnFlow {
       input,
       origin,
     });
-    return this.launch(input, origin);
+    return this.launch(this.degradeImagesForModel(input), origin);
   }
 
   // Returns the new turnId, or null if the input was buffered as a steer
@@ -184,11 +187,129 @@ export class TurnFlow {
       input,
       origin,
     });
+    const degraded = this.degradeImagesForModel(input);
     if (this.activeTurn) {
-      this.steerBuffer.push({ input, origin });
+      this.steerBuffer.push({ input: degraded, origin });
       return null;
     }
-    return this.launch(input, origin);
+    return this.launch(degraded, origin);
+  }
+
+  /**
+   * 当模型没有视觉能力（image_in=false）时，把用户输入里的图片 part 落盘到
+   * 会话 attachments 目录，并在文本中提示 agent 用 visual-mcp 查看。
+   *
+   * 背景：粘贴图片在桌面端/CLI 会以 image_url part 进入输入，序列化后发给
+   * provider。若模型不支持图像（如 DeepSeek V4 Flash），远端代理会丢弃图片
+   * 或替换成占位符（表现为 `[Unsupported Image]`），模型永远看不到内容。
+   * 这里在本地把图片保存为可读文件，让无视觉模型也能通过 visual-mcp 这类
+   * 视觉 MCP 工具补上「看图」能力。
+   *
+   * 有视觉能力的模型（image_in=true）原样返回，不做任何处理。
+   */
+  private degradeImagesForModel(input: readonly ContentPart[]): readonly ContentPart[] {
+    const capabilities = this.agent.config.modelCapabilities;
+    if (capabilities.image_in) return input;
+
+    let hasImage = false;
+    for (const part of input) {
+      if (part.type === 'image_url') {
+        hasImage = true;
+        break;
+      }
+    }
+    if (!hasImage) return input;
+
+    const kept: ContentPart[] = [];
+    const savedPaths: string[] = [];
+    for (const part of input) {
+      if (part.type !== 'image_url') {
+        kept.push(part);
+        continue;
+      }
+      const filePath = this.persistImagePart(part);
+      if (filePath !== null) savedPaths.push(filePath);
+    }
+
+    if (savedPaths.length === 0) {
+      // 一张都没保存成功：保留原输入（至少记录还在，供有视觉的重放场景使用）
+      return kept.length > 0 ? kept : input;
+    }
+
+    const note: ContentPart = {
+      type: 'text',
+      text:
+        `[用户粘贴了 ${savedPaths.length} 张图片。当前模型无视觉能力，图片未随消息发送，已保存到：\n` +
+        savedPaths.map((p) => `- ${p}`).join('\n') +
+        `\n如需查看图片内容，请调用 visual-mcp 的 analyze_image 工具，传入上述文件路径（每张图一次调用）。]`,
+    };
+    kept.push(note);
+    return kept;
+  }
+
+  /** 图片 MIME → 扩展名 */
+  private static readonly IMAGE_MIME_TO_EXT: Record<string, string> = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+  };
+
+  /**
+   * 把 image_url part 的图片（data URL 或 blobref）落盘到
+   * `<homedir>/attachments/<name>`，返回绝对路径；失败返回 null。
+   */
+  private persistImagePart(part: Extract<ContentPart, { type: 'image_url' }>): string | null {
+    const homedir = this.agent.homedir;
+    if (!homedir) return null;
+
+    const url = part.imageUrl.url;
+    let mime = 'image/png';
+    let buffer: Buffer;
+
+    if (url.startsWith('blobref:')) {
+      const rest = url.slice('blobref:'.length);
+      const semi = rest.indexOf(';');
+      if (semi === -1) return null;
+      mime = rest.slice(0, semi);
+      const hash = rest.slice(semi + 1);
+      if (hash.length === 0) return null;
+      try {
+        buffer = readFileSync(join(homedir, 'blobs', hash));
+      } catch {
+        return null;
+      }
+    } else {
+      const match = /^data:([^;]+);base64,(.+)$/.exec(url);
+      if (match === null) return null;
+      mime = match[1] ?? 'image/png';
+      buffer = Buffer.from(match[2] ?? '', 'base64');
+      if (buffer.length === 0) return null;
+    }
+
+    const ext = TurnFlow.IMAGE_MIME_TO_EXT[mime] ?? '.png';
+    const rawName = typeof part.imageUrl.id === 'string' ? part.imageUrl.id : 'pasted-image';
+    const baseName = rawName.replace(/\.[a-z0-9]+$/i, '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'pasted-image';
+
+    const dir = join(homedir, 'attachments');
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      return null;
+    }
+
+    let target = join(dir, `${baseName}${ext}`);
+    let suffix = 1;
+    while (existsSync(target)) {
+      target = join(dir, `${baseName}-${suffix}${ext}`);
+      suffix += 1;
+    }
+    try {
+      writeFileSync(target, buffer);
+    } catch {
+      return null;
+    }
+    return target;
   }
 
   private launch(input: readonly ContentPart[], origin: PromptOrigin): number | null {

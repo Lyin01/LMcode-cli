@@ -11,12 +11,16 @@ import {
 } from 'electron'
 import type { IpcMainEvent } from 'electron'
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import updaterPkg from 'electron-updater'
 import type { NsisUpdater } from 'electron-updater'
 import { LmcodeHarness, log } from '@lmcode-cli/lmcode-sdk'
 import type { HarnessCloseOptions } from '@lmcode-cli/lmcode-sdk'
+import { MemoryMemoStore } from '@lmcode/memory'
+import { InteractionHub } from './remote/interaction-hub.js'
+import { RemoteManager } from './remote/remote-manager.js'
+import type { RemoteState } from '../shared/remote-types.js'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
 import { onceAsync, ShutdownCoordinator, withTimeoutBudget } from './lifecycle.js'
 import { loadRendererAfterReady } from './renderer-startup-sequence.js'
@@ -72,6 +76,23 @@ let handlerCleanup: Promise<void> | null = null
 let harnessInitialization: Promise<void> | null = null
 let desktopMenuState: DesktopMenuState = DEFAULT_DESKTOP_MENU_STATE
 let menuStateListener: ((event: IpcMainEvent, state: unknown) => void) | null = null
+
+// Shared app-lifetime singletons: the interaction hub (renderer + remote
+// surfaces fan out to the same hub), the memory store (shared by the desktop
+// IPC layer and the remote bridge) and the remote service manager. All three
+// survive window recreation and are torn down only in closeRuntime.
+let interactionHub: InteractionHub | null = null
+let memoryStore: MemoryMemoStore | null = null
+let remoteManager: RemoteManager | null = null
+
+function pushRemoteStateToRenderer(state: RemoteState): void {
+  if (mainWindow === null || mainWindow.isDestroyed()) return
+  try {
+    mainWindow.webContents.send('lmcode:remoteStateChanged', state)
+  } catch {
+    // Renderer teardown can race the destroyed check.
+  }
+}
 
 // ── Shutdown budget ────────────────────────────────────────────────────
 //
@@ -524,6 +545,24 @@ async function initHarness(): Promise<void> {
     version: app.getVersion(),
   })
 
+  // App-lifetime singletons: the interaction hub is shared by the renderer
+  // surface and the remote bridge, and the memory store is shared by the IPC
+  // layer and the remote bridge. The remote service is opt-in and stays off
+  // until the user enables it in settings.
+  interactionHub = new InteractionHub()
+  memoryStore = new MemoryMemoStore(dirname(runtimeEnvironment.configPath))
+  remoteManager = new RemoteManager({
+    harness,
+    hub: interactionHub,
+    memoryStore,
+    configDir: runtimeEnvironment.userDataDir,
+    version: app.getVersion(),
+    noProjectWorkDir: runtimeEnvironment.noProjectWorkDir,
+    logger: log,
+    onStateChange: pushRemoteStateToRenderer,
+  })
+  await remoteManager.init()
+
   // Register all IPC handlers
   await attachHandlersToCurrentWindow()
 }
@@ -568,6 +607,9 @@ async function attachHandlersToCurrentWindow(): Promise<void> {
     trustedRendererUrl,
     log,
     runtimeEnvironment.noProjectWorkDir,
+    interactionHub ?? undefined,
+    remoteManager ?? undefined,
+    memoryStore ?? undefined,
   )
 }
 
@@ -582,11 +624,13 @@ const closeRuntime = onceAsync(async (options?: HarnessCloseOptions): Promise<vo
   harness = null
 
   const errors: unknown[] = []
-  // Handler teardown (HTTP/IPC) and harness close (sessions, terminals) are
-  // independent; run them concurrently so their latencies overlap instead of
-  // stacking during shutdown.
+  // Handler teardown (HTTP/IPC), remote service shutdown and harness close
+  // (sessions, terminals) are independent; run them concurrently so their
+  // latencies overlap instead of stacking during shutdown.
   const results = await Promise.allSettled([
     closeHandlerRegistration(),
+    remoteManager?.close(),
+    memoryStore?.close(),
     currentHarness?.close(options),
   ])
   for (const result of results) {

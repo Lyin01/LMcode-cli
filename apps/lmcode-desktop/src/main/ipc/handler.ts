@@ -20,15 +20,12 @@ import type {
   SessionStatus,
   Logger,
 } from '@lmcode-cli/lmcode-sdk'
-import { randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import type { RemoteState } from '../../shared/remote-types.js'
 import type {
-  ApprovalRequestPayload,
   DesktopCreateSessionOptions,
   DesktopNotificationPayload,
-  InteractionSettledPayload,
-  QuestionRequestPayload,
 } from '../../shared/ipc-types.js'
 import type {
   GitCommitResult,
@@ -55,8 +52,12 @@ import {
   resolveGitWorktree,
 } from '../git-worktree.js'
 import { ProjectTerminalManager } from '../project-terminal.js'
-import { PendingInteractionRegistry } from './pending-interactions.js'
 import { isTrustedIpcSender } from '../security.js'
+import {
+  CANCELLED_APPROVAL,
+  InteractionHub,
+  type InteractionSurface,
+} from '../remote/interaction-hub.js'
 import {
   buildDesktopPromptInput,
   readFileAttachment,
@@ -82,25 +83,20 @@ interface SessionEntry {
   unsubscribeEvent: () => void
 }
 
-const CANCELLED_APPROVAL: ApprovalResponse = { decision: 'cancelled' }
-const REVERSE_RPC_TIMEOUT_MS = 300_000
-
 export interface DesktopHandlerRegistration {
   close(): Promise<void>
 }
 
-function notifyInteractionSettled(
-  mainWindow: BrowserWindow,
-  requestId: string,
-  sessionId: string,
-): void {
-  if (mainWindow.isDestroyed()) return
-  const payload: InteractionSettledPayload = { requestId, sessionId }
-  try {
-    mainWindow.webContents.send('lmcode:interactionSettled', payload)
-  } catch {
-    // Renderer teardown can race the destroyed check.
-  }
+/**
+ * Remote-service control surface used by the settings panel. Implemented by
+ * `RemoteManager`; defined as an interface so the IPC layer never depends on
+ * the manager's implementation details.
+ */
+export interface RemoteController {
+  getState(): RemoteState
+  setEnabled(enabled: boolean): Promise<RemoteState>
+  setPort(port: number): Promise<RemoteState>
+  regenerateToken(): Promise<RemoteState>
 }
 
 /**
@@ -130,6 +126,9 @@ export function registerAllHandlers(
   trustedRendererUrl: string,
   logger: Logger | undefined = undefined,
   noProjectWorkDir: string | undefined = undefined,
+  hub: InteractionHub = new InteractionHub(),
+  remote: RemoteController | undefined = undefined,
+  memoryStore: MemoryMemoStore | undefined = undefined,
 ): DesktopHandlerRegistration {
   const invokeChannels: string[] = []
   const eventListeners: Array<{
@@ -137,9 +136,45 @@ export function registerAllHandlers(
     readonly listener: (event: IpcMainEvent, ...args: unknown[]) => void
   }> = []
   const activeSessions = new Map<string, SessionEntry>()
-  const pendingApprovals = new PendingInteractionRegistry<ApprovalResponse>()
-  const pendingQuestions = new PendingInteractionRegistry<QuestionResult>()
   const credentialRoots = [harness.homeDir, dirname(harness.configPath)]
+
+  // The renderer is the primary interaction surface. Remote clients attach
+  // their own surface so approvals/questions reach every UI that is watching
+  // the session; the first responder settles the request.
+  const rendererSurface: InteractionSurface = {
+    name: 'renderer',
+    sendApproval: (payload) => {
+      if (mainWindow.isDestroyed()) return false
+      try {
+        mainWindow.webContents.send('lmcode:approvalRequest', payload)
+        return true
+      } catch {
+        return false
+      }
+    },
+    sendQuestion: (payload) => {
+      if (mainWindow.isDestroyed()) return false
+      try {
+        mainWindow.webContents.send('lmcode:questionRequest', payload)
+        return true
+      } catch {
+        return false
+      }
+    },
+    notifySettled: (payload) => {
+      if (mainWindow.isDestroyed()) return
+      try {
+        mainWindow.webContents.send('lmcode:interactionSettled', payload)
+      } catch {
+        // Renderer teardown can race the destroyed check.
+      }
+    },
+  }
+  // Idempotent: replace any surface previously registered under this name
+  // (a recreated window re-registers while the old registration may still be
+  // draining its cleanup).
+  hub.detachSurface('renderer')
+  hub.attachSurface(rendererSurface)
   const auditLog = logger?.createChild({ surface: 'desktop-ipc' })
   const providerUsage = new ProviderUsageService({ loadConfig: () => harness.getConfig() })
   let closing = false
@@ -165,11 +200,6 @@ export function registerAllHandlers(
     throw new Error('The no-project workspace directory is not configured')
   }
 
-  function settleSessionInteractions(sessionId: string): void {
-    pendingApprovals.settleSession(sessionId, CANCELLED_APPROVAL)
-    pendingQuestions.settleSession(sessionId, null)
-  }
-
   /** Set up event forwarding and reverse-RPC handlers for one live session. */
   function setupSessionListeners(session: Session): void {
     if (closing) throw new Error('Desktop IPC registration is closed')
@@ -179,7 +209,7 @@ export function registerAllHandlers(
     if (prior) {
       prior.unsubscribeEvent()
       activeSessions.delete(session.id)
-      settleSessionInteractions(session.id)
+      hub.settleSession(session.id)
     }
 
     const unsubscribeEvent = session.onEvent((event: Event) => {
@@ -203,59 +233,12 @@ export function registerAllHandlers(
         `需要审批：${request.action || '执行操作'}`,
       )
 
-      const requestId = `approval:${session.id}:${randomUUID()}`
-      const promise = pendingApprovals.request(requestId, session.id, {
-        timeoutMs: REVERSE_RPC_TIMEOUT_MS,
-        timeoutValue: CANCELLED_APPROVAL,
-        onSettled: (settledRequestId, sessionId) => {
-          notifyInteractionSettled(mainWindow, settledRequestId, sessionId)
-        },
-      })
-
-      if (!mainWindow.isDestroyed()) {
-        const payload: ApprovalRequestPayload = {
-          sessionId: session.id,
-          requestId,
-          request,
-        }
-        try {
-          mainWindow.webContents.send('lmcode:approvalRequest', payload)
-        } catch {
-          pendingApprovals.settle(requestId, CANCELLED_APPROVAL)
-        }
-      } else {
-        pendingApprovals.settle(requestId, CANCELLED_APPROVAL)
-      }
-      return promise
+      return hub.requestApproval(session.id, request)
     })
 
     session.setQuestionHandler((request: QuestionRequest): Promise<QuestionResult> => {
       if (closing) return Promise.resolve(null)
-
-      const requestId = `question:${session.id}:${randomUUID()}`
-      const promise = pendingQuestions.request(requestId, session.id, {
-        timeoutMs: REVERSE_RPC_TIMEOUT_MS,
-        timeoutValue: null,
-        onSettled: (settledRequestId, sessionId) => {
-          notifyInteractionSettled(mainWindow, settledRequestId, sessionId)
-        },
-      })
-
-      if (!mainWindow.isDestroyed()) {
-        const payload: QuestionRequestPayload = {
-          sessionId: session.id,
-          requestId,
-          request,
-        }
-        try {
-          mainWindow.webContents.send('lmcode:questionRequest', payload)
-        } catch {
-          pendingQuestions.settle(requestId, null)
-        }
-      } else {
-        pendingQuestions.settle(requestId, null)
-      }
-      return promise
+      return hub.requestQuestion(session.id, request)
     })
 
     activeSessions.set(session.id, { session, unsubscribeEvent })
@@ -429,14 +412,14 @@ export function registerAllHandlers(
       entry.unsubscribeEvent()
       activeSessions.delete(id)
     }
-    settleSessionInteractions(id)
+    hub.settleSession(id)
     try {
       await harness.deleteSession(id)
       auditLog?.info('desktop critical operation completed', {
         operation: 'session.delete',
       })
     } finally {
-      settleSessionInteractions(id)
+      hub.settleSession(id)
     }
   })
 
@@ -488,7 +471,7 @@ export function registerAllHandlers(
   )
 
   secureInvoke('lmcode:cancelResponse', async (_event, sessionId: string): Promise<void> => {
-    settleSessionInteractions(sessionId)
+    hub.settleSession(sessionId)
     const entry = activeSessions.get(sessionId)
     if (!entry) throw new Error(`Session "${sessionId}" not found`)
     try {
@@ -496,7 +479,7 @@ export function registerAllHandlers(
     } finally {
       // Cancellation can itself race a new reverse-RPC request. Sweep again
       // after the SDK has finished unwinding the active turn.
-      settleSessionInteractions(sessionId)
+      hub.settleSession(sessionId)
     }
   })
 
@@ -606,11 +589,11 @@ export function registerAllHandlers(
       entry.unsubscribeEvent()
       activeSessions.delete(sessionId)
     }
-    settleSessionInteractions(sessionId)
+    hub.settleSession(sessionId)
     try {
       await harness.closeSession(sessionId)
     } finally {
-      settleSessionInteractions(sessionId)
+      hub.settleSession(sessionId)
     }
   })
 
@@ -922,7 +905,7 @@ export function registerAllHandlers(
     requestId: string
     response: ApprovalResponse
   }): void => {
-    if (!pendingApprovals.settle(payload.requestId, payload.response)) {
+    if (!hub.respondApproval(payload.requestId, payload.response)) {
       throw new Error(`Approval request "${payload.requestId}" is no longer pending`)
     }
   })
@@ -931,10 +914,34 @@ export function registerAllHandlers(
     requestId: string
     result: QuestionResult
   }): void => {
-    if (!pendingQuestions.settle(payload.requestId, payload.result)) {
+    if (!hub.respondQuestion(payload.requestId, payload.result)) {
       throw new Error(`Question request "${payload.requestId}" is no longer pending`)
     }
   })
+
+  // ── Remote service (settings panel control) ──────────────────────
+
+  if (remote !== undefined) {
+    secureInvoke('lmcode:getRemoteState', async (): Promise<RemoteState> => {
+      return remote.getState()
+    })
+
+    secureInvoke('lmcode:setRemoteEnabled', async (_event, enabled: unknown): Promise<RemoteState> => {
+      if (typeof enabled !== 'boolean') throw new Error('Invalid remote enabled value')
+      return remote.setEnabled(enabled)
+    })
+
+    secureInvoke('lmcode:setRemotePort', async (_event, port: unknown): Promise<RemoteState> => {
+      if (typeof port !== 'number' || !Number.isFinite(port)) {
+        throw new Error('Invalid remote port')
+      }
+      return remote.setPort(port)
+    })
+
+    secureInvoke('lmcode:regenerateRemoteToken', async (): Promise<RemoteState> => {
+      return remote.regenerateToken()
+    })
+  }
 
   // ── App control ─────────────────────────────────────────────────
 
@@ -960,20 +967,25 @@ export function registerAllHandlers(
 
   // Keep memory in the same profile boundary as this runtime's config. This is
   // intentionally isolated from the CLI and from the other desktop profile.
-  const memoryStore = new MemoryMemoStore(dirname(harness.configPath))
+  // A shared store is injected by the app lifecycle so the remote bridge and
+  // the desktop IPC layer operate on the same SQLite store. When no store is
+  // injected, this handler owns the instance it creates and closes it here.
+  const memoryStoreInstance =
+    memoryStore ?? new MemoryMemoStore(dirname(harness.configPath))
+  const ownsMemoryStore = memoryStore === undefined
 
   secureInvoke('lmcode:listMemories', async (): Promise<MemoryMemoSummary[]> => {
-    const result = await memoryStore.list({ limit: 100 })
+    const result = await memoryStoreInstance.list({ limit: 100 })
     return result.memos
   })
 
   secureInvoke('lmcode:searchMemories', async (_event, query: string): Promise<MemoryMemoSummary[]> => {
-    const result = await memoryStore.list({ search: query, limit: 20 })
+    const result = await memoryStoreInstance.list({ search: query, limit: 20 })
     return result.memos
   })
 
   secureInvoke('lmcode:deleteMemory', async (_event, id: string): Promise<void> => {
-    await memoryStore.delete(id)
+    await memoryStoreInstance.delete(id)
     auditLog?.info('desktop critical operation completed', {
       operation: 'memory.delete',
     })
@@ -1017,8 +1029,7 @@ export function registerAllHandlers(
   // ── Cleanup on window close ─────────────────────────────────────
 
   const cancelAllPendingInteractions = (): void => {
-    pendingApprovals.settleAll(CANCELLED_APPROVAL)
-    pendingQuestions.settleAll(null)
+    hub.settleAll()
   }
 
   // A reload or renderer crash destroys the UI that owns the dialogs. Resolve
@@ -1054,6 +1065,7 @@ export function registerAllHandlers(
     }
 
     runStep(cancelAllPendingInteractions)
+    runStep(() => hub.detachSurface('renderer'))
     for (const entry of activeSessions.values()) {
       runStep(entry.unsubscribeEvent)
       runStep(() => entry.session.setApprovalHandler(undefined))
@@ -1066,7 +1078,7 @@ export function registerAllHandlers(
       errors.push(error)
     }
     try {
-      await memoryStore.close()
+      if (ownsMemoryStore) await memoryStoreInstance.close()
     } catch (error) {
       errors.push(error)
     }

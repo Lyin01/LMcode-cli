@@ -216,6 +216,6 @@ export function stripAnsi(text: string): string {
     // 行尾裸 ESC 或未闭合的 CSI 序列（chunk 边界可能残留）。
     .replace(/\u001B(\[[0-?]*[ -/]*)?$/gm, '')
     // 行中孤立 ESC（后不接 CSI/OSC 起始字节）。
-    .replace(/\u001B(?![\[\]])/g, '')
+    .replace(/\u001B(?!\[|\])/g, '')
     .replace(DANGEROUS_CONTROL, '')
 }
