@@ -63,9 +63,6 @@ export interface TurnEndResult {
   readonly stopReason?: LoopTurnStopReason;
 }
 
-export const GOAL_COMPLETION_REMINDER_NAME = 'goal_completion_summary';
-export const GOAL_BLOCKED_REMINDER_NAME = 'goal_blocked_reason';
-
 const GOAL_CONTINUATION_PROMPT = [
   'Continue working toward the active goal.',
   'Keep the self-audit brief. Do not explore unrelated interpretations once the goal can be',

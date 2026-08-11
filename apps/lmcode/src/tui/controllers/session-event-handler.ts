@@ -546,7 +546,7 @@ export class SessionEventHandler {
     const title = event.title ?? stringValue(event.patch?.['title']);
     if (title !== undefined) {
       this.host.setAppState({ sessionTitle: title });
-      setProcessTitle(title, this.host.state.appState.sessionId);
+      setProcessTitle(title);
     }
   }
 

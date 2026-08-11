@@ -22,7 +22,6 @@ import {
   isRetryableGenerateError,
   type ChatProvider,
   type GenerateCallbacks,
-  type Message,
   type ModelCapability,
   type StreamedMessagePart,
 } from '@lmcode-cli/ltod';
@@ -267,11 +266,4 @@ function buildLtodCallbacks(
       }
     },
   };
-}
-
-export function buildMessagesWithSystem(systemPrompt: string, history: Message[]): Message[] {
-  return [
-    { role: 'system', content: [{ type: 'text', text: systemPrompt }], toolCalls: [] },
-    ...history,
-  ];
 }

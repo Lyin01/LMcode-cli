@@ -263,15 +263,13 @@ export class FooterComponent implements Component {
     // (shell processes) and `agent-*` tasks (background subagents) get
     // separate badges so the user can distinguish them at a glance.
     if (this.backgroundBashTaskCount > 0) {
-      const noun = this.backgroundBashTaskCount === 1 ? '个任务' : '个任务';
       left.push(
-        chalk.hex(colors.primary)(`[${String(this.backgroundBashTaskCount)}${noun} 运行中]`),
+        chalk.hex(colors.primary)(`[${String(this.backgroundBashTaskCount)}个任务 运行中]`),
       );
     }
     if (this.backgroundAgentCount > 0) {
-      const noun = this.backgroundAgentCount === 1 ? '个代理' : '个代理';
       left.push(
-        chalk.hex(colors.primary)(`[${String(this.backgroundAgentCount)}${noun} 运行中]`),
+        chalk.hex(colors.primary)(`[${String(this.backgroundAgentCount)}个代理 运行中]`),
       );
     }
 

@@ -553,9 +553,18 @@ export async function discardAllGitChanges(
   }
   const paths = snapshot.changes.map((change) => change.path)
   for (const filePath of paths) {
-    const current = await inspectGitRepository(workDir)
-    if (!current.changes.some((change) => change.path === filePath)) continue
-    await discardGitFileChanges(workDir, filePath, 'all', trashItem)
+    // `discardGitFileChanges` re-resolves the change list itself and throws
+    // when the path is no longer a change (e.g. a prior discard already
+    // cleaned it up). Skipping those avoids a full repository re-inspection
+    // per file.
+    try {
+      await discardGitFileChanges(workDir, filePath, 'all', trashItem)
+    } catch (error) {
+      if (error instanceof Error && error.message === '该文件不在当前 Git 变更列表中') {
+        continue
+      }
+      throw error
+    }
   }
 }
 
