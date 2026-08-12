@@ -645,7 +645,7 @@ export class LmcodeTUI implements TranscriptControllerHost, LifecycleControllerH
   }
 
   refreshSessionTitle(): void {
-    setProcessTitle(this.state.appState.sessionTitle, this.state.appState.sessionId);
+    setProcessTitle(this.state.appState.sessionTitle);
   }
 
   resetSessionRuntime(): void {

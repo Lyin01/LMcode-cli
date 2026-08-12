@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { Command, Option } from 'commander';
 
 import { CLI_COMMAND_NAME } from '#/constant/app';
@@ -43,16 +45,19 @@ export function createProgram(
       '\n文档：        https://github.com/Lyin01/LMcode-cli\n'
     );
 
+  const optionalIdArgParser = (val: string | boolean): string =>
+    val === true ? '' : (val as string);
+
   program
     .addOption(
       new Option(
         '-S, --session [id]',
         '恢复会话。带 ID：恢复该会话。不带 ID：交互式选择。',
-      ).argParser((val: string | boolean) => (val === true ? '' : (val as string))),
+      ).argParser(optionalIdArgParser),
     )
     .addOption(
       new Option('-r, --resume [id]', '-S/--session 的别名。')
-        .argParser((val: string | boolean) => (val === true ? '' : (val as string))),
+        .argParser(optionalIdArgParser),
     )
     .option('-C, --continue', '继续当前工作目录的上一个会话。', false)
     .option('-y, --yolo', '自动批准所有操作。', false)
@@ -110,6 +115,7 @@ export function createProgram(
     .option('--verbose', '(ignored, cc-connect compat)')
     .option('--system-prompt <text>', '(ignored, cc-connect compat)')
     .option('--append-system-prompt <text>', '(passed through to agent)')
+    .option('--append-system-prompt-file <path>', '(passed through to agent, read from file)')
     .option('--allowedTools <list>', '(ignored, cc-connect compat)')
     .option('--disallowedTools <list>', '(ignored, cc-connect compat)')
     .option('--effort <value>', '(ignored, cc-connect compat)')
@@ -121,12 +127,26 @@ export function createProgram(
       [] as string[],
     )
     .action((subOpts: Record<string, unknown>) => {
+      let appendSystemPrompt = subOpts['appendSystemPrompt'] as string | undefined;
+      const promptFile = subOpts['appendSystemPromptFile'] as string | undefined;
+      if (promptFile) {
+        try {
+          const fileContent = readFileSync(promptFile, 'utf-8');
+          appendSystemPrompt = appendSystemPrompt
+            ? `${appendSystemPrompt}\n${fileContent}`
+            : fileContent;
+        } catch (err) {
+          process.stderr.write(
+            `[stream-json] warning: cannot read --append-system-prompt-file: ${String(err)}\n`,
+          );
+        }
+      }
       onStreamJson({
         resume: subOpts['resume'] as string | undefined,
         model: subOpts['model'] as string | undefined,
         permissionMode: subOpts['permissionMode'] as string | undefined,
         skillsDirs: (subOpts['skillsDir'] as string[]) ?? [],
-        appendSystemPrompt: subOpts['appendSystemPrompt'] as string | undefined,
+        appendSystemPrompt,
       });
     });
 
