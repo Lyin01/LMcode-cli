@@ -41,7 +41,7 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
     duration !== null ? (duration < 1000 ? `${duration}ms` : `${(duration / 1000).toFixed(1)}s`) : null
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[12px]">
+    <div className="overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[13px]">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
@@ -55,9 +55,9 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
         <span className="font-medium text-[var(--lm-text-primary)]">{toolCall.toolName}</span>
         <span className="ml-auto flex items-center gap-1.5">
           <Icon size={13} className={cn(cfg.color, toolCall.status === 'running' && 'lm-spin')} />
-          <span className={cn('text-[11px]', cfg.color)}>{cfg.label}</span>
+          <span className={cn('text-[12px]', cfg.color)}>{cfg.label}</span>
           {durationLabel && (
-            <span className="font-mono text-[10px] text-[var(--lm-text-muted)]">{durationLabel}</span>
+            <span className="font-mono text-[11px] text-[var(--lm-text-muted)]">{durationLabel}</span>
           )}
         </span>
       </button>
@@ -65,16 +65,16 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
       {expanded && (
         <>
           <div className="border-t border-[var(--lm-border)] px-3 py-2">
-            <div className="mb-1 text-[11px] text-[var(--lm-text-muted)]">参数</div>
-            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-[var(--lm-bg-code)] p-2 font-mono text-[11px] leading-relaxed text-[var(--lm-text-secondary)]">
+            <div className="mb-1 text-[12px] text-[var(--lm-text-muted)]">参数</div>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-[var(--lm-bg-code)] p-2 font-mono text-[12px] leading-relaxed text-[var(--lm-text-secondary)]">
               {toolCall.args}
             </pre>
           </div>
 
           {toolCall.result && (
             <div className="border-t border-[var(--lm-border)] px-3 py-2">
-              <div className="mb-1 text-[11px] text-[var(--lm-text-muted)]">结果</div>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-[var(--lm-bg-code)] p-2 font-mono text-[11px] leading-relaxed text-[var(--lm-text-secondary)]">
+              <div className="mb-1 text-[12px] text-[var(--lm-text-muted)]">结果</div>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-[var(--lm-bg-code)] p-2 font-mono text-[12px] leading-relaxed text-[var(--lm-text-secondary)]">
                 {toolCall.result}
               </pre>
             </div>
@@ -88,7 +88,7 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
           aria-label="打开文档审阅"
           title="打开文档审阅"
           onClick={() => useArtifactsStore.getState().openPanel(artifactId)}
-          className="flex w-full items-center gap-1.5 border-t border-[var(--lm-border)] px-3 py-1.5 text-left text-[11px] text-[var(--lm-accent-text)] transition-colors hover:bg-[var(--lm-bg-hover)]"
+          className="flex w-full items-center gap-1.5 border-t border-[var(--lm-border)] px-3 py-1.5 text-left text-[12px] text-[var(--lm-accent-text)] transition-colors hover:bg-[var(--lm-bg-hover)]"
         >
           <FileText size={12} />
           打开文档审阅
@@ -97,7 +97,7 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
 
       {toolCall.progress && toolCall.status === 'running' && (
         <div className="border-t border-[var(--lm-border)] px-3 py-1.5">
-          <span className="text-[11px] text-[var(--lm-text-muted)]">{toolCall.progress}</span>
+          <span className="text-[12px] text-[var(--lm-text-muted)]">{toolCall.progress}</span>
         </div>
       )}
     </div>

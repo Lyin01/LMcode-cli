@@ -113,7 +113,7 @@ export const MessageItem = memo(function MessageItem({
   if (role === 'user') {
     return (
       <div className="group flex animate-fade-in justify-end">
-        <div className="relative flex max-w-[82%] flex-col gap-2 rounded-[18px] bg-[var(--lm-bg-bubble)] px-3 py-2.5 text-[14px] leading-relaxed text-[var(--lm-text-primary)]">
+        <div className="relative flex max-w-[82%] flex-col gap-2 rounded-[18px] bg-[var(--lm-bg-bubble)] px-3 py-2.5 text-[15px] leading-relaxed text-[var(--lm-text-primary)]">
           {message.attachments && message.attachments.length > 0 && (
             <AttachmentStrip attachments={message.attachments} />
           )}
@@ -142,8 +142,8 @@ export const MessageItem = memo(function MessageItem({
         <div
           className={
             isError
-              ? 'flex items-center gap-2 rounded-lg border border-[var(--lm-error)]/40 bg-[var(--lm-error)]/10 px-3 py-2 text-[12px] text-[var(--lm-error)]'
-              : 'rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[12px] text-[var(--lm-text-muted)]'
+              ? 'flex items-center gap-2 rounded-lg border border-[var(--lm-error)]/40 bg-[var(--lm-error)]/10 px-3 py-2 text-[13px] text-[var(--lm-error)]'
+              : 'rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[13px] text-[var(--lm-text-muted)]'
           }
         >
           {isError && <AlertTriangle size={13} className="shrink-0" />}
@@ -158,7 +158,7 @@ export const MessageItem = memo(function MessageItem({
 
   return (
     <div className="group flex animate-fade-in gap-3">
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--lm-accent-soft)] text-[12px] font-bold text-[var(--lm-accent-text)]">
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--lm-accent-soft)] text-[13px] font-bold text-[var(--lm-accent-text)]">
         L
       </div>
 
@@ -181,7 +181,7 @@ export const MessageItem = memo(function MessageItem({
               // Streaming: render plain text + cursor instead of re-parsing the
               // whole growing markdown on every delta (O(n²) otherwise). The
               // final markdown render happens once when the turn ends.
-              <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--lm-text-primary)]">
+              <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-[var(--lm-text-primary)]">
                 {message.content}
                 <span className="lm-cursor-blink ml-0.5 inline-block text-[var(--lm-accent-text)]">▍</span>
               </div>
@@ -197,7 +197,7 @@ export const MessageItem = memo(function MessageItem({
               </div>
             )
           ) : message.thinkingState === 'streaming' ? (
-            <span className="lm-pulse text-[13px] text-[var(--lm-text-muted)]">思考中…</span>
+            <span className="lm-pulse text-[14px] text-[var(--lm-text-muted)]">思考中…</span>
           ) : null}
 
           {showActions && (
@@ -208,7 +208,7 @@ export const MessageItem = memo(function MessageItem({
                   onClick={onRegenerate}
                   title="重新生成"
                   aria-label="重新生成"
-                  className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[10px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+                  className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
                 >
                   <RotateCcw size={12} />
                   重新生成

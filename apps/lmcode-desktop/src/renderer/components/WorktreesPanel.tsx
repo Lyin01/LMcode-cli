@@ -43,26 +43,26 @@ function WorktreeCard({
         <GitBranch size={14} className="mt-0.5 shrink-0 text-[var(--lm-accent-text)]" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
+            <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
               {worktree.branch ?? `detached@${worktree.head.slice(0, 8)}`}
             </span>
             {worktree.isMain && (
-              <span className="rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[9px] text-[var(--lm-text-muted)]">
+              <span className="rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
                 主工作树
               </span>
             )}
             {worktree.isCurrent && (
-              <span className="flex items-center gap-0.5 rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[9px] text-[var(--lm-accent-text)]">
+              <span className="flex items-center gap-0.5 rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--lm-accent-text)]">
                 <Check size={9} /> 当前
               </span>
             )}
             {worktree.locked && (
-              <span className="rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[9px] text-[var(--lm-text-muted)]">
+              <span className="rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
                 已锁定
               </span>
             )}
           </div>
-          <p className="mt-0.5 truncate font-mono text-[10px] text-[var(--lm-text-muted)]">
+          <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--lm-text-muted)]">
             {worktree.path}
           </p>
         </div>
@@ -70,7 +70,7 @@ function WorktreeCard({
           <button
             onClick={onOpen}
             disabled={busy}
-            className="shrink-0 rounded-lg border border-[var(--lm-border-strong)] px-2 py-1 text-[10px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:opacity-40"
+            className="shrink-0 rounded-lg border border-[var(--lm-border-strong)] px-2 py-1 text-[11px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:opacity-40"
           >
             接力打开
           </button>
@@ -157,8 +157,8 @@ export function WorktreesPanel({ open, onClose }: WorktreesPanelProps) {
         <header className="flex items-center gap-2 border-b border-[var(--lm-border)] px-4 py-3.5">
           <GitFork size={16} className="text-[var(--lm-accent-text)]" />
           <div className="min-w-0 flex-1">
-            <h2 className="text-[14px] font-semibold text-[var(--lm-text-primary)]">Git 工作树</h2>
-            <p className="text-[10px] text-[var(--lm-text-muted)]">隔离修改，并保留当前对话上下文继续工作</p>
+            <h2 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">Git 工作树</h2>
+            <p className="text-[11px] text-[var(--lm-text-muted)]">隔离修改，并保留当前对话上下文继续工作</p>
           </div>
           <button
             onClick={() => void refresh()}
@@ -179,7 +179,7 @@ export function WorktreesPanel({ open, onClose }: WorktreesPanelProps) {
 
         <div className="border-b border-[var(--lm-border)] p-3">
           <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-3">
-            <label className="text-[11px] font-medium text-[var(--lm-text-secondary)]" htmlFor="worktree-branch">
+            <label className="text-[12px] font-medium text-[var(--lm-text-secondary)]" htmlFor="worktree-branch">
               新工作树分支
             </label>
             <div className="mt-2 flex gap-2">
@@ -191,20 +191,20 @@ export function WorktreesPanel({ open, onClose }: WorktreesPanelProps) {
                   if (event.key === 'Enter') void createAndHandoff()
                 }}
                 disabled={creating || isStreaming}
-                className="min-w-0 flex-1 rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--lm-text-primary)] focus:border-[var(--lm-accent)] disabled:opacity-50"
+                className="min-w-0 flex-1 rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 font-mono text-[12px] text-[var(--lm-text-primary)] focus:border-[var(--lm-accent)] disabled:opacity-50"
                 spellCheck={false}
               />
               <button
                 onClick={() => void createAndHandoff()}
                 disabled={creating || isStreaming || !branchName.trim()}
-                className="flex shrink-0 items-center gap-1 rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[11px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
+                className="flex shrink-0 items-center gap-1 rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
               >
                 {creating ? <Loader2 size={12} className="lm-spin" /> : <Plus size={12} />}
                 创建并接力
               </button>
             </div>
             <p className={cn(
-              'mt-2 text-[10px]',
+              'mt-2 text-[11px]',
               isStreaming ? 'text-[var(--lm-warning)]' : 'text-[var(--lm-text-muted)]',
             )}>
               {isStreaming
@@ -215,7 +215,7 @@ export function WorktreesPanel({ open, onClose }: WorktreesPanelProps) {
         </div>
 
         {error && (
-          <div className="flex items-start gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-4 py-2 text-[11px] text-[var(--lm-error)]">
+          <div className="flex items-start gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-4 py-2 text-[12px] text-[var(--lm-error)]">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
@@ -223,7 +223,7 @@ export function WorktreesPanel({ open, onClose }: WorktreesPanelProps) {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           {loading && worktrees.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-[12px] text-[var(--lm-text-muted)]">
+            <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-[var(--lm-text-muted)]">
               <Loader2 size={14} className="lm-spin" /> 读取工作树…
             </div>
           ) : worktrees.length > 0 ? (
@@ -238,7 +238,7 @@ export function WorktreesPanel({ open, onClose }: WorktreesPanelProps) {
               ))}
             </div>
           ) : !error ? (
-            <p className="py-10 text-center text-[12px] text-[var(--lm-text-muted)]">暂无可用工作树</p>
+            <p className="py-10 text-center text-[13px] text-[var(--lm-text-muted)]">暂无可用工作树</p>
           ) : null}
         </div>
       </aside>

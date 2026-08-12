@@ -55,7 +55,7 @@ export function UsageFooter() {
 
   return (
     <div
-      className="flex min-h-7 items-center gap-2 border-t border-[var(--lm-border)] px-3 py-1 text-[10px] text-[var(--lm-text-muted)]"
+      className="flex min-h-7 items-center gap-2 border-t border-[var(--lm-border)] px-3 py-1 text-[11px] text-[var(--lm-text-muted)]"
       title={title}
     >
       <div

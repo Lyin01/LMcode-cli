@@ -53,7 +53,7 @@ function CommentEntry({
       )}
     >
       <div className="flex items-start justify-between gap-1.5">
-        <span className="min-w-0 flex-1 truncate text-[10.5px] text-[var(--lm-text-muted)]">
+        <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--lm-text-muted)]">
           第 {comment.anchor.blockIndex + 1} 段「{comment.anchor.excerpt}」
         </span>
         <button
@@ -66,11 +66,11 @@ function CommentEntry({
           <Trash2 size={12} />
         </button>
       </div>
-      <p className="mt-1 whitespace-pre-wrap text-[12px] text-[var(--lm-text-primary)]">
+      <p className="mt-1 whitespace-pre-wrap text-[13px] text-[var(--lm-text-primary)]">
         {comment.text}
       </p>
       {comment.outdated && (
-        <span className="mt-1 inline-block rounded bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
+        <span className="mt-1 inline-block rounded bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[11px] text-[var(--lm-text-muted)]">
           已过期
         </span>
       )}
@@ -156,14 +156,14 @@ export function ArtifactPanel({ onSendFeedback }: ArtifactPanelProps) {
             <FileText size={16} className="shrink-0 text-[var(--lm-accent-text)]" />
             <h2
               id="lm-artifact-panel-title"
-              className="truncate text-[15px] font-semibold text-[var(--lm-text-primary)]"
+              className="truncate text-[16px] font-semibold text-[var(--lm-text-primary)]"
             >
               {artifact.title}
             </h2>
-            <span className="shrink-0 rounded-full bg-[var(--lm-accent-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--lm-accent-text)]">
+            <span className="shrink-0 rounded-full bg-[var(--lm-accent-soft)] px-2 py-0.5 text-[11px] font-medium text-[var(--lm-accent-text)]">
               {KIND_LABEL[artifact.kind]}
             </span>
-            <span className="shrink-0 text-[10.5px] text-[var(--lm-text-muted)]">
+            <span className="shrink-0 text-[11.5px] text-[var(--lm-text-muted)]">
               v{artifact.version} · 更新于 {formatSessionActivity(artifact.updatedAt)}
             </span>
           </div>
@@ -208,7 +208,7 @@ export function ArtifactPanel({ onSendFeedback }: ArtifactPanelProps) {
                     <MessageSquarePlus size={14} />
                   </button>
                   {blockComments.length > 0 && (
-                    <span className="absolute -left-0.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--lm-accent-soft)] px-1 text-[9.5px] font-medium text-[var(--lm-accent-text)]">
+                    <span className="absolute -left-0.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--lm-accent-soft)] px-1 text-[10.5px] font-medium text-[var(--lm-accent-text)]">
                       {blockComments.length}
                     </span>
                   )}
@@ -221,7 +221,7 @@ export function ArtifactPanel({ onSendFeedback }: ArtifactPanelProps) {
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
                         rows={3}
-                        className="w-full resize-y rounded-md border border-[var(--lm-border)] bg-[var(--lm-bg-base)] px-2 py-1.5 text-[12px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent-text)]"
+                        className="w-full resize-y rounded-md border border-[var(--lm-border)] bg-[var(--lm-bg-base)] px-2 py-1.5 text-[13px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent-text)]"
                       />
                       <div className="mt-1.5 flex justify-end gap-1.5">
                         <button
@@ -230,7 +230,7 @@ export function ArtifactPanel({ onSendFeedback }: ArtifactPanelProps) {
                             setCommentingBlock(null)
                             setDraft('')
                           }}
-                          className="rounded-md px-2.5 py-1 text-[11.5px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)]"
+                          className="rounded-md px-2.5 py-1 text-[12.5px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)]"
                         >
                           取消
                         </button>
@@ -238,7 +238,7 @@ export function ArtifactPanel({ onSendFeedback }: ArtifactPanelProps) {
                           type="button"
                           disabled={draft.trim().length === 0}
                           onClick={submitComment}
-                          className="rounded-md bg-[var(--lm-accent-soft)] px-2.5 py-1 text-[11.5px] font-medium text-[var(--lm-accent-text)] transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-md bg-[var(--lm-accent-soft)] px-2.5 py-1 text-[12.5px] font-medium text-[var(--lm-accent-text)] transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           提交评论
                         </button>
@@ -252,12 +252,12 @@ export function ArtifactPanel({ onSendFeedback }: ArtifactPanelProps) {
 
           {/* 评论侧栏 */}
           <div className="flex w-[240px] shrink-0 flex-col border-l border-[var(--lm-border)]">
-            <div className="border-b border-[var(--lm-border)] px-3 py-2.5 text-[11.5px] font-medium text-[var(--lm-text-secondary)]">
+            <div className="border-b border-[var(--lm-border)] px-3 py-2.5 text-[12.5px] font-medium text-[var(--lm-text-secondary)]">
               评论（{artifact.comments.length}）
             </div>
             <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2.5">
               {artifact.comments.length === 0 && (
-                <p className="px-1 py-6 text-center text-[11.5px] text-[var(--lm-text-muted)]">
+                <p className="px-1 py-6 text-center text-[12.5px] text-[var(--lm-text-muted)]">
                   点击文档段落右侧的评论按钮，按段落留下意见
                 </p>
               )}
@@ -272,7 +272,7 @@ export function ArtifactPanel({ onSendFeedback }: ArtifactPanelProps) {
                 title="发送反馈"
                 disabled={activeCommentCount(artifact) === 0}
                 onClick={sendFeedback}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--lm-accent-soft)] px-3 py-2 text-[12px] font-medium text-[var(--lm-accent-text)] transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--lm-accent-soft)] px-3 py-2 text-[13px] font-medium text-[var(--lm-accent-text)] transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Send size={13} />
                 发送反馈（{activeCommentCount(artifact)}）

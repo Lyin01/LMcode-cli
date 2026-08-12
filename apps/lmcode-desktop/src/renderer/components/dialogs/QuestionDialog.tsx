@@ -78,7 +78,7 @@ function QuestionDialogContent({ pendingQuestion }: QuestionDialogContentProps) 
           <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-5 py-4">
             <div className="flex items-center gap-2">
               <HelpCircle size={16} className="text-[var(--lm-warning)]" />
-              <Dialog.Title className="text-[15px] font-semibold text-[var(--lm-text-primary)]">
+              <Dialog.Title className="text-[16px] font-semibold text-[var(--lm-text-primary)]">
                 需要你的回答
               </Dialog.Title>
             </div>
@@ -114,12 +114,12 @@ function QuestionDialogContent({ pendingQuestion }: QuestionDialogContentProps) 
 
           <div className="border-t border-[var(--lm-border)] px-5 py-4">
             {responseError !== null ? (
-              <p className="mb-3 text-[12px] text-[var(--lm-error)]" role="alert">
+              <p className="mb-3 text-[13px] text-[var(--lm-error)]" role="alert">
                 {responseError}
               </p>
             ) : null}
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[12px] text-[var(--lm-text-muted)]">
+              <span className="text-[13px] text-[var(--lm-text-muted)]">
                 {pendingQuestion.request.questions.length} 个问题
               </span>
               <div className="flex items-center gap-2">
@@ -127,7 +127,7 @@ function QuestionDialogContent({ pendingQuestion }: QuestionDialogContentProps) 
                   type="button"
                   disabled={responding}
                   onClick={() => void handleRespond(null)}
-                  className="rounded-lg border border-[var(--lm-border-strong)] px-3.5 py-2 text-[13px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:cursor-wait disabled:opacity-50"
+                  className="rounded-lg border border-[var(--lm-border-strong)] px-3.5 py-2 text-[14px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:cursor-wait disabled:opacity-50"
                 >
                   取消
                 </button>
@@ -135,7 +135,7 @@ function QuestionDialogContent({ pendingQuestion }: QuestionDialogContentProps) 
                   type="button"
                   disabled={!allAnswered || responding}
                   onClick={() => void handleRespond(buildQuestionResult(pendingQuestion.request, drafts))}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--lm-accent)] px-4 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--lm-accent)] px-4 py-2 text-[14px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Check size={14} />
                   提交全部
@@ -173,7 +173,7 @@ function QuestionField({ index, question, draft, disabled, onChange }: QuestionF
           }
           placeholder={question.otherLabel ?? '输入回答...'}
           rows={3}
-          className="mt-3 w-full resize-y rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[14px] text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none transition-colors focus:border-[var(--lm-accent)] disabled:cursor-wait disabled:opacity-60"
+          className="mt-3 w-full resize-y rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[15px] text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none transition-colors focus:border-[var(--lm-accent)] disabled:cursor-wait disabled:opacity-60"
         />
       </section>
     )
@@ -210,9 +210,9 @@ function QuestionField({ index, question, draft, disabled, onChange }: QuestionF
                 className="mt-0.5 accent-[var(--lm-accent)]"
               />
               <span className="min-w-0">
-                <span className="block text-[14px] text-[var(--lm-text-primary)]">{option.label}</span>
+                <span className="block text-[15px] text-[var(--lm-text-primary)]">{option.label}</span>
                 {option.description ? (
-                  <span className="mt-0.5 block text-[12px] leading-relaxed text-[var(--lm-text-muted)]">
+                  <span className="mt-0.5 block text-[13px] leading-relaxed text-[var(--lm-text-muted)]">
                     {option.description}
                   </span>
                 ) : null}
@@ -237,11 +237,11 @@ function QuestionField({ index, question, draft, disabled, onChange }: QuestionF
             className="mt-1 accent-[var(--lm-accent)]"
           />
           <span className="min-w-0 flex-1">
-            <span className="block text-[13px] text-[var(--lm-text-secondary)]">
+            <span className="block text-[14px] text-[var(--lm-text-secondary)]">
               {question.otherLabel ?? '其他'}
             </span>
             {question.otherDescription ? (
-              <span className="mt-0.5 block text-[12px] text-[var(--lm-text-muted)]">
+              <span className="mt-0.5 block text-[13px] text-[var(--lm-text-muted)]">
                 {question.otherDescription}
               </span>
             ) : null}
@@ -265,7 +265,7 @@ function QuestionField({ index, question, draft, disabled, onChange }: QuestionF
                 })
               }
               placeholder="输入自定义回答..."
-              className="mt-2 w-full border-0 border-b border-[var(--lm-border-strong)] bg-transparent px-0 py-1.5 text-[13px] text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none focus:border-[var(--lm-accent)] disabled:cursor-wait disabled:opacity-60"
+              className="mt-2 w-full border-0 border-b border-[var(--lm-border-strong)] bg-transparent px-0 py-1.5 text-[14px] text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none focus:border-[var(--lm-accent)] disabled:cursor-wait disabled:opacity-60"
             />
           </span>
         </label>
@@ -282,16 +282,16 @@ interface QuestionHeadingProps {
 function QuestionHeading({ index, question }: QuestionHeadingProps) {
   return (
     <div>
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase text-[var(--lm-text-muted)]">
+      <div className="flex items-center gap-2 text-[12px] font-medium uppercase text-[var(--lm-text-muted)]">
         <span>问题 {index + 1}</span>
         {question.header ? <span>{question.header}</span> : null}
         {question.multiSelect ? <span>可多选</span> : null}
       </div>
-      <p className="mt-1 text-[14px] font-medium leading-relaxed text-[var(--lm-text-primary)]">
+      <p className="mt-1 text-[15px] font-medium leading-relaxed text-[var(--lm-text-primary)]">
         {question.question}
       </p>
       {question.body ? (
-        <p className="mt-1 text-[12px] leading-relaxed text-[var(--lm-text-muted)]">
+        <p className="mt-1 text-[13px] leading-relaxed text-[var(--lm-text-muted)]">
           {question.body}
         </p>
       ) : null}

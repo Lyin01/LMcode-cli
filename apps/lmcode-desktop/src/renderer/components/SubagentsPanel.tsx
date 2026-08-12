@@ -114,8 +114,8 @@ export function SubagentsPanel({ open, onClose }: SubagentsPanelProps) {
         <header className="flex items-center gap-2 border-b border-[var(--lm-border)] px-4 py-3.5">
           <Bot size={16} className="text-[var(--lm-accent-text)]" />
           <div className="min-w-0 flex-1">
-            <h2 className="text-[14px] font-semibold text-[var(--lm-text-primary)]">子 Agent</h2>
-            <p className="text-[10px] text-[var(--lm-text-muted)]">
+            <h2 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">子 Agent</h2>
+            <p className="text-[11px] text-[var(--lm-text-muted)]">
               {runningCount > 0 ? `${runningCount} 个正在运行` : '查看并调整并行任务'}
             </p>
           </div>
@@ -138,7 +138,7 @@ export function SubagentsPanel({ open, onClose }: SubagentsPanelProps) {
         </header>
 
         {error && (
-          <div className="flex items-start gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-4 py-2 text-[11px] text-[var(--lm-error)]">
+          <div className="flex items-start gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-4 py-2 text-[12px] text-[var(--lm-error)]">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
@@ -148,8 +148,8 @@ export function SubagentsPanel({ open, onClose }: SubagentsPanelProps) {
           {visibleAgents.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center">
               <Bot size={26} className="text-[var(--lm-text-muted)]" />
-              <p className="text-[13px] text-[var(--lm-text-secondary)]">当前会话暂无子 Agent</p>
-              <p className="max-w-xs text-[11px] text-[var(--lm-text-muted)]">
+              <p className="text-[14px] text-[var(--lm-text-secondary)]">当前会话暂无子 Agent</p>
+              <p className="max-w-xs text-[12px] text-[var(--lm-text-muted)]">
                 主 Agent 启动探索、验证或并行任务后，运行状态会实时显示在这里。
               </p>
             </div>
@@ -182,21 +182,21 @@ export function SubagentsPanel({ open, onClose }: SubagentsPanelProps) {
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-[12px] font-medium text-[var(--lm-text-primary)]">{agent.name}</span>
+                          <span className="text-[13px] font-medium text-[var(--lm-text-primary)]">{agent.name}</span>
                           {agent.runInBackground && (
-                            <span className="rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[9px] text-[var(--lm-text-muted)]">
+                            <span className="rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
                               后台
                             </span>
                           )}
-                          <span className="ml-auto flex items-center gap-1 text-[9px] text-[var(--lm-text-muted)]">
+                          <span className="ml-auto flex items-center gap-1 text-[10px] text-[var(--lm-text-muted)]">
                             <Clock size={9} /> {elapsed(agent)}
                           </span>
                         </div>
-                        <p className="mt-0.5 font-mono text-[9px] text-[var(--lm-text-muted)]">
+                        <p className="mt-0.5 font-mono text-[10px] text-[var(--lm-text-muted)]">
                           {agent.subagentId}
                         </p>
                         {agent.description && (
-                          <p className="mt-1 text-[11px] leading-relaxed text-[var(--lm-text-secondary)]">
+                          <p className="mt-1 text-[12px] leading-relaxed text-[var(--lm-text-secondary)]">
                             {agent.description}
                           </p>
                         )}
@@ -216,7 +216,7 @@ export function SubagentsPanel({ open, onClose }: SubagentsPanelProps) {
                               if (event.key === 'Enter') void steerAgent(agent)
                             }}
                             placeholder="补充方向，通知主 Agent 调整…"
-                            className="min-w-0 flex-1 rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2 py-1.5 text-[10px] text-[var(--lm-text-primary)]"
+                            className="min-w-0 flex-1 rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2 py-1.5 text-[11px] text-[var(--lm-text-primary)]"
                           />
                           <button
                             onClick={() => void steerAgent(agent)}
@@ -240,16 +240,16 @@ export function SubagentsPanel({ open, onClose }: SubagentsPanelProps) {
 
                     {agent.resultSummary && (
                       <details className="mt-2 border-t border-[var(--lm-border)] pt-2">
-                        <summary className="cursor-pointer text-[10px] font-medium text-[var(--lm-text-muted)]">
+                        <summary className="cursor-pointer text-[11px] font-medium text-[var(--lm-text-muted)]">
                           查看结果摘要
                         </summary>
-                        <p className="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-[var(--lm-text-secondary)]">
+                        <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-relaxed text-[var(--lm-text-secondary)]">
                           {agent.resultSummary}
                         </p>
                       </details>
                     )}
                     {agent.error && (
-                      <p className="mt-2 border-t border-[var(--lm-border)] pt-2 text-[11px] text-[var(--lm-error)]">
+                      <p className="mt-2 border-t border-[var(--lm-border)] pt-2 text-[12px] text-[var(--lm-error)]">
                         {agent.error}
                       </p>
                     )}

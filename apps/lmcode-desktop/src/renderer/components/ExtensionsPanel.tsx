@@ -159,7 +159,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
         <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3.5">
           <div className="flex items-center gap-2">
             <Blocks size={16} className="text-[var(--lm-accent-text)]" />
-            <h2 id="lm-extensions-panel-title" className="text-[15px] font-semibold text-[var(--lm-text-primary)]">扩展</h2>
+            <h2 id="lm-extensions-panel-title" className="text-[16px] font-semibold text-[var(--lm-text-primary)]">扩展</h2>
           </div>
           <button
             type="button"
@@ -179,7 +179,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
               key={id}
               onClick={() => setTab(id)}
               className={cn(
-                'flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-[13px] font-medium transition-colors',
+                'flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-[14px] font-medium transition-colors',
                 tab === id
                   ? 'border-b-2 border-[var(--lm-accent)] text-[var(--lm-text-primary)]'
                   : 'border-b-2 border-transparent text-[var(--lm-text-muted)] hover:text-[var(--lm-text-secondary)]',
@@ -201,7 +201,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-3">
           {!sessionId && (
-            <p className="px-2 py-8 text-center text-[13px] text-[var(--lm-text-muted)]">
+            <p className="px-2 py-8 text-center text-[14px] text-[var(--lm-text-muted)]">
               请先创建或选择一个会话
             </p>
           )}
@@ -210,7 +210,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
           {sessionId && tab === 'skills' && (
             <>
               {!loading && skills.length === 0 && (
-                <p className="px-2 py-8 text-center text-[13px] text-[var(--lm-text-muted)]">暂无技能</p>
+                <p className="px-2 py-8 text-center text-[14px] text-[var(--lm-text-muted)]">暂无技能</p>
               )}
               <div className="space-y-1.5">
                 {skills.map((sk) => (
@@ -221,15 +221,15 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                     <Zap size={15} className="mt-0.5 shrink-0 text-[var(--lm-accent-text)]" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
+                        <span className="truncate text-[14px] font-medium text-[var(--lm-text-primary)]">
                           /{sk.name}
                         </span>
-                        <span className="shrink-0 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
+                        <span className="shrink-0 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[11px] text-[var(--lm-text-muted)]">
                           {SOURCE_LABEL[sk.source]}
                         </span>
                       </div>
                       {sk.description && (
-                        <p className="mt-0.5 line-clamp-2 text-[12px] text-[var(--lm-text-secondary)]">
+                        <p className="mt-0.5 line-clamp-2 text-[13px] text-[var(--lm-text-secondary)]">
                           {sk.description}
                         </p>
                       )}
@@ -257,7 +257,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     placeholder="服务器名称"
-                    className="w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[13px] outline-none focus:border-[var(--lm-accent)]"
+                    className="w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[14px] outline-none focus:border-[var(--lm-accent)]"
                   />
                   <div className="flex gap-1.5 rounded-lg bg-[var(--lm-bg-hover)] p-1">
                     {(['stdio', 'http'] as const).map((t) => (
@@ -265,7 +265,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                         key={t}
                         onClick={() => setNewType(t)}
                         className={cn(
-                          'flex-1 rounded-md py-1 text-[12px] font-medium transition-colors',
+                          'flex-1 rounded-md py-1 text-[13px] font-medium transition-colors',
                           newType === t
                             ? 'bg-[var(--lm-bg-surface)] text-[var(--lm-text-primary)] shadow-[var(--lm-shadow-soft)]'
                             : 'text-[var(--lm-text-muted)]',
@@ -279,19 +279,19 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                     value={newTarget}
                     onChange={(e) => setNewTarget(e.target.value)}
                     placeholder={newType === 'stdio' ? '启动命令，如 npx -y @foo/mcp' : '服务器 URL'}
-                    className="w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[13px] outline-none focus:border-[var(--lm-accent)]"
+                    className="w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[14px] outline-none focus:border-[var(--lm-accent)]"
                   />
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setShowAdd(false)}
-                      className="rounded-lg px-3 py-1.5 text-[12px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]"
+                      className="rounded-lg px-3 py-1.5 text-[13px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]"
                     >
                       取消
                     </button>
                     <button
                       onClick={addServer}
                       disabled={!newName.trim() || !newTarget.trim() || busy === '__add__'}
-                      className="rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-50"
+                      className="rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[13px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-50"
                     >
                       添加
                     </button>
@@ -300,7 +300,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
               ) : (
                 <button
                   onClick={() => setShowAdd(true)}
-                  className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--lm-border-strong)] py-2.5 text-[13px] text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-accent)] hover:text-[var(--lm-accent-text)]"
+                  className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--lm-border-strong)] py-2.5 text-[14px] text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-accent)] hover:text-[var(--lm-accent-text)]"
                 >
                   <Plus size={15} />
                   添加 MCP 服务器
@@ -308,7 +308,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
               )}
 
               {!loading && servers.length === 0 && (
-                <p className="px-2 py-6 text-center text-[13px] text-[var(--lm-text-muted)]">
+                <p className="px-2 py-6 text-center text-[14px] text-[var(--lm-text-muted)]">
                   暂无 MCP 服务器
                 </p>
               )}
@@ -324,15 +324,15 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                     >
                       <div className="flex items-center gap-2">
                         <span className={cn('h-2 w-2 shrink-0 rounded-full', st.dot)} />
-                        <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
+                        <span className="truncate text-[14px] font-medium text-[var(--lm-text-primary)]">
                           {srv.name}
                         </span>
-                        <span className="shrink-0 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
+                        <span className="shrink-0 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[11px] text-[var(--lm-text-muted)]">
                           {srv.transport}
                         </span>
-                        <span className={cn('ml-auto shrink-0 text-[11px]', st.color)}>{st.label}</span>
+                        <span className={cn('ml-auto shrink-0 text-[12px]', st.color)}>{st.label}</span>
                       </div>
-                      <div className="mt-1.5 flex items-center gap-3 text-[11px] text-[var(--lm-text-muted)]">
+                      <div className="mt-1.5 flex items-center gap-3 text-[12px] text-[var(--lm-text-muted)]">
                         <span className="flex items-center gap-1">
                           {srv.status === 'connected' ? (
                             <CheckCircle2 size={11} className="text-[var(--lm-success)]" />
@@ -344,27 +344,27 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                         {isBusy && <Loader2 size={11} className="lm-spin" />}
                       </div>
                       {srv.error && (
-                        <p className="mt-1 line-clamp-2 text-[11px] text-[var(--lm-error)]">{srv.error}</p>
+                        <p className="mt-1 line-clamp-2 text-[12px] text-[var(--lm-error)]">{srv.error}</p>
                       )}
                       <div className="mt-2 flex items-center gap-1">
                         <button
                           onClick={() => mcpAction(window.lmcodeAPI.reconnectMcpServer, srv.name)}
                           disabled={isBusy}
-                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
+                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
                         >
                           <RefreshCw size={11} /> 重连
                         </button>
                         <button
                           onClick={() => mcpAction(window.lmcodeAPI.stopMcpServer, srv.name)}
                           disabled={isBusy}
-                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
+                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
                         >
                           <Square size={11} /> 停止
                         </button>
                         <button
                           onClick={() => mcpAction(window.lmcodeAPI.removeMcpServer, srv.name)}
                           disabled={isBusy}
-                          className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-error)] disabled:opacity-50"
+                          className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-error)] disabled:opacity-50"
                         >
                           <Trash2 size={11} /> 移除
                         </button>

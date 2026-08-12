@@ -651,7 +651,7 @@ export function Composer({
 
       {queuedMessages.length > 0 && (
         <div className="mb-2 overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] shadow-[var(--lm-shadow-soft)]">
-          <div className="flex items-center gap-1.5 border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium text-[var(--lm-text-muted)]">
+          <div className="flex items-center gap-1.5 border-b border-[var(--lm-border)] px-3 py-1.5 text-[11px] font-medium text-[var(--lm-text-muted)]">
             <ArrowDown size={11} />
             待发送队列 · {queuedMessages.length}
             <span className="ml-auto font-normal">回合结束后自动发送</span>
@@ -662,7 +662,7 @@ export function Composer({
                 key={message.id}
                 className="flex items-center gap-1 border-b border-[var(--lm-border)] px-2 py-1.5 last:border-b-0"
               >
-                <span className="w-5 shrink-0 text-center font-mono text-[9px] text-[var(--lm-text-muted)]">
+                <span className="w-5 shrink-0 text-center font-mono text-[10px] text-[var(--lm-text-muted)]">
                   {index + 1}
                 </span>
                 <input
@@ -673,12 +673,12 @@ export function Composer({
                       updateQueuedMessage(currentSessionId, message.id, event.target.value)
                     }
                   }}
-                  className="min-w-0 flex-1 bg-transparent text-[11px] text-[var(--lm-text-secondary)]"
+                  className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--lm-text-secondary)]"
                   aria-label={`编辑队列消息 ${index + 1}`}
                 />
                 {message.attachments.length > 0 && (
                   <span
-                    className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[9px] text-[var(--lm-text-muted)]"
+                    className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]"
                     title={message.attachments.map((attachment) => attachment.name).join('、')}
                   >
                     <Paperclip size={9} />
@@ -728,7 +728,7 @@ export function Composer({
         )}
         {(attachmentError || isAttaching) && (
           <div
-            className={`px-4 pt-2 text-[10px] ${
+            className={`px-4 pt-2 text-[11px] ${
               attachmentError ? 'text-[var(--lm-error)]' : 'text-[var(--lm-text-muted)]'
             }`}
             role={attachmentError ? 'alert' : 'status'}
@@ -747,7 +747,7 @@ export function Composer({
               : '给 LMCODE 发消息…（可粘贴截图，/ 查看命令）'
           }
           rows={1}
-          className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-relaxed text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none"
+          className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none"
         />
 
         {/* Toolbar */}
@@ -768,7 +768,7 @@ export function Composer({
           <ThinkingSwitcher />
 
           {streamStatus && (
-            <span className="lm-pulse ml-1 truncate text-[11px] text-[var(--lm-text-muted)]">
+            <span className="lm-pulse ml-1 truncate text-[12px] text-[var(--lm-text-muted)]">
               {streamStatus}
             </span>
           )}
@@ -777,7 +777,7 @@ export function Composer({
 
           {isStreaming ? (
             <div className="flex items-center gap-1.5">
-              <span className="hidden text-[9px] text-[var(--lm-text-muted)] sm:inline">
+              <span className="hidden text-[10px] text-[var(--lm-text-muted)] sm:inline">
                 Ctrl+Enter 转向
               </span>
               <button

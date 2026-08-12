@@ -39,7 +39,7 @@ export function StallIndicator() {
   return (
     <div
       role="status"
-      className="flex items-center gap-1.5 px-1 pb-1.5 text-[11px] text-[var(--lm-text-muted)]"
+      className="flex items-center gap-1.5 px-1 pb-1.5 text-[12px] text-[var(--lm-text-muted)]"
     >
       <Loader2 size={11} className="lm-spin shrink-0" />
       <span>{buildStallNotice(runningToolName(messages), elapsedMs)}</span>

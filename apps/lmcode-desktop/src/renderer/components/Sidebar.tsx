@@ -122,7 +122,7 @@ function SessionStatusIndicator({
         title={`有 ${inboxUnread} 条未读通知`}
         className="flex h-4 w-4 shrink-0 items-center justify-center"
       >
-        <span className="flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--lm-accent-soft)] px-0.5 text-[8px] font-semibold text-[var(--lm-accent-text)]">
+        <span className="flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--lm-accent-soft)] px-0.5 text-[9px] font-semibold text-[var(--lm-accent-text)]">
           {inboxUnread > 9 ? '9+' : inboxUnread}
         </span>
       </span>
@@ -275,7 +275,7 @@ const SessionListItem = memo(function SessionListItem({
             }}
             onBlur={() => void confirmRename()}
             aria-label="任务名称"
-            className="min-w-0 flex-1 rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-2 py-1 text-[12px] text-[var(--lm-text-primary)] shadow-sm outline-none focus:border-[var(--lm-accent)]"
+            className="min-w-0 flex-1 rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-2 py-1 text-[13px] text-[var(--lm-text-primary)] shadow-sm outline-none focus:border-[var(--lm-accent)]"
             placeholder="任务名称"
           />
           <button
@@ -314,14 +314,14 @@ const SessionListItem = memo(function SessionListItem({
             {isPinned && (
               <Pin size={11} className="shrink-0 text-[var(--lm-accent-text)]" aria-label="已置顶" />
             )}
-            <span className={cn('min-w-0 flex-1 truncate text-[12.5px]', isCurrent && 'font-medium')}>
+            <span className={cn('min-w-0 flex-1 truncate text-[13.5px]', isCurrent && 'font-medium')}>
               {title}
             </span>
           </button>
 
           <span
             className={cn(
-              'ml-1 shrink-0 text-[10px] tabular-nums text-[var(--lm-text-muted)] transition-opacity group-hover/session:hidden group-focus-within/session:hidden',
+              'ml-1 shrink-0 text-[11px] tabular-nums text-[var(--lm-text-muted)] transition-opacity group-hover/session:hidden group-focus-within/session:hidden',
               (menuOpen || deletePending) && 'hidden',
             )}
           >
@@ -354,35 +354,35 @@ const SessionListItem = memo(function SessionListItem({
               >
                 <DropdownMenu.Item
                   onSelect={beginRename}
-                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
+                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
                 >
                   <Pencil size={14} />
                   重命名
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   onSelect={() => onExport(session.id)}
-                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
+                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
                 >
                   <Download size={14} />
                   导出任务
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   onSelect={() => onExportText(session.id, 'markdown')}
-                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
+                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
                 >
                   <FileText size={14} />
                   导出为 Markdown
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   onSelect={() => onExportText(session.id, 'json')}
-                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
+                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
                 >
                   <FileJson size={14} />
                   导出为 JSON
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   onSelect={() => onTogglePin(session.id)}
-                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
+                  className="flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]"
                 >
                   <Pin size={14} className={isPinned ? 'text-[var(--lm-accent-text)]' : undefined} />
                   {isPinned ? '取消置顶' : '置顶任务'}
@@ -396,7 +396,7 @@ const SessionListItem = memo(function SessionListItem({
                   }}
                   aria-label={deletePending ? `确认删除任务：${title}` : `删除任务：${title}`}
                   className={cn(
-                    'flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-error)] outline-none data-[highlighted]:bg-[var(--lm-error)]/10 data-[disabled]:opacity-40',
+                    'flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[var(--lm-error)] outline-none data-[highlighted]:bg-[var(--lm-error)]/10 data-[disabled]:opacity-40',
                     deletePending && 'bg-[var(--lm-error)]/10 font-medium',
                   )}
                 >
@@ -715,12 +715,12 @@ export function Sidebar({
       <div className="flex h-full w-72 flex-col">
         <div className="flex h-[52px] items-center justify-between px-3">
           <div className="flex min-w-0 items-center gap-2.5 pl-0.5">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--lm-text-primary)] text-[12px] font-semibold text-[var(--lm-bg-base)] shadow-sm">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--lm-text-primary)] text-[13px] font-semibold text-[var(--lm-bg-base)] shadow-sm">
               L
             </div>
             <div className="min-w-0 leading-tight">
-              <div className="truncate text-[13px] font-semibold tracking-tight">LMCODE</div>
-              <div className="text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--lm-text-muted)]">
+              <div className="truncate text-[14px] font-semibold tracking-tight">LMCODE</div>
+              <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--lm-text-muted)]">
                 Agent workspace
               </div>
             </div>
@@ -740,7 +740,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={clearCurrentSession}
-            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--lm-accent)] px-3 py-2 text-[12.5px] font-medium text-[var(--lm-accent-fg)] shadow-sm transition-colors hover:bg-[var(--lm-accent-hover)]"
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--lm-accent)] px-3 py-2 text-[13.5px] font-medium text-[var(--lm-accent-fg)] shadow-sm transition-colors hover:bg-[var(--lm-accent-hover)]"
           >
             <Plus size={15} />
             <span>新建任务</span>
@@ -780,7 +780,7 @@ export function Sidebar({
               }}
               placeholder="搜索任务或项目"
               aria-label="搜索任务或项目"
-              className="w-full rounded-lg border border-transparent bg-[var(--lm-bg-hover)] py-1.5 pl-8 pr-8 text-[12px] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)] transition-colors focus:border-[var(--lm-border-strong)] focus:bg-[var(--lm-bg-surface)]"
+              className="w-full rounded-lg border border-transparent bg-[var(--lm-bg-hover)] py-1.5 pl-8 pr-8 text-[13px] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)] transition-colors focus:border-[var(--lm-border-strong)] focus:bg-[var(--lm-bg-surface)]"
             />
             {query && (
               <button
@@ -797,7 +797,7 @@ export function Sidebar({
             )}
           </div>
           {searching && (
-            <div className="px-1 pt-1 text-[10px] text-[var(--lm-text-muted)]" role="status">
+            <div className="px-1 pt-1 text-[11px] text-[var(--lm-text-muted)]" role="status">
               {filtered.length > 0 ? `${filtered.length} 个匹配任务` : '没有匹配任务'}
             </div>
           )}
@@ -807,10 +807,10 @@ export function Sidebar({
           {filtered.length === 0 && (
             <div className="mx-1 mt-5 rounded-xl border border-dashed border-[var(--lm-border-strong)] px-3 py-6 text-center">
               <Search size={18} className="mx-auto mb-2 text-[var(--lm-text-muted)]" />
-              <p className="text-[11px] font-medium text-[var(--lm-text-secondary)]">
+              <p className="text-[12px] font-medium text-[var(--lm-text-secondary)]">
                 {query.trim() ? '未找到匹配的任务' : '还没有任务'}
               </p>
-              <p className="mt-0.5 text-[10px] text-[var(--lm-text-muted)]">
+              <p className="mt-0.5 text-[11px] text-[var(--lm-text-muted)]">
                 {query.trim() ? '试试任务名或项目路径' : '新任务会按项目显示在这里'}
               </p>
             </div>
@@ -832,7 +832,7 @@ export function Sidebar({
                     onClick={() => toggleProjectCollapsed(groupKey)}
                     aria-expanded={!isCollapsed}
                     aria-label={isCollapsed ? `展开项目 ${groupName} 的任务` : `折叠项目 ${groupName} 的任务`}
-                    className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-0.5 text-left text-[10.5px] font-medium text-[var(--lm-text-muted)] transition-colors hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
+                    className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-0.5 text-left text-[11.5px] font-medium text-[var(--lm-text-muted)] transition-colors hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
                   >
                     <ChevronRight
                       size={11}
@@ -841,7 +841,7 @@ export function Sidebar({
                     <Folder size={11} className="shrink-0" />
                     <span className="min-w-0 flex-1 truncate">{groupName}</span>
                     <CollapsedProjectActivity sessionIds={sessionIds} visible={isCollapsed} />
-                    <span className="shrink-0 tabular-nums text-[9px] text-[var(--lm-text-muted)]">
+                    <span className="shrink-0 tabular-nums text-[10px] text-[var(--lm-text-muted)]">
                       {group.sessions.length}
                     </span>
                   </button>
@@ -895,7 +895,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenExtensions}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >
             <Blocks size={14} />
             <span>技能与 MCP</span>
@@ -903,7 +903,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenMemory}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >
             <BookOpen size={14} />
             <span>记忆库</span>
@@ -911,7 +911,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenSettings}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >
             <Settings size={14} />
             <span>设置</span>

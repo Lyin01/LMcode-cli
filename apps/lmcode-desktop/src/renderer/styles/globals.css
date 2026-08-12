@@ -102,7 +102,7 @@ body {
   background-color: var(--lm-bg-base);
   color: var(--lm-text-primary);
   font-family: var(--lm-font-sans);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -162,7 +162,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ─── Markdown (theme-aware, replaces @tailwind prose) ───────── */
 .lm-markdown {
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.7;
   color: var(--lm-text-primary);
   word-break: break-word;
@@ -309,7 +309,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 8px;
   padding: 0 10px;
   color: var(--lm-text-muted);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -343,7 +343,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 0;
   background: transparent;
   color: var(--lm-text-primary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .lm-settings-search input::placeholder {
@@ -364,7 +364,7 @@ h1, h2, h3, h4, h5, h6 {
 .lm-settings-nav-group > p {
   margin: 0 8px 5px;
   color: var(--lm-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.025em;
 }
@@ -378,7 +378,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 8px;
   padding: 0 9px;
   color: var(--lm-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 520;
   text-align: left;
   transition: background-color 120ms ease, color 120ms ease;
@@ -403,7 +403,7 @@ h1, h2, h3, h4, h5, h6 {
   border-top: 1px solid var(--lm-border);
   padding: 0 9px;
   color: var(--lm-text-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .lm-settings-brand-mark {
@@ -415,7 +415,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 6px;
   background: var(--lm-accent-soft);
   color: var(--lm-accent-text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -440,7 +440,7 @@ h1, h2, h3, h4, h5, h6 {
   border-bottom: 1px solid var(--lm-border);
   padding: 0 14px 0 20px;
   color: var(--lm-text-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -485,7 +485,7 @@ h1, h2, h3, h4, h5, h6 {
 .lm-settings-page-header h1 {
   margin: 0;
   color: var(--lm-text-primary);
-  font-size: 22px;
+  font-size: 23px;
   font-weight: 650;
   letter-spacing: -0.02em;
 }
@@ -494,7 +494,7 @@ h1, h2, h3, h4, h5, h6 {
   max-width: 620px;
   margin: 8px 0 0;
   color: var(--lm-text-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.65;
 }
 
@@ -506,7 +506,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 7px;
   padding: 4px 7px;
   color: var(--lm-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   transition: background-color 120ms ease, color 120ms ease;
 }
 
@@ -522,7 +522,7 @@ h1, h2, h3, h4, h5, h6 {
 .lm-settings-section > h2 {
   margin: 0 0 11px;
   color: var(--lm-text-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 620;
 }
 
@@ -564,7 +564,7 @@ h1, h2, h3, h4, h5, h6 {
 .lm-settings-row-title {
   display: block;
   color: var(--lm-text-primary);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 620;
   line-height: 1.4;
 }
@@ -572,7 +572,7 @@ h1, h2, h3, h4, h5, h6 {
 .lm-settings-row-copy p {
   margin: 3px 0 0;
   color: var(--lm-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -591,7 +591,7 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--lm-bg-elevated);
   padding: 0 32px 0 11px;
   color: var(--lm-text-primary);
-  font-size: 12px;
+  font-size: 13px;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
@@ -625,7 +625,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid transparent;
   border-radius: 8px;
   color: var(--lm-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 550;
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
@@ -650,7 +650,7 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--lm-bg-hover);
   padding: 4px 9px;
   color: var(--lm-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 550;
 }
 
@@ -679,7 +679,7 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: center;
   gap: 7px;
   border-radius: 9px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
@@ -724,14 +724,14 @@ h1, h2, h3, h4, h5, h6 {
 
 .lm-settings-callout strong {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .lm-settings-callout p {
   margin: 2px 0 0;
   color: var(--lm-text-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .lm-settings-shortcut-keys {
@@ -749,13 +749,13 @@ h1, h2, h3, h4, h5, h6 {
   padding: 3px 7px;
   color: var(--lm-text-secondary);
   font-family: var(--lm-font-mono);
-  font-size: 10px;
+  font-size: 11px;
   text-align: center;
 }
 
 .lm-settings-value {
   color: var(--lm-text-secondary);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .lm-settings-path {
@@ -765,7 +765,7 @@ h1, h2, h3, h4, h5, h6 {
   overflow: hidden;
   color: var(--lm-text-secondary);
   font-family: var(--lm-font-mono);
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -783,12 +783,12 @@ h1, h2, h3, h4, h5, h6 {
 
 .lm-settings-empty strong {
   color: var(--lm-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .lm-settings-empty p {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .lm-settings-error {
@@ -805,7 +805,7 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: var(--lm-shadow-pop);
   padding: 10px 12px;
   color: var(--lm-error);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 @media (max-width: 1120px) {
@@ -928,7 +928,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .lm-remote-empty {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--lm-text-secondary);
 }
 
@@ -947,7 +947,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .lm-remote-qr p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--lm-text-secondary);
 }
 
@@ -969,14 +969,14 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--lm-border-strong);
   background: var(--lm-bg-surface);
   color: var(--lm-text-secondary);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .lm-remote-token-box code {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--lm-text-primary);
 }
 
@@ -1001,7 +1001,7 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--lm-text-secondary);
   list-style: disc;
 }

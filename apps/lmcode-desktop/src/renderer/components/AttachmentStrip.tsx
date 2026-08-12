@@ -47,11 +47,11 @@ export const AttachmentStrip = memo(function AttachmentStrip({
             )}
 
             <span className="min-w-0 pr-1">
-              <span className="block truncate text-[11px] font-medium text-[var(--lm-text-primary)]">
+              <span className="block truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
                 {attachment.name}
               </span>
               {details && (
-                <span className="mt-0.5 block truncate text-[9px] text-[var(--lm-text-muted)]">
+                <span className="mt-0.5 block truncate text-[10px] text-[var(--lm-text-muted)]">
                   {details}
                 </span>
               )}

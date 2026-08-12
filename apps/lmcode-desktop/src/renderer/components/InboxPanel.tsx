@@ -86,7 +86,7 @@ function InboxEntry({
         <span className="flex items-center gap-1.5">
           <span
             className={cn(
-              'min-w-0 flex-1 truncate text-[12.5px] text-[var(--lm-text-primary)]',
+              'min-w-0 flex-1 truncate text-[13.5px] text-[var(--lm-text-primary)]',
               !item.read && 'font-medium',
             )}
           >
@@ -95,11 +95,11 @@ function InboxEntry({
           <OutcomeBadge item={item} />
         </span>
         {item.body && (
-          <span className="mt-0.5 line-clamp-2 block text-[11px] text-[var(--lm-text-secondary)]">
+          <span className="mt-0.5 line-clamp-2 block text-[12px] text-[var(--lm-text-secondary)]">
             {item.body}
           </span>
         )}
-        <span className="mt-1 flex items-center gap-1.5 text-[10px] text-[var(--lm-text-muted)]">
+        <span className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--lm-text-muted)]">
           {sessionTitle && <span className="max-w-[160px] truncate">{sessionTitle}</span>}
           {sessionTitle && <span>·</span>}
           <span>{formatSessionActivity(item.createdAt)}</span>
@@ -169,12 +169,12 @@ export function InboxPanel({ open, onClose }: InboxPanelProps) {
             <Bell size={16} className="text-[var(--lm-accent-text)]" />
             <h2
               id="lm-inbox-panel-title"
-              className="text-[15px] font-semibold text-[var(--lm-text-primary)]"
+              className="text-[16px] font-semibold text-[var(--lm-text-primary)]"
             >
               通知中心
             </h2>
             {unreadCount > 0 && (
-              <span className="rounded-full bg-[var(--lm-accent-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--lm-accent-text)]">
+              <span className="rounded-full bg-[var(--lm-accent-soft)] px-2 py-0.5 text-[11px] font-medium text-[var(--lm-accent-text)]">
                 {unreadCount} 未读
               </span>
             )}
@@ -218,8 +218,8 @@ export function InboxPanel({ open, onClose }: InboxPanelProps) {
           {items.length === 0 && (
             <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
               <Bell size={28} className="text-[var(--lm-text-muted)]" />
-              <p className="text-[14px] text-[var(--lm-text-secondary)]">没有新通知</p>
-              <p className="text-[12px] text-[var(--lm-text-muted)]">
+              <p className="text-[15px] text-[var(--lm-text-secondary)]">没有新通知</p>
+              <p className="text-[13px] text-[var(--lm-text-muted)]">
                 后台任务完成、审批请求和子代理动态会显示在这里
               </p>
             </div>
@@ -237,7 +237,7 @@ export function InboxPanel({ open, onClose }: InboxPanelProps) {
         {/* Footer */}
         {items.length > 0 && (
           <div className="border-t border-[var(--lm-border)] px-4 py-2.5">
-            <p className="text-[11px] text-[var(--lm-text-muted)]">
+            <p className="text-[12px] text-[var(--lm-text-muted)]">
               共 {items.length} 条通知{unreadCount > 0 && `（${unreadCount} 条未读）`}
             </p>
           </div>

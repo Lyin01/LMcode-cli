@@ -94,11 +94,11 @@ export function KeyboardShortcutsPanel({
           <div className="min-w-0 flex-1">
             <h2
               id="keyboard-shortcuts-title"
-              className="text-[15px] font-semibold text-[var(--lm-text-primary)]"
+              className="text-[16px] font-semibold text-[var(--lm-text-primary)]"
             >
               键盘快捷键
             </h2>
-            <p className="mt-0.5 text-[11px] text-[var(--lm-text-muted)]">
+            <p className="mt-0.5 text-[12px] text-[var(--lm-text-muted)]">
               菜单与界面共用同一套快捷键
             </p>
           </div>
@@ -116,7 +116,7 @@ export function KeyboardShortcutsPanel({
         <div className="grid max-h-[70vh] gap-5 overflow-y-auto p-5 sm:grid-cols-2">
           {SHORTCUT_SECTIONS.map((section) => (
             <div key={section.title}>
-              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--lm-text-muted)]">
+              <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-[var(--lm-text-muted)]">
                 {section.title}
               </h3>
               <div className="overflow-hidden rounded-xl border border-[var(--lm-border)]">
@@ -125,14 +125,14 @@ export function KeyboardShortcutsPanel({
                     key={shortcut.label}
                     className="flex min-h-10 items-center gap-3 border-b border-[var(--lm-border)] px-3 py-2 last:border-b-0"
                   >
-                    <span className="min-w-0 flex-1 text-[12px] text-[var(--lm-text-secondary)]">
+                    <span className="min-w-0 flex-1 text-[13px] text-[var(--lm-text-secondary)]">
                       {shortcut.label}
                     </span>
                     <span className="flex shrink-0 items-center gap-1">
                       {shortcut.keys.map((key) => (
                         <kbd
                           key={key}
-                          className="min-w-6 rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-1.5 py-0.5 text-center font-mono text-[10px] text-[var(--lm-text-primary)] shadow-sm"
+                          className="min-w-6 rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-1.5 py-0.5 text-center font-mono text-[11px] text-[var(--lm-text-primary)] shadow-sm"
                         >
                           {key === 'mod' ? modifier : key}
                         </kbd>

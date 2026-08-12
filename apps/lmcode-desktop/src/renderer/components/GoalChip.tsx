@@ -70,11 +70,11 @@ export function GoalChip() {
         className="flex max-w-[280px] items-center gap-1.5 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1.5 transition-colors hover:bg-[var(--lm-bg-hover)]"
       >
         <Target size={12} className={cn('shrink-0', status.color)} />
-        <span className="truncate text-[11px] font-medium text-[var(--lm-text-primary)]">
+        <span className="truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
           {goal.objective}
         </span>
         {budget && (
-          <span className="shrink-0 font-mono text-[9px] text-[var(--lm-text-muted)]">{budget}</span>
+          <span className="shrink-0 font-mono text-[10px] text-[var(--lm-text-muted)]">{budget}</span>
         )}
       </button>
 
@@ -83,7 +83,7 @@ export function GoalChip() {
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 items-center gap-1.5">
               <Target size={13} className={cn('shrink-0', status.color)} />
-              <span className={cn('text-[10px] font-semibold uppercase tracking-wider', status.color)}>
+              <span className={cn('text-[11px] font-semibold uppercase tracking-wider', status.color)}>
                 {status.label}
               </span>
             </div>
@@ -96,33 +96,33 @@ export function GoalChip() {
             </button>
           </div>
 
-          <p className="mt-2 text-[12px] font-medium leading-snug text-[var(--lm-text-primary)]">
+          <p className="mt-2 text-[13px] font-medium leading-snug text-[var(--lm-text-primary)]">
             {goal.objective}
           </p>
           {goal.completionCriterion && (
-            <p className="mt-1 text-[11px] leading-snug text-[var(--lm-text-secondary)]">
+            <p className="mt-1 text-[12px] leading-snug text-[var(--lm-text-secondary)]">
               完成标准：{goal.completionCriterion}
             </p>
           )}
 
           <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
             <div className="rounded-lg bg-[var(--lm-bg-hover)] px-1 py-1.5">
-              <p className="font-mono text-[12px] font-semibold text-[var(--lm-text-primary)]">
+              <p className="font-mono text-[13px] font-semibold text-[var(--lm-text-primary)]">
                 {goal.turnsUsed}
               </p>
-              <p className="mt-0.5 text-[9px] text-[var(--lm-text-muted)]">轮次</p>
+              <p className="mt-0.5 text-[10px] text-[var(--lm-text-muted)]">轮次</p>
             </div>
             <div className="rounded-lg bg-[var(--lm-bg-hover)] px-1 py-1.5">
-              <p className="font-mono text-[12px] font-semibold text-[var(--lm-text-primary)]">
+              <p className="font-mono text-[13px] font-semibold text-[var(--lm-text-primary)]">
                 {formatTokens(goal.tokensUsed)}
               </p>
-              <p className="mt-0.5 text-[9px] text-[var(--lm-text-muted)]">已用 tokens</p>
+              <p className="mt-0.5 text-[10px] text-[var(--lm-text-muted)]">已用 tokens</p>
             </div>
             <div className="rounded-lg bg-[var(--lm-bg-hover)] px-1 py-1.5">
-              <p className="truncate font-mono text-[12px] font-semibold text-[var(--lm-text-primary)]">
+              <p className="truncate font-mono text-[13px] font-semibold text-[var(--lm-text-primary)]">
                 {budget ?? '—'}
               </p>
-              <p className="mt-0.5 text-[9px] text-[var(--lm-text-muted)]">剩余预算</p>
+              <p className="mt-0.5 text-[10px] text-[var(--lm-text-muted)]">剩余预算</p>
             </div>
           </div>
 
@@ -131,7 +131,7 @@ export function GoalChip() {
               {goal.status === 'active' && (
                 <button
                   onClick={() => void pauseGoal(currentSessionId)}
-                  className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[var(--lm-bg-hover)] px-2 py-1.5 text-[11px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-text-primary)]"
+                  className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[var(--lm-bg-hover)] px-2 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-text-primary)]"
                 >
                   <Pause size={11} />
                   暂停
@@ -140,7 +140,7 @@ export function GoalChip() {
               {goal.status === 'paused' && (
                 <button
                   onClick={() => void resumeGoal(currentSessionId)}
-                  className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[var(--lm-bg-hover)] px-2 py-1.5 text-[11px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-text-primary)]"
+                  className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[var(--lm-bg-hover)] px-2 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-text-primary)]"
                 >
                   <Play size={11} />
                   恢复
@@ -148,7 +148,7 @@ export function GoalChip() {
               )}
               <button
                 onClick={() => void cancelGoal(currentSessionId)}
-                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[var(--lm-bg-hover)] px-2 py-1.5 text-[11px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-error)]"
+                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[var(--lm-bg-hover)] px-2 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-error)]"
               >
                 <CircleOff size={11} />
                 取消目标
