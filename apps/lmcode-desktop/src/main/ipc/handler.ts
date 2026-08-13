@@ -97,6 +97,7 @@ export interface RemoteController {
   setEnabled(enabled: boolean): Promise<RemoteState>
   setPort(port: number): Promise<RemoteState>
   regenerateToken(): Promise<RemoteState>
+  setAppUrl(appUrl: string): Promise<RemoteState>
 }
 
 /**
@@ -940,6 +941,11 @@ export function registerAllHandlers(
 
     secureInvoke('lmcode:regenerateRemoteToken', async (): Promise<RemoteState> => {
       return remote.regenerateToken()
+    })
+
+    secureInvoke('lmcode:setRemoteAppUrl', async (_event, appUrl: unknown): Promise<RemoteState> => {
+      if (typeof appUrl !== 'string') throw new Error('Invalid app URL')
+      return remote.setAppUrl(appUrl)
     })
   }
 

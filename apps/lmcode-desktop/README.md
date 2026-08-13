@@ -28,7 +28,7 @@ LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 
 
 1. 设置（`Ctrl+,`）→ **远程连接** → 打开「允许远程连接」。
 2. 复制**配对令牌**，记下**局域网地址**（如 `http://192.168.1.100:37991`）。
-3. 用手机/浏览器打开 lmcode-remote-app（见 `E:\project from lmcode\lmcode-remote-app\README.md`），填入地址与令牌；也可扫描面板二维码直达（含令牌）。
+3. 用手机/浏览器打开 lmcode-remote-app（见 `E:\project from lmcode\lmcode-remote-app\README.md`），填入地址与令牌；也可在「App 页面地址」填入 app 部署地址后，扫描面板二维码直达 app 并自动填好地址与令牌。
 4. 外网连接：用 Tailscale / `ngrok http 37991` / frp 把端口映射到公网，客户端填对应的 wss/ws 地址。
 
 远程服务层实现位于 `src/main/remote/`（`interaction-hub` / `remote-bridge` / `remote-manager` / `remote-server`），协议定义在 `src/shared/remote-types.ts`（与 lmcode-remote-app 的 `src/protocol/types.ts` 单点同步）。

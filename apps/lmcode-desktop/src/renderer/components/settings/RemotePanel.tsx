@@ -74,10 +74,12 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 export function RemotePanel() {
   const [state, setState] = useState<RemoteState | null>(null)
   const [portDraft, setPortDraft] = useState('')
+  const [appUrlDraft, setAppUrlDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [qrUrl, setQrUrl] = useState<string | null>(null)
   const portInputRef = useRef<HTMLInputElement>(null)
+  const appUrlInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let disposed = false
@@ -85,31 +87,41 @@ export function RemotePanel() {
       if (disposed) return
       setState(remoteState)
       setPortDraft(String(remoteState.port))
+      setAppUrlDraft(remoteState.appUrl)
     })
     const unsubscribe = window.lmcodeAPI.onRemoteStateChanged((remoteState) => {
       setState(remoteState)
-      // Do not clobber an in-progress port edit: only sync the draft when the
-      // port actually changed and the user is not focused on the input.
-      const focused = document.activeElement === portInputRef.current
-      if (!focused && remoteState.port !== state?.port) {
+      // Do not clobber in-progress edits: only sync drafts when the value
+      // actually changed and the user is not focused on the input.
+      const portFocused = document.activeElement === portInputRef.current
+      if (!portFocused && remoteState.port !== state?.port) {
         setPortDraft(String(remoteState.port))
+      }
+      const appUrlFocused = document.activeElement === appUrlInputRef.current
+      if (!appUrlFocused && remoteState.appUrl !== state?.appUrl) {
+        setAppUrlDraft(remoteState.appUrl)
       }
     })
     return () => {
       disposed = true
       unsubscribe()
     }
-  }, [state?.port])
+  }, [state?.port, state?.appUrl])
 
   useEffect(() => {
-    if (!state?.enabled || state.lanUrls.length === 0) {
+    if (!state?.enabled) {
       setQrUrl(null)
       return
     }
-    // QR encodes the LAN base URL with a trailing #token fragment so a phone
-    // can be pointed at the app and pasted straight into the pairing screen.
+    // QR encodes the app URL (when configured) with the token and port in the
+    // hash, so scanning it opens the app with address and token pre-filled:
+    //   https?://<app-host>#token=…&port=…
+    if (state.appUrl.length === 0) {
+      setQrUrl(null)
+      return
+    }
     let disposed = false
-    void QRCode.toDataURL(`${state.lanUrls[0]}#token=${state.token}`, {
+    void QRCode.toDataURL(`${state.appUrl}#token=${state.token}&port=${state.port}`, {
       width: 200,
       margin: 1,
       color: { dark: '#1f2937', light: '#ffffff' },
@@ -123,7 +135,7 @@ export function RemotePanel() {
     return () => {
       disposed = true
     }
-  }, [state?.enabled, state?.lanUrls, state?.token])
+  }, [state?.enabled, state?.appUrl, state?.token, state?.port])
 
   const runMutation = async (action: () => Promise<RemoteState>): Promise<void> => {
     setBusy(true)
@@ -146,6 +158,10 @@ export function RemotePanel() {
       return
     }
     await runMutation(() => window.lmcodeAPI.setRemotePort(parsed))
+  }
+
+  const saveAppUrl = async (): Promise<void> => {
+    await runMutation(() => window.lmcodeAPI.setRemoteAppUrl(appUrlDraft.trim()))
   }
 
   const toggleEnabled = (enabled: boolean): void => {
@@ -200,18 +216,47 @@ export function RemotePanel() {
       {state.enabled && (
         <>
           <section className="lm-settings-section">
-            <h2>连接地址</h2>
+            <h2>连接方式</h2>
             <div className="lm-settings-card">
+              <div className="lm-settings-row">
+                <div className="lm-settings-row-copy">
+                  <span className="lm-settings-row-title">App 页面地址</span>
+                  <p>
+                    手机要访问的 lmcode app 页面（部署构建产物后的地址，如{' '}
+                    <code>http://192.168.1.100:4173</code>）。填入后，二维码会直达
+                    app 并自动带上令牌和端口。
+                  </p>
+                </div>
+                <div className="lm-settings-row-control lm-remote-port-control">
+                  <input
+                    ref={appUrlInputRef}
+                    className={inputClass}
+                    type="text"
+                    placeholder="http://192.168.1.100:4173"
+                    value={appUrlDraft}
+                    disabled={busy}
+                    onChange={(event) => setAppUrlDraft(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="lm-settings-action"
+                    disabled={busy || appUrlDraft.trim() === state.appUrl}
+                    onClick={() => void saveAppUrl()}
+                  >
+                    保存
+                  </button>
+                </div>
+              </div>
               <div className="lm-settings-row lm-settings-row-top">
                 <div className="lm-settings-row-copy">
                   <span className="lm-settings-row-title">局域网地址</span>
-                  <p>同一 WiFi / 局域网内的设备使用以下地址连接（手机浏览器打开后粘贴令牌）。</p>
+                  <p>同一 WiFi / 局域网内的设备使用以下 ws 地址连接。</p>
                   {state.lanUrls.length > 0 && (
                     <div className="lm-remote-urls">
                       {state.lanUrls.map((url) => (
                         <div key={url} className="lm-remote-url-row">
-                          <code className="lm-settings-path">{url}</code>
-                          <CopyButton text={`${url}#token=${state.token}`} label={`复制 ${url}`} />
+                          <code className="lm-settings-path">{url.replace(/^http/, 'ws')}/ws</code>
+                          <CopyButton text={`${url.replace(/^http/, 'ws')}/ws`} label={`复制 ${url}`} />
                         </div>
                       ))}
                     </div>
@@ -224,8 +269,13 @@ export function RemotePanel() {
               {qrUrl && (
                 <div className="lm-remote-qr">
                   <img src={qrUrl} alt="远程连接二维码" width={200} height={200} />
-                  <p>用手机扫码打开远程连接页（含令牌）</p>
+                  <p>用手机扫一扫：打开 app 并自动填好地址和令牌</p>
                 </div>
+              )}
+              {!qrUrl && state.appUrl.length === 0 && (
+                <p className="lm-remote-empty">
+                  填写上方 App 页面地址后即可生成二维码，手机扫码一步连接。
+                </p>
               )}
             </div>
           </section>

@@ -28,6 +28,13 @@ export interface RemoteConfig {
   enabled: boolean
   port: number
   token: string
+  /**
+   * Base URL where the lmcode-remote-app static build is served (e.g.
+   * `http://192.168.1.100:4173`). Empty until the user fills it in; the
+   * pairing QR code then encodes `${appUrl}#token=…&port=…` so scanning it
+   * opens the app with address and token pre-filled.
+   */
+  appUrl: string
 }
 
 /**

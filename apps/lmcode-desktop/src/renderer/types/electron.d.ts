@@ -306,6 +306,8 @@ interface LmcodeAPI {
 
   regenerateRemoteToken: () => Promise<RemoteState>
 
+  setRemoteAppUrl: (appUrl: string) => Promise<RemoteState>
+
   onRemoteStateChanged: (callback: (state: RemoteState) => void) => () => void
 
   // App control

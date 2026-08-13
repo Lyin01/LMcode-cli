@@ -56,7 +56,21 @@ async function makeManager(): Promise<{
     noProjectWorkDir: join(configDir, 'no-project'),
     onStateChange: (state) => states.push(state),
   })
+  await manager.init()
   return { manager, configDir, configPath: join(configDir, 'remote-config.json'), states }
+}
+
+/**
+ * Assign a test-local port and start the service. Tests must never bind the
+ * default port (37_991): a real LMCODE Desktop may be running on it.
+ */
+async function enableOnTestPort(manager: RemoteManager): Promise<number> {
+  // 38500–38900 keeps clear of the fixed 38000 used by the persistence test
+  // and of the default desktop port 37991.
+  const port = 38_500 + Math.floor(Math.random() * 400)
+  await manager.setPort(port)
+  await manager.setEnabled(true)
+  return port
 }
 
 afterEach(async () => {
@@ -78,9 +92,9 @@ describe('RemoteManager', () => {
 
   it('persists config to disk and reloads it on init', async () => {
     const { manager, configPath } = await makeManager()
-    await manager.init()
-    await manager.setEnabled(true)
+    // Set the port before enabling so the server never binds the default port.
     await manager.setPort(38_000)
+    await manager.setEnabled(true)
     await manager.regenerateToken()
 
     const persisted = JSON.parse(await readFile(configPath, 'utf8')) as {
@@ -111,12 +125,12 @@ describe('RemoteManager', () => {
 
   it('emits state changes for every mutation', async () => {
     const { manager, states } = await makeManager()
-    await manager.init()
     const before = states.length
+    await manager.setPort(38_500 + Math.floor(Math.random() * 400))
     await manager.setEnabled(true)
     await manager.regenerateToken()
     await manager.setEnabled(false)
-    expect(states.length).toBe(before + 3)
+    expect(states.length).toBe(before + 4)
     expect(states.at(-1)?.enabled).toBe(false)
   })
 
@@ -129,8 +143,7 @@ describe('RemoteManager', () => {
 
   it('serves health and accepts a client after being enabled', async () => {
     const { manager } = await makeManager()
-    await manager.init()
-    await manager.setEnabled(true)
+    await enableOnTestPort(manager)
     const state = manager.getState()
     expect(state.enabled).toBe(true)
 
@@ -143,8 +156,7 @@ describe('RemoteManager', () => {
 
   it('regenerating the token does not restart the server (state stays enabled)', async () => {
     const { manager } = await makeManager()
-    await manager.init()
-    await manager.setEnabled(true)
+    await enableOnTestPort(manager)
     const before = manager.getState()
     const after = await manager.regenerateToken()
     expect(after.enabled).toBe(true)

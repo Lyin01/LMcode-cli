@@ -113,6 +113,7 @@ async function openServer(token = 'test-token'): Promise<OpenedServer> {
     enabled: true,
     port: 0,
     token,
+    appUrl: '',
     lanUrls: ['http://127.0.0.1:0'],
     clientCount: 0,
     version: 'test',
