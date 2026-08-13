@@ -1283,6 +1283,122 @@ describe('OpenAIResponsesChatProvider', () => {
       ]);
     });
 
+    it('tolerates argument deltas arriving before output_item.added (DeepSeek gateway)', async () => {
+      // Regression: DeepSeek-style gateways stream `function_call_arguments.delta`
+      // keyed by `output_index` only (no `item_id`) and may emit it before the
+      // matching `output_item.added`. The adapter previously threw
+      // "received function-call arguments for unknown stream index 0" and the
+      // whole turn died. Now the delta is lazily buffered and the authoritative
+      // `function_call_arguments.done` payload still lands on the tool call.
+      const provider = createProvider();
+      const events = [
+        {
+          type: 'response.function_call_arguments.delta',
+          output_index: 0,
+          delta: '{"a": 2, "b": 3}',
+        },
+        {
+          type: 'response.output_item.added',
+          item: {
+            id: 'item_ds',
+            type: 'function_call',
+            call_id: 'call_ds',
+            name: 'add',
+            arguments: '',
+          },
+        },
+        {
+          type: 'response.function_call_arguments.done',
+          item_id: 'item_ds',
+          output_index: 0,
+          name: 'add',
+          arguments: '{"a": 2, "b": 3}',
+        },
+        {
+          type: 'response.completed',
+          response: { id: 'resp_ds', usage: { input_tokens: 5, output_tokens: 3 } },
+        },
+      ];
+
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = vi
+        .fn()
+        .mockResolvedValue(makeAsyncIterable(events));
+
+      const result = await generate(
+        provider,
+        '',
+        [ADD_TOOL],
+        [{ role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] }],
+      );
+
+      expect(result.message.toolCalls).toEqual([
+        {
+          type: 'function',
+          id: 'call_ds',
+          name: 'add', arguments: '{"a": 2, "b": 3}',
+          extras: undefined,
+        },
+      ]);
+    });
+
+    it('tolerates output_item.done supplying full arguments when deltas have no item_id', async () => {
+      // Regression: a gateway that never attaches `item_id` to deltas (falling
+      // back to `output_index`) and only provides the full `arguments` in the
+      // terminal `output_item.done`. The final payload must still reach the
+      // tool call instead of being dropped as an orphaned delta.
+      const provider = createProvider();
+      const events = [
+        {
+          type: 'response.output_item.added',
+          item: {
+            type: 'function_call',
+            call_id: 'call_no_id',
+            name: 'add',
+            arguments: '',
+          },
+        },
+        {
+          type: 'response.function_call_arguments.delta',
+          output_index: 0,
+          delta: '{"a": 2, "b": 3}',
+        },
+        {
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: {
+            type: 'function_call',
+            call_id: 'call_no_id',
+            name: 'add',
+            arguments: '{"a": 2, "b": 3}',
+          },
+        },
+        {
+          type: 'response.completed',
+          response: { id: 'resp_no_id', usage: { input_tokens: 5, output_tokens: 3 } },
+        },
+      ];
+
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = vi
+        .fn()
+        .mockResolvedValue(makeAsyncIterable(events));
+
+      const result = await generate(
+        provider,
+        '',
+        [ADD_TOOL],
+        [{ role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] }],
+      );
+
+      expect(result.message.toolCalls).toEqual([
+        {
+          type: 'function',
+          id: 'call_no_id',
+          name: 'add', arguments: '{"a": 2, "b": 3}',
+          extras: undefined,
+        },
+      ]);
+    });
+
     it('rejects function_call_arguments.done when it disagrees with streamed deltas', async () => {
       const events = [
         {

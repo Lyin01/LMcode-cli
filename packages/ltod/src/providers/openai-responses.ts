@@ -643,13 +643,14 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
     const appendFunctionCallArguments = (
       streamIndex: number | string | undefined,
       argumentsPart: string,
-      context: string,
     ): void => {
+      // Tolerate gateways that stream argument deltas before (or without) the
+      // matching `output_item.added` — the delta itself proves the function
+      // call exists, so lazily seed the buffer instead of failing. The final
+      // `function_call_arguments.done` / `output_item.done` still carries the
+      // authoritative payload.
       if (!hasFunctionCallArguments(streamIndex)) {
-        failResponsesDecode(
-          context,
-          `received function-call arguments for unknown stream index ${formatResponseStreamIndex(streamIndex)}.`,
-        );
+        setFunctionCallArguments(streamIndex, '');
       }
       setFunctionCallArguments(
         streamIndex,
@@ -660,13 +661,13 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
     const yieldFinalArgumentsSuffix = function* (
       streamIndex: number | string | undefined,
       finalArguments: string,
-      context: string,
     ): Generator<StreamedMessagePart> {
+      // Lazy-seed the buffer when no delta arrived for this index (e.g. a
+      // gateway that only supplies `arguments` in the terminal event, or that
+      // never sent `output_item.added`). The full payload then streams out as
+      // a single trailing part that generate.ts merges into the tool call.
       if (!hasFunctionCallArguments(streamIndex)) {
-        failResponsesDecode(
-          context,
-          `received final function-call arguments for unknown stream index ${formatResponseStreamIndex(streamIndex)}.`,
-        );
+        setFunctionCallArguments(streamIndex, '');
       }
 
       const accumulatedArguments = getFunctionCallArguments(streamIndex);
@@ -732,7 +733,13 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
               // Preserve it so the generate loop can dispatch interleaved
               // deltas across parallel function calls correctly.
               const streamIndex = responseStreamIndex(item.itemId, outputIndex);
-              setFunctionCallArguments(streamIndex, item.arguments ?? '');
+              // Seed the buffer only if this index is not already tracked:
+              // a non-conforming gateway may stream `function_call_arguments.delta`
+              // before `output_item.added`, and overwriting would drop the
+              // deltas already accumulated (see appendFunctionCallArguments).
+              if (!hasFunctionCallArguments(streamIndex)) {
+                setFunctionCallArguments(streamIndex, item.arguments ?? '');
+              }
               const tc: ToolCall = {
                 type: 'function',
                 id: functionCallId(item.callId),
@@ -758,7 +765,7 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
               yield thinkPart;
             } else if (item.type === 'function_call' && typeof item.arguments === 'string') {
               const streamIndex = responseStreamIndex(item.itemId, outputIndex);
-              yield* yieldFinalArgumentsSuffix(streamIndex, item.arguments, type);
+              yield* yieldFinalArgumentsSuffix(streamIndex, item.arguments);
             }
             break;
           }
@@ -774,7 +781,7 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
               type: 'tool_call_part',
               argumentsPart,
             };
-            appendFunctionCallArguments(streamIndex, argumentsPart, type);
+            appendFunctionCallArguments(streamIndex, argumentsPart);
             if (streamIndex !== undefined) {
               (part as { index: number | string }).index = streamIndex;
             }
@@ -787,7 +794,7 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
               readStringField(chunk, 'item_id'),
               readNumberField(chunk, 'output_index'),
             );
-            yield* yieldFinalArgumentsSuffix(streamIndex, functionArguments, type);
+            yield* yieldFinalArgumentsSuffix(streamIndex, functionArguments);
             break;
           }
           case 'response.reasoning_summary_part.added':
