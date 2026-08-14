@@ -8,6 +8,9 @@ import {
   Paperclip,
   Square,
   X,
+  Sparkles,
+  CheckCircle2,
+  ListChecks,
 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
@@ -587,6 +590,25 @@ export function Composer({
     textareaRef.current?.focus()
   }, [])
 
+  const messages = useSessionStore((s) => s.messages)
+  const hasHistory = messages.length > 0
+  const lastMessage = hasHistory ? messages[messages.length - 1] : undefined
+  const showQuickActions = !isStreaming && hasHistory && lastMessage?.role === 'assistant' && !hasDraft
+
+  const sendQuickAction = useCallback(
+    (textToSend: string) => {
+      if (isStreaming) return
+      const ta = textareaRef.current
+      if (ta) {
+        ta.value = ''
+        ta.style.height = 'auto'
+      }
+      setHasDraft(false)
+      void sendMessage(textToSend, [])
+    },
+    [isStreaming, sendMessage],
+  )
+
   const canSend = hasDraft || attachments.length > 0
   const isAttaching = attachmentLoadCount > 0
 
@@ -687,6 +709,39 @@ export function Composer({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Smart Quick Action Chips */}
+      {showQuickActions && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5 px-1 animate-fade-in">
+          <button
+            type="button"
+            onClick={() => sendQuickAction('请继续自主推进并完成所有未尽步骤，直到整个任务全部闭环。')}
+            className="flex items-center gap-1 rounded-full border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1 text-[11px] text-[var(--lm-text-secondary)] shadow-xs transition-colors hover:border-[var(--lm-accent)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            title="让 Agent 继续执行未完成的任务"
+          >
+            <Sparkles size={12} className="text-[var(--lm-accent-text)]" />
+            <span>继续闭环完成</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => sendQuickAction('请运行项目的自动化测试套件、构建命令或类型检查，验证当前修改是否全部通过。')}
+            className="flex items-center gap-1 rounded-full border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1 text-[11px] text-[var(--lm-text-secondary)] shadow-xs transition-colors hover:border-[var(--lm-accent)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            title="验证代码修改"
+          >
+            <CheckCircle2 size={12} className="text-[var(--lm-success)]" />
+            <span>运行测试与验证</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => sendQuickAction('请逐项对照我最初提出的所有要求和验收条件，检查确认是否已 100% 达成。')}
+            className="flex items-center gap-1 rounded-full border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1 text-[11px] text-[var(--lm-text-secondary)] shadow-xs transition-colors hover:border-[var(--lm-accent)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            title="对照原始要求逐项核对"
+          >
+            <ListChecks size={12} className="text-[var(--lm-warning)]" />
+            <span>对照需求复核</span>
+          </button>
         </div>
       )}
 
