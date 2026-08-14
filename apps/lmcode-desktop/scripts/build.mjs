@@ -9,11 +9,60 @@ const ROOT = resolve(import.meta.dirname, '..')
 const OUT_MAIN_DIR = resolve(ROOT, 'out/main')
 const OUT_PRELOAD_DIR = resolve(ROOT, 'out/preload')
 const VENDOR_DIR = resolve(ROOT, 'out/vendor')
-const NODE_SDK_PACKAGE_JSON = resolve(ROOT, '../../packages/node-sdk/package.json')
-const nodeSdkRequire = createRequire(NODE_SDK_PACKAGE_JSON)
-const PLAYWRIGHT_CORE_ROOT = realpathSync(
-  dirname(nodeSdkRequire.resolve('playwright-core/package.json')),
-)
+function resolveVendorPackage(spec, name, relDist, relAssets) {
+  const monoMap = {
+    '@lmcode-cli/lmcode-sdk': {
+      pkg: resolve(ROOT, '../../packages/node-sdk/package.json'),
+      dist: resolve(ROOT, '../../packages/node-sdk/dist/index.mjs'),
+      assets: resolve(ROOT, '../../packages/node-sdk/dist/assets'),
+    },
+    '@lmcode/memory': {
+      pkg: resolve(ROOT, '../../packages/memory/package.json'),
+      dist: resolve(ROOT, '../../packages/memory/dist/index.mjs'),
+      assets: resolve(ROOT, '../../packages/memory/dist/assets'),
+    },
+  }
+  if (monoMap[spec] && existsSync(monoMap[spec].dist)) {
+    return {
+      spec,
+      name,
+      distEntry: monoMap[spec].dist,
+      assets: monoMap[spec].assets,
+      pkgPath: monoMap[spec].pkg,
+    }
+  }
+  const localRequire = createRequire(join(ROOT, 'package.json'))
+  try {
+    const pkgJsonPath = localRequire.resolve(`${spec}/package.json`)
+    const pkgDir = dirname(pkgJsonPath)
+    return {
+      spec,
+      name,
+      distEntry: resolve(pkgDir, relDist),
+      assets: resolve(pkgDir, relAssets),
+      pkgPath: pkgJsonPath,
+    }
+  } catch (err) {
+    throw new Error(`Cannot resolve vendor dependency ${spec}: ${err.message}`)
+  }
+}
+
+function resolvePlaywrightCoreRoot() {
+  const localRequire = createRequire(join(ROOT, 'package.json'))
+  try {
+    return realpathSync(dirname(localRequire.resolve('playwright-core/package.json')))
+  } catch {
+    try {
+      const sdkPkg = resolve(ROOT, '../../packages/node-sdk/package.json')
+      const nodeSdkRequire = createRequire(sdkPkg)
+      return realpathSync(dirname(nodeSdkRequire.resolve('playwright-core/package.json')))
+    } catch (e) {
+      throw new Error(`Cannot resolve playwright-core: ${e.message}`)
+    }
+  }
+}
+
+const PLAYWRIGHT_CORE_ROOT = resolvePlaywrightCoreRoot()
 const PLAYWRIGHT_VENDOR_DIR = join(VENDOR_DIR, 'playwright-core')
 const PLAYWRIGHT_VENDOR_ENTRY = join(PLAYWRIGHT_VENDOR_DIR, 'index.mjs')
 
@@ -29,34 +78,9 @@ const tsconfigRaw = {
   compilerOptions: { module: 'ESNext', moduleResolution: 'bundler', strict: true },
 }
 
-// ── Vendor workspace packages ──────────────────────────────────────────────
-//
-// `@lmcode-cli/*` / `@lmcode/*` package.json `exports` deliberately point at
-// `./src/index.ts` (TS-source-first dev model) and their `#/*` subpath imports
-// are not valid Node specifiers, so the raw source cannot run under Node. Each
-// already ships a built `dist/index.mjs`, but that dist externalizes its npm
-// deps (undici, zod, @google/genai, …) and loads a native tokenizer addon via
-// `createRequire('./assets/*.node')` — neither survives `electron-builder`
-// packaging (no node_modules in the app, native modules can't live in asar).
-//
-// So we re-bundle each dist into a SELF-CONTAINED file under `out/vendor/`:
-// npm deps are inlined, `*.node` stays an external runtime require, and the
-// sibling `assets/` (native addon) is copied next to the bundle so the
-// createRequire path still resolves. `out/vendor/` ships inside the app, making
-// the main process fully portable.
 const VENDOR = [
-  {
-    spec: '@lmcode-cli/lmcode-sdk',
-    name: 'node-sdk',
-    distEntry: resolve(ROOT, '../../packages/node-sdk/dist/index.mjs'),
-    assets: resolve(ROOT, '../../packages/node-sdk/dist/assets'),
-  },
-  {
-    spec: '@lmcode/memory',
-    name: 'memory',
-    distEntry: resolve(ROOT, '../../packages/memory/dist/index.mjs'),
-    assets: resolve(ROOT, '../../packages/memory/dist/assets'),
-  },
+  resolveVendorPackage('@lmcode-cli/lmcode-sdk', 'node-sdk', 'dist/index.mjs', 'dist/assets'),
+  resolveVendorPackage('@lmcode/memory', 'memory', 'dist/index.mjs', 'dist/assets'),
 ]
 
 /** spec -> absolute path of its vendored bundle (filled in by vendorAll). */
