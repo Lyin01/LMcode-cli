@@ -15,6 +15,7 @@ import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
 import { resolveTheme, type ThemePref } from '@/lib/theme'
+import { evaluateContextPressure } from '@/lib/usage'
 
 interface TopBarProps {
   sidebarOpen: boolean
@@ -61,12 +62,9 @@ export function TopBar({
   const current = sessions.find((s) => s.id === currentSessionId)
   const title = current?.title || current?.workDir || '新对话'
 
-  const pct =
-    maxContextTokens > 0
-      ? Math.min((contextTokens / maxContextTokens) * 100, 100)
-      : 0
+  const pressure = evaluateContextPressure(contextTokens, maxContextTokens)
 
-  const contextTooltip = `上下文 ${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens（${Math.round(pct)}%）${
+  const contextTooltip = `上下文 ${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens（${Math.round(pressure.percentage)}% · ${pressure.level === 'critical' ? '⚠️ 水位极高' : pressure.level === 'warning' ? '⚡ 水位偏高' : '正常'}）${
     usage
       ? `\n输入 ${usage.inputTokens.toLocaleString()} · 输出 ${usage.outputTokens.toLocaleString()} · 缓存读 ${usage.cacheReadTokens.toLocaleString()} · 缓存写 ${usage.cacheWriteTokens.toLocaleString()}`
       : ''
@@ -105,21 +103,37 @@ export function TopBar({
         {title}
       </h1>
 
-      {/* Context meter */}
+      {/* Token Meter with Pressure Visualization (modeled after deepseek-harness) */}
       {maxContextTokens > 0 && (
         <div
-          className="hidden items-center gap-2 rounded-full bg-[var(--lm-bg-hover)] px-3 py-1 sm:flex"
+          className={cn(
+            'hidden items-center gap-2 rounded-full px-3 py-1 transition-colors sm:flex',
+            pressure.level === 'critical'
+              ? 'bg-[var(--lm-error)]/10 ring-1 ring-[var(--lm-error)]/30'
+              : pressure.level === 'warning'
+                ? 'bg-[var(--lm-warning)]/10 ring-1 ring-[var(--lm-warning)]/30'
+                : 'bg-[var(--lm-bg-hover)]',
+          )}
           title={contextTooltip}
         >
           <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--lm-border-strong)]">
             <div
-              className="h-full rounded-full bg-[var(--lm-accent)] transition-all duration-300"
-              style={{ width: `${pct}%` }}
+              className={cn('h-full rounded-full transition-all duration-300', pressure.bgClass)}
+              style={{ width: `${pressure.percentage}%` }}
             />
           </div>
-          <span className="font-mono text-[11px] text-[var(--lm-text-secondary)]">
+          <span
+            className={cn(
+              'font-mono text-[11px]',
+              pressure.level === 'critical'
+                ? 'font-semibold text-[var(--lm-error)]'
+                : pressure.level === 'warning'
+                  ? 'font-medium text-[var(--lm-warning)]'
+                  : 'text-[var(--lm-text-secondary)]',
+            )}
+          >
             {fmtTokens(contextTokens)} / {fmtTokens(maxContextTokens)}
-            <span className="ml-1 text-[var(--lm-text-muted)]">({Math.round(pct)}%)</span>
+            <span className="ml-1 text-[var(--lm-text-muted)]">({Math.round(pressure.percentage)}%)</span>
             {usage && (
               <span className="ml-1 text-[var(--lm-text-muted)]">
                 · ↓{fmtTokens(usage.outputTokens)}
