@@ -18,6 +18,7 @@ export type ParsedDesktopSlashCommand =
   | { readonly kind: 'config' }
   | { readonly kind: 'clear' }
   | { readonly kind: 'export' }
+  | { readonly kind: 'dream' }
   | { readonly kind: 'help' }
   | { readonly kind: 'error'; readonly message: string }
 
@@ -56,6 +57,7 @@ export function parseDesktopSlashCommand(input: string): ParsedDesktopSlashComma
     case 'config':
     case 'clear':
     case 'export':
+    case 'dream':
     case 'help':
       if (args) return { kind: 'error', message: `命令 \`/${name}\` 不接受参数。` }
       return { kind: name }
@@ -128,4 +130,39 @@ function parseGoalCommand(args: string): ParsedDesktopSlashCommand {
     return { kind: 'error', message: '请提供目标描述，例如 `/goal 实现登录功能`。' }
   }
   return { kind: 'goal-create', objective, replace }
+}
+
+/** Minimal shape needed to filter the slash command list. */
+export interface SlashCommandLike {
+  readonly id: string
+  readonly label: string
+  readonly description: string
+}
+
+/**
+ * Filters the command list for the slash dialog. Kept in the lib layer so the
+ * dialog and the composer agree on the match count — the composer needs it to
+ * decide whether navigation keys belong to the dialog.
+ */
+export function filterSlashCommands<T extends SlashCommandLike>(
+  commands: readonly T[],
+  query: string,
+): T[] {
+  if (!query) return [...commands]
+  const lowered = query.toLowerCase()
+  return commands.filter(
+    (cmd) =>
+      cmd.id.includes(lowered) ||
+      cmd.label.includes(lowered) ||
+      cmd.description.includes(query),
+  )
+}
+
+/**
+ * Whether the composer may intercept Enter/ArrowUp/ArrowDown/Tab on behalf of
+ * the slash dialog. With zero matches the dialog renders nothing, so the keys
+ * must fall through to the textarea — otherwise Enter becomes a dead key.
+ */
+export function shouldHandleSlashKeys(showSlash: boolean, matchCount: number): boolean {
+  return showSlash && matchCount > 0
 }

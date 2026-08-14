@@ -2,7 +2,7 @@ import type { ContentPart } from '@lmcode-cli/ltod';
 
 import type { Agent } from '..';
 import type { ContextMessage } from '../context';
-import { estimateTokens, estimateTokensForMessages } from '../../utils/tokens';
+import { estimateTokens, estimateTokensForMessage } from '../../utils/tokens';
 
 export interface MicroCompactionConfig {
   /** Number of most recent messages to always keep untouched. */
@@ -35,7 +35,7 @@ function findSupersededPaths(
   cutoff: number,
 ): Map<string, string> {
   const superseded = new Map<string, string>();
-  const readCalls = new Map<string, { filePath: string; index: number }>();
+  const readCalls = new Map<string, { id: string; index: number }>();
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -54,12 +54,13 @@ function findSupersededPaths(
               : undefined
           ) as string | undefined;
           if (filePath !== undefined) {
-            for (const [prevId, prev] of readCalls) {
-              if (prev.filePath === filePath && prev.index < cutoff) {
-                superseded.set(prevId, filePath);
-              }
+            // O(1) lookup: any earlier read of the same path is superseded by
+            // this one when it sits before the cutoff line.
+            const prior = readCalls.get(filePath);
+            if (prior !== undefined && prior.index < cutoff) {
+              superseded.set(prior.id, filePath);
             }
-            readCalls.set(tc.id, { filePath, index: i });
+            readCalls.set(filePath, { id: tc.id, index: i });
           }
         }
       }
@@ -145,7 +146,7 @@ export class MicroCompaction {
         i < this.cutoff &&
         msg.role === 'tool' &&
         msg.toolCallId !== undefined &&
-        estimateTokensForMessages([msg]) >= config.minContentTokens
+        estimateTokensForMessage(msg) >= config.minContentTokens
       ) {
         const marker =
           msg.toolCallId !== undefined && superseded.has(msg.toolCallId)
@@ -185,7 +186,7 @@ export class MicroCompaction {
       const message = messages[i];
       if (message?.role !== 'tool' || message.toolCallId === undefined) continue;
 
-      const contentTokens = estimateTokensForMessages([message]);
+      const contentTokens = estimateTokensForMessage(message);
       if (contentTokens < this.config.minContentTokens) continue;
 
       markerTokenCount ??= estimateTokens(this.config.truncatedMarker);

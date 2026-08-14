@@ -154,4 +154,23 @@ describe('Session.close', () => {
     expect(extractMemoriesOnExit).toHaveBeenCalledTimes(1);
     expect(closeSession).toHaveBeenCalledTimes(1);
   });
+
+  it('automatically releases event subscriptions when the session closes', async () => {
+    const unsubscribeEvent = vi.fn();
+    const session = new Session({
+      id: 'session-close-events',
+      workDir: '/workspace',
+      rpc: {
+        onEvent: vi.fn(() => unsubscribeEvent),
+        closeSession: vi.fn(async () => {}),
+        clearSessionHandlers: vi.fn(),
+      } as unknown as SDKRpcClient,
+    });
+
+    const unsubscribe = session.onEvent(vi.fn());
+    await session.close({ extractMemories: false });
+    unsubscribe();
+
+    expect(unsubscribeEvent).toHaveBeenCalledTimes(1);
+  });
 });

@@ -4,22 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#faf9f5" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'; worker-src 'self' blob:" />
     <title>LMCODE</title>
-    <script>
-      // Apply persisted theme before first paint to avoid a flash.
-      (function () {
-        try {
-          var p = localStorage.getItem('lmcode-theme') || 'light'
-          var dark =
-            p === 'dark' ||
-            (p === 'system' &&
-              window.matchMedia('(prefers-color-scheme: dark)').matches)
-          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
-        } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'light')
-        }
-      })()
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

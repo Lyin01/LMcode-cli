@@ -10,19 +10,21 @@ import {
 /**
  * Heartbeat shown while a turn is active but no streaming event has arrived
  * for a while (long tool execution such as automatic post-write validation,
- * or a slow first token). Any store event resets the clock; the notice itself
- * re-renders once per second to keep the elapsed time honest.
+ * or a slow first token). Any store event resets the clock — including
+ * retry/interrupted transitions, which only update `streamStatus`; the notice
+ * itself re-renders once per second to keep the elapsed time honest.
  */
 export function StallIndicator() {
   const isStreaming = useSessionStore((s) => s.isStreaming)
   const messages = useSessionStore((s) => s.messages)
+  const streamStatus = useSessionStore((s) => s.streamStatus)
   const lastEventAtRef = useRef(Date.now())
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     lastEventAtRef.current = Date.now()
     setNow(Date.now())
-  }, [messages, isStreaming])
+  }, [messages, isStreaming, streamStatus])
 
   useEffect(() => {
     if (!isStreaming) return
@@ -37,7 +39,7 @@ export function StallIndicator() {
   return (
     <div
       role="status"
-      className="flex items-center gap-1.5 px-1 pb-1.5 text-[11px] text-[var(--lm-text-muted)]"
+      className="flex items-center gap-1.5 px-1 pb-1.5 text-[12px] text-[var(--lm-text-muted)]"
     >
       <Loader2 size={11} className="lm-spin shrink-0" />
       <span>{buildStallNotice(runningToolName(messages), elapsedMs)}</span>

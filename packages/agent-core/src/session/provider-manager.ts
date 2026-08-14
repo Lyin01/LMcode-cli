@@ -94,6 +94,13 @@ export class ProviderManager implements ModelProvider {
       );
     }
 
+    if (providerConfig.enabled === false) {
+      throw new LmcodeError(
+        ErrorCodes.CONFIG_INVALID,
+        `Provider "${providerName}" for model "${model}" is disabled in config.toml.`,
+      );
+    }
+
     if (!Number.isInteger(alias.maxContextSize) || alias.maxContextSize <= 0) {
       throw new LmcodeError(
         ErrorCodes.CONFIG_INVALID,

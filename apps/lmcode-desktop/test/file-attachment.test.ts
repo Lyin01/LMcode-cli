@@ -1,15 +1,21 @@
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildDesktopPromptInput,
+  IMAGE_ATTACHMENT_LIMIT_BYTES,
   isSensitiveAttachmentPath,
   readFileAttachment,
   readInlineImageAttachment,
   readTextAttachment,
   TEXT_ATTACHMENT_LIMIT_BYTES,
 } from '../src/main/file-attachment'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, readFile: vi.fn(actual.readFile) }
+})
 import { MAX_PROMPT_ATTACHMENTS, parseTextAttachmentPart } from '../src/shared/file-types'
 
 const temporaryDirectories: string[] = []
@@ -64,13 +70,17 @@ describe('desktop text attachments', () => {
   it('rejects credential and secret files even though they are valid UTF-8', async () => {
     const envPath = await temporaryFile('.env', 'API_KEY=secret')
     const envLocalPath = await temporaryFile('.env.local', 'API_KEY=secret')
+    const uppercaseEnvPath = await temporaryFile('.ENV.LOCAL', 'API_KEY=secret')
     const pemPath = await temporaryFile('server.pem', '-----BEGIN-----')
     const cookiesPath = await temporaryFile('site_cookies.json', '{}')
+    const browserCookiesPath = await temporaryFile('Cookies', '{}')
 
     await expect(readTextAttachment(envPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(envLocalPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(uppercaseEnvPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(pemPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(cookiesPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(browserCookiesPath)).rejects.toThrow('安全考虑')
   })
 
   it('rejects a symlink that points at a sensitive file', async () => {
@@ -101,6 +111,20 @@ describe('desktop multimodal attachments', () => {
       sizeBytes: png.byteLength,
       dataUrl: `data:image/png;base64,${Buffer.from(png).toString('base64')}`,
     })
+  })
+
+  it('rejects an oversized image from its size before reading the whole file', async () => {
+    const pngHeader = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+    const oversized = Buffer.concat([
+      pngHeader,
+      Buffer.alloc(IMAGE_ATTACHMENT_LIMIT_BYTES + 1 - pngHeader.length),
+    ])
+    const filePath = await temporaryFile('huge.png', oversized)
+    const readFileMock = vi.mocked(fs.readFile)
+    readFileMock.mockClear()
+
+    await expect(readFileAttachment(filePath)).rejects.toThrow('超过 10 MB')
+    expect(readFileMock).not.toHaveBeenCalled()
   })
 
   it('builds one typed SDK prompt containing user text, text files, and images', async () => {
@@ -208,6 +232,19 @@ describe('sensitive attachment path denylist', () => {
     expect(isSensitiveAttachmentPath(inHome('.gnupg', 'secring.gpg'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.aws', 'credentials'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.kube', 'config'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('Library', 'Browser', 'Cookies'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('project', '.ENV.PRODUCTION'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('project', 'CLIENT.P12'))).toBe(true)
+  })
+
+  it('blocks credentials inside profile-specific desktop data directories', async () => {
+    const desktopData = await fs.mkdtemp(path.join(os.tmpdir(), 'lmcode-desktop-data-'))
+    temporaryDirectories.push(desktopData)
+    const configPath = path.join(desktopData, 'config.toml')
+    await fs.writeFile(configPath, 'api_key = "runtime-secret"')
+
+    expect(isSensitiveAttachmentPath(configPath, [desktopData])).toBe(true)
+    await expect(readTextAttachment(configPath, [desktopData])).rejects.toThrow('安全考虑')
   })
 
   it('does not over-block ordinary files, including non-secret files under ~/.lmcode', () => {

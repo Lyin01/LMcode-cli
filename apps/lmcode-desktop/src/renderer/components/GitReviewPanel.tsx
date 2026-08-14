@@ -138,7 +138,7 @@ function ChangeRow({
     >
       <span
         className={cn(
-          'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded font-mono text-[10px] font-bold',
+          'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded font-mono text-[11px] font-bold',
           change.kind === 'deleted' || change.kind === 'unmerged'
             ? 'bg-[var(--lm-accent-soft)] text-[var(--lm-error)]'
             : 'bg-[var(--lm-bg-hover)] text-[var(--lm-accent-text)]',
@@ -148,11 +148,11 @@ function ChangeRow({
         {status.short}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
+        <span className="block truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
           {file.name}
         </span>
         {file.directory && (
-          <span className="block truncate text-[10px] text-[var(--lm-text-muted)]">
+          <span className="block truncate text-[11px] text-[var(--lm-text-muted)]">
             {file.directory}
           </span>
         )}
@@ -160,7 +160,7 @@ function ChangeRow({
       <span className="flex shrink-0 gap-1">
         {change.staged && (
           <span
-            className="rounded bg-[var(--lm-accent-soft)] px-1 py-0.5 text-[9px] font-medium text-[var(--lm-accent-text)]"
+            className="rounded bg-[var(--lm-accent-soft)] px-1 py-0.5 text-[10px] font-medium text-[var(--lm-accent-text)]"
             title="已暂存"
           >
             S
@@ -168,7 +168,7 @@ function ChangeRow({
         )}
         {change.unstaged && (
           <span
-            className="rounded bg-[var(--lm-bg-hover)] px-1 py-0.5 text-[9px] font-medium text-[var(--lm-text-muted)]"
+            className="rounded bg-[var(--lm-bg-hover)] px-1 py-0.5 text-[10px] font-medium text-[var(--lm-text-muted)]"
             title="工作区"
           >
             W
@@ -444,22 +444,22 @@ export function GitReviewPanel({
           <GitBranch size={17} className="text-[var(--lm-accent-text)]" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h2 className="text-[14px] font-semibold text-[var(--lm-text-primary)]">代码审查</h2>
+              <h2 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">代码审查</h2>
               {snapshot?.branch && (
-                <span className="max-w-48 truncate rounded-full bg-[var(--lm-bg-hover)] px-2 py-0.5 font-mono text-[10px] text-[var(--lm-text-secondary)]">
+                <span className="max-w-48 truncate rounded-full bg-[var(--lm-bg-hover)] px-2 py-0.5 font-mono text-[11px] text-[var(--lm-text-secondary)]">
                   {snapshot.branch}
                 </span>
               )}
               {snapshot?.isRepository && (
-                <span className="text-[10px] text-[var(--lm-text-muted)]">{changeCount} 个变更</span>
+                <span className="text-[11px] text-[var(--lm-text-muted)]">{changeCount} 个变更</span>
               )}
             </div>
-            <p className="truncate text-[10px] text-[var(--lm-text-muted)]">
+            <p className="truncate text-[11px] text-[var(--lm-text-muted)]">
               {snapshot?.root ?? snapshot?.workDir ?? '读取项目状态…'}
             </p>
           </div>
           {snapshot && (snapshot.ahead > 0 || snapshot.behind > 0) && (
-            <div className="flex items-center gap-2 text-[10px] text-[var(--lm-text-muted)]">
+            <div className="flex items-center gap-2 text-[11px] text-[var(--lm-text-muted)]">
               {snapshot.ahead > 0 && <span className="flex items-center"><ArrowUp size={11} />{snapshot.ahead}</span>}
               {snapshot.behind > 0 && <span className="flex items-center"><ArrowDown size={11} />{snapshot.behind}</span>}
             </div>
@@ -492,7 +492,7 @@ export function GitReviewPanel({
                   type="button"
                   onClick={() => setScope(item)}
                   className={cn(
-                    'rounded-md px-2.5 py-1 text-[10px] font-medium transition-colors',
+                    'rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
                     scope === item
                       ? 'bg-[var(--lm-bg-active)] text-[var(--lm-text-primary)]'
                       : 'text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)]',
@@ -505,7 +505,7 @@ export function GitReviewPanel({
                 type="button"
                 onClick={sendCommentsToChat}
                 disabled={comments.length === 0}
-                className="ml-auto flex items-center gap-1.5 rounded-md bg-[var(--lm-accent)] px-2.5 py-1 text-[10px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
+                className="ml-auto flex items-center gap-1.5 rounded-md bg-[var(--lm-accent)] px-2.5 py-1 text-[11px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
                 title="把全部行内评论写入对话编辑器"
               >
                 <MessageSquareText size={11} />
@@ -519,7 +519,7 @@ export function GitReviewPanel({
                   type="button"
                   onClick={() => void updateSelectedStage(true)}
                   disabled={mutating}
-                  className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--lm-border-strong)] px-2 py-1.5 text-[10px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--lm-border-strong)] px-2 py-1.5 text-[11px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
                   title="暂存所选文件"
                 >
                   <Plus size={11} /> 暂存文件
@@ -530,7 +530,7 @@ export function GitReviewPanel({
                   type="button"
                   onClick={() => void updateSelectedStage(false)}
                   disabled={mutating}
-                  className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--lm-border-strong)] px-2 py-1.5 text-[10px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--lm-border-strong)] px-2 py-1.5 text-[11px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
                   title="取消暂存所选文件"
                 >
                   <Minus size={11} /> 取消暂存文件
@@ -541,7 +541,7 @@ export function GitReviewPanel({
                   type="button"
                   onClick={() => void updateAllStage(true)}
                   disabled={mutating}
-                  className="rounded-md px-2 py-1.5 text-[10px] text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)] disabled:opacity-40"
+                  className="rounded-md px-2 py-1.5 text-[11px] text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)] disabled:opacity-40"
                 >
                   全部暂存
                 </button>
@@ -551,7 +551,7 @@ export function GitReviewPanel({
                   type="button"
                   onClick={() => void updateAllStage(false)}
                   disabled={mutating}
-                  className="rounded-md px-2 py-1.5 text-[10px] text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)] disabled:opacity-40"
+                  className="rounded-md px-2 py-1.5 text-[11px] text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)] disabled:opacity-40"
                 >
                   全部取消暂存
                 </button>
@@ -565,7 +565,7 @@ export function GitReviewPanel({
                     scope: discardScope,
                   })}
                   disabled={mutating}
-                  className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] text-[var(--lm-error)] hover:bg-[var(--lm-accent-soft)] disabled:opacity-40"
+                  className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] text-[var(--lm-error)] hover:bg-[var(--lm-accent-soft)] disabled:opacity-40"
                   title="撤销所选文件在当前审查范围内的变更"
                 >
                   <Trash2 size={11} /> 撤销文件
@@ -576,7 +576,7 @@ export function GitReviewPanel({
                   type="button"
                   onClick={() => setPendingDestructive({ kind: 'all' })}
                   disabled={mutating}
-                  className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] text-[var(--lm-error)] hover:bg-[var(--lm-accent-soft)] disabled:opacity-40"
+                  className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] text-[var(--lm-error)] hover:bg-[var(--lm-accent-soft)] disabled:opacity-40"
                 >
                   <Trash2 size={11} /> 撤销全部
                 </button>
@@ -591,13 +591,13 @@ export function GitReviewPanel({
                 maxLength={500}
                 placeholder={hasStagedChanges ? '提交说明…' : '先暂存变更后提交'}
                 disabled={!hasStagedChanges || mutating}
-                className="min-w-32 flex-1 rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[11px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent)] disabled:opacity-50"
+                className="min-w-32 flex-1 rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[12px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent)] disabled:opacity-50"
               />
               <button
                 type="button"
                 onClick={() => void commitStagedChanges()}
                 disabled={!hasStagedChanges || !commitMessage.trim() || mutating}
-                className="flex shrink-0 items-center gap-1.5 rounded-md bg-[var(--lm-accent)] px-2.5 py-1.5 text-[10px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
+                className="flex shrink-0 items-center gap-1.5 rounded-md bg-[var(--lm-accent)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
                 title="提交所有已暂存变更"
               >
                 {mutating ? <Loader2 size={11} className="lm-spin" /> : <GitCommitHorizontal size={11} />}
@@ -608,21 +608,21 @@ export function GitReviewPanel({
         )}
 
         {error && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-4 py-2 text-[11px] text-[var(--lm-error)]">
+          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-4 py-2 text-[12px] text-[var(--lm-error)]">
             <AlertTriangle size={13} />
             <span className="truncate">{error}</span>
           </div>
         )}
 
         {notice && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-hover)] px-4 py-2 text-[11px] text-[var(--lm-success)]">
+          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-hover)] px-4 py-2 text-[12px] text-[var(--lm-success)]">
             <CheckCircle2 size={13} />
             <span>{notice}</span>
           </div>
         )}
 
         {loading && !snapshot ? (
-          <div className="flex flex-1 items-center justify-center gap-2 text-[13px] text-[var(--lm-text-muted)]">
+          <div className="flex flex-1 items-center justify-center gap-2 text-[14px] text-[var(--lm-text-muted)]">
             <Loader2 size={16} className="lm-spin" />
             正在读取 Git 状态…
           </div>
@@ -630,24 +630,24 @@ export function GitReviewPanel({
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <GitBranch size={28} className="text-[var(--lm-text-muted)]" />
             <div>
-              <p className="text-[14px] font-medium text-[var(--lm-text-primary)]">当前项目不是 Git 仓库</p>
-              <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">初始化仓库后刷新，即可在这里审阅代码变更。</p>
+              <p className="text-[15px] font-medium text-[var(--lm-text-primary)]">当前项目不是 Git 仓库</p>
+              <p className="mt-1 text-[13px] text-[var(--lm-text-muted)]">初始化仓库后刷新，即可在这里审阅代码变更。</p>
             </div>
           </div>
         ) : snapshot && snapshot.changes.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <CheckCircle2 size={28} className="text-[var(--lm-success)]" />
             <div>
-              <p className="text-[14px] font-medium text-[var(--lm-text-primary)]">工作区干净</p>
-              <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">当前项目没有未提交的文件变更。</p>
+              <p className="text-[15px] font-medium text-[var(--lm-text-primary)]">工作区干净</p>
+              <p className="mt-1 text-[13px] text-[var(--lm-text-muted)]">当前项目没有未提交的文件变更。</p>
             </div>
           </div>
         ) : snapshot && scopedChanges.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <FileCode2 size={25} className="text-[var(--lm-text-muted)]" />
             <div>
-              <p className="text-[13px] font-medium text-[var(--lm-text-primary)]">没有{SCOPE_LABELS[scope]}文件</p>
-              <p className="mt-1 text-[11px] text-[var(--lm-text-muted)]">切换上方范围查看其他变更。</p>
+              <p className="text-[14px] font-medium text-[var(--lm-text-primary)]">没有{SCOPE_LABELS[scope]}文件</p>
+              <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">切换上方范围查看其他变更。</p>
             </div>
           </div>
         ) : snapshot ? (
@@ -664,7 +664,7 @@ export function GitReviewPanel({
             </nav>
             <main className="min-w-0 flex-1 overflow-auto bg-[var(--lm-bg-code)]">
               {diffLoading ? (
-                <div className="flex h-full items-center justify-center gap-2 text-[12px] text-[var(--lm-text-muted)]">
+                <div className="flex h-full items-center justify-center gap-2 text-[13px] text-[var(--lm-text-muted)]">
                   <Loader2 size={15} className="lm-spin" />
                   正在生成 diff…
                 </div>
@@ -686,7 +686,7 @@ export function GitReviewPanel({
                   ))}
                 </div>
               ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-2 text-[12px] text-[var(--lm-text-muted)]">
+                <div className="flex h-full flex-col items-center justify-center gap-2 text-[13px] text-[var(--lm-text-muted)]">
                   <FileCode2 size={22} />
                   该变更没有可显示的文本 diff
                 </div>
@@ -694,7 +694,7 @@ export function GitReviewPanel({
             </main>
           </div>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-[12px] text-[var(--lm-text-muted)]">
+          <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--lm-text-muted)]">
             无法读取 Git 状态
           </div>
         )}
@@ -712,10 +712,10 @@ export function GitReviewPanel({
                   <AlertTriangle size={17} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 id="git-destructive-title" className="text-[14px] font-semibold text-[var(--lm-text-primary)]">
+                  <h3 id="git-destructive-title" className="text-[15px] font-semibold text-[var(--lm-text-primary)]">
                     {pendingCopy.title}
                   </h3>
-                  <p className="mt-1.5 text-[11px] leading-5 text-[var(--lm-text-secondary)]">
+                  <p className="mt-1.5 text-[12px] leading-5 text-[var(--lm-text-secondary)]">
                     {pendingCopy.description}
                   </p>
                 </div>
@@ -724,7 +724,7 @@ export function GitReviewPanel({
                 <button
                   type="button"
                   onClick={() => setPendingDestructive(null)}
-                  className="rounded-md border border-[var(--lm-border-strong)] px-3 py-1.5 text-[11px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]"
+                  className="rounded-md border border-[var(--lm-border-strong)] px-3 py-1.5 text-[12px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]"
                   autoFocus
                 >
                   取消
@@ -732,7 +732,7 @@ export function GitReviewPanel({
                 <button
                   type="button"
                   onClick={() => void confirmDestructiveAction()}
-                  className="rounded-md bg-[var(--lm-error)] px-3 py-1.5 text-[11px] font-medium text-white hover:opacity-90"
+                  className="rounded-md bg-[var(--lm-error)] px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90"
                 >
                   {pendingCopy.confirmation}
                 </button>

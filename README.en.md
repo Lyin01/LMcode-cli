@@ -129,6 +129,10 @@ pnpm install
 pnpm run dev:cli
 ```
 
+Development entry points use `~/.lmcode-development` by default and never read
+or write the production `~/.lmcode` directory. Use `LMCODE_DEVELOPMENT_HOME` to
+override the development data directory; it must not resolve to `LMCODE_HOME`.
+
 Pre-commit checks:
 
 ```bash

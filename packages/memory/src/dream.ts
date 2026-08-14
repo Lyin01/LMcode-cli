@@ -19,18 +19,20 @@ const MIN_SESSIONS_BETWEEN_DREAMS = 5;
 
 /**
  * Tracks dream consolidation state and decides when to suggest running
- * another dream. Persisted to `<lmcodeHomeDir>/dream-lock.json`.
+ * another dream. Persisted to `<lmcodeHomeDir>/dream-lock.json` when a home
+ * is supplied; otherwise it remains in memory.
  */
 export class DreamTracker {
   private state: DreamState;
-  private readonly lockPath: string;
-  private readonly lmcodeHomeDir: string;
+  private readonly lockPath: string | undefined;
+  private readonly lmcodeHomeDir: string | undefined;
   private initialized = false;
   private initPromise: Promise<void> | undefined;
 
-  constructor(lmcodeHomeDir: string) {
-    this.lmcodeHomeDir = lmcodeHomeDir;
-    this.lockPath = join(lmcodeHomeDir, LOCK_FILE);
+  constructor(lmcodeHomeDir?: string) {
+    const persistenceHome = lmcodeHomeDir?.trim() ? lmcodeHomeDir : undefined;
+    this.lmcodeHomeDir = persistenceHome;
+    this.lockPath = persistenceHome === undefined ? undefined : join(persistenceHome, LOCK_FILE);
     this.state = {
       lastDreamAt: new Date().toISOString(),
       sessionsSinceLastDream: 0,
@@ -52,6 +54,7 @@ export class DreamTracker {
   private async initInternal(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
+    if (this.lockPath === undefined) return;
 
     try {
       const raw = await readFile(this.lockPath, 'utf8');
@@ -108,6 +111,7 @@ export class DreamTracker {
   }
 
   private async persist(): Promise<void> {
+    if (this.lockPath === undefined) return;
     const data: DreamLockFile = { version: 1, state: this.state };
     try {
       await mkdir(dirname(this.lockPath), { recursive: true });
@@ -126,11 +130,13 @@ export class DreamTracker {
    * deletes the legacy files/directories.
    */
   private async migrateLegacyLockFiles(): Promise<void> {
+    const lmcodeHomeDir = this.lmcodeHomeDir;
+    if (lmcodeHomeDir === undefined) return;
     const candidates: string[] = [
-      join(this.lmcodeHomeDir, '.lmcode', LOCK_FILE),
+      join(lmcodeHomeDir, '.lmcode', LOCK_FILE),
     ];
 
-    const sessionsDir = join(this.lmcodeHomeDir, 'sessions');
+    const sessionsDir = join(lmcodeHomeDir, 'sessions');
     try {
       const entries = await readdir(sessionsDir, { withFileTypes: true });
       for (const entry of entries) {

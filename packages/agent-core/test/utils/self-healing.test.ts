@@ -192,10 +192,18 @@ describe('self-healing: syntax validation', () => {
     });
 
     it('returns structured result for valid html', async () => {
-      const result = await validateFileSyntaxWithScreenshots('foo.html', '<html><body>Hello</body></html>');
+      const result = await validateFileSyntaxWithScreenshots(
+        'foo.html',
+        '<html><body>Hello</body></html>',
+        { loadPlaywright: async () => null },
+      );
       expect(result.error).toBeNull();
       expect(result.syntax).toEqual({ status: 'passed' });
-      expect(['passed', 'skipped']).toContain(result.runtime?.status);
+      expect(result.runtime).toEqual({
+        status: 'skipped',
+        reason: 'playwright-unavailable',
+        detail: undefined,
+      });
     });
 
     it('reports skipped when browser runtime validation is unavailable', async () => {

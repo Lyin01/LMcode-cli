@@ -2,12 +2,19 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   BackgroundTaskInfo,
   CronJobInfo,
+  LmcodeConfig,
   LmcodeConfigPatch,
+  PermissionMode,
+  PluginInfo,
+  PluginSummary,
+  ReloadSummary,
   SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
 import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
+  DesktopCreateSessionOptions,
+  DesktopNotificationPayload,
   InteractionSettledPayload,
   QuestionRequestPayload,
   QuestionResponsePayload,
@@ -24,17 +31,15 @@ import type {
   DesktopMenuState,
 } from '../shared/menu-types.js'
 import type { GitDiscardScope, GitHunkActionInput } from '../shared/git-types.js'
+import type { ProviderUsageSnapshot } from '../shared/provider-usage-types.js'
+import type { RemoteState } from '../shared/remote-types.js'
 
 // Custom API exposed as window.lmcodeAPI
 const lmcodeAPI = {
   // ── Session management ──────────────────────────────────────────
 
-  createSession: (opts: {
-    workDir: string
-    model?: string
-    thinking?: string
-    permission?: 'yolo' | 'manual' | 'auto'
-  }) => ipcRenderer.invoke('lmcode:createSession', opts),
+  createSession: (opts: DesktopCreateSessionOptions) =>
+    ipcRenderer.invoke('lmcode:createSession', opts),
 
   resumeSession: (id: string) =>
     ipcRenderer.invoke('lmcode:resumeSession', id),
@@ -45,6 +50,9 @@ const lmcodeAPI = {
   exportSession: (id: string) =>
     ipcRenderer.invoke('lmcode:exportSession', id),
 
+  saveTextFile: (input: { readonly suggestedName: string; readonly content: string }) =>
+    ipcRenderer.invoke('lmcode:saveTextFile', input),
+
   renameSession: (id: string, title: string) =>
     ipcRenderer.invoke('lmcode:renameSession', id, title),
 
@@ -52,6 +60,9 @@ const lmcodeAPI = {
 
   selectWorkDirectory: (initialDirectory?: string) =>
     ipcRenderer.invoke('lmcode:selectWorkDirectory', initialDirectory),
+
+  getNoProjectWorkDir: (): Promise<string> =>
+    ipcRenderer.invoke('lmcode:getNoProjectWorkDir'),
 
   // ── Chat ────────────────────────────────────────────────────────
 
@@ -78,7 +89,7 @@ const lmcodeAPI = {
   setThinking: (sessionId: string, level: string) =>
     ipcRenderer.invoke('lmcode:setThinking', sessionId, level),
 
-  setPermission: (sessionId: string, mode: string) =>
+  setPermission: (sessionId: string, mode: PermissionMode) =>
     ipcRenderer.invoke('lmcode:setPermission', sessionId, mode),
 
   createGoal: (sessionId: string, objective: string, replace = false) =>
@@ -150,11 +161,47 @@ const lmcodeAPI = {
   removeMcpServer: (sessionId: string, name: string) =>
     ipcRenderer.invoke('lmcode:removeMcpServer', sessionId, name),
 
+  // ── Plugins ─────────────────────────────────────────────────────
+
+  listPlugins: (sessionId: string): Promise<readonly PluginSummary[]> =>
+    ipcRenderer.invoke('lmcode:listPlugins', sessionId),
+
+  installPlugin: (sessionId: string, source: string): Promise<PluginSummary> =>
+    ipcRenderer.invoke('lmcode:installPlugin', sessionId, source),
+
+  setPluginEnabled: (sessionId: string, id: string, enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke('lmcode:setPluginEnabled', sessionId, id, enabled),
+
+  setPluginMcpServerEnabled: (
+    sessionId: string,
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> => ipcRenderer.invoke('lmcode:setPluginMcpServerEnabled', sessionId, id, server, enabled),
+
+  removePlugin: (sessionId: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('lmcode:removePlugin', sessionId, id),
+
+  reloadPlugins: (sessionId: string): Promise<ReloadSummary> =>
+    ipcRenderer.invoke('lmcode:reloadPlugins', sessionId),
+
+  getPluginInfo: (sessionId: string, id: string): Promise<PluginInfo> =>
+    ipcRenderer.invoke('lmcode:getPluginInfo', sessionId, id),
+
   // ── Config ──────────────────────────────────────────────────────
 
   getConfig: () => ipcRenderer.invoke('lmcode:getConfig'),
 
+  getProviderUsage: (force = false): Promise<ProviderUsageSnapshot> =>
+    ipcRenderer.invoke('lmcode:getProviderUsage', force),
+
   setConfig: (patch: LmcodeConfigPatch) => ipcRenderer.invoke('lmcode:setConfig', patch),
+
+  removeProvider: (providerId: string): Promise<LmcodeConfig> =>
+    ipcRenderer.invoke('lmcode:removeProvider', providerId),
+
+  removeModel: (modelId: string): Promise<LmcodeConfig> =>
+    ipcRenderer.invoke('lmcode:removeModel', modelId),
 
   // ── File operations ─────────────────────────────────────────────
 
@@ -221,6 +268,30 @@ const lmcodeAPI = {
   stopTerminal: (sessionId: string) =>
     ipcRenderer.invoke('lmcode:stopTerminal', sessionId),
 
+  // ── Remote service ────────────────────────────────────────────────
+
+  getRemoteState: () => ipcRenderer.invoke('lmcode:getRemoteState'),
+
+  setRemoteEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('lmcode:setRemoteEnabled', enabled),
+
+  setRemotePort: (port: number) =>
+    ipcRenderer.invoke('lmcode:setRemotePort', port),
+
+  regenerateRemoteToken: () =>
+    ipcRenderer.invoke('lmcode:regenerateRemoteToken'),
+
+  setRemoteAppUrl: (appUrl: string) =>
+    ipcRenderer.invoke('lmcode:setRemoteAppUrl', appUrl),
+
+  onRemoteStateChanged: (callback: (state: RemoteState) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: RemoteState) => callback(state)
+    ipcRenderer.on('lmcode:remoteStateChanged', handler)
+    return () => {
+      ipcRenderer.removeListener('lmcode:remoteStateChanged', handler)
+    }
+  },
+
   // ── Version ─────────────────────────────────────────────────────
 
   getVersion: () => ipcRenderer.invoke('lmcode:getVersion'),
@@ -284,6 +355,12 @@ const lmcodeAPI = {
 
   updateMenuState: (state: DesktopMenuState) => {
     ipcRenderer.send('lmcode:updateMenuState', state)
+  },
+
+  // ── Desktop notifications ──────────────────────────────────────
+
+  sendDesktopNotification: (payload: DesktopNotificationPayload) => {
+    ipcRenderer.send('lmcode:sendNotification', payload)
   },
 
   // ── Approval / Question responses ───────────────────────────────

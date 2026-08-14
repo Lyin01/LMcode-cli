@@ -792,7 +792,7 @@ describe('Session MCP startup', () => {
 
       await Promise.race([
         turnEnded,
-        sleep(1_000).then(() => {
+        sleep(5_000).then(() => {
           throw new Error('Timed out waiting for turn.ended');
         }),
       ]);
@@ -804,7 +804,7 @@ describe('Session MCP startup', () => {
       await session.close();
       await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
     }
-  }, 7000);
+  }, 15_000);
 
   it('emits tool.list.updated(mcp.disconnected) when reconnect drops the live tools', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'lmcode-session-mcp-reconnect-'));

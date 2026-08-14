@@ -4,11 +4,17 @@ import type {
   GoalSnapshotData,
   LmcodeConfig,
   LmcodeConfigPatch,
+  PermissionMode,
+  PluginInfo,
+  PluginSummary,
+  ReloadSummary,
   SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
 import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
+  DesktopCreateSessionOptions,
+  DesktopNotificationPayload,
   InteractionSettledPayload,
   QuestionRequestPayload,
   QuestionResponsePayload,
@@ -32,6 +38,8 @@ import type {
   DesktopMenuCommandPayload,
   DesktopMenuState,
 } from '../../shared/menu-types'
+import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types'
+import type { RemoteState } from '../../shared/remote-types'
 
 declare global {
 interface SessionSummary {
@@ -104,14 +112,11 @@ interface McpServerInfo {
 
 interface LmcodeAPI {
   // Session management
-  createSession: (opts: {
-    workDir: string
-    model?: string
-    thinking?: string
-    permission?: 'yolo' | 'manual' | 'auto'
-  }) => Promise<SessionSummary>
+  createSession: (opts: DesktopCreateSessionOptions) => Promise<SessionSummary>
 
   selectWorkDirectory: (initialDirectory?: string) => Promise<string | undefined>
+
+  getNoProjectWorkDir: () => Promise<string>
 
   resumeSession: (id: string) => Promise<{
     summary: SessionSummary
@@ -121,6 +126,11 @@ interface LmcodeAPI {
   deleteSession: (id: string) => Promise<void>
 
   exportSession: (id: string) => Promise<string>
+
+  saveTextFile: (input: {
+    readonly suggestedName: string
+    readonly content: string
+  }) => Promise<string | null>
 
   renameSession: (id: string, title: string) => Promise<void>
 
@@ -146,12 +156,25 @@ interface LmcodeAPI {
   stopMcpServer: (sessionId: string, name: string) => Promise<void>
   removeMcpServer: (sessionId: string, name: string) => Promise<void>
 
+  listPlugins: (sessionId: string) => Promise<PluginSummary[]>
+  installPlugin: (sessionId: string, source: string) => Promise<PluginSummary>
+  setPluginEnabled: (sessionId: string, id: string, enabled: boolean) => Promise<void>
+  setPluginMcpServerEnabled: (
+    sessionId: string,
+    id: string,
+    server: string,
+    enabled: boolean,
+  ) => Promise<void>
+  removePlugin: (sessionId: string, id: string) => Promise<void>
+  reloadPlugins: (sessionId: string) => Promise<ReloadSummary>
+  getPluginInfo: (sessionId: string, id: string) => Promise<PluginInfo>
+
   // Session control
   setModel: (sessionId: string, model: string) => Promise<void>
 
   setThinking: (sessionId: string, level: string) => Promise<void>
 
-  setPermission: (sessionId: string, mode: string) => Promise<void>
+  setPermission: (sessionId: string, mode: PermissionMode) => Promise<void>
 
   createGoal: (
     sessionId: string,
@@ -191,7 +214,13 @@ interface LmcodeAPI {
   // Config
   getConfig: () => Promise<LmcodeConfig>
 
+  getProviderUsage: (force?: boolean) => Promise<ProviderUsageSnapshot>
+
   setConfig: (patch: LmcodeConfigPatch) => Promise<LmcodeConfig>
+
+  removeProvider: (providerId: string) => Promise<LmcodeConfig>
+
+  removeModel: (modelId: string) => Promise<LmcodeConfig>
 
   // File operations
   getPathForFile: (file: File) => string
@@ -264,6 +293,9 @@ interface LmcodeAPI {
 
   updateMenuState: (state: DesktopMenuState) => void
 
+  // Desktop notifications (fire-and-forget; main decides whether to show)
+  sendDesktopNotification: (payload: DesktopNotificationPayload) => void
+
   // Memory
   listMemories: () => Promise<MemorySummary[]>
 
@@ -280,6 +312,19 @@ interface LmcodeAPI {
   respondApproval: (payload: ApprovalResponsePayload) => Promise<void>
 
   respondQuestion: (payload: QuestionResponsePayload) => Promise<void>
+
+  // Remote service
+  getRemoteState: () => Promise<RemoteState>
+
+  setRemoteEnabled: (enabled: boolean) => Promise<RemoteState>
+
+  setRemotePort: (port: number) => Promise<RemoteState>
+
+  regenerateRemoteToken: () => Promise<RemoteState>
+
+  setRemoteAppUrl: (appUrl: string) => Promise<RemoteState>
+
+  onRemoteStateChanged: (callback: (state: RemoteState) => void) => () => void
 
   // App control
   quit: () => void

@@ -52,7 +52,7 @@ export function ThinkingSwitcher() {
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>
       <DropdownMenu.Trigger asChild>
         <button
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           title="思考强度（越高越慢越深入）"
         >
           <Brain size={14} className="text-[var(--lm-text-muted)]" />
@@ -71,7 +71,7 @@ export function ThinkingSwitcher() {
           sideOffset={6}
           className="z-50 min-w-[220px] overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] shadow-[var(--lm-shadow-pop)]"
         >
-          <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
+          <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
             思考强度
           </div>
           <div className="p-1">
@@ -80,7 +80,7 @@ export function ThinkingSwitcher() {
                 key={opt.value}
                 onSelect={() => handleSelect(opt.value)}
                 className={cn(
-                  'flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] outline-none transition-colors',
+                  'flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[14px] outline-none transition-colors',
                   'data-[highlighted]:bg-[var(--lm-bg-hover)]',
                   effort === opt.value ? 'text-[var(--lm-text-primary)]' : 'text-[var(--lm-text-secondary)]',
                 )}
@@ -89,7 +89,7 @@ export function ThinkingSwitcher() {
                   <span className={cn('truncate', effort === opt.value && 'font-medium')}>
                     {opt.label}
                   </span>
-                  <span className="text-[10px] text-[var(--lm-text-muted)]">{opt.hint}</span>
+                  <span className="text-[11px] text-[var(--lm-text-muted)]">{opt.hint}</span>
                 </div>
                 {effort === opt.value && (
                   <Check size={14} className="ml-auto shrink-0 text-[var(--lm-accent-text)]" />

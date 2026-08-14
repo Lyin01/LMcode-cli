@@ -10,6 +10,13 @@ Set-Location (Split-Path $PSScriptRoot -Parent)
 
 Write-Host ''
 Write-Host '========== LMCODE 桌面端 · 一键发布 ==========' -ForegroundColor Cyan
+Write-Host '先执行发布门禁：密钥扫描、依赖审计、类型检查、Lint、全量测试和构建。' -ForegroundColor Cyan
+pnpm run verify:release
+if ($LASTEXITCODE -ne 0) {
+  throw '发布门禁失败，未读取发布密钥，也未上传任何产物。'
+}
+
+Write-Host ''
 Write-Host '提示：请使用一个【全新】的 GitHub Token。' -ForegroundColor Yellow
 Write-Host '      之前贴到聊天里的那个请务必先去 GitHub 撤销！' -ForegroundColor Yellow
 Write-Host '      https://github.com/settings/tokens' -ForegroundColor DarkYellow
@@ -27,8 +34,11 @@ if ([string]::IsNullOrWhiteSpace($token)) {
 $env:GH_TOKEN = $token
 try {
   Write-Host ''
-  Write-Host '正在打包并发布到 GitHub Releases……（首次会下载 Electron，请耐心等待几分钟）' -ForegroundColor Cyan
-  pnpm run release
+  Write-Host '门禁已通过，正在打包并发布到 GitHub Releases……' -ForegroundColor Cyan
+  pnpm exec electron-builder --win --publish always --config.forceCodeSigning=true
+  if ($LASTEXITCODE -ne 0) {
+    throw '签名、打包或上传失败，GitHub Release 未完成。'
+  }
   Write-Host ''
   Write-Host '✅ 发布完成！去这里看看你的安装包：' -ForegroundColor Green
   Write-Host '   https://github.com/Lyin01/LMcode-desktop/releases' -ForegroundColor Green

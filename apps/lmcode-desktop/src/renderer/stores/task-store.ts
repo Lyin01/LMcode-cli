@@ -21,6 +21,8 @@ export interface TaskStore {
   tasks: TaskEntry[]
   addOrUpdateTask: (sessionId: string, info: BackgroundTaskInfo) => void
   removeTask: (taskId: string) => void
+  /** Drop every task owned by a session (e.g. when the session is deleted). */
+  removeBySession: (sessionId: string) => void
   clearTasks: () => void
 }
 
@@ -62,6 +64,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   removeTask: (taskId) => {
     set((state) => ({
       tasks: state.tasks.filter((t) => t.taskId !== taskId),
+    }))
+  },
+
+  removeBySession: (sessionId) => {
+    set((state) => ({
+      tasks: state.tasks.filter((t) => t.sessionId !== sessionId),
     }))
   },
 

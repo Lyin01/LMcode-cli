@@ -14,7 +14,6 @@ import { __resetRootLoggerForTest } from '../../../../packages/agent-core/src/lo
 const SESSION_LOG = 'logs/lmcode.log';
 const GLOBAL_LOG = 'logs/global/lmcode.log';
 const MAIN_WIRE = 'agents/main/wire.jsonl';
-const ENABLED = process.env['LMCODE_E2E'] === '1';
 
 let homeDir: string;
 let workDir: string;
@@ -39,7 +38,7 @@ afterEach(async () => {
   await rm(workDir, { recursive: true, force: true });
 });
 
-describe.skipIf(!ENABLED)('local logging export e2e', () => {
+describe('local logging export e2e', () => {
   it('exports session log and global log by default, and allows skipping global log', async () => {
     const harness = new LmcodeHarness({
       homeDir,

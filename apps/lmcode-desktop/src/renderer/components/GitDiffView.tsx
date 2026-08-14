@@ -144,20 +144,20 @@ export function GitDiffView({
 
   return (
     <section className="border-b border-[var(--lm-border)] last:border-b-0">
-      <div className="sticky top-0 z-20 flex min-h-8 items-center gap-2 border-y border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-3 py-1.5 text-[11px] font-medium text-[var(--lm-text-secondary)]">
+      <div className="sticky top-0 z-20 flex min-h-8 items-center gap-2 border-y border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-3 py-1.5 text-[12px] font-medium text-[var(--lm-text-secondary)]">
         {SECTION_LABELS[section.kind]}
         <span className="font-normal text-[var(--lm-text-muted)]">
           {parsed.hunks.length} 个代码块
         </span>
         {section.truncated && (
-          <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--lm-accent-text)]">
+          <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[11px] text-[var(--lm-accent-text)]">
             预览已截断
           </span>
         )}
       </div>
 
       {parsed.metadata.length > 0 && (
-        <div className="border-b border-[var(--lm-border)] bg-[var(--lm-bg-code)] py-1 font-mono text-[10px] leading-4 text-[var(--lm-text-muted)]">
+        <div className="border-b border-[var(--lm-border)] bg-[var(--lm-bg-code)] py-1 font-mono text-[11px] leading-4 text-[var(--lm-text-muted)]">
           {parsed.metadata.map((line) => (
             <div key={line.id} className="px-3">{line.content || ' '}</div>
           ))}
@@ -166,7 +166,7 @@ export function GitDiffView({
 
       {parsed.hunks.map((hunk) => (
         <div key={hunk.index} className="border-b border-[var(--lm-border)] last:border-b-0">
-          <div className="sticky top-8 z-10 flex min-h-8 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)] px-2 py-1 font-mono text-[10px] text-[var(--lm-accent-text)]">
+          <div className="sticky top-8 z-10 flex min-h-8 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)] px-2 py-1 font-mono text-[11px] text-[var(--lm-accent-text)]">
             <span className="min-w-0 flex-1 truncate" title={hunk.header}>
               {hunk.header}
             </span>
@@ -179,7 +179,7 @@ export function GitDiffView({
                     const input = actionInput(hunk.index, 'stage')
                     if (input) onHunkAction(input)
                   }}
-                  className="flex items-center gap-1 rounded border border-[var(--lm-border-strong)] px-1.5 py-0.5 font-sans text-[9px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
+                  className="flex items-center gap-1 rounded border border-[var(--lm-border-strong)] px-1.5 py-0.5 font-sans text-[10px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
                   title="只暂存这个代码块"
                 >
                   <Plus size={9} /> 暂存此块
@@ -191,7 +191,7 @@ export function GitDiffView({
                     const input = actionInput(hunk.index, 'revert')
                     if (input) onHunkAction(input)
                   }}
-                  className="flex items-center gap-1 rounded border border-[var(--lm-border-strong)] px-1.5 py-0.5 font-sans text-[9px] text-[var(--lm-error)] hover:bg-[var(--lm-accent-soft)] disabled:opacity-40"
+                  className="flex items-center gap-1 rounded border border-[var(--lm-border-strong)] px-1.5 py-0.5 font-sans text-[10px] text-[var(--lm-error)] hover:bg-[var(--lm-accent-soft)] disabled:opacity-40"
                   title="永久撤销这个代码块"
                 >
                   <Undo2 size={9} /> 撤销此块
@@ -206,7 +206,7 @@ export function GitDiffView({
                   const input = actionInput(hunk.index, 'unstage')
                   if (input) onHunkAction(input)
                 }}
-                className="flex items-center gap-1 rounded border border-[var(--lm-border-strong)] px-1.5 py-0.5 font-sans text-[9px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
+                className="flex items-center gap-1 rounded border border-[var(--lm-border-strong)] px-1.5 py-0.5 font-sans text-[10px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-40"
                 title="只取消暂存这个代码块"
               >
                 <Minus size={9} /> 取消暂存此块
@@ -214,7 +214,7 @@ export function GitDiffView({
             )}
           </div>
 
-          <div className="min-w-max bg-[var(--lm-bg-code)] py-1 font-mono text-[11px] leading-5">
+          <div className="min-w-max bg-[var(--lm-bg-code)] py-1 font-mono text-[12px] leading-5">
             {hunk.lines.map((line) => {
               const target = commentTargetForLine(line)
               const lineComments = target
@@ -241,10 +241,10 @@ export function GitDiffView({
                         </button>
                       )}
                     </span>
-                    <span className="w-9 shrink-0 select-none border-r border-[var(--lm-border)] px-1 text-right text-[9px] text-[var(--lm-text-muted)]">
+                    <span className="w-9 shrink-0 select-none border-r border-[var(--lm-border)] px-1 text-right text-[10px] text-[var(--lm-text-muted)]">
                       {line.oldLine ?? ''}
                     </span>
-                    <span className="w-9 shrink-0 select-none border-r border-[var(--lm-border)] px-1 text-right text-[9px] text-[var(--lm-text-muted)]">
+                    <span className="w-9 shrink-0 select-none border-r border-[var(--lm-border)] px-1 text-right text-[10px] text-[var(--lm-text-muted)]">
                       {line.newLine ?? ''}
                     </span>
                     <span className="w-5 shrink-0 select-none text-center">{line.marker}</span>
@@ -254,7 +254,7 @@ export function GitDiffView({
                   {lineComments.map((comment) => (
                     <div
                       key={comment.id}
-                      className="ml-[6.5rem] mr-3 my-1.5 flex max-w-2xl items-start gap-2 rounded-md border border-[var(--lm-accent)] bg-[var(--lm-bg-elevated)] px-2.5 py-2 font-sans text-[11px] leading-4 text-[var(--lm-text-primary)]"
+                      className="ml-[6.5rem] mr-3 my-1.5 flex max-w-2xl items-start gap-2 rounded-md border border-[var(--lm-accent)] bg-[var(--lm-bg-elevated)] px-2.5 py-2 font-sans text-[12px] leading-4 text-[var(--lm-text-primary)]"
                     >
                       <span className="min-w-0 flex-1 whitespace-pre-wrap">{comment.body}</span>
                       <button
@@ -271,7 +271,7 @@ export function GitDiffView({
 
                   {editorOpen && target && (
                     <div className="ml-[6.5rem] mr-3 my-1.5 max-w-2xl rounded-lg border border-[var(--lm-accent)] bg-[var(--lm-bg-elevated)] p-2 shadow-[var(--lm-shadow-soft)]">
-                      <div className="mb-1.5 flex items-center gap-2 font-sans text-[10px] text-[var(--lm-text-muted)]">
+                      <div className="mb-1.5 flex items-center gap-2 font-sans text-[11px] text-[var(--lm-text-muted)]">
                         评论 {filePath}:{target.line}
                         <button
                           type="button"
@@ -295,13 +295,13 @@ export function GitDiffView({
                         rows={3}
                         maxLength={2_000}
                         placeholder="说明这里需要修改什么…"
-                        className="block w-full resize-y rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2 py-1.5 font-sans text-[11px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent)]"
+                        className="block w-full resize-y rounded-md border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2 py-1.5 font-sans text-[12px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent)]"
                       />
                       <div className="mt-2 flex justify-end gap-1.5 font-sans">
                         <button
                           type="button"
                           onClick={() => setCommentTarget(null)}
-                          className="rounded-md px-2 py-1 text-[10px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]"
+                          className="rounded-md px-2 py-1 text-[11px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]"
                         >
                           取消
                         </button>
@@ -309,7 +309,7 @@ export function GitDiffView({
                           type="button"
                           onClick={saveComment}
                           disabled={!commentDraft.trim()}
-                          className="rounded-md bg-[var(--lm-accent)] px-2 py-1 text-[10px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
+                          className="rounded-md bg-[var(--lm-accent)] px-2 py-1 text-[11px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
                         >
                           保存评论
                         </button>
@@ -324,7 +324,7 @@ export function GitDiffView({
       ))}
 
       {parsed.hunks.length === 0 && (
-        <div className="px-4 py-8 text-center text-[11px] text-[var(--lm-text-muted)]">
+        <div className="px-4 py-8 text-center text-[12px] text-[var(--lm-text-muted)]">
           此文件没有可解析的文本代码块。
         </div>
       )}

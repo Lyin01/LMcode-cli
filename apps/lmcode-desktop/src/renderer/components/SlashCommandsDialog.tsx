@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
+import { filterSlashCommands } from '@/lib/slash-command'
 import {
   Target,
   Cpu,
@@ -13,6 +14,7 @@ import {
   Undo2,
   CircleOff,
   ScanSearch,
+  Sparkles,
 } from 'lucide-react'
 
 export interface SlashCommand {
@@ -33,6 +35,88 @@ interface SlashCommandsDialogProps {
   onClose: () => void
 }
 
+export const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    id: 'goal',
+    label: '/goal',
+    description: '创建目标并立即开始执行',
+    icon: <Target size={14} />,
+    insertText: '/goal ',
+  },
+  {
+    id: 'goaloff',
+    label: '/goaloff',
+    description: '取消当前目标',
+    icon: <CircleOff size={14} />,
+  },
+  {
+    id: 'plan',
+    label: '/plan',
+    description: '进入只读规划模式',
+    icon: <ListChecks size={14} />,
+  },
+  {
+    id: 'review',
+    label: '/review',
+    description: '打开代码审查，或指定范围让 Agent 只读审查',
+    icon: <ScanSearch size={14} />,
+  },
+  {
+    id: 'model',
+    label: '/model',
+    description: '切换模型',
+    icon: <Cpu size={14} />,
+  },
+  {
+    id: 'mode',
+    label: '/mode',
+    description: '切换权限模式',
+    icon: <Shield size={14} />,
+  },
+  {
+    id: 'config',
+    label: '/config',
+    description: '打开设置面板',
+    icon: <Settings size={14} />,
+  },
+  {
+    id: 'compact',
+    label: '/compact',
+    description: '压缩当前会话上下文',
+    icon: <Archive size={14} />,
+  },
+  {
+    id: 'revoke',
+    label: '/revoke',
+    description: '撤销最近一轮对话',
+    icon: <Undo2 size={14} />,
+  },
+  {
+    id: 'clear',
+    label: '/clear',
+    description: '在当前项目中新建对话',
+    icon: <Eraser size={14} />,
+  },
+  {
+    id: 'export',
+    label: '/export',
+    description: '导出会话',
+    icon: <Download size={14} />,
+  },
+  {
+    id: 'dream',
+    label: '/dream',
+    description: '整理记忆库：合并重复、清理过期条目',
+    icon: <Sparkles size={14} />,
+  },
+  {
+    id: 'help',
+    label: '/help',
+    description: '显示帮助',
+    icon: <HelpCircle size={14} />,
+  },
+]
+
 export function SlashCommandsDialog({
   query,
   onSelect,
@@ -41,90 +125,7 @@ export function SlashCommandsDialog({
   const [selectedIndex, setSelectedIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const commands: SlashCommand[] = [
-    {
-      id: 'goal',
-      label: '/goal',
-      description: '创建目标并立即开始执行',
-      icon: <Target size={14} />,
-      insertText: '/goal ',
-    },
-    {
-      id: 'goaloff',
-      label: '/goaloff',
-      description: '取消当前目标',
-      icon: <CircleOff size={14} />,
-    },
-    {
-      id: 'plan',
-      label: '/plan',
-      description: '进入只读规划模式',
-      icon: <ListChecks size={14} />,
-    },
-    {
-      id: 'review',
-      label: '/review',
-      description: '打开代码审查，或指定范围让 Agent 只读审查',
-      icon: <ScanSearch size={14} />,
-    },
-    {
-      id: 'model',
-      label: '/model',
-      description: '切换模型',
-      icon: <Cpu size={14} />,
-    },
-    {
-      id: 'mode',
-      label: '/mode',
-      description: '切换权限模式',
-      icon: <Shield size={14} />,
-    },
-    {
-      id: 'config',
-      label: '/config',
-      description: '打开设置面板',
-      icon: <Settings size={14} />,
-    },
-    {
-      id: 'compact',
-      label: '/compact',
-      description: '压缩当前会话上下文',
-      icon: <Archive size={14} />,
-    },
-    {
-      id: 'revoke',
-      label: '/revoke',
-      description: '撤销最近一轮对话',
-      icon: <Undo2 size={14} />,
-    },
-    {
-      id: 'clear',
-      label: '/clear',
-      description: '在当前项目中新建对话',
-      icon: <Eraser size={14} />,
-    },
-    {
-      id: 'export',
-      label: '/export',
-      description: '导出会话',
-      icon: <Download size={14} />,
-    },
-    {
-      id: 'help',
-      label: '/help',
-      description: '显示帮助',
-      icon: <HelpCircle size={14} />,
-    },
-  ]
-
-  const filtered = query
-    ? commands.filter(
-        (cmd) =>
-          cmd.id.includes(query.toLowerCase()) ||
-          cmd.label.includes(query.toLowerCase()) ||
-          cmd.description.includes(query),
-      )
-    : commands
+  const filtered = filterSlashCommands(SLASH_COMMANDS, query)
 
   // Reset selected index when filter changes
   useEffect(() => {
@@ -189,7 +190,7 @@ export function SlashCommandsDialog({
         'animate-fade-in',
       )}
     >
-      <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
+      <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
         命令
       </div>
       <div
@@ -206,7 +207,7 @@ export function SlashCommandsDialog({
             onClick={() => handleClick(cmd)}
             onMouseEnter={() => setSelectedIndex(index)}
             className={cn(
-              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] outline-none transition-colors',
+              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] outline-none transition-colors',
               index === selectedIndex
                 ? 'bg-[var(--lm-bg-hover)] text-[var(--lm-text-primary)]'
                 : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
@@ -215,7 +216,7 @@ export function SlashCommandsDialog({
             <span className="shrink-0 text-[var(--lm-text-muted)]">{cmd.icon}</span>
             <div className="flex flex-col">
               <span className="font-medium text-[var(--lm-text-primary)]">{cmd.label}</span>
-              <span className="text-[11px] text-[var(--lm-text-muted)]">{cmd.description}</span>
+              <span className="text-[12px] text-[var(--lm-text-muted)]">{cmd.description}</span>
             </div>
           </button>
         ))}

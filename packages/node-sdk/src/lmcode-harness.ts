@@ -10,9 +10,9 @@ import {
 } from '@lmcode-cli/agent-core';
 import { assertLmcodeHostIdentity } from '@lmcode-cli/config';
 
-import { LmcodeAuthFacade } from '#/auth';
-import { SDKRpcClient } from '#/rpc';
-import { Session } from '#/session';
+import { LmcodeAuthFacade } from './auth';
+import { SDKRpcClient } from './rpc';
+import { Session } from './session';
 import type {
   CreateSessionOptions,
   ExportSessionInput,
@@ -28,7 +28,7 @@ import type {
   RenameSessionInput,
   ResumeSessionInput,
   SessionSummary,
-} from '#/types';
+} from './types';
 
 export class LmcodeHarness {
   readonly homeDir: string;
@@ -235,6 +235,10 @@ export class LmcodeHarness {
     return this.rpc.removeProvider(providerId);
   }
 
+  async removeModel(modelId: string): Promise<LmcodeConfig> {
+    return this.rpc.removeModel(modelId);
+  }
+
   /**
    * Idempotent: the first call's options win. Subsequent calls return the
    * in-flight close promise and silently ignore any new options.
@@ -250,13 +254,19 @@ export class LmcodeHarness {
 
   private async closeInternal(): Promise<void> {
     await Promise.allSettled(this.pendingSessionStarts);
-    await Promise.all(
+    const results = await Promise.allSettled(
       Array.from(this.activeSessions.values(), (session) => session.close(this.closeOptions)),
     );
     try {
       await getRootLogger().flush();
     } catch {
       // never let logger flush block process exit
+    }
+    const errors = results
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'Failed to close one or more LMcode sessions');
     }
   }
 

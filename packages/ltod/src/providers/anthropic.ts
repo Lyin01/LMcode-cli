@@ -560,6 +560,13 @@ export function convertAnthropicError(error: unknown): ChatProviderError {
     return new ChatProviderError(`Anthropic error: ${error.message}`);
   }
   if (error instanceof Error) {
+    // undici can raise a raw `TypeError: terminated` while an Anthropic SSE
+    // body is being consumed. The SDK does not wrap stream-iteration errors,
+    // so classify this transport failure here or the loop treats it as fatal
+    // and skips its configured retries.
+    if (/network|connection|connect|disconnect|terminated/i.test(error.message)) {
+      return new APIConnectionError(error.message);
+    }
     return new ChatProviderError(`Error: ${error.message}`);
   }
   return new ChatProviderError(`Error: ${String(error)}`);

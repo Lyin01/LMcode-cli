@@ -39,4 +39,21 @@ describe('desktop scheduled-session activation', () => {
 
     await expect(scheduledSessionIds([ordinary, scheduled])).resolves.toEqual(['scheduled'])
   })
+
+  it('skips a session whose cron directory cannot be read instead of failing the whole batch', async () => {
+    const scheduled = await sessionSummary('scheduled', true)
+    // Corrupted session: sessionDir contains a NUL byte, so readdir on its
+    // cron directory rejects with ERR_INVALID_ARG_VALUE (not ENOENT) on every
+    // platform. One bad session must not silently prevent every other
+    // session's cron jobs from being resumed.
+    const broken: SessionSummary = {
+      id: 'broken',
+      workDir: 'bad\0path',
+      sessionDir: 'bad\0path',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    await expect(scheduledSessionIds([broken, scheduled])).resolves.toEqual(['scheduled'])
+  })
 })

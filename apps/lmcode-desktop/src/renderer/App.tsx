@@ -4,9 +4,12 @@ import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
 import { useConfigStore } from '@/stores/config-store'
 import { useEvents } from '@/hooks/useEvents'
+import { useInbox } from '@/hooks/useInbox'
+import { useArtifacts } from '@/hooks/useArtifacts'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
 import { ChatPanel } from '@/components/ChatPanel'
+import { WelcomeScreen } from '@/components/WelcomeScreen'
 import { ApprovalDialog } from '@/components/dialogs/ApprovalDialog'
 import { QuestionDialog } from '@/components/dialogs/QuestionDialog'
 import { SettingsPanel } from '@/components/SettingsPanel'
@@ -18,13 +21,17 @@ import { TerminalPanel } from '@/components/TerminalPanel'
 import { WorktreesPanel } from '@/components/WorktreesPanel'
 import { SubagentsPanel } from '@/components/SubagentsPanel'
 import { AutomationsPanel } from '@/components/AutomationsPanel'
+import { InboxPanel } from '@/components/InboxPanel'
+import { ArtifactPanel } from '@/components/ArtifactPanel'
 import { KeyboardShortcutsPanel } from '@/components/KeyboardShortcutsPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
 import { historyToMessages } from '@/lib/history'
+import { isNoProjectWorkDir } from '@/lib/projects'
 import type { SessionInfo } from '@/types'
-import { FolderOpen } from 'lucide-react'
 import { isThinkingEffort } from '@/lib/thinking'
+import { registerPermissionModeShortcut } from '@/lib/permission-shortcut'
+import { getStoredSidebarOpen, setStoredSidebarOpen } from '@/lib/sidebar-preference'
 import {
   getAdjacentConversationIds,
   type CommandPaletteRequest,
@@ -33,6 +40,7 @@ import {
   type RenameConversationRequest,
 } from '@/lib/menu-command'
 import type { DesktopMenuCommand } from '../shared/menu-types'
+import { nextPermissionMode } from '../shared/permission-mode'
 
 function appendMenuNotice(sessionId: string, content: string, isError = false): void {
   useSessionStore.getState().addMessageToSession(sessionId, {
@@ -44,26 +52,29 @@ function appendMenuNotice(sessionId: string, content: string, isError = false): 
   })
 }
 
+type ActivePanel =
+  | 'settings'
+  | 'memory'
+  | 'tasks'
+  | 'extensions'
+  | 'git-review'
+  | 'terminal'
+  | 'worktrees'
+  | 'subagents'
+  | 'automations'
+  | 'inbox'
+  | 'keyboard-shortcuts'
+
 export default function App() {
   const loadConfig = useConfigStore((s) => s.loadConfig)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const sessions = useSessionStore((s) => s.sessions)
   const messageCount = useSessionStore((s) => s.messages.length)
   const setSessions = useSessionStore((s) => s.setSessions)
-  const selectSession = useSessionStore((s) => s.selectSession)
   const createSession = useSessionStore((s) => s.createSession)
 
-  const [showSettings, setShowSettings] = useState(false)
-  const [showMemory, setShowMemory] = useState(false)
-  const [showTasks, setShowTasks] = useState(false)
-  const [showExtensions, setShowExtensions] = useState(false)
-  const [showGitReview, setShowGitReview] = useState(false)
-  const [showTerminal, setShowTerminal] = useState(false)
-  const [showWorktrees, setShowWorktrees] = useState(false)
-  const [showSubagents, setShowSubagents] = useState(false)
-  const [showAutomations, setShowAutomations] = useState(false)
-  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [activePanel, setActivePanel] = useState<ActivePanel | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(() => getStoredSidebarOpen())
   const [theme, setThemeState] = useState<ThemePref>(() => getStoredTheme())
   const [searchRequestNonce, setSearchRequestNonce] = useState(0)
   const [renameRequest, setRenameRequest] = useState<RenameConversationRequest | null>(null)
@@ -73,14 +84,42 @@ export default function App() {
   const [composerDraftRequest, setComposerDraftRequest] =
     useState<ComposerDraftRequest | null>(null)
   const menuRequestNonceRef = useRef(0)
+  const permissionSwitchingRef = useRef(false)
 
   useEvents()
+  useInbox()
+  useArtifacts()
 
   // Apply stored theme once on mount (index.html already set the attribute,
   // this keeps React state and the document in sync).
   useEffect(() => {
     applyTheme(theme)
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    setStoredSidebarOpen(sidebarOpen)
+  }, [sidebarOpen])
+
+  // Shift+Tab is an application shortcut, so listen once at the window capture
+  // phase instead of relying on whichever control currently owns focus.
+  useEffect(() => {
+    return registerPermissionModeShortcut(window, () => {
+      if (permissionSwitchingRef.current) return
+      permissionSwitchingRef.current = true
+
+      const state = useSessionStore.getState()
+      const sessionId = state.currentSessionId
+      void state.setPermissionPreference(nextPermissionMode(state.permissionPreference))
+        .catch((error: unknown) => {
+          if (sessionId === null) return
+          const message = error instanceof Error ? error.message : String(error)
+          appendMenuNotice(sessionId, `权限模式切换失败：${message}`, true)
+        })
+        .finally(() => {
+          permissionSwitchingRef.current = false
+        })
+    })
   }, [])
 
   const setTheme = useCallback((next: ThemePref) => {
@@ -125,6 +164,18 @@ export default function App() {
     void loadConfig()
   }, [loadConfig])
 
+  // Resolve the no-project sentinel directory once so the UI can recognize
+  // sessions that are not tied to a project.
+  useEffect(() => {
+    void window.lmcodeAPI.getNoProjectWorkDir()
+      .then((workDir) => {
+        if (typeof workDir === 'string' && workDir.trim()) {
+          useSessionStore.getState().setNoProjectWorkDir(workDir)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   // Re-hydrate a session's conversation from disk whenever it becomes active
   // (selecting it, or after an app restart) so messages don't vanish.
   useEffect(() => {
@@ -132,19 +183,14 @@ export default function App() {
     let cancelled = false
     void (async () => {
       try {
+        // The store tracks which sessions were already hydrated — a slow
+        // fetch must not be dropped just because the user typed (or a live
+        // event landed) while it was in flight, and must never run twice.
+        if (useSessionStore.getState().hydratedSessions[currentSessionId]) return
         const raw = await window.lmcodeAPI.getSessionHistory(currentSessionId)
         if (cancelled) return
-        const st = useSessionStore.getState()
-        // Only apply if we're still on this session and not mid-stream, and the
-        // UI hasn't already accumulated live messages for it.
-        if (
-          st.currentSessionId === currentSessionId &&
-          !st.isStreaming &&
-          st.messages.length === 0
-        ) {
-          const mapped = historyToMessages(raw as unknown[])
-          if (mapped.length > 0) st.setMessages(mapped)
-        }
+        const mapped = historyToMessages(raw as unknown[])
+        useSessionStore.getState().hydrateSessionHistory(currentSessionId, mapped)
       } catch (err) {
         console.error('Failed to load session history:', err)
       }
@@ -163,12 +209,18 @@ export default function App() {
           const thinkingLevel = isThinkingEffort(status.thinkingLevel)
             ? status.thinkingLevel
             : useSessionStore.getState().thinkingLevel
-          useSessionStore.getState().updateSessionStatus({
+          const state = useSessionStore.getState()
+          state.updateSessionStatus({
             model: status.model,
             thinkingLevel,
             permission: status.permission,
             contextTokens: status.contextTokens,
             maxContextTokens: status.maxContextTokens,
+          })
+          void state.applyPermissionPreference(currentSessionId).catch((error: unknown) => {
+            if (cancelled) return
+            const message = error instanceof Error ? error.message : String(error)
+            appendMenuNotice(currentSessionId, `无法应用全局权限模式：${message}`, true)
           })
         }
       })
@@ -216,11 +268,9 @@ export default function App() {
         }))
         setSessions(mapped)
 
-        if (mapped.length > 0) {
-          // Open the most recently used session on launch.
-          const latest = [...mapped].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]!
-          selectSession(latest.id)
-        }
+        // Deliberately do NOT auto-resume the most recent session: launch
+        // lands on the welcome screen, and the sidebar remains the way to
+        // pick a previous conversation.
       } catch (err) {
         console.error('Failed to load sessions:', err)
       }
@@ -229,115 +279,55 @@ export default function App() {
   }, [])
 
   const handleOpenSettings = useCallback(() => {
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowSettings(true)
+    setActivePanel('settings')
   }, [])
 
   const handleOpenMemory = useCallback(() => {
-    setShowSettings(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowMemory(true)
+    setActivePanel('memory')
   }, [])
 
   const handleOpenExtensions = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowExtensions(true)
+    setActivePanel('extensions')
+  }, [])
+
+  const handleOpenKeyboardShortcuts = useCallback(() => {
+    setActivePanel('keyboard-shortcuts')
   }, [])
 
   const handleToggleTasks = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowTasks((prev) => !prev)
+    setActivePanel((current) => current === 'tasks' ? null : 'tasks')
   }, [])
 
   const handleOpenGitReview = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowGitReview(true)
+    // No-project sessions live in the sentinel workspace, which is not a git
+    // repository — the review/worktree surfaces stay closed for them.
+    const store = useSessionStore.getState()
+    const current = store.sessions.find((s) => s.id === store.currentSessionId)
+    if (isNoProjectWorkDir(current?.workDir, store.noProjectWorkDir)) return
+    setActivePanel('git-review')
   }, [])
 
   const handleOpenTerminal = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowTerminal(true)
+    setActivePanel('terminal')
   }, [])
 
   const handleOpenWorktrees = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowSubagents(false)
-    setShowAutomations(false)
-    setShowWorktrees(true)
+    const store = useSessionStore.getState()
+    const current = store.sessions.find((s) => s.id === store.currentSessionId)
+    if (isNoProjectWorkDir(current?.workDir, store.noProjectWorkDir)) return
+    setActivePanel('worktrees')
   }, [])
 
   const handleOpenSubagents = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowAutomations(false)
-    setShowSubagents(true)
+    setActivePanel('subagents')
   }, [])
 
   const handleOpenAutomations = useCallback(() => {
-    setShowSettings(false)
-    setShowMemory(false)
-    setShowTasks(false)
-    setShowExtensions(false)
-    setShowGitReview(false)
-    setShowTerminal(false)
-    setShowWorktrees(false)
-    setShowSubagents(false)
-    setShowAutomations(true)
+    setActivePanel('automations')
   }, [])
 
-  const handleCloseKeyboardShortcuts = useCallback(() => {
-    setShowKeyboardShortcuts(false)
+  const handleOpenInbox = useCallback(() => {
+    setActivePanel((current) => current === 'inbox' ? null : 'inbox')
   }, [])
 
   const handleMenuCommand = useCallback(
@@ -345,13 +335,14 @@ export default function App() {
       const state = useSessionStore.getState()
       switch (command) {
         case 'new-conversation': {
-          const currentWorkDir = state.sessions.find(
-            (session) => session.id === state.currentSessionId,
-          )?.workDir
-          void createSession(currentWorkDir)
+          // Land on the welcome screen; the session is created when the first
+          // message is submitted there.
+          state.clearCurrentSession()
+          setActivePanel(null)
           break
         }
         case 'open-project':
+          setActivePanel(null)
           void createSession()
           break
         case 'rename-conversation':
@@ -435,7 +426,7 @@ export default function App() {
           setTheme(theme === 'dark' ? 'light' : 'dark')
           break
         case 'show-keyboard-shortcuts':
-          setShowKeyboardShortcuts(true)
+          setActivePanel('keyboard-shortcuts')
           break
         default: {
           const unreachable: never = command
@@ -481,6 +472,7 @@ export default function App() {
         <TopBar
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
+          onOpenInbox={handleOpenInbox}
           onOpenTasks={handleToggleTasks}
           onOpenGitReview={handleOpenGitReview}
           onOpenTerminal={handleOpenTerminal}
@@ -505,72 +497,61 @@ export default function App() {
             />
           </ErrorBoundary>
         ) : (
-          <div className="flex flex-1 items-center justify-center px-6 text-center">
-            <div className="flex max-w-md flex-col items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)]">
-                <FolderOpen size={28} strokeWidth={1.6} />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold text-[var(--lm-text-primary)]">
-                  打开一个项目开始工作
-                </h2>
-                <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--lm-text-muted)]">
-                  LMCODE 会把会话、工具权限和文件操作限定到你选择的工作目录。
-                </p>
-              </div>
-              <button
-                onClick={() => void createSession()}
-                className="flex items-center gap-2 rounded-lg bg-[var(--lm-accent)] px-4 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] shadow-[var(--lm-shadow-soft)] transition-colors hover:bg-[var(--lm-accent-hover)]"
-              >
-                <FolderOpen size={16} />
-                选择项目文件夹
-              </button>
-            </div>
-          </div>
+          <ErrorBoundary name="欢迎">
+            <WelcomeScreen />
+          </ErrorBoundary>
         )}
       </div>
 
       {/* Overlays */}
       <ErrorBoundary name="设置">
         <SettingsPanel
-          open={showSettings}
-          onClose={() => setShowSettings(false)}
+          open={activePanel === 'settings'}
+          onClose={() => setActivePanel(null)}
+          onOpenExtensions={handleOpenExtensions}
+          onOpenKeyboardShortcuts={handleOpenKeyboardShortcuts}
           theme={theme}
           onThemeChange={setTheme}
         />
       </ErrorBoundary>
       <ErrorBoundary name="记忆库">
-        <MemoryBrowser open={showMemory} onClose={() => setShowMemory(false)} />
+        <MemoryBrowser open={activePanel === 'memory'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="任务">
-        <TasksPanel open={showTasks} onClose={() => setShowTasks(false)} />
+        <TasksPanel open={activePanel === 'tasks'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="扩展">
-        <ExtensionsPanel open={showExtensions} onClose={() => setShowExtensions(false)} />
+        <ExtensionsPanel open={activePanel === 'extensions'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="Git 审查">
         <GitReviewPanel
-          open={showGitReview}
-          onClose={() => setShowGitReview(false)}
+          open={activePanel === 'git-review'}
+          onClose={() => setActivePanel(null)}
           onAddCommentsToChat={handleAddReviewCommentsToChat}
         />
       </ErrorBoundary>
       <ErrorBoundary name="终端">
-        <TerminalPanel open={showTerminal} onClose={() => setShowTerminal(false)} />
+        <TerminalPanel open={activePanel === 'terminal'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="Worktrees">
-        <WorktreesPanel open={showWorktrees} onClose={() => setShowWorktrees(false)} />
+        <WorktreesPanel open={activePanel === 'worktrees'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="子代理">
-        <SubagentsPanel open={showSubagents} onClose={() => setShowSubagents(false)} />
+        <SubagentsPanel open={activePanel === 'subagents'} onClose={() => setActivePanel(null)} />
       </ErrorBoundary>
       <ErrorBoundary name="自动化">
-        <AutomationsPanel open={showAutomations} onClose={() => setShowAutomations(false)} />
+        <AutomationsPanel open={activePanel === 'automations'} onClose={() => setActivePanel(null)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="通知中心">
+        <InboxPanel open={activePanel === 'inbox'} onClose={() => setActivePanel(null)} />
+      </ErrorBoundary>
+      <ErrorBoundary name="文档审阅">
+        <ArtifactPanel onSendFeedback={handleAddReviewCommentsToChat} />
       </ErrorBoundary>
       <ErrorBoundary name="键盘快捷键">
         <KeyboardShortcutsPanel
-          open={showKeyboardShortcuts}
-          onClose={handleCloseKeyboardShortcuts}
+          open={activePanel === 'keyboard-shortcuts'}
+          onClose={() => setActivePanel(null)}
         />
       </ErrorBoundary>
 

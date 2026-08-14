@@ -2,6 +2,7 @@ import {
   createRPC,
   ErrorCodes,
   LmcodeCore,
+  log,
   makeErrorPayload,
   resolveLmcodeHome,
   type AgentContextData,
@@ -24,7 +25,7 @@ import {
 } from '@lmcode-cli/agent-core';
 import { createLmcodeDefaultHeaders } from '@lmcode-cli/config';
 
-import type { ApprovalHandler, QuestionHandler } from '#/events';
+import type { ApprovalHandler, QuestionHandler } from './events';
 import type {
   BackgroundTaskInfo,
   CreateSessionOptions,
@@ -56,7 +57,7 @@ import type {
   SkillSummary,
   Unsubscribe,
   LmcodeHostIdentity,
-} from '#/types';
+} from './types';
 
 const MAIN_AGENT_ID = 'main';
 
@@ -259,6 +260,11 @@ export class SDKRpcClient {
   async removeProvider(providerId: string): Promise<LmcodeConfig> {
     const rpc = await this.getRpc();
     return rpc.removeProvider({ providerId });
+  }
+
+  async removeModel(modelId: string): Promise<LmcodeConfig> {
+    const rpc = await this.getRpc();
+    return rpc.removeModel({ modelId });
   }
 
   async prompt(input: SessionPromptRpcInput): Promise<void> {
@@ -675,8 +681,21 @@ export class SDKRpcClient {
   }
 
   receiveEvent(event: Event): void {
-    for (const listener of this.eventListeners) {
-      listener(event);
+    // Host observers are outside the agent's trust boundary. Snapshot the set
+    // so subscriptions added while dispatching start with the next event, and
+    // isolate each callback so one broken UI/plugin listener cannot starve the
+    // remaining observers or reject the core's reverse-RPC notification.
+    for (const listener of Array.from(this.eventListeners)) {
+      try {
+        listener(event);
+      } catch (error) {
+        log.warn('SDK event listener failed', {
+          error,
+          eventType: event.type,
+          sessionId: event.sessionId,
+          agentId: event.agentId,
+        });
+      }
     }
   }
 

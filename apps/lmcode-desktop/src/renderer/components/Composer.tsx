@@ -13,19 +13,29 @@ import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
+import { ProjectPicker } from '@/components/ProjectPicker'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
-import { SlashCommandsDialog, type SlashCommand } from '@/components/SlashCommandsDialog'
+import { UsageFooter } from '@/components/UsageFooter'
+import { SlashCommandsDialog, SLASH_COMMANDS, type SlashCommand } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
 import {
   buildDesktopReviewPrompt,
+  filterSlashCommands,
   parseDesktopSlashCommand,
+  shouldHandleSlashKeys,
 } from '@/lib/slash-command'
 import type { GoalSnapshotData } from '@lmcode-cli/lmcode-sdk'
 import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
 import type { QueuedUserMessage, UserAttachment } from '@/types'
 import type { CommandPaletteRequest, ComposerDraftRequest } from '@/lib/menu-command'
 import { mergeComposerDraft } from '@/lib/composer-draft'
+import {
+  clearComposerDraft,
+  getComposerDraft,
+  saveComposerDraft,
+} from '@/lib/composer-drafts'
 import { defaultPastedImageName } from '@/lib/pasted-image-name'
+import { fileToDataUrl } from '@/lib/file-to-data-url'
 
 interface ComposerProps {
   autoFocus?: boolean
@@ -53,6 +63,7 @@ const COMMAND_HELP = [
   '- `/mode`、`/config`：打开设置。',
   '- `/clear`：在当前项目中新建对话。',
   '- `/export`：导出当前会话。',
+  '- `/dream`：整理记忆库（合并重复、清理过期条目）。',
 ].join('\n')
 
 const EMPTY_QUEUED_MESSAGES: readonly QueuedUserMessage[] = []
@@ -62,23 +73,6 @@ function goalStatusText(goal: GoalSnapshotData | null): string {
   const remaining = goal.budget.remainingTokens
   const budget = remaining === null ? '' : ` · 剩余 ${remaining.toLocaleString()} tokens`
   return `🎯 **${goal.objective}**\n\n状态：${goal.status} · 已执行 ${goal.turnsUsed} 轮${budget}`
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  const result = Promise.withResolvers<string>()
-  const reader = new FileReader()
-  reader.addEventListener('load', () => {
-    if (typeof reader.result === 'string') result.resolve(reader.result)
-    else result.reject(new Error('无法读取剪贴板图片'))
-  }, { once: true })
-  reader.addEventListener('error', () => {
-    result.reject(reader.error ?? new Error('无法读取剪贴板图片'))
-  }, { once: true })
-  reader.addEventListener('abort', () => {
-    result.reject(new Error('剪贴板图片读取已取消'))
-  }, { once: true })
-  reader.readAsDataURL(file)
-  return result.promise
 }
 
 export function Composer({
@@ -153,6 +147,28 @@ export function Composer({
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 220) + 'px'
   }, [])
+
+  // Restore the per-session text draft. The textarea is uncontrolled and
+  // ChatPanel remounts the composer keyed by session id, so without this the
+  // unsent text would be silently discarded on every session switch.
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta || !currentSessionId) return
+    const draft = getComposerDraft(currentSessionId)
+    ta.value = draft
+    setHasDraft(Boolean(draft.trim()))
+    autoGrow()
+  }, [currentSessionId, autoGrow])
+
+  // Save the draft for the outgoing session before switching away or
+  // unmounting; the cleanup runs before the restore effect above re-runs.
+  useEffect(() => {
+    return () => {
+      if (currentSessionId) {
+        saveComposerDraft(currentSessionId, textareaRef.current?.value ?? '')
+      }
+    }
+  }, [currentSessionId])
 
   useEffect(() => {
     if (!commandPaletteRequest) return
@@ -464,6 +480,10 @@ export function Composer({
             showNotice(`会话已导出到：\n\n\`${zipPath}\``)
             break
           }
+          case 'dream':
+            await window.lmcodeAPI.activateSkill(currentSessionId, 'dream')
+            showNotice('已开始整理记忆库，Agent 会在对话中给出整理方案。')
+            break
           case 'help':
             showNotice(COMMAND_HELP)
             break
@@ -504,6 +524,7 @@ export function Composer({
     setAttachmentError(null)
     attachmentsRef.current = []
     setAttachments([])
+    if (currentSessionId) clearComposerDraft(currentSessionId)
     if (text.trim().startsWith('/')) {
       void executeSlashCommand(text)
     } else if (isStreaming && delivery === 'steer') {
@@ -515,6 +536,7 @@ export function Composer({
     }
   }, [
     attachmentLoadCount,
+    currentSessionId,
     executeSlashCommand,
     isStreaming,
     queueMessage,
@@ -522,16 +544,24 @@ export function Composer({
     steerMessage,
   ])
 
+  // Match count the slash dialog will show; with zero matches the dialog
+  // renders nothing, so the composer must not swallow navigation keys.
+  const slashMatchCount = showSlash
+    ? filterSlashCommands(SLASH_COMMANDS, slashQuery).length
+    : 0
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (showSlash) {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
-          e.preventDefault()
-          return
-        }
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault()
-          return
+        if (shouldHandleSlashKeys(showSlash, slashMatchCount)) {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
+            e.preventDefault()
+            return
+          }
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            return
+          }
         }
         if (e.key === 'Escape') {
           e.preventDefault()
@@ -553,7 +583,7 @@ export function Composer({
         handleSend(isStreaming && (e.ctrlKey || e.metaKey) ? 'steer' : 'default')
       }
     },
-    [handleSend, isStreaming, showSlash],
+    [handleSend, isStreaming, showSlash, slashMatchCount],
   )
 
   const handleInput = useCallback(() => {
@@ -621,7 +651,7 @@ export function Composer({
 
       {queuedMessages.length > 0 && (
         <div className="mb-2 overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] shadow-[var(--lm-shadow-soft)]">
-          <div className="flex items-center gap-1.5 border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium text-[var(--lm-text-muted)]">
+          <div className="flex items-center gap-1.5 border-b border-[var(--lm-border)] px-3 py-1.5 text-[11px] font-medium text-[var(--lm-text-muted)]">
             <ArrowDown size={11} />
             待发送队列 · {queuedMessages.length}
             <span className="ml-auto font-normal">回合结束后自动发送</span>
@@ -632,7 +662,7 @@ export function Composer({
                 key={message.id}
                 className="flex items-center gap-1 border-b border-[var(--lm-border)] px-2 py-1.5 last:border-b-0"
               >
-                <span className="w-5 shrink-0 text-center font-mono text-[9px] text-[var(--lm-text-muted)]">
+                <span className="w-5 shrink-0 text-center font-mono text-[10px] text-[var(--lm-text-muted)]">
                   {index + 1}
                 </span>
                 <input
@@ -643,12 +673,12 @@ export function Composer({
                       updateQueuedMessage(currentSessionId, message.id, event.target.value)
                     }
                   }}
-                  className="min-w-0 flex-1 bg-transparent text-[11px] text-[var(--lm-text-secondary)]"
+                  className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--lm-text-secondary)]"
                   aria-label={`编辑队列消息 ${index + 1}`}
                 />
                 {message.attachments.length > 0 && (
                   <span
-                    className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[9px] text-[var(--lm-text-muted)]"
+                    className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]"
                     title={message.attachments.map((attachment) => attachment.name).join('、')}
                   >
                     <Paperclip size={9} />
@@ -690,7 +720,7 @@ export function Composer({
         </div>
       )}
 
-      <div className="rounded-[20px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-colors focus-within:border-[var(--lm-accent)]">
+      <div className="rounded-[18px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-[border-color,box-shadow] focus-within:border-[var(--lm-text-muted)] focus-within:shadow-[var(--lm-shadow-composer)]">
         {attachments.length > 0 && (
           <div className="px-3 pt-3">
             <AttachmentStrip attachments={attachments} onRemove={removeAttachment} />
@@ -698,7 +728,7 @@ export function Composer({
         )}
         {(attachmentError || isAttaching) && (
           <div
-            className={`px-4 pt-2 text-[10px] ${
+            className={`px-4 pt-2 text-[11px] ${
               attachmentError ? 'text-[var(--lm-error)]' : 'text-[var(--lm-text-muted)]'
             }`}
             role={attachmentError ? 'alert' : 'status'}
@@ -717,7 +747,7 @@ export function Composer({
               : '给 LMCODE 发消息…（可粘贴截图，/ 查看命令）'
           }
           rows={1}
-          className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-relaxed text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none"
+          className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none"
         />
 
         {/* Toolbar */}
@@ -733,11 +763,12 @@ export function Composer({
             <Paperclip size={17} />
           </button>
 
+          <ProjectPicker display="name" />
           <ModelSwitcher open={modelMenuOpen} onOpenChange={setModelMenuOpen} />
           <ThinkingSwitcher />
 
           {streamStatus && (
-            <span className="lm-pulse ml-1 truncate text-[11px] text-[var(--lm-text-muted)]">
+            <span className="lm-pulse ml-1 truncate text-[12px] text-[var(--lm-text-muted)]">
               {streamStatus}
             </span>
           )}
@@ -746,7 +777,7 @@ export function Composer({
 
           {isStreaming ? (
             <div className="flex items-center gap-1.5">
-              <span className="hidden text-[9px] text-[var(--lm-text-muted)] sm:inline">
+              <span className="hidden text-[10px] text-[var(--lm-text-muted)] sm:inline">
                 Ctrl+Enter 转向
               </span>
               <button
@@ -782,6 +813,7 @@ export function Composer({
             </button>
           )}
         </div>
+        <UsageFooter />
       </div>
 
       <input

@@ -16,6 +16,9 @@ const GIT_COMMAND_TIMEOUT_MS = 15_000
 const GIT_OUTPUT_LIMIT_BYTES = 8 * 1024 * 1024
 const DIFF_PREVIEW_LIMIT_CHARS = 1_000_000
 const UNTRACKED_PREVIEW_LIMIT_LINES = 5_000
+// Untracked files are read fully into memory to build their preview patch, so
+// refuse anything beyond this size up front instead of buffering it first.
+export const UNTRACKED_PREVIEW_LIMIT_BYTES = 8 * 1024 * 1024
 
 export interface GitCommandResult {
   readonly ok: boolean
@@ -224,6 +227,14 @@ async function createUntrackedPatch(root: string, filePath: string): Promise<Git
       kind: 'untracked',
       patch: `Symbolic link ${displayPath(filePath)} is untracked`,
       truncated: false,
+    }
+  }
+
+  if (stat.size > UNTRACKED_PREVIEW_LIMIT_BYTES) {
+    return {
+      kind: 'untracked',
+      patch: `File ${displayPath(filePath)} is untracked and too large to preview (${stat.size} bytes)`,
+      truncated: true,
     }
   }
 
@@ -542,9 +553,18 @@ export async function discardAllGitChanges(
   }
   const paths = snapshot.changes.map((change) => change.path)
   for (const filePath of paths) {
-    const current = await inspectGitRepository(workDir)
-    if (!current.changes.some((change) => change.path === filePath)) continue
-    await discardGitFileChanges(workDir, filePath, 'all', trashItem)
+    // `discardGitFileChanges` re-resolves the change list itself and throws
+    // when the path is no longer a change (e.g. a prior discard already
+    // cleaned it up). Skipping those avoids a full repository re-inspection
+    // per file.
+    try {
+      await discardGitFileChanges(workDir, filePath, 'all', trashItem)
+    } catch (error) {
+      if (error instanceof Error && error.message === '该文件不在当前 Git 变更列表中') {
+        continue
+      }
+      throw error
+    }
   }
 }
 

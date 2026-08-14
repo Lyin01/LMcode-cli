@@ -26,6 +26,9 @@ jobs:
       - name: Audit production dependencies
         run: pnpm run audit:prod
 
+      - name: Scan repository source for hardcoded secrets
+        run: pnpm run security:secrets
+
   build:
     runs-on: ubuntu-latest
 
@@ -70,6 +73,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build:packages
       - run: pnpm run test
+      - run: pnpm run eval:test
+      - name: Keyless evaluation smoke
+        run: pnpm run eval smoke-plumbing
       - name: Smoke test CLI development entry
         run: pnpm -C apps/lmcode run dev -- --version
 

@@ -35,6 +35,14 @@ describe('desktop preload bridge', () => {
       exportSession(id: string): Promise<string>
       getPathForFile(file: File): string
       selectWorkDirectory(initialDirectory?: string): Promise<string | undefined>
+      getNoProjectWorkDir(): Promise<string>
+      createSession(opts: {
+        workDir?: string
+        noProject?: boolean
+        model?: string
+        thinking?: string
+        permission?: 'yolo' | 'manual' | 'auto'
+      }): Promise<unknown>
       createGoal(sessionId: string, objective: string, replace?: boolean): Promise<unknown>
       getGitSnapshot(sessionId: string): Promise<unknown>
       getGitFileDiff(sessionId: string, filePath: string): Promise<unknown>
@@ -69,6 +77,8 @@ describe('desktop preload bridge', () => {
       readFileAttachment(filePath: string): Promise<unknown>
       readInlineImageAttachment(name: string, dataUrl: string): Promise<unknown>
       getSessionStatus(sessionId: string): Promise<unknown>
+      setPermission(sessionId: string, mode: 'yolo' | 'manual' | 'auto'): Promise<void>
+      getProviderUsage(force?: boolean): Promise<unknown>
       onInteractionSettled(callback: (payload: unknown) => void): () => void
       onTerminalOutput(callback: (payload: unknown) => void): () => void
       onMenuCommand(callback: (payload: unknown) => void): () => void
@@ -78,6 +88,12 @@ describe('desktop preload bridge', () => {
         sidebarOpen: boolean
         canGoPrevious: boolean
         canGoNext: boolean
+      }): void
+      sendDesktopNotification(payload: {
+        kind: 'turn-completed'
+        sessionId: string
+        title: string
+        body?: string
       }): void
       respondApproval(payload: unknown): Promise<void>
       respondQuestion(payload: unknown): Promise<void>
@@ -89,6 +105,8 @@ describe('desktop preload bridge', () => {
     expect(api.getPathForFile(file)).toBe('C:/work/file.txt')
     await api.exportSession('session-1')
     await api.selectWorkDirectory('C:/work')
+    await api.getNoProjectWorkDir()
+    await api.createSession({ noProject: true })
     await api.createGoal('session-1', 'ship desktop', true)
     await api.getGitSnapshot('session-1')
     await api.getGitFileDiff('session-1', 'src/app.ts')
@@ -128,6 +146,8 @@ describe('desktop preload bridge', () => {
     await api.readFileAttachment('C:/work/screen.png')
     await api.readInlineImageAttachment('clipboard.png', 'data:image/png;base64,abc=')
     await api.getSessionStatus('session-1')
+    await api.setPermission('session-1', 'auto')
+    await api.getProviderUsage(true)
     await api.respondApproval(approval)
     await api.respondQuestion(question)
 
@@ -167,9 +187,19 @@ describe('desktop preload bridge', () => {
     }
     api.updateMenuState(menuState)
 
+    const turnNotification = {
+      kind: 'turn-completed' as const,
+      sessionId: 'session-1',
+      title: '后台任务',
+      body: '后台任务的回合已完成',
+    }
+    api.sendDesktopNotification(turnNotification)
+
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:exportSession', 'session-1')
     expect(electron.getPathForFile).toHaveBeenCalledWith(file)
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:selectWorkDirectory', 'C:/work')
+    expect(electron.invoke).toHaveBeenCalledWith('lmcode:getNoProjectWorkDir')
+    expect(electron.invoke).toHaveBeenCalledWith('lmcode:createSession', { noProject: true })
     expect(electron.invoke).toHaveBeenCalledWith(
       'lmcode:createGoal',
       'session-1',
@@ -264,6 +294,8 @@ describe('desktop preload bridge', () => {
       'data:image/png;base64,abc=',
     )
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:getSessionStatus', 'session-1')
+    expect(electron.invoke).toHaveBeenCalledWith('lmcode:setPermission', 'session-1', 'auto')
+    expect(electron.invoke).toHaveBeenCalledWith('lmcode:getProviderUsage', true)
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:respondApproval', approval)
     expect(electron.invoke).toHaveBeenCalledWith('lmcode:respondQuestion', question)
     expect(onSettled).toHaveBeenCalledWith(settledPayload)
@@ -276,5 +308,6 @@ describe('desktop preload bridge', () => {
       menuCommandListener,
     )
     expect(electron.send).toHaveBeenCalledWith('lmcode:updateMenuState', menuState)
+    expect(electron.send).toHaveBeenCalledWith('lmcode:sendNotification', turnNotification)
   })
 })
