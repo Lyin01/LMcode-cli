@@ -9,12 +9,10 @@ import type {
   SubscriptionQuotaRow,
   SubscriptionQuotaWindow,
 } from '../shared/provider-usage-types.js'
+import { resolveUsageEndpoint } from './usage-endpoints.js'
 
 const DEFAULT_CACHE_TTL_MS = 30_000
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000
-const KIMI_CODE_HOST = 'api.kimi.com'
-const DEEPSEEK_HOST = 'api.deepseek.com'
-const MOONSHOT_HOSTS = new Set(['api.moonshot.cn', 'api.moonshot.ai'])
 
 export interface ProviderUsageServiceOptions {
   readonly loadConfig: () => Promise<LmcodeConfig>
@@ -161,7 +159,7 @@ function discoverUsageTargets(config: LmcodeConfig): {
 
   for (const [providerId, provider] of Object.entries(config.providers)) {
     if (provider.enabled === false || provider.baseUrl === undefined) continue
-    const endpoint = usageEndpoint(provider.baseUrl)
+    const endpoint = resolveUsageEndpoint(provider.baseUrl)
     if (endpoint === null) continue
     const apiKey = providerApiKey(provider)
     if (apiKey === undefined) {
@@ -193,49 +191,6 @@ function discoverUsageTargets(config: LmcodeConfig): {
   return { targets, issues }
 }
 
-function usageEndpoint(baseUrl: string):
-  | {
-      readonly kind: 'api-balance'
-      readonly service: 'deepseek' | 'moonshot'
-      readonly url: string
-      readonly currencyHint?: string
-    }
-  | { readonly kind: 'subscription-quota'; readonly url: string }
-  | null {
-  let url: URL
-  try {
-    url = new URL(baseUrl)
-  } catch {
-    return null
-  }
-  if (url.protocol !== 'https:') return null
-
-  const hostname = url.hostname.toLowerCase()
-  if (hostname === DEEPSEEK_HOST) {
-    return {
-      kind: 'api-balance',
-      service: 'deepseek',
-      url: `${url.origin}/user/balance`,
-      currencyHint: undefined,
-    }
-  }
-  if (MOONSHOT_HOSTS.has(hostname)) {
-    return {
-      kind: 'api-balance',
-      service: 'moonshot',
-      url: `${url.origin}/v1/users/me/balance`,
-      currencyHint: hostname.endsWith('.cn') ? 'CNY' : 'USD',
-    }
-  }
-  const path = url.pathname.replace(/\/+$/, '')
-  if (hostname === KIMI_CODE_HOST && (path === '/coding' || path === '/coding/v1')) {
-    return {
-      kind: 'subscription-quota',
-      url: `${url.origin}/coding/v1/usages`,
-    }
-  }
-  return null
-}
 
 function providerApiKey(provider: ProviderConfig): string | undefined {
   const configured = nonEmpty(provider.apiKey)

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   X, Blocks, Zap, Server, RefreshCw, Square, Trash2, Plus,
-  Loader2, AlertTriangle, CheckCircle2, Play,
+  Loader2, AlertTriangle, CheckCircle2, Play, Puzzle,
 } from 'lucide-react'
+import type { PluginSummary } from '@lmcode-cli/lmcode-sdk'
 import { cn } from '@/lib/utils'
 import { createLatestRequestGate } from '@/lib/latest-request'
 import { activateModalPanel } from '@/lib/modal-panel-controller'
@@ -13,7 +14,7 @@ interface ExtensionsPanelProps {
   onClose: () => void
 }
 
-type Tab = 'skills' | 'mcp'
+type Tab = 'skills' | 'mcp' | 'plugins'
 
 const SOURCE_LABEL: Record<SkillSummary['source'], string> = {
   builtin: '内置',
@@ -39,6 +40,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
 
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [servers, setServers] = useState<McpServerInfo[]>([])
+  const [plugins, setPlugins] = useState<PluginSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   // Latest-wins guard: a slow resolve from a superseded refresh (session or
@@ -57,6 +59,10 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   const [newType, setNewType] = useState<'stdio' | 'http'>('stdio')
   const [newTarget, setNewTarget] = useState('')
 
+  // Install-plugin form
+  const [showInstall, setShowInstall] = useState(false)
+  const [newSource, setNewSource] = useState('')
+
   const refresh = useCallback(async () => {
     const gate = refreshGateRef.current
     // Begin before the null check: when the session is deleted
@@ -70,10 +76,14 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
         const next = await window.lmcodeAPI.listSkills(sessionId)
         if (!gate.isCurrent(ticket)) return
         setSkills(next)
-      } else {
+      } else if (tab === 'mcp') {
         const next = await window.lmcodeAPI.listMcpServers(sessionId)
         if (!gate.isCurrent(ticket)) return
         setServers(next)
+      } else {
+        const next = await window.lmcodeAPI.listPlugins(sessionId)
+        if (!gate.isCurrent(ticket)) return
+        setPlugins(next)
       }
     } catch (err) {
       if (!gate.isCurrent(ticket)) return
@@ -141,6 +151,61 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
     }
   }
 
+  const installPlugin = async () => {
+    if (!sessionId || !newSource.trim()) return
+    setBusy('__install__')
+    try {
+      await window.lmcodeAPI.installPlugin(sessionId, newSource.trim())
+      setNewSource('')
+      setShowInstall(false)
+      await refresh()
+    } catch (err) {
+      console.error('Failed to install plugin:', err)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const togglePlugin = async (plugin: PluginSummary) => {
+    if (!sessionId) return
+    setBusy(`toggle:${plugin.id}`)
+    try {
+      await window.lmcodeAPI.setPluginEnabled(sessionId, plugin.id, !plugin.enabled)
+      await refresh()
+    } catch (err) {
+      console.error('Failed to toggle plugin:', err)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const removePluginEntry = async (plugin: PluginSummary) => {
+    if (!sessionId) return
+    if (!window.confirm(`确定卸载插件“${plugin.displayName}”吗？`)) return
+    setBusy(`remove:${plugin.id}`)
+    try {
+      await window.lmcodeAPI.removePlugin(sessionId, plugin.id)
+      await refresh()
+    } catch (err) {
+      console.error('Failed to remove plugin:', err)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const reloadAllPlugins = async () => {
+    if (!sessionId) return
+    setBusy('__reload__')
+    try {
+      await window.lmcodeAPI.reloadPlugins(sessionId)
+      await refresh()
+    } catch (err) {
+      console.error('Failed to reload plugins:', err)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   if (!open) return null
 
   return (
@@ -174,7 +239,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-[var(--lm-border)] px-3 pt-2">
-          {([['skills', '技能', Zap], ['mcp', 'MCP', Server]] as const).map(([id, label, Icon]) => (
+          {([['skills', '技能', Zap], ['mcp', 'MCP', Server], ['plugins', '插件', Puzzle]] as const).map(([id, label, Icon]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -367,6 +432,127 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                           className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-error)] disabled:opacity-50"
                         >
                           <Trash2 size={11} /> 移除
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          {/* ── Plugins ── */}
+          {sessionId && tab === 'plugins' && (
+            <>
+              {showInstall ? (
+                <div className="mb-3 space-y-2 rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-3">
+                  <input
+                    value={newSource}
+                    onChange={(e) => setNewSource(e.target.value)}
+                    placeholder="GitHub 仓库（owner/repo）或本地路径 / zip URL"
+                    className="w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[14px] outline-none focus:border-[var(--lm-accent)]"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setShowInstall(false)}
+                      className="rounded-lg px-3 py-1.5 text-[13px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={installPlugin}
+                      disabled={!newSource.trim() || busy === '__install__'}
+                      className="rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[13px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-50"
+                    >
+                      {busy === '__install__' ? <Loader2 size={13} className="lm-spin" /> : '安装'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowInstall(true)}
+                  className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--lm-border-strong)] py-2.5 text-[14px] text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-accent)] hover:text-[var(--lm-accent-text)]"
+                >
+                  <Plus size={15} />
+                  安装插件
+                </button>
+              )}
+
+              <div className="mb-2 flex items-center justify-between px-1">
+                <span className="text-[12px] text-[var(--lm-text-muted)]">
+                  {plugins.length} 个插件 · 与技能/MCP 一样按会话装载
+                </span>
+                <button
+                  onClick={reloadAllPlugins}
+                  disabled={busy === '__reload__'}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
+                >
+                  {busy === '__reload__' ? <Loader2 size={11} className="lm-spin" /> : <RefreshCw size={11} />}
+                  重载全部
+                </button>
+              </div>
+
+              {!loading && plugins.length === 0 && (
+                <p className="px-2 py-6 text-center text-[14px] text-[var(--lm-text-muted)]">暂无插件</p>
+              )}
+
+              <div className="space-y-1.5">
+                {plugins.map((plugin) => {
+                  const isBusy =
+                    busy === `toggle:${plugin.id}` || busy === `remove:${plugin.id}`
+                  return (
+                    <div
+                      key={plugin.id}
+                      className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Puzzle size={15} className="shrink-0 text-[var(--lm-accent-text)]" />
+                        <span className="truncate text-[14px] font-medium text-[var(--lm-text-primary)]">
+                          {plugin.displayName}
+                        </span>
+                        {plugin.version && (
+                          <span className="shrink-0 rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[11px] text-[var(--lm-text-muted)]">
+                            v{plugin.version}
+                          </span>
+                        )}
+                        {plugin.hasErrors && (
+                          <AlertTriangle size={13} className="shrink-0 text-[var(--lm-error)]" />
+                        )}
+                        <span
+                          className={cn(
+                            'ml-auto shrink-0 text-[12px]',
+                            plugin.enabled ? 'text-[var(--lm-success)]' : 'text-[var(--lm-text-muted)]',
+                          )}
+                        >
+                          {plugin.enabled ? '已启用' : '已禁用'}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-[var(--lm-text-muted)]">
+                        <span>{plugin.skillCount} 技能</span>
+                        <span>
+                          {plugin.mcpServerCount} MCP（启用 {plugin.enabledMcpServerCount}）
+                        </span>
+                        {plugin.github && (
+                          <span className="truncate">
+                            {plugin.github.owner}/{plugin.github.repo}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-2 flex items-center gap-1">
+                        <button
+                          onClick={() => togglePlugin(plugin)}
+                          disabled={isBusy}
+                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
+                        >
+                          {plugin.enabled ? <Square size={11} /> : <Play size={11} />}
+                          {plugin.enabled ? '禁用' : '启用'}
+                        </button>
+                        <button
+                          onClick={() => removePluginEntry(plugin)}
+                          disabled={isBusy}
+                          className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-error)] disabled:opacity-50"
+                        >
+                          <Trash2 size={11} /> 卸载
                         </button>
                       </div>
                     </div>

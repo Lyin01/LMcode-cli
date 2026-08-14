@@ -5,6 +5,9 @@ import type {
   LmcodeConfig,
   LmcodeConfigPatch,
   PermissionMode,
+  PluginInfo,
+  PluginSummary,
+  ReloadSummary,
   SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
 import type {
@@ -152,6 +155,19 @@ interface LmcodeAPI {
   addMcpServer: (sessionId: string, name: string, config: Record<string, unknown>) => Promise<void>
   stopMcpServer: (sessionId: string, name: string) => Promise<void>
   removeMcpServer: (sessionId: string, name: string) => Promise<void>
+
+  listPlugins: (sessionId: string) => Promise<PluginSummary[]>
+  installPlugin: (sessionId: string, source: string) => Promise<PluginSummary>
+  setPluginEnabled: (sessionId: string, id: string, enabled: boolean) => Promise<void>
+  setPluginMcpServerEnabled: (
+    sessionId: string,
+    id: string,
+    server: string,
+    enabled: boolean,
+  ) => Promise<void>
+  removePlugin: (sessionId: string, id: string) => Promise<void>
+  reloadPlugins: (sessionId: string) => Promise<ReloadSummary>
+  getPluginInfo: (sessionId: string, id: string) => Promise<PluginInfo>
 
   // Session control
   setModel: (sessionId: string, model: string) => Promise<void>

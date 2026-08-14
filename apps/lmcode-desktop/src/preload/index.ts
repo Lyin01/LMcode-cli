@@ -5,6 +5,9 @@ import type {
   LmcodeConfig,
   LmcodeConfigPatch,
   PermissionMode,
+  PluginInfo,
+  PluginSummary,
+  ReloadSummary,
   SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
 import type {
@@ -157,6 +160,33 @@ const lmcodeAPI = {
 
   removeMcpServer: (sessionId: string, name: string) =>
     ipcRenderer.invoke('lmcode:removeMcpServer', sessionId, name),
+
+  // ── Plugins ─────────────────────────────────────────────────────
+
+  listPlugins: (sessionId: string): Promise<readonly PluginSummary[]> =>
+    ipcRenderer.invoke('lmcode:listPlugins', sessionId),
+
+  installPlugin: (sessionId: string, source: string): Promise<PluginSummary> =>
+    ipcRenderer.invoke('lmcode:installPlugin', sessionId, source),
+
+  setPluginEnabled: (sessionId: string, id: string, enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke('lmcode:setPluginEnabled', sessionId, id, enabled),
+
+  setPluginMcpServerEnabled: (
+    sessionId: string,
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> => ipcRenderer.invoke('lmcode:setPluginMcpServerEnabled', sessionId, id, server, enabled),
+
+  removePlugin: (sessionId: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('lmcode:removePlugin', sessionId, id),
+
+  reloadPlugins: (sessionId: string): Promise<ReloadSummary> =>
+    ipcRenderer.invoke('lmcode:reloadPlugins', sessionId),
+
+  getPluginInfo: (sessionId: string, id: string): Promise<PluginInfo> =>
+    ipcRenderer.invoke('lmcode:getPluginInfo', sessionId, id),
 
   // ── Config ──────────────────────────────────────────────────────
 
