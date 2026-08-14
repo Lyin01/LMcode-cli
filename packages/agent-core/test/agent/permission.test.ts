@@ -683,6 +683,7 @@ describe('Permission policy chain', () => {
       'auto-mode-ask-user-question-deny',
       'plan-mode-guard-deny',
       'user-configured-deny',
+      'file-sandbox',
       'sensitive-file-access-ask',
       'git-control-path-access-ask',
       'cwd-outside-file-write-ask',
@@ -3576,6 +3577,136 @@ function bashCall(): ToolCall {
     arguments: '{"command":"printf permission-output","timeout":60}',
   };
 }
+
+describe('File sandbox policy', () => {
+  it('denies file writes in read-only mode, even in yolo', async () => {
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { mode: 'yolo' },
+    );
+    manager.fileSandbox = 'read-only';
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_write_ro',
+        toolName: 'Write',
+        execution: {
+          ...testExecution('Write', { path: 'a.ts', content: 'x' }),
+          accesses: ToolAccesses.writeFile('/workspace/a.ts'),
+        },
+      }),
+    );
+
+    expect(result).toEqual({ block: true, reason: expect.stringContaining('read-only file sandbox') });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
+  it('denies readwrite access in read-only mode', async () => {
+    const { manager } = makePermissionManager(async () => ({ decision: 'approved' }), {
+      mode: 'yolo',
+    });
+    manager.fileSandbox = 'read-only';
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_readwrite_ro',
+        toolName: 'Edit',
+        execution: {
+          ...testExecution('Edit', { path: 'a.ts', old: 'a', new: 'b' }),
+          accesses: ToolAccesses.readWriteFile('/workspace/a.ts'),
+        },
+      }),
+    );
+
+    expect(result).toEqual({ block: true, reason: expect.stringContaining('read-only file sandbox') });
+  });
+
+  it('does not gate reads in read-only mode', async () => {
+    const { manager } = makePermissionManager(async () => ({ decision: 'approved' }), {
+      mode: 'auto',
+    });
+    manager.fileSandbox = 'read-only';
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_read_ro',
+        toolName: 'Read',
+        execution: {
+          ...testExecution('Read', { path: 'a.ts' }),
+          accesses: ToolAccesses.readFile('/workspace/a.ts'),
+        },
+      }),
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('denies writes outside cwd in workspace-write mode, even in yolo', async () => {
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { mode: 'yolo', cwd: '/workspace' },
+    );
+    manager.fileSandbox = 'workspace-write';
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_write_outside',
+        toolName: 'Write',
+        execution: {
+          ...testExecution('Write', { path: '/tmp/outside.ts', content: 'x' }),
+          accesses: ToolAccesses.writeFile('/tmp/outside.ts'),
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      block: true,
+      reason: expect.stringContaining('workspace-write file sandbox'),
+    });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
+  it('allows writes inside cwd in workspace-write mode', async () => {
+    const { manager } = makePermissionManager(async () => ({ decision: 'approved' }), {
+      mode: 'auto',
+      cwd: '/workspace',
+    });
+    manager.fileSandbox = 'workspace-write';
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_write_inside',
+        toolName: 'Write',
+        execution: {
+          ...testExecution('Write', { path: 'a.ts', content: 'x' }),
+          accesses: ToolAccesses.writeFile('/workspace/a.ts'),
+        },
+      }),
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('full-access is the default and does not gate writes', async () => {
+    const { manager } = makePermissionManager(async () => ({ decision: 'approved' }), {
+      mode: 'auto',
+      cwd: '/workspace',
+    });
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_write_full',
+        toolName: 'Write',
+        execution: {
+          ...testExecution('Write', { path: 'a.ts', content: 'x' }),
+          accesses: ToolAccesses.writeFile('/workspace/a.ts'),
+        },
+      }),
+    );
+
+    expect(result).toBeUndefined();
+  });
+});
 
 function makePermissionManager(
   handleApproval: (request: unknown) => Promise<ApprovalResponse>,

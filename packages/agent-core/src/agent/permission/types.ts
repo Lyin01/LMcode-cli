@@ -30,6 +30,21 @@ export type PermissionRuleScope = 'turn-override' | 'session-runtime' | 'project
 export type PermissionMode = 'manual' | 'yolo' | 'auto';
 
 /**
+ * File sandbox tier — a hard, mode-independent boundary orthogonal to
+ * {@link PermissionMode}. Mirrors the deepseek-harness file-policy tiers:
+ *
+ *   - `read-only`      — all file writes are denied (reads still allowed)
+ *   - `workspace-write`— writes inside the session cwd are allowed; writes
+ *                        outside it are denied (no approval channel)
+ *   - `full-access`    — no additional file gating (existing sensitive-file,
+ *                        git-control, and cwd-write policies still apply)
+ *
+ * Unlike the `ask`-style permission policies, the sandbox never opens an
+ * approval prompt: it is a hard deny, even in `yolo` mode.
+ */
+export type FileSandboxMode = 'read-only' | 'workspace-write' | 'full-access';
+
+/**
  * A single permission rule. `pattern` is the DSL form (`Read(/etc/**)`,
  * `Bash(rm *)`, or bare `Write`). Rule arguments are interpreted only by
  * tools that provide a matcher; tools without one (MCP/user/custom tools)

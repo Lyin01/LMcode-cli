@@ -288,6 +288,7 @@ export function configToTomlData(config: LmcodeConfig): Record<string, unknown> 
     'yolo',
     'defaultThinking',
     'defaultPermissionMode',
+    'defaultFileSandbox',
     'defaultPlanMode',
     'mergeAllAvailableSkills',
     'extraSkillDirs',

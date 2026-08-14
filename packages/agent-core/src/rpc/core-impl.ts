@@ -252,6 +252,9 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
       if (permissionMode !== undefined) {
         mainAgent.permission.setMode(permissionMode);
       }
+      if (config.defaultFileSandbox !== undefined) {
+        mainAgent.permission.fileSandbox = config.defaultFileSandbox;
+      }
       // Honor config.defaultPlanMode for fresh sessions. Resumed sessions
       // restore their own plan state from records and never re-apply this.
       if (config.defaultPlanMode === true) {

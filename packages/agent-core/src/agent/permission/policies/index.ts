@@ -5,6 +5,7 @@ import { AutoModeAskUserQuestionDenyPermissionPolicy } from './auto-mode-ask-use
 import { DefaultToolApprovePermissionPolicy } from './default-tool-approve';
 import { ExitPlanModeReviewAskPermissionPolicy } from './exit-plan-mode-review-ask';
 import { FallbackAskPermissionPolicy } from './fallback-ask';
+import { FileSandboxPermissionPolicy } from './file-sandbox';
 import {
   CwdOutsideFileWriteAskPermissionPolicy,
   GitControlPathAccessAskPermissionPolicy,
@@ -34,6 +35,10 @@ export function createPermissionDecisionPolicies(agent: Agent): readonly Permiss
     new PlanModeGuardDenyPermissionPolicy(agent),
     // User-configured deny rule matches → deny.
     new UserConfiguredDenyPermissionPolicy(agent),
+    // File sandbox is a hard, mode-independent boundary: read-only denies all
+    // writes, workspace-write denies writes outside cwd. Runs before the
+    // ask/allow policies and is NOT bypassed by yolo.
+    new FileSandboxPermissionPolicy(agent),
     // Hard file-access boundaries run before auto/session/user allow rules; only yolo bypasses them.
     // Access touches a sensitive file (.env, SSH key, credentials) → ask (skipped in yolo).
     new SensitiveFileAccessAskPermissionPolicy(agent),

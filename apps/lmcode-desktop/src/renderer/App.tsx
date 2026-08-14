@@ -21,6 +21,7 @@ import { AutomationsPanel } from '@/components/AutomationsPanel'
 import { KeyboardShortcutsPanel } from '@/components/KeyboardShortcutsPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
+import { summarizeUsage } from '@/lib/usage'
 import { historyToMessages } from '@/lib/history'
 import type { SessionInfo } from '@/types'
 import { FolderOpen } from 'lucide-react'
@@ -169,6 +170,7 @@ export default function App() {
             permission: status.permission,
             contextTokens: status.contextTokens,
             maxContextTokens: status.maxContextTokens,
+            usage: summarizeUsage(status.usage),
           })
         }
       })

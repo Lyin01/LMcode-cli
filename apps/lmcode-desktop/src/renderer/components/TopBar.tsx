@@ -48,6 +48,7 @@ export function TopBar({
   const permission = useSessionStore((s) => s.permission)
   const contextTokens = useSessionStore((s) => s.contextTokens)
   const maxContextTokens = useSessionStore((s) => s.maxContextTokens)
+  const usage = useSessionStore((s) => s.usage)
 
   const tasks = useTaskStore((s) => s.tasks)
   const runningCount = tasks.filter(
@@ -64,6 +65,12 @@ export function TopBar({
     maxContextTokens > 0
       ? Math.min((contextTokens / maxContextTokens) * 100, 100)
       : 0
+
+  const contextTooltip = `上下文 ${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens（${Math.round(pct)}%）${
+    usage
+      ? `\n输入 ${usage.inputTokens.toLocaleString()} · 输出 ${usage.outputTokens.toLocaleString()} · 缓存读 ${usage.cacheReadTokens.toLocaleString()} · 缓存写 ${usage.cacheWriteTokens.toLocaleString()}`
+      : ''
+  }`
 
   const fmtTokens = (n: number): string => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
@@ -102,7 +109,7 @@ export function TopBar({
       {maxContextTokens > 0 && (
         <div
           className="hidden items-center gap-2 rounded-full bg-[var(--lm-bg-hover)] px-3 py-1 sm:flex"
-          title={`上下文 ${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens（${Math.round(pct)}%）`}
+          title={contextTooltip}
         >
           <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--lm-border-strong)]">
             <div
@@ -113,6 +120,11 @@ export function TopBar({
           <span className="font-mono text-[11px] text-[var(--lm-text-secondary)]">
             {fmtTokens(contextTokens)} / {fmtTokens(maxContextTokens)}
             <span className="ml-1 text-[var(--lm-text-muted)]">({Math.round(pct)}%)</span>
+            {usage && (
+              <span className="ml-1 text-[var(--lm-text-muted)]">
+                · ↓{fmtTokens(usage.outputTokens)}
+              </span>
+            )}
           </span>
         </div>
       )}

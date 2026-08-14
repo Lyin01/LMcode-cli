@@ -4,6 +4,7 @@ import { abortError } from '../../utils/abort';
 import { createPermissionDecisionPolicies } from './policies';
 import type {
   ApprovalResponse,
+  FileSandboxMode,
   PermissionApprovalResultRecord,
   PermissionData,
   PermissionMode,
@@ -53,6 +54,7 @@ interface PolicyEvaluation {
 export class PermissionManager {
   rules: PermissionRule[] = [];
   private modeOverride: PermissionMode | undefined;
+  private fileSandboxOverride: FileSandboxMode | undefined;
   private readonly parent: PermissionManager | undefined;
   private readonly localSessionApprovalRulePatterns = new Set<string>();
   private readonly policies: readonly PermissionPolicy[];
@@ -117,6 +119,14 @@ export class PermissionManager {
 
   set mode(mode: PermissionMode) {
     this.modeOverride = mode;
+  }
+
+  get fileSandbox(): FileSandboxMode {
+    return this.fileSandboxOverride ?? this.parent?.fileSandbox ?? 'full-access';
+  }
+
+  set fileSandbox(mode: FileSandboxMode) {
+    this.fileSandboxOverride = mode;
   }
 
   data(): PermissionData {

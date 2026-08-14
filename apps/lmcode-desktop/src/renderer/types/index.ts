@@ -43,6 +43,13 @@ export interface ToolCallInfo {
   progress?: string
 }
 
+export interface TokenUsageSummary {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly cacheReadTokens: number
+  readonly cacheWriteTokens: number
+}
+
 export interface SessionInfo {
   id: string
   title?: string
@@ -54,6 +61,7 @@ export interface SessionInfo {
   permission: string
   contextTokens: number
   maxContextTokens: number
+  usage?: TokenUsageSummary
   isStreaming: boolean
 }
 

@@ -93,6 +93,71 @@ describe('SessionSubagentHost', () => {
     ]);
   });
 
+  it('forks the parent conversation history into a spawned child', async () => {
+    const parent = testAgent();
+    parent.configure();
+    await parent.rpc.setPermission({ mode: 'yolo' });
+    parent.agent.context.appendUserMessage([{ type: 'text', text: 'prior parent context' }]);
+
+    const summary =
+      'Forked child completed with the inherited context and returned a detailed enough summary for the parent agent to continue confidently without repeating the work. '.repeat(
+        2,
+      );
+    const child = testAgent();
+    child.mockNextResponse({ type: 'text', text: summary });
+
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const handle = await host.spawn('coder', {
+      parentToolCallId: 'call_fork',
+      prompt: 'Continue from the inherited context',
+      description: 'Fork child',
+      runInBackground: false,
+      fork: true,
+      signal,
+    });
+    await handle.completion;
+
+    const seeded = child.agent.context.history.some(
+      (message) =>
+        message.role === 'user' &&
+        message.content.some((part) => part.type === 'text' && part.text === 'prior parent context'),
+    );
+    expect(seeded).toBe(true);
+  });
+
+  it('does not seed parent history for a normal (non-fork) spawn', async () => {
+    const parent = testAgent();
+    parent.configure();
+    await parent.rpc.setPermission({ mode: 'yolo' });
+    parent.agent.context.appendUserMessage([{ type: 'text', text: 'parent-only context' }]);
+
+    const summary =
+      'Normal child completed its task with a detailed enough summary for the parent agent to continue confidently without repeating the work. '.repeat(
+        2,
+      );
+    const child = testAgent();
+    child.mockNextResponse({ type: 'text', text: summary });
+
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const handle = await host.spawn('coder', {
+      parentToolCallId: 'call_plain',
+      prompt: 'Do the task fresh',
+      description: 'Plain child',
+      runInBackground: false,
+      signal,
+    });
+    await handle.completion;
+
+    const seeded = child.agent.context.history.some(
+      (message) =>
+        message.role === 'user' &&
+        message.content.some((part) => part.type === 'text' && part.text === 'parent-only context'),
+    );
+    expect(seeded).toBe(false);
+  });
+
   it('ignores blocking results from subagent lifecycle hooks', async () => {
     const trigger = vi.fn(async () => [{ action: 'block', reason: 'observer only' }]);
     const fireAndForgetTrigger = vi.fn(() => Promise.resolve([{ action: 'block' }]));

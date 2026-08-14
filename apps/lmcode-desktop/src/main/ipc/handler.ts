@@ -65,6 +65,24 @@ import type {
   TextAttachment,
 } from '../../shared/file-types.js'
 import { scheduledSessionIds } from '../scheduled-sessions.js'
+import {
+  addMcpServerArgsSchema,
+  applyGitHunkActionArgsSchema,
+  createCronJobArgsSchema,
+  createGoalArgsSchema,
+  createSessionArgsSchema,
+  discardGitFileChangesArgsSchema,
+  parseIpcArgs,
+  promptArgsSchema,
+  respondApprovalArgsSchema,
+  respondQuestionArgsSchema,
+  setGitFileStagedArgsSchema,
+  setPermissionArgsSchema,
+  setPlanModeArgsSchema,
+  updateGoalStatusArgsSchema,
+  worktreeHandoffArgsSchema,
+} from '../../shared/ipc-schemas.js'
+import type { ZodType } from 'zod'
 
 interface SessionEntry {
   session: Session
@@ -236,12 +254,14 @@ export function registerAllHandlers(
   function secureInvoke<Args extends unknown[], Result>(
     channel: string,
     listener: (event: IpcMainInvokeEvent, ...args: Args) => Result | Promise<Result>,
+    argsSchema?: ZodType<unknown[]>,
   ): void {
-    ipcMain.handle(channel, (event, ...args) => {
+    ipcMain.handle(channel, (event, ...rawArgs) => {
       if (closing) throw new Error(`Desktop IPC registration is closed on "${channel}"`)
       if (!isTrustedIpcSender(event, mainWindow.webContents, trustedRendererUrl)) {
         throw new Error(`Rejected IPC from an untrusted renderer on "${channel}"`)
       }
+      const args = argsSchema === undefined ? rawArgs : parseIpcArgs(argsSchema, rawArgs, channel)
       return listener(event, ...(args as Args))
     })
     invokeChannels.push(channel)
@@ -344,7 +364,7 @@ export function registerAllHandlers(
       throw new Error('The desktop session was created without a summary')
     }
     return session.summary
-  })
+  }, createSessionArgsSchema)
 
   secureInvoke(
     'lmcode:selectWorkDirectory',
@@ -409,6 +429,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.prompt(await buildDesktopPromptInput(request))
     },
+    promptArgsSchema,
   )
 
   secureInvoke(
@@ -417,6 +438,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.steer(await buildDesktopPromptInput(request))
     },
+    promptArgsSchema,
   )
 
   secureInvoke('lmcode:cancelResponse', async (_event, sessionId: string): Promise<void> => {
@@ -463,7 +485,7 @@ export function registerAllHandlers(
   secureInvoke('lmcode:setPermission', async (_event, sessionId: string, mode: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.setPermission(mode as 'yolo' | 'manual' | 'auto')
-  })
+  }, setPermissionArgsSchema)
 
   secureInvoke(
     'lmcode:createGoal',
@@ -476,6 +498,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.createGoal(objective, { replace })
     },
+    createGoalArgsSchema,
   )
 
   secureInvoke(
@@ -496,6 +519,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.updateGoalStatus(status)
     },
+    updateGoalStatusArgsSchema,
   )
 
   secureInvoke(
@@ -512,6 +536,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.setPlanMode(enabled)
     },
+    setPlanModeArgsSchema,
   )
 
   secureInvoke(
@@ -569,6 +594,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.createCronJob(input)
     },
+    createCronJobArgsSchema,
   )
 
   secureInvoke(
@@ -614,7 +640,7 @@ export function registerAllHandlers(
   secureInvoke('lmcode:addMcpServer', async (_event, sessionId: string, name: string, config: Record<string, unknown>): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.addMcpServer(name, config)
-  })
+  }, addMcpServerArgsSchema)
 
   secureInvoke('lmcode:stopMcpServer', async (_event, sessionId: string, name: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
@@ -682,6 +708,7 @@ export function registerAllHandlers(
     ): Promise<void> => {
       await setGitFileStaged(await getSessionWorkDir(sessionId), filePath, staged)
     },
+    setGitFileStagedArgsSchema,
   )
 
   secureInvoke(
@@ -696,6 +723,7 @@ export function registerAllHandlers(
     async (_event, sessionId: string, input: GitHunkActionInput): Promise<void> => {
       await applyGitHunkAction(await getSessionWorkDir(sessionId), input)
     },
+    applyGitHunkActionArgsSchema,
   )
 
   secureInvoke(
@@ -713,6 +741,7 @@ export function registerAllHandlers(
         (target) => shell.trashItem(target),
       )
     },
+    discardGitFileChangesArgsSchema,
   )
 
   secureInvoke(
@@ -755,6 +784,7 @@ export function registerAllHandlers(
       )
       return { worktree, session: await forkSessionIntoWorktree(sessionId, worktree) }
     },
+    worktreeHandoffArgsSchema,
   )
 
   secureInvoke(
@@ -770,6 +800,7 @@ export function registerAllHandlers(
       )
       return { worktree, session: await forkSessionIntoWorktree(sessionId, worktree) }
     },
+    worktreeHandoffArgsSchema,
   )
 
   // ── Project terminal ────────────────────────────────────────────
@@ -816,7 +847,7 @@ export function registerAllHandlers(
     if (!pendingApprovals.settle(payload.requestId, payload.response)) {
       throw new Error(`Approval request "${payload.requestId}" is no longer pending`)
     }
-  })
+  }, respondApprovalArgsSchema)
 
   secureInvoke('lmcode:respondQuestion', (_event, payload: {
     requestId: string
@@ -825,7 +856,7 @@ export function registerAllHandlers(
     if (!pendingQuestions.settle(payload.requestId, payload.result)) {
       throw new Error(`Question request "${payload.requestId}" is no longer pending`)
     }
-  })
+  }, respondQuestionArgsSchema)
 
   // ── App control ─────────────────────────────────────────────────
 

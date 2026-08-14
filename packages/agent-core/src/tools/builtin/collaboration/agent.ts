@@ -85,6 +85,12 @@ export const AgentToolInputSchema = z.preprocess(
       .describe(
         'Timeout in seconds for the agent task (min 30s, max 3600s / 1hr). When omitted, a foreground task runs until completion with no timeout. The agent is stopped if it exceeds this limit.',
       ),
+    fork: z
+      .boolean()
+      .optional()
+      .describe(
+        'When true, seed the new subagent with the parent conversation history so it inherits full working context. Only valid when creating a new agent (not when resuming).',
+      ),
   }),
 );
 
@@ -185,6 +191,12 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
           isError: true,
         };
       }
+      if (args.fork === true && resumeAgentId !== undefined && resumeAgentId.length > 0) {
+        return {
+          output: 'Cannot set fork when resuming an existing agent. Fork only applies to a new agent.',
+          isError: true,
+        };
+      }
 
       let reservation: ReturnType<BackgroundProcessManager['reserveSlot']> | undefined;
       let backgroundManager: BackgroundProcessManager | undefined;
@@ -218,6 +230,7 @@ export class AgentTool implements BuiltinTool<AgentToolInput> {
         prompt: args.prompt,
         description: args.description,
         runInBackground,
+        ...(args.fork !== undefined ? { fork: args.fork } : {}),
         signal: backgroundController?.signal ?? foregroundDeadline?.signal ?? signal,
       };
 

@@ -1,7 +1,7 @@
 import type { TokenUsage } from '@lmcode-cli/ltod';
 
 import type { Agent } from '../agent';
-import type { PromptOrigin } from '../agent/context';
+import type { ContextMessage, PromptOrigin } from '../agent/context';
 import type { LoopTurnStopReason } from '../loop';
 import {
   DEFAULT_AGENT_PROFILES,
@@ -32,6 +32,8 @@ type RunSubagentOptions = {
   readonly runInBackground: boolean;
   readonly origin?: PromptOrigin | undefined;
   readonly signal: AbortSignal;
+  /** Seed the child with the parent's conversation history (a fork). */
+  readonly fork?: boolean | undefined;
 };
 
 type SubagentCompletion = {
@@ -90,7 +92,7 @@ export class SessionSubagentHost {
         ...options,
         signal: controller.signal,
       },
-      () => this.configureChild(parent, agent, profile),
+      () => this.prepareChild(parent, agent, profile, options),
     ).finally(() => {
       unlinkAbortSignal();
       this.activeChildren.delete(id);
@@ -285,6 +287,24 @@ export class SessionSubagentHost {
     child.useProfile(profile, context);
   }
 
+  /**
+   * Configure a freshly spawned child and, for a fork, seed its context with
+   * the parent's conversation history so it inherits full working context
+   * instead of starting from a single prompt string.
+   */
+  private async prepareChild(
+    parent: Agent,
+    child: Agent,
+    profile: ResolvedAgentProfile,
+    options: RunSubagentOptions,
+  ): Promise<void> {
+    await this.configureChild(parent, child, profile);
+    if (options.fork !== true) return;
+    for (const message of parent.context.history) {
+      child.context.appendMessage(cloneContextMessage(message));
+    }
+  }
+
   private async triggerSubagentStart(
     parent: Agent,
     profileName: string,
@@ -341,4 +361,16 @@ function lastAssistantText(agent: Agent): string {
     if (text.trim().length > 0) return text.trim();
   }
   return '';
+}
+
+/**
+ * Shallow-copy a context message so a fork's seeded history does not share
+ * mutable `content` / `toolCalls` arrays with the parent agent.
+ */
+function cloneContextMessage(message: ContextMessage): ContextMessage {
+  return {
+    ...message,
+    content: [...message.content],
+    toolCalls: [...message.toolCalls],
+  };
 }

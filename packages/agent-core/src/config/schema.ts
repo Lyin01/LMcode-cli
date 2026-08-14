@@ -74,6 +74,8 @@ export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 
 export const PermissionModeSchema = z.enum(['yolo', 'manual', 'auto']);
 
+export const FileSandboxModeSchema = z.enum(['read-only', 'workspace-write', 'full-access']);
+
 export const PermissionRuleDecisionSchema = z.enum(['allow', 'deny', 'ask']);
 export const PermissionRuleScopeSchema = z.enum([
   'turn-override',
@@ -215,6 +217,7 @@ export const LmcodeConfigSchema = z.object({
   yolo: z.boolean().optional(),
   defaultThinking: z.boolean().optional(),
   defaultPermissionMode: PermissionModeSchema.optional(),
+  defaultFileSandbox: FileSandboxModeSchema.optional(),
   defaultPlanMode: z.boolean().optional(),
   permission: PermissionConfigSchema.optional(),
   hooks: z.array(HookDefSchema).optional(),
@@ -258,6 +261,7 @@ export const LmcodeConfigPatchSchema = z
     yolo: z.boolean().optional(),
     defaultThinking: z.boolean().optional(),
     defaultPermissionMode: PermissionModeSchema.optional(),
+    defaultFileSandbox: FileSandboxModeSchema.optional(),
     defaultPlanMode: z.boolean().optional(),
     permission: PermissionConfigPatchSchema.optional(),
     hooks: z.array(HookDefSchema).optional(),

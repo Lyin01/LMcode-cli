@@ -4,9 +4,11 @@ import type {
   PendingInteraction,
   QueuedUserMessage,
   SessionInfo,
+  TokenUsageSummary,
   ToolCallInfo,
   UserAttachment,
 } from '@/types'
+import { summarizeUsage } from '@/lib/usage'
 import {
   DEFAULT_THINKING_EFFORT,
   getStoredThinking,
@@ -322,6 +324,7 @@ export interface SessionStore {
   permission: string
   contextTokens: number
   maxContextTokens: number
+  usage: TokenUsageSummary | undefined
 
   pendingInteractions: PendingInteraction[]
   messageQueue: Record<string, QueuedUserMessage[]>
@@ -373,6 +376,7 @@ function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): 
     permission: 'manual',
     contextTokens: 0,
     maxContextTokens: 128000,
+    usage: undefined,
     isStreaming: false,
     ...overrides,
   }
@@ -391,6 +395,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   permission: 'manual',
   contextTokens: 0,
   maxContextTokens: 128000,
+  usage: undefined,
 
   pendingInteractions: [],
   messageQueue: {},
@@ -426,6 +431,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           permission: 'manual',
           contextTokens: 0,
           maxContextTokens: 128000,
+          usage: undefined,
         }
       }
 
@@ -444,6 +450,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         permission: next.permission,
         contextTokens: next.contextTokens,
         maxContextTokens: next.maxContextTokens,
+        usage: next.usage,
       }
     }),
 
@@ -478,6 +485,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       permission: session.permission,
       contextTokens: session.contextTokens,
       maxContextTokens: session.maxContextTokens,
+      usage: session.usage,
     })
   },
 
@@ -537,6 +545,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         permission: newSession.permission,
         contextTokens: newSession.contextTokens,
         maxContextTokens: newSession.maxContextTokens,
+        usage: newSession.usage,
       }
     })
   },
@@ -627,6 +636,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (ev.model !== undefined) patch.model = ev.model
       if (ev.contextTokens !== undefined) patch.contextTokens = ev.contextTokens
       if (ev.maxContextTokens !== undefined) patch.maxContextTokens = ev.maxContextTokens
+      if (ev.usage !== undefined) patch.usage = summarizeUsage(ev.usage)
       if (ev.permission !== undefined) patch.permission = ev.permission
       set((s) => ({
         sessions: s.sessions.map((sess) => (sess.id === sessionId ? { ...sess, ...patch } : sess)),
