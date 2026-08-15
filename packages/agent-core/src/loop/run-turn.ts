@@ -20,10 +20,10 @@ import type { LoopInterruptReason, LoopEventDispatcher, LoopTurnInterruptedEvent
 import type { LLM } from './llm';
 import { executeLoopStep } from './turn-step';
 import type {
-  ExecutableTool,
   LoopHooks,
   LoopMessageBuilder,
   LoopTerminalStepStopReason,
+  LoopToolsInput,
   LoopTurnStopReason,
   TurnResult,
 } from './types';
@@ -34,7 +34,7 @@ export interface RunTurnInput {
   readonly llm: LLM;
   readonly buildMessages: LoopMessageBuilder;
   readonly dispatchEvent: LoopEventDispatcher;
-  readonly tools?: readonly ExecutableTool[] | undefined;
+  readonly tools?: LoopToolsInput | undefined;
   readonly hooks?: LoopHooks | undefined;
   readonly log?: Logger | undefined;
   readonly maxSteps?: number | undefined;

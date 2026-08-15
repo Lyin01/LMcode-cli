@@ -545,6 +545,23 @@ async function initHarness(): Promise<void> {
     version: app.getVersion(),
   })
 
+  // One-time migration: default the Anchored Bootstrap on for the DeepSeek-
+  // oriented desktop runtime. It anchors the FIRST model request on a minimal
+  // tool catalog with no AGENTS.md/skill-context injection (stabilizing the
+  // DeepSeek reasoning trajectory), then promotes to the full catalog after
+  // the first tool call or assistant reply. Users can toggle it in Settings.
+  try {
+    const currentConfig = await harness.getConfig()
+    if (currentConfig.anchoredBootstrap === undefined) {
+      await harness.setConfig({
+        anchoredBootstrap: { enabled: true, providers: ['deepseek'] },
+      })
+      log.info('anchored-bootstrap default enabled for desktop runtime')
+    }
+  } catch (error) {
+    log.warn('anchored-bootstrap default migration skipped', { error })
+  }
+
   // App-lifetime singletons: the interaction hub is shared by the renderer
   // surface and the remote bridge, and the memory store is shared by the IPC
   // layer and the remote bridge. The remote service is opt-in and stays off

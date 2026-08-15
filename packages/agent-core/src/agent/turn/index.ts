@@ -886,13 +886,18 @@ export class TurnFlow {
         }
       };
       try {
+        // Snapshot the tool catalog once per turn so mid-turn config changes
+        // (e.g. setActiveTools) only take effect on the next turn. Anchored
+        // Bootstrap then filters this snapshot per request, so a mid-turn
+        // promotion still unlocks the full turn-start catalog from request #2.
+        const turnTools = this.agent.tools.loopTools;
         const result = await runTurn({
           turnId: String(turnId),
           signal,
           llm: this.agent.llm,
-          buildMessages: () => this.agent.context.messages,
+          buildMessages: () => this.agent.bootstrap.messages(),
           dispatchEvent: this.buildDispatchEvent(turnId, signal),
-          tools: this.agent.tools.loopTools,
+          tools: () => this.agent.bootstrap.resolvedTools(turnTools),
           log: this.agent.log,
           maxSteps: loopControl?.maxStepsPerTurn,
           maxRetryAttempts: loopControl?.maxRetriesPerStep,

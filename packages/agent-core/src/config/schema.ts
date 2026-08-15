@@ -208,6 +208,47 @@ export const McpServerConfigSchema = z.preprocess((raw) => {
 
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 
+/**
+ * Anchored Bootstrap — first-request trajectory anchoring for DeepSeek-family
+ * models (modeled after xiaobright/dsh-anchored-standard).
+ *
+ * DeepSeek official models condition their reasoning trajectory ("we" vs
+ * "Let me first…") on the API-visible tool catalog and auto-injected context
+ * of the FIRST model request. When enabled, the first request of a main
+ * session exposes only {@link DEFAULT_BOOTSTRAP_TOOLS} (the Minimal-style
+ * pair: a shell + file tools) and suppresses the auto-injected session
+ * context (AGENTS.md digest + skill catalog), then promotes to the full tool
+ * catalog and restored context once the session has produced its first
+ * durable promotion signal (a tool call OR the first assistant reply,
+ * whichever comes first). The phase is derived from durable context history,
+ * so resume/reload preserve it.
+ */
+export const AnchoredBootstrapSchema = z
+  .object({
+    /** Master switch. When unset, the feature is off unless a provider in
+     *  `providers` matches the resolved provider name. */
+    enabled: z.boolean().optional(),
+    /** Provider names (ChatProvider.name) that auto-enable the feature, e.g.
+     *  `['deepseek']`. */
+    providers: z.array(z.string()).optional(),
+    /** Minimal tool names exposed on the first (unpromoted) request.
+     *  Defaults to `['Bash', 'Read', 'Write', 'Edit']` — the lmcode mapping
+     *  of the dsh Minimal pair (persistent bash + str_replace_editor). */
+    bootstrapTools: z.array(z.string()).optional(),
+    /** Durable promotion signal: `'either'` (tool call OR first assistant
+     *  reply, default), `'tool-call'`, or `'assistant-message'`. */
+    promoteOn: z.enum(['tool-call', 'assistant-message', 'either']).optional(),
+    /** Whether auto-injected context is filtered from the first request.
+     *  Defaults to true. */
+    suppressContext: z.boolean().optional(),
+    /** Injection variants filtered while unpromoted. Defaults to
+     *  `['session_context']` (the AGENTS.md + skill-catalog digest). */
+    suppressedVariants: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export type AnchoredBootstrapConfig = z.infer<typeof AnchoredBootstrapSchema>;
+
 export const LmcodeConfigSchema = z.object({
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   defaultProvider: z.string().optional(),
@@ -232,6 +273,9 @@ export const LmcodeConfigSchema = z.object({
   /** One-shot utility-model review of spec compliance when a user turn
    *  that changed files stops. Defaults to enabled; set false to skip. */
   enableSpecCritic: z.boolean().optional(),
+  /** First-request trajectory anchoring (DeepSeek-family). See
+   *  {@link AnchoredBootstrapSchema}. */
+  anchoredBootstrap: AnchoredBootstrapSchema.optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -274,6 +318,7 @@ export const LmcodeConfigPatchSchema = z
     background: BackgroundConfigPatchSchema.optional(),
     enableSelfHealing: z.boolean().optional(),
     enableSpecCritic: z.boolean().optional(),
+    anchoredBootstrap: AnchoredBootstrapSchema.optional(),
   })
   .strict();
 

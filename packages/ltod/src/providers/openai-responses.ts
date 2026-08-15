@@ -971,7 +971,14 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): OpenAIResponsesChatProvider {
-    const reasoningEffort = thinkingEffortToReasoningEffort(effort);
+    let reasoningEffort = thinkingEffortToReasoningEffort(effort);
+    // GLM models served via OpenAI-compatible gateways (e.g. opencode-go) only
+    // accept reasoning_effort values low/high/max. Map ltod's wider enum onto
+    // those before sending, otherwise the gateway rejects the request (1210).
+    if (/^glm/i.test(this._model)) {
+      if (reasoningEffort === 'xhigh') reasoningEffort = 'max';
+      else if (reasoningEffort === 'medium') reasoningEffort = 'high';
+    }
     const clone = this._clone();
     clone._generationKwargs = {
       ...clone._generationKwargs,

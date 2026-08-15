@@ -40,6 +40,7 @@ import {
 } from '../utils/tokens';
 import type { PromisableMethods } from '../utils/types';
 import { BackgroundManager } from './background';
+import { AnchoredBootstrap } from './bootstrap';
 import { FullCompaction, MicroCompaction, type CompactionStrategy } from './compaction';
 import { CronManager } from './cron';
 import { ConfigState } from './config';
@@ -76,6 +77,12 @@ import type { ToolServices } from '../tools/support/services';
 
 export type { AgentRecord, AgentRecordPersistence } from './records';
 export type { BuiltinTool, ToolInfo, ToolSource, UserToolRegistration } from './tool';
+export {
+  AnchoredBootstrap,
+  DEFAULT_BOOTSTRAP_TOOLS,
+  DEFAULT_SUPPRESSED_VARIANTS,
+  type AnchoredPromoteOn,
+} from './bootstrap';
 
 export type AgentType = 'main' | 'sub' | 'independent';
 
@@ -148,6 +155,7 @@ export class Agent {
   readonly config: ConfigState;
   readonly turn: TurnFlow;
   readonly injection: InjectionManager;
+  readonly bootstrap: AnchoredBootstrap;
   readonly permission: PermissionManager;
   readonly planMode: PlanMode;
   readonly wolfpackMode: WolfPackMode;
@@ -210,6 +218,7 @@ export class Agent {
     this.config = new ConfigState(this);
     this.turn = new TurnFlow(this);
     this.injection = new InjectionManager(this);
+    this.bootstrap = new AnchoredBootstrap(this);
     this.planMode = new PlanMode(this);
     this.wolfpackMode = new WolfPackMode(this);
     this.permission = new PermissionManager(this, options.permission);

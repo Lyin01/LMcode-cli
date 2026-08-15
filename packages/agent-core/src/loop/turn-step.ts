@@ -16,7 +16,13 @@ import type { LoopEventDispatcher } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { chatWithRetry } from './retry';
 import { runToolCallBatch, type ToolCallStepContext } from './tool-call';
-import type { ExecutableTool, LoopHooks, LoopMessageBuilder, LoopStepStopReason } from './types';
+import { resolveLoopTools } from './types';
+import type {
+  LoopHooks,
+  LoopMessageBuilder,
+  LoopStepStopReason,
+  LoopToolsInput,
+} from './types';
 
 type ChatStreamingCallbacks = Pick<
   LLMChatParams,
@@ -29,7 +35,7 @@ export interface ExecuteLoopStepDeps {
   readonly buildMessages: LoopMessageBuilder;
   readonly dispatchEvent: LoopEventDispatcher;
   readonly llm: LLM;
-  readonly tools?: readonly ExecutableTool[] | undefined;
+  readonly tools?: LoopToolsInput | undefined;
   readonly hooks?: LoopHooks | undefined;
   readonly log?: Logger | undefined;
   readonly currentStep: number;
@@ -76,10 +82,17 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
   const messages = await buildMessages();
   signal.throwIfAborted();
 
+  // Resolve the tool catalog right before the provider request: a lazy
+  // getter lets the host swap the catalog between requests within one turn
+  // (e.g. Anchored Bootstrap promoting to the full catalog after the
+  // first tool call). The step carries the same resolved catalog so tool
+  // execution matches what the model saw.
+  const resolvedTools = resolveLoopTools(tools);
+
   const stepUuid = randomUUID();
 
   const step: ToolCallStepContext = {
-    tools,
+    tools: resolvedTools,
     hooks,
     log,
     dispatchEvent,
@@ -99,7 +112,7 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
 
   const chatParams: LLMChatParams = {
     messages,
-    tools: tools ?? [],
+    tools: resolvedTools,
     signal,
     ...createChatStreamingCallbacks({
       dispatchEvent,

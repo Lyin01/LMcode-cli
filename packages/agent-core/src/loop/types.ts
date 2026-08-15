@@ -133,6 +133,19 @@ export interface ExecutableTool<Input = unknown> extends Tool {
 }
 
 /**
+ * Tools for a loop step: a fixed catalog or a lazy getter resolved right
+ * before each provider request. The lazy form lets a host swap the catalog
+ * between requests within one turn (e.g. Anchored Bootstrap promoting to the
+ * full catalog after the first tool call).
+ */
+export type LoopToolsInput = readonly ExecutableTool[] | (() => readonly ExecutableTool[]);
+
+/** Resolve a {@link LoopToolsInput} to the concrete catalog for one request. */
+export function resolveLoopTools(tools: LoopToolsInput | undefined): readonly ExecutableTool[] {
+  return typeof tools === 'function' ? tools() : (tools ?? []);
+}
+
+/**
  * Step hooks are aligned to recorded phase boundaries: `beforeStep` runs before
  * `step.begin`, `recordStepUsage` runs as soon as a provider response is
  * available, and `afterStep` runs after `step.end`.

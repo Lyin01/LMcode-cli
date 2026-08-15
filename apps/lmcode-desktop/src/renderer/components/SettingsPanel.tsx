@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session-store'
+import { useConfigStore } from '@/stores/config-store'
 import type { ThemePref } from '@/lib/theme'
 import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 import type { PermissionMode } from '@lmcode-cli/lmcode-sdk'
@@ -84,6 +85,11 @@ export function SettingsPanel({
   const sessionThinkingLevel = useSessionStore((s) => s.thinkingLevel)
   const sessionPermission = useSessionStore((s) => s.permission)
   const setThinkingPreference = useSessionStore((s) => s.setThinkingPreference)
+  const config = useConfigStore((s) => s.config)
+  const updateConfig = useConfigStore((s) => s.updateConfig)
+  // The desktop runtime defaults Anchored Bootstrap to ON (one-time migration
+  // in the main process); an undefined config value therefore means enabled.
+  const anchoredBootstrapEnabled = config?.anchoredBootstrap?.enabled ?? true
 
   const [permission, setPermission] = useState<PermissionMode>('manual')
   const [version, setVersion] = useState('')
@@ -172,6 +178,25 @@ export function SettingsPanel({
       if (currentSessionId) {
         await window.lmcodeAPI?.setPermission(currentSessionId, value)
       }
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const handleAnchoredBootstrapChange = async (enabled: boolean) => {
+    setSaving('anchoredBootstrap')
+    try {
+      // Preserve any custom bootstrap fields (bootstrapTools, promoteOn, …)
+      // while flipping the master switch.
+      await updateConfig({
+        anchoredBootstrap: {
+          ...(config?.anchoredBootstrap),
+          providers: ['deepseek'],
+          enabled,
+        },
+      })
+    } catch (err) {
+      console.error('Failed to update anchored bootstrap:', err)
     } finally {
       setSaving(null)
     }
@@ -412,6 +437,42 @@ export function SettingsPanel({
                         {sessionThinkingLevel === opt.value && <Check size={16} className="text-[var(--lm-accent-text)]" />}
                       </button>
                     ))}
+                  </div>
+                </section>
+
+                {/* Anchored Bootstrap */}
+                <section className="space-y-2 pt-2 border-t border-[var(--lm-border)]" id="settings-anchored-bootstrap">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[13px] font-semibold text-[var(--lm-text-primary)]">首轮锚定引导 (Anchored Bootstrap)</label>
+                      <p className="text-[11.5px] text-[var(--lm-text-muted)]">
+                        首个请求仅暴露最小工具并去掉 AGENTS.md/技能注入，稳定 DeepSeek 思维链轨迹；
+                        首个工具调用或回复后自动恢复完整工具。
+                      </p>
+                      {saving === 'anchoredBootstrap' && (
+                        <p className="text-[11px] text-[var(--lm-accent-text)]">保存中…</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleAnchoredBootstrapChange(!anchoredBootstrapEnabled)}
+                      disabled={saving === 'anchoredBootstrap'}
+                      className={cn(
+                        'flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-[12px] font-medium transition-all',
+                        anchoredBootstrapEnabled
+                          ? 'border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)]'
+                          : 'border-[var(--lm-border)] bg-[var(--lm-bg-base)] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'h-2 w-2 rounded-full',
+                          anchoredBootstrapEnabled
+                            ? 'bg-[var(--lm-accent)]'
+                            : 'bg-[var(--lm-text-muted)]',
+                        )}
+                      />
+                      {anchoredBootstrapEnabled ? '已开启' : '已关闭'}
+                    </button>
                   </div>
                 </section>
 
