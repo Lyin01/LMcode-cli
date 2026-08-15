@@ -17,7 +17,7 @@ export const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'medium'
 export const THINKING_OPTIONS: ReadonlyArray<{ value: ThinkingEffort; label: string; hint: string }> = [
   { value: 'off', label: '关闭思考', hint: '最快，零思考，直接执行并回答' },
   { value: 'low', label: '低（极速行动）', hint: '轻量推理，极快行动，减少等待' },
-  { value: 'medium', label: '中（推荐·均衡）', hint: '速度与质量最佳均衡' },
+  { value: 'medium', label: '中（推荐）', hint: '速度与质量最佳均衡' },
   { value: 'high', label: '高（深度推理）', hint: '复杂架构与算法排障，耗时较长' },
   { value: 'xhigh', label: '极高', hint: '最强推理，耗时极长' },
   { value: 'max', label: '最大', hint: '允许模型使用最大推理预算' },

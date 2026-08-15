@@ -158,8 +158,8 @@ export const MessageItem = memo(function MessageItem({
 
   return (
     <div className="group flex animate-fade-in gap-3">
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--lm-accent-soft)] text-[12px] font-bold text-[var(--lm-accent-text)]">
-        L
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-[#4176E6] to-[#679EFE] text-white shadow-xs">
+        <Sparkles size={14} />
       </div>
 
       <div className="min-w-0 flex-1">
@@ -196,8 +196,11 @@ export const MessageItem = memo(function MessageItem({
                 </Markdown>
               </div>
             )
-          ) : message.thinkingState === 'streaming' ? (
-            <span className="lm-pulse text-[13px] text-[var(--lm-text-muted)]">思考中…</span>
+          ) : message.thinkingState === 'streaming' && !message.thinking ? (
+            <div className="flex items-center gap-1.5 py-1 text-[12.5px] text-[var(--lm-accent-text)] font-medium">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--lm-accent)] animate-ping" />
+              <span>正在深度分析思考…</span>
+            </div>
           ) : null}
 
           {showActions && (
