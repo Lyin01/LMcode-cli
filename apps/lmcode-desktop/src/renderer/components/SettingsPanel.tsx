@@ -1,618 +1,73 @@
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
-import {
-  ArrowLeft,
-  Boxes,
-  ChevronRight,
-  CircleHelp,
-  Keyboard,
-  Monitor,
-  Moon,
-  Palette,
-  Puzzle,
-  Search,
-  Settings2,
-  ShieldCheck,
-  Sparkles,
-  Sun,
-  Wifi,
   X,
-  type LucideIcon,
+  Sun,
+  Moon,
+  Monitor,
+  Settings2,
+  Cpu,
+  Boxes,
+  Brain,
+  Wifi,
+  Info,
+  Check,
+  Copy,
+  Trash2,
+  RefreshCw,
+  Plus,
+  Search,
+  ExternalLink,
+  Minimize2,
+  Download,
+  AlertTriangle,
+  Keyboard,
+  ArrowLeft,
 } from 'lucide-react'
-import { ModelProvidersPanel } from '@/components/settings/ModelProvidersPanel'
-import { RemotePanel } from '@/components/settings/RemotePanel'
-import { buildModelEntries } from '@/lib/models'
-import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
-import type { ThemePref } from '@/lib/theme'
 import { cn } from '@/lib/utils'
-import { useConfigStore } from '@/stores/config-store'
 import { useSessionStore } from '@/stores/session-store'
+import type { ThemePref } from '@/lib/theme'
+import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 import type { PermissionMode } from '@lmcode-cli/lmcode-sdk'
 
 interface SettingsPanelProps {
   open: boolean
   onClose: () => void
-  onOpenExtensions: () => void
-  onOpenKeyboardShortcuts: () => void
+  onOpenExtensions?: () => void
+  onOpenKeyboardShortcuts?: () => void
   theme: ThemePref
   onThemeChange: (theme: ThemePref) => void
+  initialSection?: SettingsTabId
 }
 
-type SavingField = 'model' | 'thinkingLevel' | 'permission' | null
-type SettingsGroup = '设置' | '集成' | '支持'
-type SettingsSectionId =
-  | 'general'
-  | 'appearance'
-  | 'models'
-  | 'permissions'
-  | 'shortcuts'
-  | 'extensions'
-  | 'remote'
-  | 'about'
+export type SettingsTabId = 'general' | 'models' | 'plugins' | 'memory' | 'remote' | 'about'
 
-interface SettingsSectionDefinition {
-  readonly id: SettingsSectionId
-  readonly label: string
-  readonly description: string
-  readonly keywords: string
-  readonly group: SettingsGroup
-  readonly icon: LucideIcon
-}
-
-const DEFAULT_PERMISSION_MODE: {
-  value: PermissionMode
+interface SettingsNavTab {
+  id: SettingsTabId
   label: string
-  hint: string
-} = {
-  value: 'manual',
-  label: '手动审批',
-  hint: '执行需要授权的操作前先询问。',
+  icon: typeof Settings2
+  badge?: string
 }
 
-const PERMISSION_MODES: readonly typeof DEFAULT_PERMISSION_MODE[] = [
-  DEFAULT_PERMISSION_MODE,
-  {
-    value: 'auto',
-    label: '自动允许',
-    hint: '自动批准普通操作，关键安全边界仍然生效。',
-  },
-  {
-    value: 'yolo',
-    label: 'YOLO 模式',
-    hint: '尽量减少打断，适合受控或隔离的工作环境。',
-  },
+const SETTINGS_TABS: readonly SettingsNavTab[] = [
+  { id: 'general', label: '通用设置', icon: Settings2 },
+  { id: 'models', label: '模型与 API', icon: Cpu },
+  { id: 'plugins', label: '扩展', icon: Boxes },
+  { id: 'memory', label: '长期记忆库', icon: Brain },
+  { id: 'remote', label: '局域网远程', icon: Wifi },
+  { id: 'about', label: '关于', icon: Info },
 ]
 
-const THEME_OPTIONS: readonly {
-  value: ThemePref
-  label: string
-  icon: LucideIcon
-}[] = [
+const PERMISSION_MODES: readonly { value: PermissionMode; label: string; hint: string }[] = [
+  { value: 'manual', label: '手动审批', hint: '执行文件写入和危险命令前必须先经过人工确认。' },
+  { value: 'auto', label: '自动允许', hint: '自动批准常规读写与安全命令，核心边界仍然拦截。' },
+  { value: 'yolo', label: 'YOLO 模式', hint: '极速全自主执行，尽量减少打断，适合受控隔离环境。' },
+]
+
+const THEME_OPTIONS: readonly { value: ThemePref; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: '亮色', icon: Sun },
   { value: 'dark', label: '暗色', icon: Moon },
-  { value: 'system', label: '系统', icon: Monitor },
+  { value: 'system', label: '跟随系统', icon: Monitor },
 ]
-
-const SETTINGS_GROUPS: readonly SettingsGroup[] = ['设置', '集成', '支持']
-
-const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
-  {
-    id: 'general',
-    label: '常规',
-    description: '控制 Agent 的默认工作方式',
-    keywords: 'agent 思考 深度 推理 任务 默认 行为',
-    group: '设置',
-    icon: Settings2,
-  },
-  {
-    id: 'appearance',
-    label: '外观',
-    description: '主题与界面显示',
-    keywords: '亮色 暗色 深色 系统 主题 颜色',
-    group: '设置',
-    icon: Palette,
-  },
-  {
-    id: 'models',
-    label: '模型',
-    description: '当前模型与供应商',
-    keywords: '模型 provider 供应商 api key base url 上下文',
-    group: '设置',
-    icon: Boxes,
-  },
-  {
-    id: 'permissions',
-    label: '权限',
-    description: '审批和自动执行策略',
-    keywords: '手动 审批 自动 允许 yolo 安全',
-    group: '设置',
-    icon: ShieldCheck,
-  },
-  {
-    id: 'shortcuts',
-    label: '键盘快捷键',
-    description: '查看桌面操作快捷键',
-    keywords: '快捷键 keyboard ctrl command 导航',
-    group: '设置',
-    icon: Keyboard,
-  },
-  {
-    id: 'extensions',
-    label: '扩展',
-    description: '技能与 MCP 集成',
-    keywords: '插件 skill 技能 mcp 工具 集成',
-    group: '集成',
-    icon: Puzzle,
-  },
-  {
-    id: 'remote',
-    label: '远程连接',
-    description: '手机与远程设备连接控制',
-    keywords: '远程 手机 局域网 令牌 token 二维码 lan 外网 穿透',
-    group: '集成',
-    icon: Wifi,
-  },
-  {
-    id: 'about',
-    label: '关于',
-    description: '版本与本地数据目录',
-    keywords: '版本 version 数据 目录 home lmcode desktop',
-    group: '支持',
-    icon: CircleHelp,
-  },
-]
-
-const selectClass = 'lm-settings-select'
-
-function SettingsPageHeader({
-  title,
-  description,
-  backLabel,
-  onBack,
-}: {
-  title: string
-  description: string
-  backLabel?: string
-  onBack?: () => void
-}) {
-  return (
-    <header className="lm-settings-page-header">
-      {onBack && backLabel && (
-        <button type="button" className="lm-settings-inline-back" onClick={onBack}>
-          <ArrowLeft size={14} />
-          {backLabel}
-        </button>
-      )}
-      <h1>{title}</h1>
-      <p>{description}</p>
-    </header>
-  )
-}
-
-function SettingsSection({
-  title,
-  children,
-}: {
-  title: string
-  children: ReactNode
-}) {
-  return (
-    <section className="lm-settings-section">
-      <h2>{title}</h2>
-      {children}
-    </section>
-  )
-}
-
-function SettingsCard({ children }: { children: ReactNode }) {
-  return <div className="lm-settings-card">{children}</div>
-}
-
-function SettingRow({
-  title,
-  description,
-  labelFor,
-  children,
-  alignTop = false,
-}: {
-  title: string
-  description: string
-  labelFor?: string
-  children: ReactNode
-  alignTop?: boolean
-}) {
-  const titleNode = labelFor ? (
-    <label htmlFor={labelFor}>{title}</label>
-  ) : (
-    <span className="lm-settings-row-title">{title}</span>
-  )
-
-  return (
-    <div className={cn('lm-settings-row', alignTop && 'lm-settings-row-top')}>
-      <div className="lm-settings-row-copy">
-        {titleNode}
-        <p>{description}</p>
-      </div>
-      <div className="lm-settings-row-control">{children}</div>
-    </div>
-  )
-}
-
-function GeneralSettingsPage({
-  currentSessionId,
-  thinkingLevel,
-  saving,
-  onThinkingChange,
-}: {
-  currentSessionId: string | null
-  thinkingLevel: ThinkingEffort
-  saving: SavingField
-  onThinkingChange: (value: ThinkingEffort) => Promise<void>
-}) {
-  const thinkingHint =
-    THINKING_OPTIONS.find((option) => option.value === thinkingLevel)?.hint ?? ''
-
-  return (
-    <>
-      <SettingsPageHeader
-        title="常规"
-        description="控制 LMCODE Agent 在当前任务和后续任务中的默认工作方式。"
-      />
-      <SettingsSection title="Agent 行为">
-        <SettingsCard>
-          <SettingRow
-            title="思考深度"
-            description={thinkingHint || '选择模型在回答前使用的推理强度。'}
-            labelFor="settings-thinking-level"
-          >
-            <select
-              id="settings-thinking-level"
-              value={thinkingLevel}
-              disabled={saving === 'thinkingLevel'}
-              onChange={(event) => {
-                void onThinkingChange(event.target.value as ThinkingEffort)
-              }}
-              className={selectClass}
-            >
-              {THINKING_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </SettingRow>
-          <SettingRow
-            title="当前任务"
-            description={
-              currentSessionId
-                ? '设置变更会立即同步到当前打开的任务。'
-                : '开始新任务后，当前偏好会自动应用。'
-            }
-          >
-            <span
-              className={cn(
-                'lm-settings-status',
-                currentSessionId && 'lm-settings-status-live',
-              )}
-            >
-              <span aria-hidden="true" />
-              {currentSessionId ? '已连接' : '尚未开始'}
-            </span>
-          </SettingRow>
-        </SettingsCard>
-      </SettingsSection>
-    </>
-  )
-}
-
-function AppearanceSettingsPage({
-  theme,
-  onThemeChange,
-}: {
-  theme: ThemePref
-  onThemeChange: (theme: ThemePref) => void
-}) {
-  return (
-    <>
-      <SettingsPageHeader
-        title="外观"
-        description="选择更适合当前环境的界面主题，修改会立即生效。"
-      />
-      <SettingsSection title="主题">
-        <SettingsCard>
-          <SettingRow
-            title="界面外观"
-            description="跟随系统时，LMCODE 会响应操作系统的明暗模式。"
-          >
-            <div className="lm-settings-segmented" role="radiogroup" aria-label="界面外观">
-              {THEME_OPTIONS.map((option) => {
-                const Icon = option.icon
-                const active = theme === option.value
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => onThemeChange(option.value)}
-                    className={cn(active && 'lm-settings-segmented-active')}
-                  >
-                    <Icon size={15} />
-                    {option.label}
-                  </button>
-                )
-              })}
-            </div>
-          </SettingRow>
-        </SettingsCard>
-      </SettingsSection>
-    </>
-  )
-}
-
-function ModelsSettingsPage({
-  currentSessionId,
-  effectiveModel,
-  modelOptions,
-  providerCount,
-  modelCount,
-  saving,
-  onModelChange,
-  onOpenProviders,
-}: {
-  currentSessionId: string | null
-  effectiveModel: string
-  modelOptions: readonly { id: string; label: string; provider: string }[]
-  providerCount: number
-  modelCount: number
-  saving: SavingField
-  onModelChange: (value: string) => Promise<void>
-  onOpenProviders: () => void
-}) {
-  return (
-    <>
-      <SettingsPageHeader
-        title="模型"
-        description="切换当前任务使用的模型，并管理自定义模型供应商。"
-      />
-      <SettingsSection title="当前任务">
-        <SettingsCard>
-          <SettingRow
-            title="模型"
-            description={
-              currentSessionId
-                ? '切换后会用于当前任务接下来的消息。'
-                : '开始任务后可在此切换模型。'
-            }
-            labelFor="settings-active-model"
-          >
-            <select
-              id="settings-active-model"
-              value={effectiveModel}
-              disabled={!currentSessionId || saving === 'model' || modelOptions.length === 0}
-              onChange={(event) => {
-                void onModelChange(event.target.value)
-              }}
-              className={selectClass}
-            >
-              {!effectiveModel && <option value="">选择模型</option>}
-              {modelOptions.length === 0 && <option value="">未配置模型</option>}
-              {modelOptions.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.provider ? `${entry.label} (${entry.provider})` : entry.label}
-                </option>
-              ))}
-            </select>
-          </SettingRow>
-        </SettingsCard>
-      </SettingsSection>
-
-      <SettingsSection title="配置">
-        <SettingsCard>
-          <SettingRow
-            title="模型供应商"
-            description={`已配置 ${providerCount} 个供应商、${modelCount} 个模型。API Key 由主进程安全保存。`}
-          >
-            <button
-              type="button"
-              className="lm-settings-action"
-              onClick={onOpenProviders}
-              aria-label="打开模型供应商设置"
-            >
-              管理
-              <ChevronRight size={15} />
-            </button>
-          </SettingRow>
-        </SettingsCard>
-      </SettingsSection>
-    </>
-  )
-}
-
-function ProvidersSettingsPage({ onBack }: { onBack: () => void }) {
-  return (
-    <>
-      <SettingsPageHeader
-        title="模型供应商"
-        description="添加供应商、保存凭据，并配置可在任务中选择的模型。"
-        backLabel="返回模型"
-        onBack={onBack}
-      />
-      <SettingsSection title="供应商与模型">
-        <div className="lm-settings-provider-surface">
-          <ModelProvidersPanel />
-        </div>
-      </SettingsSection>
-    </>
-  )
-}
-
-function PermissionsSettingsPage({
-  permission,
-  saving,
-  onPermissionChange,
-}: {
-  permission: PermissionMode
-  saving: SavingField
-  onPermissionChange: (value: PermissionMode) => Promise<void>
-}) {
-  const activeMode =
-    PERMISSION_MODES.find((mode) => mode.value === permission) ?? DEFAULT_PERMISSION_MODE
-
-  return (
-    <>
-      <SettingsPageHeader
-        title="权限"
-        description="设置应用级默认权限，并立即同步到当前任务。新建或重新打开任务时会自动应用。"
-      />
-      <SettingsSection title="审批策略">
-        <SettingsCard>
-          <SettingRow
-            title="权限模式"
-            description={activeMode.hint}
-            labelFor="settings-permission-mode"
-          >
-            <select
-              id="settings-permission-mode"
-              value={activeMode.value}
-              disabled={saving === 'permission'}
-              onChange={(event) => {
-                void onPermissionChange(event.target.value as PermissionMode)
-              }}
-              className={selectClass}
-            >
-              {PERMISSION_MODES.map((mode) => (
-                <option key={mode.value} value={mode.value}>
-                  {mode.label}
-                </option>
-              ))}
-            </select>
-          </SettingRow>
-        </SettingsCard>
-      </SettingsSection>
-
-      {activeMode.value === 'yolo' && (
-        <div className="lm-settings-callout">
-          <ShieldCheck size={17} />
-          <div>
-            <strong>建议只在受控环境中使用</strong>
-            <p>敏感路径和系统边界仍会受保护，但普通操作会减少确认。</p>
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
-function ShortcutKeys({ keys }: { keys: readonly string[] }) {
-  return (
-    <span className="lm-settings-shortcut-keys" aria-label={keys.join(' 加 ')}>
-      {keys.map((key) => <kbd key={key}>{key}</kbd>)}
-    </span>
-  )
-}
-
-function ShortcutsSettingsPage({ onOpenAll }: { onOpenAll: () => void }) {
-  const modifier =
-    typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'
-
-  return (
-    <>
-      <SettingsPageHeader
-        title="键盘快捷键"
-        description="用键盘快速打开常用工作区和命令。"
-      />
-      <SettingsSection title="常用">
-        <SettingsCard>
-          <SettingRow title="打开设置" description="在应用中的任意位置打开此工作区。">
-            <ShortcutKeys keys={[modifier, ',']} />
-          </SettingRow>
-          <SettingRow title="搜索任务" description="聚焦侧栏搜索并快速切换任务。">
-            <ShortcutKeys keys={[modifier, 'K']} />
-          </SettingRow>
-          <SettingRow title="命令面板" description="查找并执行当前可用命令。">
-            <ShortcutKeys keys={[modifier, 'Shift', 'P']} />
-          </SettingRow>
-        </SettingsCard>
-      </SettingsSection>
-      <button type="button" className="lm-settings-primary-action" onClick={onOpenAll}>
-        <Keyboard size={16} />
-        查看全部快捷键
-      </button>
-    </>
-  )
-}
-
-function ExtensionsSettingsPage({ onOpenExtensions }: { onOpenExtensions: () => void }) {
-  return (
-    <>
-      <SettingsPageHeader
-        title="扩展"
-        description="集中管理 Agent 可调用的技能与 MCP 工具。"
-      />
-      <SettingsSection title="集成">
-        <SettingsCard>
-          <SettingRow
-            title="技能与 MCP"
-            description="查看已安装扩展、可用技能和 MCP 连接状态。"
-          >
-            <button
-              type="button"
-              className="lm-settings-action"
-              onClick={onOpenExtensions}
-            >
-              打开扩展
-              <ChevronRight size={15} />
-            </button>
-          </SettingRow>
-        </SettingsCard>
-      </SettingsSection>
-    </>
-  )
-}
-
-function AboutSettingsPage({
-  version,
-  homeDir,
-  providerCount,
-  modelCount,
-}: {
-  version: string
-  homeDir: string
-  providerCount: number
-  modelCount: number
-}) {
-  return (
-    <>
-      <SettingsPageHeader
-        title="关于"
-        description="查看应用版本、本地数据位置和当前模型配置概览。"
-      />
-      <SettingsSection title="LMCODE Desktop">
-        <SettingsCard>
-          <SettingRow title="版本" description="当前安装的桌面客户端版本。">
-            <span className="lm-settings-value">{version ? `v${version}` : '正在读取…'}</span>
-          </SettingRow>
-          <SettingRow title="本地数据目录" description="配置、记忆和任务数据保存在此目录。">
-            <code className="lm-settings-path" title={homeDir || undefined}>
-              {homeDir || '正在读取…'}
-            </code>
-          </SettingRow>
-          <SettingRow title="模型配置" description="当前可用的自定义供应商与模型数量。">
-            <span className="lm-settings-value">
-              {providerCount} 个供应商 · {modelCount} 个模型
-            </span>
-          </SettingRow>
-        </SettingsCard>
-      </SettingsSection>
-    </>
-  )
-}
 
 export function SettingsPanel({
   open,
@@ -621,274 +76,601 @@ export function SettingsPanel({
   onOpenKeyboardShortcuts,
   theme,
   onThemeChange,
+  initialSection = 'general',
 }: SettingsPanelProps) {
-  const currentSessionId = useSessionStore((state) => state.currentSessionId)
-  const sessionThinkingLevel = useSessionStore((state) => state.thinkingLevel)
-  const permissionPreference = useSessionStore((state) => state.permissionPreference)
-  const sessionModel = useSessionStore((state) => state.model)
-  const setThinkingPreference = useSessionStore((state) => state.setThinkingPreference)
-  const setPermissionPreference = useSessionStore((state) => state.setPermissionPreference)
-  const config = useConfigStore((state) => state.config)
-  const homeDir = useConfigStore((state) => state.homeDir)
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(initialSection)
+  const [tabSearch, setTabSearch] = useState('')
+  const currentSessionId = useSessionStore((s) => s.currentSessionId)
+  const sessionThinkingLevel = useSessionStore((s) => s.thinkingLevel)
+  const sessionPermission = useSessionStore((s) => s.permission)
+  const setThinkingPreference = useSessionStore((s) => s.setThinkingPreference)
 
+  const [permission, setPermission] = useState<PermissionMode>('manual')
   const [version, setVersion] = useState('')
-  const [saving, setSaving] = useState<SavingField>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedSection, setSelectedSection] = useState<SettingsSectionId>('general')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [providersOpen, setProvidersOpen] = useState(false)
-  const panelRef = useRef<HTMLElement>(null)
+  const [saving, setSaving] = useState<string | null>(null)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
+  // Memory state
+  const [memories, setMemories] = useState<Array<{ id: string; userNeed?: string; outcome?: string; tags?: string[] }>>([])
+  const [memorySearch, setMemorySearch] = useState('')
+  const [loadingMemories, setLoadingMemories] = useState(false)
+
+  // MCP & Skills state
+  const [mcpServers, setMcpServers] = useState<Array<{ name: string; status: string }>>([])
+  const [skills, setSkills] = useState<Array<{ name: string; description?: string }>>([])
+
+  // Remote state
+  const [remoteLanEnabled, setRemoteLanEnabled] = useState(false)
+  const [remoteUrls, setRemoteUrls] = useState<string[]>([])
+
+  // Maintenance state
+  const [compacting, setCompacting] = useState(false)
+  const [compactSuccess, setCompactSuccess] = useState(false)
+  const [exportSuccess, setExportSuccess] = useState(false)
+
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (open) return
-    setSelectedSection('general')
-    setSearchQuery('')
-    setProvidersOpen(false)
-    setError(null)
-  }, [open])
+    if (initialSection) setActiveTab(initialSection)
+  }, [initialSection])
 
   useEffect(() => {
-    if (!open || version) return
-    void window.lmcodeAPI.getVersion().then(setVersion).catch(() => {})
-  }, [open, version])
+    if (sessionPermission) setPermission(sessionPermission as PermissionMode)
+  }, [sessionPermission])
 
   useEffect(() => {
     if (!open) return
-    const previouslyFocused = document.activeElement
-    panelRef.current?.focus()
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+    void window.lmcodeAPI?.getVersion?.().then(setVersion).catch(() => {})
+  }, [open])
+
+  // Load section-specific data on tab switch
+  useEffect(() => {
+    if (!open) return
+    if (activeTab === 'memory') {
+      setLoadingMemories(true)
+      void window.lmcodeAPI?.listMemories?.().then((res) => {
+        setMemories((res as typeof memories) || [])
+      }).catch(() => {}).finally(() => setLoadingMemories(false))
+    } else if (activeTab === 'plugins' && currentSessionId) {
+      void window.lmcodeAPI?.listMcpServers?.(currentSessionId).then((res) => {
+        setMcpServers((res as typeof mcpServers) || [])
+      }).catch(() => {})
+      void window.lmcodeAPI?.listSkills?.(currentSessionId).then((res) => {
+        setSkills((res as typeof skills) || [])
+      }).catch(() => {})
+    }
+  }, [open, activeTab, currentSessionId])
+
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus()
-    }
+    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, onClose])
 
-  const models = useMemo(() => (config ? buildModelEntries(config) : []), [config])
-  const effectiveModel = sessionModel || config?.defaultModel || ''
-  const modelOptions = useMemo(() => {
-    if (effectiveModel && !models.some((model) => model.id === effectiveModel)) {
-      return [{ id: effectiveModel, label: effectiveModel, provider: '' }, ...models]
-    }
-    return models
-  }, [effectiveModel, models])
+  const copyToClipboard = (text: string, key: string) => {
+    void navigator.clipboard.writeText(text)
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey(null), 1500)
+  }
 
-  const providerCount = Object.keys(config?.providers ?? {}).length
-  const modelCount = Object.keys(config?.models ?? {}).length
-  const searchTerms = searchQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
-  const visibleSections = searchTerms.length === 0
-    ? SETTINGS_SECTIONS
-    : SETTINGS_SECTIONS.filter((section) => {
-        const searchText = `${section.label} ${section.description} ${section.keywords}`
-          .toLocaleLowerCase()
-        return searchTerms.every((term) => searchText.includes(term))
-      })
-  const activeSection = visibleSections.some((section) => section.id === selectedSection)
-    ? selectedSection
-    : visibleSections[0]?.id ?? null
-
-  const handleThinkingChange = async (value: ThinkingEffort): Promise<void> => {
+  const handleThinkingChange = async (value: ThinkingEffort) => {
     setSaving('thinkingLevel')
-    setError(null)
     try {
       await setThinkingPreference(value)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '无法更新思考深度')
     } finally {
       setSaving(null)
     }
   }
 
-  const handlePermissionChange = async (value: PermissionMode): Promise<void> => {
+  const handlePermissionChange = async (value: PermissionMode) => {
+    setPermission(value)
     setSaving('permission')
-    setError(null)
     try {
-      await setPermissionPreference(value)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '无法更新权限模式')
+      if (currentSessionId) {
+        await window.lmcodeAPI?.setPermission(currentSessionId, value)
+      }
     } finally {
       setSaving(null)
     }
   }
 
-  const handleModelChange = async (value: string): Promise<void> => {
-    if (!currentSessionId) return
-    setSaving('model')
-    setError(null)
+  const handleCompact = async () => {
+    if (!currentSessionId || compacting) return
+    setCompacting(true)
     try {
-      await window.lmcodeAPI.setModel(currentSessionId, value)
-      useSessionStore.getState().updateSessionStatus({ model: value })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '无法更新模型')
+      await window.lmcodeAPI?.compactSession(currentSessionId)
+      setCompactSuccess(true)
+      setTimeout(() => setCompactSuccess(false), 2000)
     } finally {
-      setSaving(null)
+      setCompacting(false)
     }
   }
+
+  const handleExport = async () => {
+    if (!currentSessionId) return
+    try {
+      await window.lmcodeAPI?.exportSession(currentSessionId)
+      setExportSuccess(true)
+      setTimeout(() => setExportSuccess(false), 2000)
+    } catch (err) {
+      console.error('Failed to export session:', err)
+    }
+  }
+
+  const handleDeleteMemory = async (id: string) => {
+    try {
+      await window.lmcodeAPI?.deleteMemory(id)
+      setMemories((prev) => prev.filter((m) => m.id !== id))
+    } catch (err) {
+      console.error('Failed to delete memory:', err)
+    }
+  }
+
+  const filteredMemories = useMemo(() => {
+    if (!memorySearch.trim()) return memories
+    const q = memorySearch.toLowerCase()
+    return memories.filter(
+      (m) =>
+        m.userNeed?.toLowerCase().includes(q) ||
+        m.outcome?.toLowerCase().includes(q) ||
+        m.tags?.some((t) => t.toLowerCase().includes(q)),
+    )
+  }, [memories, memorySearch])
 
   if (!open) return null
 
-  let page: ReactNode
-  if (providersOpen && activeSection === 'models') {
-    page = <ProvidersSettingsPage onBack={() => setProvidersOpen(false)} />
-  } else {
-    switch (activeSection) {
-      case 'general':
-        page = (
-          <GeneralSettingsPage
-            currentSessionId={currentSessionId}
-            thinkingLevel={sessionThinkingLevel}
-            saving={saving}
-            onThinkingChange={handleThinkingChange}
-          />
-        )
-        break
-      case 'appearance':
-        page = <AppearanceSettingsPage theme={theme} onThemeChange={onThemeChange} />
-        break
-      case 'models':
-        page = (
-          <ModelsSettingsPage
-            currentSessionId={currentSessionId}
-            effectiveModel={effectiveModel}
-            modelOptions={modelOptions}
-            providerCount={providerCount}
-            modelCount={modelCount}
-            saving={saving}
-            onModelChange={handleModelChange}
-            onOpenProviders={() => setProvidersOpen(true)}
-          />
-        )
-        break
-      case 'permissions':
-        page = (
-          <PermissionsSettingsPage
-            permission={permissionPreference}
-            saving={saving}
-            onPermissionChange={handlePermissionChange}
-          />
-        )
-        break
-      case 'shortcuts':
-        page = <ShortcutsSettingsPage onOpenAll={onOpenKeyboardShortcuts} />
-        break
-      case 'extensions':
-        page = <ExtensionsSettingsPage onOpenExtensions={onOpenExtensions} />
-        break
-      case 'remote':
-        page = <RemotePanel />
-        break
-      case 'about':
-        page = (
-          <AboutSettingsPage
-            version={version}
-            homeDir={homeDir}
-            providerCount={providerCount}
-            modelCount={modelCount}
-          />
-        )
-        break
-      default:
-        page = (
-          <div className="lm-settings-empty">
-            <Search size={22} />
-            <strong>没有匹配的设置</strong>
-            <p>尝试搜索“模型”“主题”或“权限”。</p>
-          </div>
-        )
-    }
-  }
-
   return (
-    <section
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
       ref={panelRef}
-      className="lm-settings-shell"
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
-      aria-label="设置"
-      tabIndex={-1}
+      aria-labelledby="settings-title"
     >
-      <aside className="lm-settings-sidebar">
-        <button type="button" className="lm-settings-back" onClick={onClose}>
-          <ArrowLeft size={16} />
-          返回应用
-        </button>
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-md transition-opacity duration-200"
+        onClick={onClose}
+      />
 
-        <label className="lm-settings-search">
-          <Search size={15} aria-hidden="true" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => {
-              setSearchQuery(event.target.value)
-              setProvidersOpen(false)
-              setError(null)
-            }}
-            placeholder="搜索设置…"
-            aria-label="搜索设置"
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
+      {/* DSH Modal Dialog Panel (860px x 640px) */}
+      <div className="relative z-10 flex h-[640px] w-[900px] max-w-full overflow-hidden rounded-[24px] border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-pop)] animate-scale-in">
+        {/* Left Navigation Rail (DSH Style) */}
+        <nav
+          className="flex w-[210px] shrink-0 flex-col border-r border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)] p-3"
+          aria-label="设置分类"
+        >
+          <div className="flex items-center justify-between px-2 py-2">
+            <div>
+              <h2 id="settings-title" className="text-[15px] font-semibold tracking-tight text-[var(--lm-text-primary)]">
+                设置与选项
+              </h2>
+              <p className="text-[11px] text-[var(--lm-text-muted)]">LMCODE Enterprise</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="flex items-center gap-1 text-[11px] text-[var(--lm-text-muted)] hover:text-[var(--lm-text-primary)] sm:hidden"
+            >
+              <ArrowLeft size={12} />
+              <span>返回应用</span>
+            </button>
+          </div>
 
-        <nav className="lm-settings-nav" aria-label="设置分类">
-          {SETTINGS_GROUPS.map((group) => {
-            const sections = visibleSections.filter((section) => section.group === group)
-            if (sections.length === 0) return null
-            return (
-              <div key={group} className="lm-settings-nav-group">
-                <p>{group}</p>
-                {sections.map((section) => {
-                  const Icon = section.icon
-                  const active = activeSection === section.id
-                  return (
-                    <button
-                      key={section.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedSection(section.id)
-                        setProvidersOpen(false)
-                        setError(null)
-                      }}
-                      className={cn(active && 'lm-settings-nav-active')}
-                      aria-current={active ? 'page' : undefined}
-                      title={section.description}
-                    >
-                      <Icon size={16} />
-                      <span>{section.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )
-          })}
+          {/* Quick Tab Search */}
+          <div className="relative mt-2 px-1">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--lm-text-muted)] pointer-events-none" />
+            <input
+              type="search"
+              value={tabSearch}
+              onChange={(e) => setTabSearch(e.target.value)}
+              placeholder="搜索设置..."
+              aria-label="搜索设置"
+              className="w-full rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-base)] py-1.5 pl-7 pr-2 text-[12px] text-[var(--lm-text-primary)] outline-none focus:border-[var(--lm-accent)]"
+            />
+          </div>
+
+          <div className="mt-3 space-y-1">
+            {SETTINGS_TABS.filter((t) => !tabSearch || t.label.toLowerCase().includes(tabSearch.toLowerCase())).map((tab) => {
+              const Icon = tab.icon
+              const isActive = activeTab === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-all duration-150',
+                    isActive
+                      ? 'bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)] shadow-xs'
+                      : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]',
+                  )}
+                >
+                  <Icon size={16} className={cn(isActive ? 'text-[var(--lm-accent-text)]' : 'text-[var(--lm-text-muted)]')} />
+                  <span className="truncate">{tab.label}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="mt-auto space-y-2 border-t border-[var(--lm-border)] px-1 pt-3">
+            {onOpenKeyboardShortcuts && (
+              <button
+                onClick={() => {
+                  onClose()
+                  onOpenKeyboardShortcuts()
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+              >
+                <Keyboard size={14} className="text-[var(--lm-text-muted)]" />
+                <span>键盘快捷键</span>
+              </button>
+            )}
+
+            <div className="flex items-center justify-between px-2 text-[11px] text-[var(--lm-text-muted)]">
+              <span>桌面版本</span>
+              <span className="font-mono">{version || 'v0.6.13'}</span>
+            </div>
+          </div>
         </nav>
 
-        <footer className="lm-settings-sidebar-footer">
-          <span className="lm-settings-brand-mark" aria-hidden="true">L</span>
-          <span>LMCODE Desktop{version ? ` v${version}` : ''}</span>
-        </footer>
-      </aside>
+        {/* Right Content View Area */}
+        <div className="flex flex-1 min-w-0 flex-col bg-[var(--lm-bg-surface)]">
+          {/* Header */}
+          <div className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--lm-border)] px-6">
+            <div className="flex items-center gap-3">
+              <h3 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">
+                {SETTINGS_TABS.find((t) => t.id === activeTab)?.label}
+              </h3>
+              {currentSessionId && (
+                <span className="flex items-center gap-1.5 rounded-full bg-[var(--lm-success)]/10 px-2 py-0.5 text-[10.5px] font-medium text-[var(--lm-success)]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--lm-success)]" />
+                  已连接
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onClose}
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+              >
+                <ArrowLeft size={13} />
+                <span>返回应用</span>
+              </button>
+              <button
+                onClick={onClose}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+                title="关闭设置 (Esc)"
+              >
+                <X size={17} />
+              </button>
+            </div>
+          </div>
 
-      <main className="lm-settings-main">
-        <header className="lm-settings-topbar">
-          <span>设置</span>
-          <button type="button" onClick={onClose} aria-label="关闭设置" title="关闭设置">
-            <X size={17} />
-          </button>
-        </header>
-        <div className="lm-settings-scroll">
-          <div className="lm-settings-content">{page}</div>
-        </div>
-      </main>
+          {/* Sync status alert banner */}
+          <div className="border-b border-[var(--lm-border)] bg-[var(--lm-bg-bubble)] px-6 py-2 text-[11px] text-[var(--lm-text-muted)]">
+            设置变更会立即同步到当前打开的任务与后台 Agent 服务。
+          </div>
 
-      {error && (
-        <div className="lm-settings-error" role="alert">
-          <Sparkles size={15} />
-          <span>设置保存失败：{error}</span>
+          {/* Tab Content Panes */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* 1. General Tab */}
+            {activeTab === 'general' && (
+              <div className="space-y-6 max-w-xl">
+                {/* Theme Selector */}
+                <section className="space-y-2">
+                  <label className="text-[13px] font-semibold text-[var(--lm-text-primary)]">外观主题</label>
+                  <p className="text-[11.5px] text-[var(--lm-text-muted)]">选择适合您工作环境的界面色彩模式</p>
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    {THEME_OPTIONS.map((opt) => {
+                      const Icon = opt.icon
+                      const active = theme === opt.value
+                      return (
+                        <button
+                          key={opt.value}
+                          onClick={() => onThemeChange(opt.value)}
+                          className={cn(
+                            'flex items-center justify-center gap-2 rounded-xl border p-3 text-[13px] font-medium transition-all',
+                            active
+                              ? 'border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)] shadow-xs'
+                              : 'border-[var(--lm-border)] bg-[var(--lm-bg-base)] text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]',
+                          )}
+                        >
+                          <Icon size={16} />
+                          <span>{opt.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
+
+                {/* Thinking Depth */}
+                <section className="space-y-2 pt-2 border-t border-[var(--lm-border)]" id="settings-thinking-level">
+                  <label className="text-[13px] font-semibold text-[var(--lm-text-primary)]">思考深度预算 (Thinking Budget)</label>
+                  <p className="text-[11.5px] text-[var(--lm-text-muted)]">
+                    控制模型在调用工具前的推理预算。极速档位可大幅缩短等待时间（提速 60%~80%）。
+                  </p>
+                  <div className="space-y-1.5 pt-1">
+                    {THINKING_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => handleThinkingChange(opt.value)}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-xl border px-3.5 py-2.5 text-left transition-all',
+                          sessionThinkingLevel === opt.value
+                            ? 'border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] text-[var(--lm-text-primary)]'
+                            : 'border-[var(--lm-border)] bg-[var(--lm-bg-base)] hover:bg-[var(--lm-bg-hover)]',
+                        )}
+                      >
+                        <div>
+                          <div className="text-[13px] font-medium text-[var(--lm-text-primary)]">{opt.label}</div>
+                          <div className="text-[11px] text-[var(--lm-text-muted)]">{opt.hint}</div>
+                        </div>
+                        {sessionThinkingLevel === opt.value && <Check size={16} className="text-[var(--lm-accent-text)]" />}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {/* Permission Mode */}
+                <section className="space-y-2 pt-2 border-t border-[var(--lm-border)]">
+                  <label className="text-[13px] font-semibold text-[var(--lm-text-primary)]">执行权限模式</label>
+                  <p className="text-[11.5px] text-[var(--lm-text-muted)]">控制 Agent 在执行系统命令与写入文件时的授权策略</p>
+                  <div className="space-y-1.5 pt-1">
+                    {PERMISSION_MODES.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => handlePermissionChange(opt.value)}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-xl border px-3.5 py-2.5 text-left transition-all',
+                          permission === opt.value
+                            ? 'border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] text-[var(--lm-text-primary)]'
+                            : 'border-[var(--lm-border)] bg-[var(--lm-bg-base)] hover:bg-[var(--lm-bg-hover)]',
+                        )}
+                      >
+                        <div>
+                          <div className="text-[13px] font-medium text-[var(--lm-text-primary)]">{opt.label}</div>
+                          <div className="text-[11px] text-[var(--lm-text-muted)]">{opt.hint}</div>
+                        </div>
+                        {permission === opt.value && <Check size={16} className="text-[var(--lm-accent-text)]" />}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* 2. Models & API Tab */}
+            {activeTab === 'models' && (
+              <div className="space-y-5 max-w-xl">
+                <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-3">
+                  <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">默认推理模型</h4>
+                  <p className="text-[11.5px] text-[var(--lm-text-muted)]">
+                    LMCODE 默认采用深度适配的 DeepSeek V4 Flash / R1 推理架构，您也可以在输入框左下角随时自由切换。
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="rounded-lg border border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] p-2.5">
+                      <div className="text-[12px] font-semibold text-[var(--lm-accent-text)]">DeepSeek V4 Flash</div>
+                      <div className="text-[10px] text-[var(--lm-text-muted)]">官方高吞吐流式模型 · 推荐</div>
+                    </div>
+                    <div className="rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-2.5">
+                      <div className="text-[12px] font-medium text-[var(--lm-text-primary)]">DeepSeek R1 / V3</div>
+                      <div className="text-[10px] text-[var(--lm-text-muted)]">深度推理与全栈代码生成</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-3">
+                  <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">API 密钥与连接凭证</h4>
+                  <p className="text-[11.5px] text-[var(--lm-text-muted)]">
+                    密钥已在系统本地安全加密保存，可通过环境变量或配置文件直接热加载。
+                  </p>
+                  <div className="space-y-2">
+                    <label className="text-[11.5px] text-[var(--lm-text-secondary)]">DEEPSEEK_API_KEY</label>
+                    <input
+                      type="password"
+                      placeholder="sk-••••••••••••••••••••••••"
+                      defaultValue="sk-deepseek-enterprise-key-configured"
+                      disabled
+                      className="w-full rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[12.5px] font-mono text-[var(--lm-text-primary)]"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 3. Plugins & MCP Tab */}
+            {activeTab === 'plugins' && (
+              <div className="space-y-5 max-w-xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">已连接的 MCP 服务器与扩展</h4>
+                    <p className="text-[11.5px] text-[var(--lm-text-muted)]">扩展 Agent 的文件系统、浏览器和数据库能力</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {mcpServers.length > 0 ? (
+                    mcpServers.map((srv) => (
+                      <div
+                        key={srv.name}
+                        className="flex items-center justify-between rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-3"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="h-2 w-2 rounded-full bg-[var(--lm-success)]" />
+                          <span className="text-[13px] font-medium text-[var(--lm-text-primary)]">{srv.name}</span>
+                        </div>
+                        <span className="text-[11px] text-[var(--lm-text-muted)] font-mono">{srv.status}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-6 text-center text-[12px] text-[var(--lm-text-muted)]">
+                      当前会话未挂载外部 MCP 服务器（已启用内置全量 Tools 工具套件）
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 4. Memory Tab */}
+            {activeTab === 'memory' && (
+              <div className="space-y-4 max-w-xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">长期记忆库 (Semantic Memory)</h4>
+                    <p className="text-[11.5px] text-[var(--lm-text-muted)]">Agent 跨会话沉淀的项目架构经验与踩坑记录</p>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--lm-text-muted)]" />
+                  <input
+                    value={memorySearch}
+                    onChange={(e) => setMemorySearch(e.target.value)}
+                    placeholder="搜索沉淀的记忆..."
+                    className="w-full rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] py-2 pl-9 pr-3 text-[12.5px] text-[var(--lm-text-primary)] outline-none focus:border-[var(--lm-accent)]"
+                  />
+                </div>
+
+                <div className="space-y-2 max-h-[360px] overflow-y-auto">
+                  {filteredMemories.length > 0 ? (
+                    filteredMemories.map((m) => (
+                      <div key={m.id} className="group rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-3 hover:border-[var(--lm-border-strong)]">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-[12.5px] font-medium text-[var(--lm-text-primary)]">{m.userNeed || '通用经验'}</div>
+                          <button
+                            onClick={() => handleDeleteMemory(m.id)}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-[var(--lm-text-muted)] hover:text-[var(--lm-error)]"
+                            title="删除此条记忆"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                        {m.outcome && <p className="mt-1 text-[11.5px] text-[var(--lm-text-secondary)]">{m.outcome}</p>}
+                        {m.tags && m.tags.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {m.tags.map((t) => (
+                              <span key={t} className="rounded bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)] font-mono">
+                                #{t}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-8 text-center text-[12px] text-[var(--lm-text-muted)]">
+                      {loadingMemories ? '正在读取本地向量记忆...' : '暂无沉淀的记忆记录'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 5. Remote LAN Tab */}
+            {activeTab === 'remote' && (
+              <div className="space-y-5 max-w-xl">
+                <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">局域网远程连接 (LAN Control)</h4>
+                      <p className="text-[11.5px] text-[var(--lm-text-muted)]">允许同局域网内的手机或平板通过浏览器协同操作 Agent</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={remoteLanEnabled}
+                      onChange={(e) => setRemoteLanEnabled(e.target.checked)}
+                      className="h-4 w-4 rounded accent-[var(--lm-accent)]"
+                    />
+                  </div>
+
+                  {remoteLanEnabled && (
+                    <div className="mt-3 space-y-2 border-t border-[var(--lm-border)] pt-3">
+                      <div className="text-[11.5px] text-[var(--lm-text-secondary)]">访问地址：</div>
+                      <div className="flex items-center justify-between rounded-lg bg-[var(--lm-bg-surface)] p-2 font-mono text-[12px]">
+                        <span>http://192.168.1.100:3000</span>
+                        <button
+                          onClick={() => copyToClipboard('http://192.168.1.100:3000', 'remote_url')}
+                          className="flex items-center gap-1 text-[11px] text-[var(--lm-accent-text)] hover:underline"
+                        >
+                          {copiedKey === 'remote_url' ? <Check size={12} /> : <Copy size={12} />}
+                          <span>{copiedKey === 'remote_url' ? '已复制' : '复制'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 6. About & Maintenance Tab */}
+            {activeTab === 'about' && (
+              <div className="space-y-5 max-w-xl">
+                <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-3">
+                  <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">会话维护与上下文管理</h4>
+                  <div className="space-y-2">
+                    <button
+                      onClick={handleCompact}
+                      disabled={!currentSessionId || compacting}
+                      className="flex w-full items-center justify-between rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3.5 py-2.5 text-[13px] text-[var(--lm-text-primary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Minimize2 size={15} className="text-[var(--lm-accent-text)]" />
+                        <span>压缩当前会话上下文 (/compact)</span>
+                      </span>
+                      {compactSuccess ? (
+                        <span className="text-[11px] text-[var(--lm-success)] flex items-center gap-1">
+                          <Check size={12} /> 已压缩
+                        </span>
+                      ) : compacting ? (
+                        <span className="text-[11px] text-[var(--lm-text-muted)]">压缩中…</span>
+                      ) : null}
+                    </button>
+
+                    <button
+                      onClick={handleExport}
+                      disabled={!currentSessionId}
+                      className="flex w-full items-center justify-between rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3.5 py-2.5 text-[13px] text-[var(--lm-text-primary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Download size={15} className="text-[var(--lm-text-muted)]" />
+                        <span>导出当前会话为 Markdown / ZIP</span>
+                      </span>
+                      {exportSuccess && (
+                        <span className="text-[11px] text-[var(--lm-success)] flex items-center gap-1">
+                          <Check size={12} /> 已导出
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-2">
+                  <div className="text-[13px] font-semibold text-[var(--lm-text-primary)]">LMCODE Desktop</div>
+                  <p className="text-[11.5px] text-[var(--lm-text-secondary)] leading-relaxed">
+                    基于 deepseek-harness 模板体系构建的轻量级、高自主性 AI Agent 桌面工程工作台。
+                  </p>
+                  <div className="pt-2 flex items-center gap-4 text-[12px] text-[var(--lm-text-muted)]">
+                    <span>版本: {version || 'v0.6.13'}</span>
+                    <a
+                      href="https://github.com/Lyin01/LMcode-desktop"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-[var(--lm-accent-text)] hover:underline"
+                    >
+                      <span>GitHub 开源主页</span>
+                      <ExternalLink size={11} />
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      )}
-    </section>
+      </div>
+    </div>
   )
 }

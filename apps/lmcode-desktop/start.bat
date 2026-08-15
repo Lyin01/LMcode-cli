@@ -1,5 +1,5 @@
 @echo off
-cd /d E:\project for cc\lmcode
+cd /d E:\lmcode
 
 echo ========================================
 echo  LMCODE Desktop - 一键启动

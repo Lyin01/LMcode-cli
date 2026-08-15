@@ -251,10 +251,10 @@ const SessionListItem = memo(function SessionListItem({
   return (
     <div
       className={cn(
-        'lm-session-row group/session mb-0.5 flex min-h-9 w-full items-center rounded-lg px-1.5 text-left transition-colors',
+        'lm-session-row group/session mb-0.5 flex min-h-9 w-full items-center rounded-xl px-2 text-left transition-all duration-150',
         isCurrent
-          ? 'bg-[var(--lm-bg-active)] text-[var(--lm-text-primary)] shadow-[inset_0_0_0_1px_var(--lm-border)]'
-          : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
+          ? 'bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)] font-medium'
+          : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]',
       )}
     >
       {editing ? (
@@ -715,13 +715,13 @@ export function Sidebar({
       <div className="flex h-full w-72 flex-col">
         <div className="flex h-[52px] items-center justify-between px-3">
           <div className="flex min-w-0 items-center gap-2.5 pl-0.5">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--lm-text-primary)] text-[12px] font-semibold text-[var(--lm-bg-base)] shadow-sm">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-[#4176E6] to-[#679EFE] text-[12px] font-bold text-white shadow-xs">
               L
             </div>
             <div className="min-w-0 leading-tight">
-              <div className="truncate text-[13px] font-semibold tracking-tight">LMCODE</div>
-              <div className="text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--lm-text-muted)]">
-                Agent workspace
+              <div className="truncate text-[13px] font-bold tracking-tight">LMCODE</div>
+              <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--lm-text-muted)]">
+                Enterprise Agent
               </div>
             </div>
           </div>
@@ -740,10 +740,10 @@ export function Sidebar({
           <button
             type="button"
             onClick={clearCurrentSession}
-            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--lm-accent)] px-3 py-2 text-[12.5px] font-medium text-[var(--lm-accent-fg)] shadow-sm transition-colors hover:bg-[var(--lm-accent-hover)]"
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--lm-accent)] px-3 py-2 text-[12.5px] font-medium text-white shadow-xs transition-all hover:bg-[var(--lm-accent-hover)]"
           >
             <Plus size={15} />
-            <span>新建任务</span>
+            <span>新建对话</span>
           </button>
           <button
             type="button"
