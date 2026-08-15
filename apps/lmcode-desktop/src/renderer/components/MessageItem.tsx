@@ -1,6 +1,6 @@
 import type { Message } from '@/types'
 import { memo, useCallback, useState, type ReactNode } from 'react'
-import { AlertTriangle, Check, Copy, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Check, Copy, RotateCcw, Sparkles } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallBlock } from '@/components/ToolCallBlock'
 import { AttachmentStrip } from '@/components/AttachmentStrip'

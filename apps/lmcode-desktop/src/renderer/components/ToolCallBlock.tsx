@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import type { ToolCallInfo } from '@/types'
+import { artifactIdForToolCall, useArtifactsStore } from '@/stores/artifacts-store'
 import { pruneToolOutput, formatCharCount } from '@/lib/tool-pruner'
 import {
   Loader2,
@@ -58,7 +59,7 @@ function classifyTool(toolName: string, argsRaw?: string): ToolMeta {
   // 1. Terminal / Shell
   if (name.includes('command') || name.includes('bash') || name.includes('pwsh') || name.includes('terminal') || name.includes('exec')) {
     const cmd = getArg(['CommandLine', 'command', 'cmd', 'script'])
-    const shortCmd = cmd ? cmd.split('\n')[0].slice(0, 50) : undefined
+    const shortCmd = cmd ? cmd.split('\n')[0]?.slice(0, 50) : undefined
     return {
       variant: 'terminal',
       title: 'Bash',
