@@ -42,21 +42,21 @@ describe('desktop background session results', () => {
       type: 'turn.started',
       turnId: 1,
       origin: { kind: 'user' },
-      agentId: 'agent-b',
+      agentId: 'main',
       sessionId: 'session-b',
     })
     store.handleEvent('session-b', {
       type: 'assistant.delta',
       turnId: 1,
       delta: 'Scheduled result',
-      agentId: 'agent-b',
+      agentId: 'main',
       sessionId: 'session-b',
     })
     store.handleEvent('session-b', {
       type: 'turn.ended',
       turnId: 1,
       reason: 'completed',
-      agentId: 'agent-b',
+      agentId: 'main',
       sessionId: 'session-b',
     })
 
@@ -72,6 +72,26 @@ describe('desktop background session results', () => {
       expect.objectContaining({ role: 'assistant', content: 'Scheduled result' }),
     ])
     expect(useSessionStore.getState().bg['session-b']).toBeUndefined()
+  })
+
+  it('drops streaming events for sessions that are not in the session list', () => {
+    const store = useSessionStore.getState()
+    store.handleEvent('ghost-session', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'ghost-session',
+    })
+    store.handleEvent('ghost-session', {
+      type: 'assistant.delta',
+      turnId: 1,
+      delta: 'late output from a deleted session',
+      agentId: 'main',
+      sessionId: 'ghost-session',
+    })
+
+    expect(useSessionStore.getState().bg['ghost-session']).toBeUndefined()
   })
 
   it('keeps delayed user-facing errors with the session that produced them', () => {

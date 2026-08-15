@@ -463,18 +463,42 @@ describe('harness config schema and patch merge', () => {
 
 describe('config path env override', () => {
   it('uses LMCODE_HOME when no explicit homeDir is supplied', () => {
-    const saved = process.env['LMCODE_HOME'];
-    try {
-      process.env['LMCODE_HOME'] = '/tmp/lmcode-from-env';
+    const environment = { LMCODE_HOME: '/tmp/lmcode-from-env' };
 
-      expect(resolveLmcodeHome()).toBe('/tmp/lmcode-from-env');
-      expect(resolveLmcodeHome('/tmp/lmcode-explicit')).toBe('/tmp/lmcode-explicit');
-      expect(resolveConfigPath({})).toBe('/tmp/lmcode-from-env/config.toml');
-      expect(resolveConfigPath({ configPath: '/tmp/custom.toml' })).toBe('/tmp/custom.toml');
-    } finally {
-      if (saved === undefined) delete process.env['LMCODE_HOME'];
-      else process.env['LMCODE_HOME'] = saved;
-    }
+    expect(resolveLmcodeHome(undefined, environment)).toBe('/tmp/lmcode-from-env');
+    expect(resolveLmcodeHome('/tmp/lmcode-explicit', environment)).toBe(
+      '/tmp/lmcode-explicit',
+    );
+    expect(resolveConfigPath({}, environment)).toBe('/tmp/lmcode-from-env/config.toml');
+    expect(resolveConfigPath({ configPath: '/tmp/custom.toml' }, environment)).toBe(
+      '/tmp/custom.toml',
+    );
+  });
+
+  it('isolates development state from an inherited production home', () => {
+    const environment = {
+      LMCODE_RUNTIME_ENV: 'development',
+      LMCODE_HOME: '/tmp/lmcode-production',
+      LMCODE_DEVELOPMENT_HOME: '/tmp/lmcode-development',
+    };
+
+    expect(resolveLmcodeHome(undefined, environment)).toBe('/tmp/lmcode-development');
+    expect(resolveConfigPath({}, environment)).toBe('/tmp/lmcode-development/config.toml');
+    expect(resolveLmcodeHome('/tmp/lmcode-explicit', environment)).toBe(
+      '/tmp/lmcode-explicit',
+    );
+  });
+
+  it('rejects a development home that resolves to the production home', () => {
+    const environment = {
+      LMCODE_RUNTIME_ENV: 'development',
+      LMCODE_HOME: '/tmp/lmcode-shared',
+      LMCODE_DEVELOPMENT_HOME: '/tmp/lmcode-shared',
+    };
+
+    expect(() => resolveLmcodeHome(undefined, environment)).toThrow(
+      'must not point at the production',
+    );
   });
 });
 

@@ -15,6 +15,17 @@ import {
   setStoredThinking,
   type ThinkingEffort,
 } from '@/lib/thinking'
+import {
+  getStoredPermissionPreference,
+  setStoredPermissionPreference,
+} from '@/lib/permission-preference'
+import { buildModelEntries } from '@/lib/models'
+import { createDesktopPromptRequest } from '@/lib/prompt-request'
+import { clearComposerDraft } from '@/lib/composer-drafts'
+import { useConfigStore } from '@/stores/config-store'
+import { useTaskStore } from '@/stores/task-store'
+import { useSubagentStore } from '@/stores/subagent-store'
+import { useGoalStore } from '@/stores/goal-store'
 import type {
   Event,
   TurnEndedEvent,
@@ -30,6 +41,7 @@ import type {
   WarningEvent,
   TurnStepRetryingEvent,
   TurnStepInterruptedEvent,
+  PermissionMode,
 } from '@lmcode-cli/lmcode-sdk'
 
 let msgCounter = 0
@@ -51,6 +63,36 @@ interface SessionSlice {
   streamStatus: string | null
 }
 
+/**
+ * Transcript-class event types: they feed a session's message stream or its
+ * streaming flags, and only the session's main agent may do that. Sub-agents
+ * share the session's event stream — their events carry their own agentId —
+ * so without this filter a sub-agent's turn would open empty bubbles, patch
+ * the main agent's reply, flip `isStreaming` (unlocking the composer), or
+ * surface its failure as a parent-session error card.
+ *
+ * Session-level events (agent.status.updated, session.meta.updated,
+ * subagent.*, background.task.*, mcp.server.status, compaction.*, …) are NOT
+ * listed here: they always pass through to their stores.
+ */
+const TRANSCRIPT_EVENT_TYPES: ReadonlySet<Event['type']> = new Set([
+  'turn.started',
+  'turn.ended',
+  'turn.step.started',
+  'turn.step.completed',
+  'turn.step.retrying',
+  'turn.step.interrupted',
+  'assistant.delta',
+  'thinking.delta',
+  'hook.result',
+  'tool.call.started',
+  'tool.call.delta',
+  'tool.result',
+  'tool.progress',
+  'error',
+  'warning',
+])
+
 const EMPTY_SLICE: SessionSlice = { messages: [], isStreaming: false, streamStatus: null }
 
 interface BackgroundSessionSlice extends SessionSlice {
@@ -60,6 +102,49 @@ interface BackgroundSessionSlice extends SessionSlice {
 const EMPTY_BACKGROUND_SLICE: BackgroundSessionSlice = {
   ...EMPTY_SLICE,
   unread: false,
+}
+
+/** Strip an attachment down to what the chat UI needs to render its card. */
+export function toDisplayAttachment(attachment: UserAttachment): UserAttachment {
+  return {
+    id: attachment.id,
+    kind: attachment.kind,
+    name: attachment.name,
+    sizeBytes: attachment.sizeBytes,
+    truncated: attachment.truncated,
+    previewUrl: attachment.previewUrl,
+  }
+}
+
+/**
+ * Merge a fresh `listSessions` snapshot with the runtime metadata the store
+ * already accumulated (model, permission, token counters, streaming flag).
+ * A naive remap would reset every surviving session to `manual`/0/not
+ * streaming until the next status event trickles in.
+ */
+export function mergeRefreshedSessions(
+  raw: readonly SessionSummary[],
+  existing: readonly SessionInfo[],
+  thinkingLevel: ThinkingEffort,
+): SessionInfo[] {
+  const byId = new Map(existing.map((session) => [session.id, session]))
+  return raw.map((summary) => {
+    const prior = byId.get(summary.id)
+    return {
+      id: summary.id,
+      title: summary.title,
+      workDir: summary.workDir,
+      createdAt: summary.createdAt,
+      updatedAt: summary.updatedAt,
+      lastPrompt: summary.lastPrompt,
+      model: prior?.model,
+      thinkingLevel: prior?.thinkingLevel ?? thinkingLevel,
+      permission: prior?.permission ?? 'manual',
+      contextTokens: prior?.contextTokens ?? 0,
+      maxContextTokens: prior?.maxContextTokens ?? 128_000,
+      isStreaming: prior?.isStreaming ?? false,
+    }
+  })
 }
 
 /** Replace the last assistant message in `msgs` with `fn(msg)`, returning a new array. */
@@ -124,6 +209,7 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
         toolName: ev.name,
         args: JSON.stringify(ev.args, null, 2),
         status: 'running',
+        startedAt: Date.now(),
       }
       return {
         ...slice,
@@ -174,6 +260,7 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
                           typeof ev.output === 'string'
                             ? ev.output
                             : JSON.stringify(ev.output, null, 2),
+                        endedAt: Date.now(),
                       }
                     : tc,
                 ),
@@ -255,6 +342,14 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
 
     case 'error': {
       const ev = event as ErrorEvent
+      const lastMessage = msgs.at(-1)
+      if (
+        lastMessage?.role === 'system' &&
+        lastMessage.variant === 'error' &&
+        lastMessage.content === `回合失败：${ev.message}`
+      ) {
+        return slice
+      }
       return {
         messages: [
           ...msgs,
@@ -308,9 +403,23 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
   }
 }
 
+/**
+ * Where a brand-new session should live when the welcome screen submits its
+ * first message: an explicit project directory, or the main-process
+ * no-project sentinel workspace.
+ */
+export type NewSessionTarget =
+  | { readonly kind: 'project'; readonly workDir: string }
+  | { readonly kind: 'no-project' }
+
 export interface SessionStore {
   currentSessionId: string | null
   sessions: SessionInfo[]
+  /**
+   * Main-process sentinel directory backing "不在项目中工作" sessions. Loaded
+   * once at startup via IPC; null until then (nothing is treated as sentinel).
+   */
+  noProjectWorkDir: string | null
   // ── Active (in-view) session slice ──
   messages: Message[]
   isStreaming: boolean
@@ -321,21 +430,52 @@ export interface SessionStore {
 
   model: string
   thinkingLevel: ThinkingEffort
-  permission: string
+  /** Persisted app-wide default; also applied to the active session when changed. */
+  permissionPreference: PermissionMode
+  /** Permission mode currently reported for the active session. */
+  permission: PermissionMode
   contextTokens: number
   maxContextTokens: number
   usage: TokenUsageSummary | undefined
 
   pendingInteractions: PendingInteraction[]
   messageQueue: Record<string, QueuedUserMessage[]>
+  /**
+   * Sessions whose on-disk history has already been merged into the live
+   * view. Guards the backfill so a slow `getSessionHistory` can't be dropped
+   * just because the user typed first, and can't be applied twice.
+   */
+  hydratedSessions: Record<string, boolean>
 
   setSessions: (sessions: SessionInfo[]) => void
+  setNoProjectWorkDir: (workDir: string) => void
   removeDeletedSession: (deletedId: string, remaining: SessionInfo[]) => void
   selectSession: (id: string) => void
-  createSession: (workDir?: string) => Promise<void>
+  /**
+   * Leave the current session and return to the welcome screen. The session
+   * keeps living (and streaming) in the background slice, exactly as if the
+   * user had switched to another session.
+   */
+  clearCurrentSession: () => void
+  createSession: (workDir?: string, options?: { noProject?: boolean }) => Promise<void>
+  /**
+   * Welcome-screen entry point: create a session for the chosen target, then
+   * queue the first message. The message rides the normal send pipeline — the
+   * composer's queue drain in `useSession` ships it as soon as the new session
+   * mounts, so creation always settles before anything is sent.
+   */
+  startSessionWithMessage: (
+    target: NewSessionTarget,
+    text: string,
+    attachments?: readonly UserAttachment[],
+  ) => Promise<void>
   adoptSession: (summary: SessionSummary) => void
   addMessage: (msg: Message) => void
-  addMessageToSession: (sessionId: string, msg: Message) => void
+  addMessageToSession: (
+    sessionId: string,
+    msg: Message,
+    options?: { markUnread?: boolean },
+  ) => void
   setMessages: (msgs: Message[]) => void
   setMessagesForSession: (sessionId: string, msgs: Message[]) => void
   updateLastAssistantMessage: (updates: Partial<Message>) => void
@@ -350,6 +490,8 @@ export interface SessionStore {
   setThinkingPreference: (level: ThinkingEffort) => Promise<void>
   applyThinkingPreference: (sessionId: string) => Promise<void>
   hydrateThinkingPreference: () => void
+  setPermissionPreference: (permission: PermissionMode) => Promise<void>
+  applyPermissionPreference: (sessionId: string) => Promise<void>
 
   enqueuePendingInteraction: (interaction: PendingInteraction) => void
   completePendingInteraction: (requestId: string) => void
@@ -364,6 +506,19 @@ export interface SessionStore {
   removeQueuedMessage: (sessionId: string, messageId: string) => void
   moveQueuedMessage: (sessionId: string, messageId: string, direction: -1 | 1) => void
   shiftQueuedMessage: (sessionId: string) => QueuedUserMessage | undefined
+  /**
+   * Single-owner queue drain: sends the oldest queued message for a session
+   * once that session is idle, then re-schedules itself when the turn ends.
+   * Works for background sessions too, and is reentrant-safe across any
+   * number of mounted hooks.
+   */
+  drainMessageQueue: (sessionId: string) => void
+  /**
+   * Merge a session's persisted history ahead of whatever live messages
+   * already accumulated (in view or in its background slice). No-ops for
+   * sessions that were already hydrated.
+   */
+  hydrateSessionHistory: (sessionId: string, history: Message[]) => void
 }
 
 function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): SessionInfo {
@@ -382,9 +537,26 @@ function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): 
   }
 }
 
+/**
+ * Sessions with a queued send currently in flight. Lives outside the store
+ * state: it guards against reentrant drains within the same tick, so it must
+ * not wait for a React commit (or a second hook instance) to take effect.
+ */
+const queueDrainInFlight = new Set<string>()
+
+/**
+ * Single-flight latch for `startSessionWithMessage`. Module-level (like
+ * `queueDrainInFlight`) so it takes effect synchronously, before any React
+ * commit or IPC await can interleave a second call.
+ */
+let startSessionInFlight = false
+
+const initialPermissionPreference = getStoredPermissionPreference()
+
 export const useSessionStore = create<SessionStore>((set, get) => ({
   currentSessionId: null,
   sessions: [],
+  noProjectWorkDir: null,
   messages: [],
   isStreaming: false,
   streamStatus: null,
@@ -392,28 +564,34 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   model: '',
   thinkingLevel: DEFAULT_THINKING_EFFORT,
-  permission: 'manual',
+  permissionPreference: initialPermissionPreference,
+  permission: initialPermissionPreference,
   contextTokens: 0,
   maxContextTokens: 128000,
   usage: undefined,
 
   pendingInteractions: [],
   messageQueue: {},
+  hydratedSessions: {},
 
   setSessions: (sessions) => set({ sessions }),
 
-  removeDeletedSession: (deletedId, remaining) =>
+  setNoProjectWorkDir: (workDir) => set({ noProjectWorkDir: workDir }),
+
+  removeDeletedSession: (deletedId, remaining) => {
     set((state) => {
       const bg = { ...state.bg }
       const messageQueue = { ...state.messageQueue }
+      const hydratedSessions = { ...state.hydratedSessions }
       const pendingInteractions = state.pendingInteractions.filter(
         (interaction) => interaction.payload.sessionId !== deletedId,
       )
       delete bg[deletedId]
       delete messageQueue[deletedId]
+      delete hydratedSessions[deletedId]
 
       if (state.currentSessionId !== deletedId) {
-        return { sessions: remaining, bg, messageQueue, pendingInteractions }
+        return { sessions: remaining, bg, messageQueue, hydratedSessions, pendingInteractions }
       }
 
       const next = remaining[0]
@@ -422,13 +600,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           sessions: remaining,
           bg,
           messageQueue,
+          hydratedSessions,
           pendingInteractions,
           currentSessionId: null,
           messages: [],
           isStreaming: false,
           streamStatus: null,
           model: '',
-          permission: 'manual',
+          permission: state.permissionPreference,
           contextTokens: 0,
           maxContextTokens: 128000,
           usage: undefined,
@@ -441,6 +620,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         sessions: remaining,
         bg,
         messageQueue,
+        hydratedSessions,
         pendingInteractions,
         currentSessionId: next.id,
         messages: restored?.messages ?? [],
@@ -452,7 +632,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         maxContextTokens: next.maxContextTokens,
         usage: next.usage,
       }
-    }),
+    })
+    // The deleted session's background tasks and subagents die with it;
+    // drop their records so the panels don't keep showing zombies. Its
+    // unsent composer draft goes too — otherwise it would linger in memory
+    // for the rest of the renderer's lifetime.
+    useTaskStore.getState().removeBySession(deletedId)
+    useSubagentStore.getState().removeBySession(deletedId)
+    useGoalStore.getState().removeBySession(deletedId)
+    clearComposerDraft(deletedId)
+  },
 
   selectSession: (id) => {
     const state = get()
@@ -489,23 +678,92 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })
   },
 
-  createSession: async (requestedWorkDir) => {
+  clearCurrentSession: () => {
+    const state = get()
+    if (state.currentSessionId === null) return
+    // Park the session we're leaving so its in-flight stream keeps
+    // accumulating and is restored intact when the user comes back.
+    const bg = { ...state.bg }
+    bg[state.currentSessionId] = {
+      messages: state.messages,
+      isStreaming: state.isStreaming,
+      streamStatus: state.streamStatus,
+      unread: false,
+    }
+    set({
+      bg,
+      currentSessionId: null,
+      messages: [],
+      isStreaming: false,
+      streamStatus: null,
+      model: '',
+      permission: state.permissionPreference,
+      contextTokens: 0,
+      maxContextTokens: 128000,
+    })
+  },
+
+  createSession: async (requestedWorkDir, options) => {
     try {
+      const noProject = options?.noProject === true
       let workDir = requestedWorkDir?.trim()
-      if (!workDir) {
+      if (!noProject && !workDir) {
         const current = get().sessions.find((session) => session.id === get().currentSessionId)
         workDir = await window.lmcodeAPI.selectWorkDirectory(current?.workDir)
       }
-      if (!workDir) return
+      if (!noProject && !workDir) return
 
-      const thinkingLevel = get().thinkingLevel
+      const state = get()
+      // A fresh session inherits the model of whatever session was current,
+      // which is '' on the welcome screen. Fall back to the configured
+      // default model, then to any configured model, so a new conversation
+      // never starts without a model and fails its first turn.
+      const config = useConfigStore.getState().config
+      const fallbackModel = config
+        ? config.defaultModel?.trim() || buildModelEntries(config)[0]?.id || ''
+        : ''
+      const model = state.model.trim() || fallbackModel
+      const permission = state.permissionPreference
       const summary = await window.lmcodeAPI.createSession({
-        workDir,
-        thinking: thinkingLevel,
+        // The main process resolves the no-project sentinel directory itself;
+        // the renderer never supplies a path for it.
+        workDir: noProject ? undefined : workDir,
+        noProject: noProject || undefined,
+        model: model || undefined,
+        thinking: state.thinkingLevel,
+        permission,
       })
       get().adoptSession(summary)
     } catch (err) {
       console.error('Failed to create session:', err)
+    }
+  },
+
+  startSessionWithMessage: async (target, text, attachments = []) => {
+    // Store-level single-flight: the welcome screen also guards with its own
+    // `starting` state, but a future caller without it must not be able to
+    // race creation into two sessions.
+    if (startSessionInFlight) {
+      console.warn('startSessionWithMessage already in flight; ignoring concurrent call')
+      return
+    }
+    startSessionInFlight = true
+    try {
+      if (target.kind === 'no-project') {
+        await get().createSession(undefined, { noProject: true })
+      } else {
+        await get().createSession(target.workDir)
+      }
+      const sessionId = get().currentSessionId
+      if (sessionId === null) return
+      const normalized = text.trim()
+      if (!normalized && attachments.length === 0) return
+      // The message rides the normal send pipeline: enqueueing triggers the
+      // store-level queue drain, which ships it as soon as the (idle) session
+      // is ready — creation always settles before anything is sent.
+      get().enqueueMessage(sessionId, normalized, attachments)
+    } finally {
+      startSessionInFlight = false
     }
   },
 
@@ -518,7 +776,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       updatedAt: summary.updatedAt,
       model: state.model,
       thinkingLevel: state.thinkingLevel,
-      permission: state.permission,
+      permission: state.permissionPreference,
     })
     set((current) => {
       const bg = { ...current.bg }
@@ -537,6 +795,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           newSession,
           ...current.sessions.filter((session) => session.id !== summary.id),
         ],
+        // A freshly adopted session has no on-disk history to backfill;
+        // marking it hydrated keeps the backfill from duplicating its
+        // first turn once that turn is persisted.
+        hydratedSessions: { ...current.hydratedSessions, [summary.id]: true },
         currentSessionId: summary.id,
         messages: [],
         isStreaming: false,
@@ -552,7 +814,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
 
-  addMessageToSession: (sessionId, msg) =>
+  addMessageToSession: (sessionId, msg, options) =>
     set((state) => {
       if (state.currentSessionId === sessionId) {
         return { messages: [...state.messages, msg] }
@@ -564,7 +826,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           [sessionId]: {
             ...previous,
             messages: [...previous.messages, msg],
-            unread: true,
+            unread: options?.markUnread ?? true,
           },
         },
       }
@@ -628,6 +890,31 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })),
 
   handleEvent: (sessionId, event) => {
+    // Sub-agents emit into the same session stream under their own agentId
+    // ('main' is the primary agent). Drop their transcript-class traffic so
+    // it can't pollute the parent's message flow; session-level events still
+    // pass through, and events without an agentId (older main processes) are
+    // treated as main for backward compatibility.
+    if (
+      event.agentId !== undefined &&
+      event.agentId !== 'main' &&
+      TRANSCRIPT_EVENT_TYPES.has(event.type)
+    ) {
+      return
+    }
+
+    // Activity drives sidebar ordering. Keep it live instead of waiting for a
+    // full listSessions refresh, which may not happen again until restart.
+    if (event.type === 'turn.started' || event.type === 'turn.ended') {
+      const isStreaming = event.type === 'turn.started'
+      const updatedAt = Date.now()
+      set((state) => ({
+        sessions: state.sessions.map((session) =>
+          session.id === sessionId ? { ...session, updatedAt, isStreaming } : session,
+        ),
+      }))
+    }
+
     // ── Session-scoped status/meta: update the sessions list (and the active
     // scalars when it's the in-view session), regardless of which tab is open.
     if (event.type === 'agent.status.updated') {
@@ -667,6 +954,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       )
       set({ messages: next.messages, isStreaming: next.isStreaming, streamStatus: next.streamStatus })
     } else {
+      // Tail events of a deleted (or otherwise unknown) session must not
+      // resurrect it as an invisible background buffer.
+      if (!state.sessions.some((session) => session.id === sessionId)) return
       const prev = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
       const next = reduceMessageEvent(prev, event)
       if (next !== prev) {
@@ -684,15 +974,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setThinkingPreference: async (level) => {
-    setStoredThinking(level)
     const sessionId = get().currentSessionId
+    if (sessionId !== null) await window.lmcodeAPI.setThinking(sessionId, level)
+
+    setStoredThinking(level)
     set((state) => ({
       thinkingLevel: level,
       sessions: state.sessions.map((session) =>
         session.id === sessionId ? { ...session, thinkingLevel: level } : session,
       ),
     }))
-    if (sessionId !== null) await window.lmcodeAPI.setThinking(sessionId, level)
   },
 
   applyThinkingPreference: async (sessionId) => {
@@ -701,6 +992,31 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   hydrateThinkingPreference: () => {
     set({ thinkingLevel: getStoredThinking() })
+  },
+
+  setPermissionPreference: async (permission) => {
+    const sessionId = get().currentSessionId
+    if (sessionId !== null) await window.lmcodeAPI.setPermission(sessionId, permission)
+
+    setStoredPermissionPreference(permission)
+    set((state) => ({
+      permissionPreference: permission,
+      ...(state.currentSessionId === sessionId ? { permission } : {}),
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId ? { ...session, permission } : session,
+      ),
+    }))
+  },
+
+  applyPermissionPreference: async (sessionId) => {
+    const permission = get().permissionPreference
+    await window.lmcodeAPI.setPermission(sessionId, permission)
+    set((state) => ({
+      ...(state.currentSessionId === sessionId ? { permission } : {}),
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId ? { ...session, permission } : session,
+      ),
+    }))
   },
 
   enqueuePendingInteraction: (interaction) =>
@@ -792,4 +1108,119 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }))
     return message
   },
+
+  drainMessageQueue: (sessionId) => {
+    const state = get()
+    if (queueDrainInFlight.has(sessionId)) return
+    if (!state.sessions.some((session) => session.id === sessionId)) return
+    if (state.isSessionStreaming(sessionId)) return
+    if ((state.messageQueue[sessionId]?.length ?? 0) === 0) return
+
+    queueDrainInFlight.add(sessionId)
+    // Skip entries that carry no content at all.
+    let next = get().shiftQueuedMessage(sessionId)
+    while (next && !next.text.trim() && next.attachments.length === 0) {
+      next = get().shiftQueuedMessage(sessionId)
+    }
+    if (!next) {
+      queueDrainInFlight.delete(sessionId)
+      return
+    }
+    void deliverQueuedMessage(sessionId, next.text, next.attachments).finally(() => {
+      queueDrainInFlight.delete(sessionId)
+      // The turn this send kicked off ends later (turn.ended flips
+      // isStreaming, which re-triggers the drain via the subscription
+      // below). Kick once more here in case it ended before we unparked.
+      scheduleQueueDrain()
+    })
+  },
+
+  hydrateSessionHistory: (sessionId, history) =>
+    set((state) => {
+      // A backfill for a session deleted while getSessionHistory was in
+      // flight must not resurrect a ghost background slice or re-mark it
+      // hydrated — removeDeletedSession just cleaned both up. Same guard as
+      // the streaming-event path in handleEvent.
+      if (!state.sessions.some((session) => session.id === sessionId)) return state
+      if (state.hydratedSessions[sessionId]) return state
+      const hydratedSessions = { ...state.hydratedSessions, [sessionId]: true }
+      if (history.length === 0) return { hydratedSessions }
+      // Prepend: anything already in the slice arrived live (typed or
+      // streamed) after the history snapshot was taken on disk.
+      if (state.currentSessionId === sessionId) {
+        return { hydratedSessions, messages: [...history, ...state.messages] }
+      }
+      const previous = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
+      return {
+        hydratedSessions,
+        bg: {
+          ...state.bg,
+          [sessionId]: { ...previous, messages: [...history, ...previous.messages] },
+        },
+      }
+    }),
 }))
+
+/** Send one queued message through the same pipeline the composer uses. */
+async function deliverQueuedMessage(
+  sessionId: string,
+  text: string,
+  attachments: readonly UserAttachment[],
+): Promise<void> {
+  const store = useSessionStore.getState()
+  store.addMessageToSession(
+    sessionId,
+    {
+      id: nextMsgId(),
+      role: 'user',
+      content: text,
+      attachments: attachments.map(toDisplayAttachment),
+      timestamp: Date.now(),
+    },
+    // The user sent this message themselves — a background session must not
+    // raise its unread badge for it. The assistant's reply (via handleEvent)
+    // still marks the session unread.
+    { markUnread: false },
+  )
+  store.setSessionStreaming(sessionId, true)
+  try {
+    await window.lmcodeAPI.sendMessage(
+      sessionId,
+      createDesktopPromptRequest(text, attachments),
+    )
+  } catch (err) {
+    console.error('Failed to send queued message:', err)
+    const message = err instanceof Error ? err.message : String(err)
+    const current = useSessionStore.getState()
+    current.addMessageToSession(sessionId, {
+      id: nextMsgId(),
+      role: 'system',
+      variant: 'error',
+      content: `发送失败：${message}`,
+      timestamp: Date.now(),
+    })
+    current.setSessionStreaming(sessionId, false)
+  }
+}
+
+/**
+ * Re-evaluate every session's queue on the next microtask. Deferred so the
+ * store subscription never runs drains reentrantly inside a `set`.
+ */
+function scheduleQueueDrain(): void {
+  queueMicrotask(() => {
+    const state = useSessionStore.getState()
+    for (const sessionId of Object.keys(state.messageQueue)) {
+      if ((state.messageQueue[sessionId]?.length ?? 0) > 0) {
+        state.drainMessageQueue(sessionId)
+      }
+    }
+  })
+}
+
+// The queue drain has exactly one owner — the store itself. Any state change
+// (enqueue, turn.ended flipping a session idle, cancel, deletion) gives every
+// session's queue a chance to advance, in view or in the background.
+useSessionStore.subscribe(() => {
+  scheduleQueueDrain()
+})

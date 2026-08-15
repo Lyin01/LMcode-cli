@@ -121,28 +121,20 @@ pnpm eval:test
 
 ---
 
-## How it's wired (and the one caveat)
+## How it's wired
 
-The eval code imports the SDK from **source** (`packages/node-sdk/src`) via a
-tsconfig `paths` mapping, so changes to the SDK / agent-core (including the
-system prompt) are reflected immediately — important for catching prompt
-regressions.
+The eval runtime imports the self-contained SDK bundle from
+`packages/node-sdk/dist/index.mjs` via `tsconfig.runtime.json`. `pnpm eval`
+builds all workspace packages first, so SDK, agent-core, and system-prompt
+changes are always reflected before a task runs. The base `tsconfig.json` keeps
+pointing at SDK source so type-aware linting and editor diagnostics retain the
+complete TypeScript surface.
 
-Running TypeScript source through `tsx` needs two shims that the build/test
-pipelines normally provide, both installed by `framework/raw-text-loader.mjs`
-(preloaded via `--import` in the `eval` script):
-
-1. **Raw-text imports** — agent-core does `import desc from './grep.md'`. The
-   loader resolves `.md` / `.yaml` to default-exported strings, mirroring
-   `build/raw-text-plugin.mjs`. It uses Node's synchronous `module.registerHooks`
-   (Node ≥ 22.15) because those files load through the sync CJS-interop path.
-2. **A `require` shim** — `agent-core/src/utils/render-prompt.ts` lazily calls
-   `require('nunjucks')`. The loader installs a `globalThis.require` rooted in
-   the agent-core package so that single call resolves.
-
-> If you ever see odd resolution errors, the SDK also ships a self-contained
-> `dist/index.mjs`; you could repoint `evals/tsconfig.json`'s `paths` at it
-> (and drop `--import`) to run against the built bundle instead of source.
+Using the built bundle also keeps evaluation behavior identical across the
+supported Node 22 platforms. Workspace source uses package-scoped `#/...`
+imports plus raw `.md` / `.yaml` prompt imports; those are resolved by the
+normal build pipeline instead of relying on runtime loader hooks whose chaining
+semantics differ across Node releases.
 
 ---
 
@@ -192,7 +184,8 @@ the verdict is reproducible and model-independent. Prefer dependency-free checks
 ```
 evals/
   run.ts                       entry point (task selection, reporting, exit code)
-  tsconfig.json                maps @lmcode-cli/lmcode-sdk → SDK source
+  tsconfig.json                maps SDK imports to source for static analysis
+  tsconfig.runtime.json        maps SDK imports to the built runtime bundle
   vitest.config.ts             standalone config for evals/**/*.test.ts
   framework/
     types.ts                   Task / ScoreResult / RunResult
@@ -201,7 +194,6 @@ evals/
     report.test.ts             vitest for the pure report logic
     providers.ts               fake + real provider/model setup from env
     fake-provider.ts           keyless local OpenAI-compatible stub server
-    raw-text-loader.mjs        tsx loader: .md/.yaml raw imports + require shim
     index.ts                   framework barrel
   tasks/
     smoke-plumbing.ts          keyless plumbing check (fake provider)

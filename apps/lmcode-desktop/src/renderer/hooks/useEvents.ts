@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { useSessionStore } from '@/stores/session-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
+import { useGoalStore } from '@/stores/goal-store'
+import { createSessionEventBatcher } from '@/lib/session-event-batcher'
 import type {
   ApprovalRequestPayload,
   QuestionRequestPayload,
@@ -13,17 +15,23 @@ export function useEvents() {
   const enqueuePendingInteraction = useSessionStore((s) => s.enqueuePendingInteraction)
   const discardPendingInteraction = useSessionStore((s) => s.discardPendingInteraction)
   const addOrUpdateTask = useTaskStore((s) => s.addOrUpdateTask)
+  const setGoal = useGoalStore((s) => s.setGoal)
   const subagentSpawned = useSubagentStore((s) => s.spawned)
   const subagentCompleted = useSubagentStore((s) => s.completed)
   const subagentFailed = useSubagentStore((s) => s.failed)
 
   useEffect(() => {
+    // Deltas arrive one IPC at a time; the batcher coalesces adjacent text
+    // deltas into ordered segments so the store publishes once per batching
+    // window instead of once per delta. Non-delta events flush synchronously
+    // first, so store-visible order matches arrival order.
+    const batcher = createSessionEventBatcher(handleEvent)
     const unsubEvent = window.lmcodeAPI.onSessionEvent((payload: SessionEventPayload) => {
       const { sessionId, event } = payload
 
       // Forward the actual Event (not the {sessionId, event} envelope) to the
       // session store for chat/message rendering.
-      handleEvent(sessionId, event)
+      batcher.push(sessionId, event)
 
       // Handle background task events
       if (event?.type === 'background.task.started' && event?.info) {
@@ -32,6 +40,10 @@ export function useEvents() {
         addOrUpdateTask(sessionId, event.info)
       } else if (event?.type === 'background.task.terminated' && event?.info) {
         addOrUpdateTask(sessionId, event.info)
+      } else if (event?.type === 'goal.updated') {
+        // Keep the goal chip in sync with every goal transition; the event
+        // snapshot and the RPC `GoalSnapshotData` shape are compatible.
+        setGoal(sessionId, event.snapshot)
       } else if (event?.type === 'subagent.spawned') {
         subagentSpawned(sessionId, event)
       } else if (event?.type === 'subagent.completed') {
@@ -55,6 +67,8 @@ export function useEvents() {
 
     return () => {
       unsubEvent()
+      // Flush any pending segment before the listener goes away.
+      batcher.dispose()
       unsubApproval()
       unsubQuestion()
       unsubInteractionSettled()
@@ -64,6 +78,7 @@ export function useEvents() {
     enqueuePendingInteraction,
     discardPendingInteraction,
     addOrUpdateTask,
+    setGoal,
     subagentSpawned,
     subagentCompleted,
     subagentFailed,

@@ -31,6 +31,8 @@ export interface SubagentStore {
   failed: (sessionId: string, event: SubagentFailedEvent) => void
   hydrateTasks: (sessionId: string, tasks: readonly BackgroundTaskInfo[]) => void
   clearCompleted: (sessionId: string) => void
+  /** Drop every agent record owned by a session (e.g. when it is deleted). */
+  removeBySession: (sessionId: string) => void
 }
 
 export const useSubagentStore = create<SubagentStore>((set) => ({
@@ -129,5 +131,10 @@ export const useSubagentStore = create<SubagentStore>((set) => ({
       agents: state.agents.filter(
         (agent) => agent.sessionId !== sessionId || agent.status === 'running',
       ),
+    })),
+
+  removeBySession: (sessionId) =>
+    set((state) => ({
+      agents: state.agents.filter((agent) => agent.sessionId !== sessionId),
     })),
 }))

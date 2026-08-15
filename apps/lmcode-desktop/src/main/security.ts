@@ -1,5 +1,11 @@
 export type NavigationAction = 'allow-local' | 'open-external' | 'deny'
 
+const PRODUCTION_CONNECT_SOURCE = "'none'"
+// @vitejs/plugin-react injects this exact Fast Refresh preamble in development.
+// Keep a hash allowlist instead of weakening script-src with unsafe-inline.
+const DEVELOPMENT_REACT_REFRESH_SCRIPT_HASH =
+  "'sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk='"
+
 interface SenderFrameLike {
   readonly url: string
 }
@@ -20,7 +26,7 @@ export function classifyNavigation(targetUrl: string, rendererUrl: string): Navi
   const target = parseUrl(targetUrl)
   if (
     target !== null &&
-    (target.protocol === 'https:' || target.protocol === 'http:') &&
+    target.protocol === 'https:' &&
     target.hostname.length > 0 &&
     target.username.length === 0 &&
     target.password.length === 0
@@ -68,6 +74,42 @@ export function isTrustedIpcSender(
   } catch {
     return false
   }
+}
+
+export function createRendererContentSecurityPolicy(
+  rendererUrl: string,
+  isDevelopment: boolean,
+): string {
+  const renderer = parseUrl(rendererUrl)
+  const connectSource = isDevelopment && renderer !== null
+    ? developmentConnectSource(renderer)
+    : PRODUCTION_CONNECT_SOURCE
+  const scriptSource = isDevelopment
+    ? `'self' ${DEVELOPMENT_REACT_REFRESH_SCRIPT_HASH}`
+    : "'self'"
+
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSource}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    `connect-src ${connectSource}`,
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "worker-src 'self' blob:",
+  ].join('; ')
+}
+
+function developmentConnectSource(renderer: URL): string {
+  if (renderer.protocol !== 'http:' && renderer.protocol !== 'https:') {
+    return "'self'"
+  }
+  const websocketProtocol = renderer.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `'self' ${websocketProtocol}//${renderer.host}`
 }
 
 function parseUrl(value: string): URL | null {

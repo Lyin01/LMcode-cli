@@ -1,9 +1,11 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   X, Blocks, Zap, Server, RefreshCw, Square, Trash2, Plus,
   Loader2, AlertTriangle, CheckCircle2, Play,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createLatestRequestGate } from '@/lib/latest-request'
+import { activateModalPanel } from '@/lib/modal-panel-controller'
 import { useSessionStore } from '@/stores/session-store'
 
 interface ExtensionsPanelProps {
@@ -39,6 +41,15 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  // Latest-wins guard: a slow resolve from a superseded refresh (session or
+  // tab switch, manual refresh) must not overwrite newer data.
+  const refreshGateRef = useRef(createLatestRequestGate())
+  const panelRef = useRef<HTMLDivElement>(null)
+  // Stable close callback for the modal controller: the effect below must not
+  // tear down (and wrongly restore focus) just because the parent re-rendered
+  // and produced a new onClose identity while the panel is open.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   // Add-server form
   const [showAdd, setShowAdd] = useState(false)
@@ -47,18 +58,28 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   const [newTarget, setNewTarget] = useState('')
 
   const refresh = useCallback(async () => {
+    const gate = refreshGateRef.current
+    // Begin before the null check: when the session is deleted
+    // (sessionId -> null) the old ticket must still be invalidated so a
+    // slow in-flight resolve cannot write the deleted session's data.
+    const ticket = gate.begin()
     if (!sessionId) return
     setLoading(true)
     try {
       if (tab === 'skills') {
-        setSkills(await window.lmcodeAPI.listSkills(sessionId))
+        const next = await window.lmcodeAPI.listSkills(sessionId)
+        if (!gate.isCurrent(ticket)) return
+        setSkills(next)
       } else {
-        setServers(await window.lmcodeAPI.listMcpServers(sessionId))
+        const next = await window.lmcodeAPI.listMcpServers(sessionId)
+        if (!gate.isCurrent(ticket)) return
+        setServers(next)
       }
     } catch (err) {
+      if (!gate.isCurrent(ticket)) return
       console.error('Failed to load extensions:', err)
     } finally {
-      setLoading(false)
+      if (gate.isCurrent(ticket)) setLoading(false)
     }
   }, [sessionId, tab])
 
@@ -66,12 +87,13 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
     if (open) void refresh()
   }, [open, tab, refresh])
 
+  // Modal lifecycle: initial focus lands on the dialog container itself (so
+  // the title is announced first), Escape closes, Tab rings inside the panel,
+  // and closing restores focus to the sidebar trigger.
   useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+    if (!open || !panelRef.current) return
+    return activateModalPanel(panelRef.current, { onClose: () => onCloseRef.current() })
+  }, [open])
 
   const activateSkill = async (name: string) => {
     if (!sessionId) return
@@ -123,16 +145,26 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div aria-hidden="true" className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative z-10 ml-auto flex h-full w-[420px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]">
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lm-extensions-panel-title"
+        className="relative z-10 ml-auto flex h-full w-[420px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3.5">
           <div className="flex items-center gap-2">
             <Blocks size={16} className="text-[var(--lm-accent-text)]" />
-            <h2 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">扩展</h2>
+            <h2 id="lm-extensions-panel-title" className="text-[15px] font-semibold text-[var(--lm-text-primary)]">扩展</h2>
           </div>
           <button
+            type="button"
+            aria-label="关闭扩展"
+            title="关闭扩展"
             onClick={onClose}
             className="rounded-md p-1 text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >

@@ -2,14 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { ChevronDown, Check, Cpu } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { buildModelEntries, type ModelEntry } from '@/lib/models'
 import { useSessionStore } from '@/stores/session-store'
 import { useConfigStore } from '@/stores/config-store'
-
-interface ModelEntry {
-  id: string
-  label: string
-  provider: string
-}
 
 interface ModelSwitcherProps {
   open?: boolean
@@ -33,41 +28,18 @@ export function ModelSwitcher({ open: controlledOpen, onOpenChange }: ModelSwitc
 
   useEffect(() => {
     if (!config) return
-    const entries: ModelEntry[] = []
-
-    if (config.models) {
-      for (const [id, alias] of Object.entries(config.models)) {
-        entries.push({
-          id,
-          label: alias.displayName ?? alias.model ?? id,
-          provider: alias.provider,
-        })
-      }
-    }
-
-    if (entries.length === 0 && config.providers) {
-      for (const [providerId, provider] of Object.entries(config.providers)) {
-        if (provider.defaultModel) {
-          entries.push({
-            id: `${providerId}:${provider.defaultModel}`,
-            label: `${provider.defaultModel}`,
-            provider: providerId,
-          })
-        }
-      }
-    }
-
-    if (config.defaultModel && !entries.some((e) => e.id === config.defaultModel)) {
-      entries.push({ id: config.defaultModel, label: config.defaultModel, provider: '' })
-    }
-
-    entries.sort((a, b) => a.label.localeCompare(b.label))
-    setModels(entries)
+    setModels(buildModelEntries(config))
   }, [config])
 
   const handleSelect = useCallback(
     async (modelId: string) => {
-      if (!currentSessionId) return
+      // On the welcome screen there is no session yet: remember the pick in
+      // the store so `createSession` starts the new conversation with it.
+      if (!currentSessionId) {
+        useSessionStore.getState().updateSessionStatus({ model: modelId })
+        setOpen(false)
+        return
+      }
       try {
         await window.lmcodeAPI.setModel(currentSessionId, modelId)
         useSessionStore.getState().updateSessionStatus({ model: modelId })

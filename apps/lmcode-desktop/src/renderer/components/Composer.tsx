@@ -8,27 +8,34 @@ import {
   Paperclip,
   Square,
   X,
-  Sparkles,
-  CheckCircle2,
-  ListChecks,
 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
+import { ProjectPicker } from '@/components/ProjectPicker'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
-import { SlashCommandsDialog, type SlashCommand } from '@/components/SlashCommandsDialog'
+import { UsageFooter } from '@/components/UsageFooter'
+import { SlashCommandsDialog, SLASH_COMMANDS, type SlashCommand } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
 import {
   buildDesktopReviewPrompt,
+  filterSlashCommands,
   parseDesktopSlashCommand,
+  shouldHandleSlashKeys,
 } from '@/lib/slash-command'
 import type { GoalSnapshotData } from '@lmcode-cli/lmcode-sdk'
 import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
 import type { QueuedUserMessage, UserAttachment } from '@/types'
 import type { CommandPaletteRequest, ComposerDraftRequest } from '@/lib/menu-command'
 import { mergeComposerDraft } from '@/lib/composer-draft'
+import {
+  clearComposerDraft,
+  getComposerDraft,
+  saveComposerDraft,
+} from '@/lib/composer-drafts'
 import { defaultPastedImageName } from '@/lib/pasted-image-name'
+import { fileToDataUrl } from '@/lib/file-to-data-url'
 
 interface ComposerProps {
   autoFocus?: boolean
@@ -56,6 +63,7 @@ const COMMAND_HELP = [
   '- `/mode`、`/config`：打开设置。',
   '- `/clear`：在当前项目中新建对话。',
   '- `/export`：导出当前会话。',
+  '- `/dream`：整理记忆库（合并重复、清理过期条目）。',
 ].join('\n')
 
 const EMPTY_QUEUED_MESSAGES: readonly QueuedUserMessage[] = []
@@ -65,23 +73,6 @@ function goalStatusText(goal: GoalSnapshotData | null): string {
   const remaining = goal.budget.remainingTokens
   const budget = remaining === null ? '' : ` · 剩余 ${remaining.toLocaleString()} tokens`
   return `🎯 **${goal.objective}**\n\n状态：${goal.status} · 已执行 ${goal.turnsUsed} 轮${budget}`
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  const result = Promise.withResolvers<string>()
-  const reader = new FileReader()
-  reader.addEventListener('load', () => {
-    if (typeof reader.result === 'string') result.resolve(reader.result)
-    else result.reject(new Error('无法读取剪贴板图片'))
-  }, { once: true })
-  reader.addEventListener('error', () => {
-    result.reject(reader.error ?? new Error('无法读取剪贴板图片'))
-  }, { once: true })
-  reader.addEventListener('abort', () => {
-    result.reject(new Error('剪贴板图片读取已取消'))
-  }, { once: true })
-  reader.readAsDataURL(file)
-  return result.promise
 }
 
 export function Composer({
@@ -156,6 +147,28 @@ export function Composer({
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 220) + 'px'
   }, [])
+
+  // Restore the per-session text draft. The textarea is uncontrolled and
+  // ChatPanel remounts the composer keyed by session id, so without this the
+  // unsent text would be silently discarded on every session switch.
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta || !currentSessionId) return
+    const draft = getComposerDraft(currentSessionId)
+    ta.value = draft
+    setHasDraft(Boolean(draft.trim()))
+    autoGrow()
+  }, [currentSessionId, autoGrow])
+
+  // Save the draft for the outgoing session before switching away or
+  // unmounting; the cleanup runs before the restore effect above re-runs.
+  useEffect(() => {
+    return () => {
+      if (currentSessionId) {
+        saveComposerDraft(currentSessionId, textareaRef.current?.value ?? '')
+      }
+    }
+  }, [currentSessionId])
 
   useEffect(() => {
     if (!commandPaletteRequest) return
@@ -467,6 +480,10 @@ export function Composer({
             showNotice(`会话已导出到：\n\n\`${zipPath}\``)
             break
           }
+          case 'dream':
+            await window.lmcodeAPI.activateSkill(currentSessionId, 'dream')
+            showNotice('已开始整理记忆库，Agent 会在对话中给出整理方案。')
+            break
           case 'help':
             showNotice(COMMAND_HELP)
             break
@@ -507,6 +524,7 @@ export function Composer({
     setAttachmentError(null)
     attachmentsRef.current = []
     setAttachments([])
+    if (currentSessionId) clearComposerDraft(currentSessionId)
     if (text.trim().startsWith('/')) {
       void executeSlashCommand(text)
     } else if (isStreaming && delivery === 'steer') {
@@ -518,6 +536,7 @@ export function Composer({
     }
   }, [
     attachmentLoadCount,
+    currentSessionId,
     executeSlashCommand,
     isStreaming,
     queueMessage,
@@ -525,16 +544,24 @@ export function Composer({
     steerMessage,
   ])
 
+  // Match count the slash dialog will show; with zero matches the dialog
+  // renders nothing, so the composer must not swallow navigation keys.
+  const slashMatchCount = showSlash
+    ? filterSlashCommands(SLASH_COMMANDS, slashQuery).length
+    : 0
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (showSlash) {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
-          e.preventDefault()
-          return
-        }
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault()
-          return
+        if (shouldHandleSlashKeys(showSlash, slashMatchCount)) {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
+            e.preventDefault()
+            return
+          }
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            return
+          }
         }
         if (e.key === 'Escape') {
           e.preventDefault()
@@ -556,7 +583,7 @@ export function Composer({
         handleSend(isStreaming && (e.ctrlKey || e.metaKey) ? 'steer' : 'default')
       }
     },
-    [handleSend, isStreaming, showSlash],
+    [handleSend, isStreaming, showSlash, slashMatchCount],
   )
 
   const handleInput = useCallback(() => {
@@ -589,25 +616,6 @@ export function Composer({
     setSlashQuery('')
     textareaRef.current?.focus()
   }, [])
-
-  const messages = useSessionStore((s) => s.messages)
-  const hasHistory = messages.length > 0
-  const lastMessage = hasHistory ? messages[messages.length - 1] : undefined
-  const showQuickActions = !isStreaming && hasHistory && lastMessage?.role === 'assistant' && !hasDraft
-
-  const sendQuickAction = useCallback(
-    (textToSend: string) => {
-      if (isStreaming) return
-      const ta = textareaRef.current
-      if (ta) {
-        ta.value = ''
-        ta.style.height = 'auto'
-      }
-      setHasDraft(false)
-      void sendMessage(textToSend, [])
-    },
-    [isStreaming, sendMessage],
-  )
 
   const canSend = hasDraft || attachments.length > 0
   const isAttaching = attachmentLoadCount > 0
@@ -712,40 +720,7 @@ export function Composer({
         </div>
       )}
 
-      {/* Smart Quick Action Chips */}
-      {showQuickActions && (
-        <div className="mb-2 flex flex-wrap items-center gap-1.5 px-1 animate-fade-in">
-          <button
-            type="button"
-            onClick={() => sendQuickAction('请继续自主推进并完成所有未尽步骤，直到整个任务全部闭环。')}
-            className="flex items-center gap-1 rounded-full border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1 text-[11px] text-[var(--lm-text-secondary)] shadow-xs transition-colors hover:border-[var(--lm-accent)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-            title="让 Agent 继续执行未完成的任务"
-          >
-            <Sparkles size={12} className="text-[var(--lm-accent-text)]" />
-            <span>继续闭环完成</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => sendQuickAction('请运行项目的自动化测试套件、构建命令或类型检查，验证当前修改是否全部通过。')}
-            className="flex items-center gap-1 rounded-full border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1 text-[11px] text-[var(--lm-text-secondary)] shadow-xs transition-colors hover:border-[var(--lm-accent)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-            title="验证代码修改"
-          >
-            <CheckCircle2 size={12} className="text-[var(--lm-success)]" />
-            <span>运行测试与验证</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => sendQuickAction('请逐项对照我最初提出的所有要求和验收条件，检查确认是否已 100% 达成。')}
-            className="flex items-center gap-1 rounded-full border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1 text-[11px] text-[var(--lm-text-secondary)] shadow-xs transition-colors hover:border-[var(--lm-accent)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-            title="对照原始要求逐项核对"
-          >
-            <ListChecks size={12} className="text-[var(--lm-warning)]" />
-            <span>对照需求复核</span>
-          </button>
-        </div>
-      )}
-
-      <div className="rounded-[20px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-colors focus-within:border-[var(--lm-accent)]">
+      <div className="rounded-[18px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-[border-color,box-shadow] focus-within:border-[var(--lm-text-muted)] focus-within:shadow-[var(--lm-shadow-composer)]">
         {attachments.length > 0 && (
           <div className="px-3 pt-3">
             <AttachmentStrip attachments={attachments} onRemove={removeAttachment} />
@@ -788,6 +763,7 @@ export function Composer({
             <Paperclip size={17} />
           </button>
 
+          <ProjectPicker display="name" />
           <ModelSwitcher open={modelMenuOpen} onOpenChange={setModelMenuOpen} />
           <ThinkingSwitcher />
 
@@ -837,6 +813,7 @@ export function Composer({
             </button>
           )}
         </div>
+        <UsageFooter />
       </div>
 
       <input

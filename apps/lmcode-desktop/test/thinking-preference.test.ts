@@ -56,4 +56,17 @@ describe('desktop thinking preference contract', () => {
 
     expect(setThinking).toHaveBeenCalledWith('session-b', 'xhigh')
   })
+
+  it('keeps the previous preference when the runtime rejects the change', async () => {
+    setThinking.mockRejectedValueOnce(new Error('runtime unavailable'))
+
+    await expect(useSessionStore.getState().setThinkingPreference('high')).rejects.toThrow(
+      'runtime unavailable',
+    )
+
+    const state = useSessionStore.getState()
+    expect(setItem).not.toHaveBeenCalled()
+    expect(state.thinkingLevel).toBe('medium')
+    expect(state.sessions[0]?.thinkingLevel).toBe('medium')
+  })
 })

@@ -12,9 +12,11 @@ import {
   inspectGitRepository,
   setAllGitFilesStaged,
   setGitFileStaged,
+  UNTRACKED_PREVIEW_LIMIT_BYTES,
 } from '../src/main/git-review'
 
 const temporaryDirectories: string[] = []
+const GIT_INTEGRATION_TEST_TIMEOUT_MS = 30_000
 
 function git(workDir: string, ...args: string[]): void {
   execFileSync('git', args, { cwd: workDir, stdio: 'ignore', windowsHide: true })
@@ -42,12 +44,17 @@ async function createRepository(): Promise<string> {
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
-      fs.rm(directory, { recursive: true, force: true }),
+      fs.rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: process.platform === 'win32' ? 5 : 0,
+        retryDelay: 100,
+      }),
     ),
   )
 })
 
-describe('desktop Git review', () => {
+describe('desktop Git review', { timeout: GIT_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it('reports staged, unstaged, and untracked files with reviewable patches', async () => {
     const workDir = await createRepository()
     await fs.writeFile(path.join(workDir, 'tracked.txt'), 'before\nafter\n', 'utf8')
@@ -58,7 +65,7 @@ describe('desktop Git review', () => {
     const snapshot = await inspectGitRepository(workDir)
 
     expect(snapshot.isRepository).toBe(true)
-    expect(snapshot.root).toBe(workDir.replaceAll('\\', '/'))
+    expect(snapshot.root).toBe((await fs.realpath(workDir)).replaceAll('\\', '/'))
     expect(snapshot.changes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: 'staged.txt', kind: 'added', staged: true }),
@@ -80,6 +87,26 @@ describe('desktop Git review', () => {
     expect(untracked.sections).toEqual([
       expect.objectContaining({ kind: 'untracked', patch: expect.stringContaining('+untracked content') }),
     ])
+  })
+
+  it('returns a placeholder patch for an oversized untracked file instead of reading it fully', async () => {
+    const workDir = await createRepository()
+    await fs.writeFile(
+      path.join(workDir, 'huge.txt'),
+      'x'.repeat(UNTRACKED_PREVIEW_LIMIT_BYTES + 4096),
+      'utf8',
+    )
+
+    const diff = await inspectGitFileDiff(workDir, 'huge.txt')
+
+    expect(diff.sections).toEqual([
+      expect.objectContaining({
+        kind: 'untracked',
+        patch: expect.stringContaining('too large'),
+        truncated: true,
+      }),
+    ])
+    expect(diff.sections[0]?.patch.length ?? 0).toBeLessThan(1024)
   })
 
   it('returns a user-facing non-repository state instead of throwing', async () => {
@@ -216,6 +243,7 @@ describe('desktop Git review', () => {
     const untrackedPath = path.join(workDir, 'untracked.txt')
     await fs.writeFile(path.join(workDir, 'tracked.txt'), 'changed\n', 'utf8')
     await fs.writeFile(untrackedPath, 'recoverable\n', 'utf8')
+    const canonicalUntrackedPath = await fs.realpath(untrackedPath)
     const trashed: string[] = []
     const trashItem = async (target: string): Promise<void> => {
       trashed.push(target)
@@ -228,7 +256,7 @@ describe('desktop Git review', () => {
     expect(trashed).toEqual([])
 
     await discardGitFileChanges(workDir, 'untracked.txt', 'all', trashItem)
-    expect(trashed).toEqual([untrackedPath])
+    expect(trashed).toEqual([canonicalUntrackedPath])
     await expect(fs.stat(untrackedPath)).rejects.toThrow()
   })
 

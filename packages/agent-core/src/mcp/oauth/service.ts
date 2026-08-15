@@ -24,9 +24,12 @@
 
 import { auth, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 
+import { log } from '../../logging';
 import { startCallbackServer, type CallbackServer } from './callback-server';
 import { McpOAuthClientProvider } from './provider';
 import { JsonFileStore, mcpCredentialsDir, mcpOAuthStoreKey } from './store';
+
+const oauthAuditLog = log.createChild({ surface: 'mcp-oauth' });
 
 export interface McpOAuthServiceOptions {
   /** Storage backend; overrides `lmcodeHomeDir` when supplied. */
@@ -104,6 +107,7 @@ export class McpOAuthService {
     serverUrl: string | URL,
     options: BeginAuthorizationOptions = {},
   ): Promise<BeginAuthorizationResult> {
+    oauthAuditLog.info('MCP OAuth authorization started');
     const provider = options.clientLabel === undefined
       ? this.getProvider(serverName, serverUrl)
       : new McpOAuthClientProvider({
@@ -122,6 +126,7 @@ export class McpOAuthService {
     try {
       callbackServer = await startCallbackServer();
     } catch (error) {
+      oauthAuditLog.warn('MCP OAuth callback listener failed');
       throw wrapAuthError('failed to start OAuth callback listener', error);
     }
 
@@ -143,6 +148,7 @@ export class McpOAuthService {
       await callbackServer.close().catch(() => undefined);
       provider.resetFlow();
       if (error instanceof AlreadyAuthorizedError) throw error;
+      oauthAuditLog.warn('MCP OAuth authorization start failed');
       throw wrapAuthError(`failed to start OAuth flow for "${serverName}"`, error);
     }
 
@@ -176,11 +182,13 @@ export class McpOAuthService {
         }
       } catch (error) {
         await cancel();
+        oauthAuditLog.warn('MCP OAuth authorization failed');
         throw wrapAuthError(`OAuth flow for "${serverName}" failed`, error);
       }
       settled = true;
       await callbackServer.close().catch(() => undefined);
       provider.resetFlow();
+      oauthAuditLog.info('MCP OAuth authorization completed');
     };
 
     return { authorizationUrl, complete, cancel };
@@ -197,6 +205,7 @@ export class McpOAuthService {
     scope: 'all' | 'client' | 'tokens' | 'discovery' = 'all',
   ): void {
     this.getProvider(serverName, serverUrl).invalidateCredentials(scope);
+    oauthAuditLog.info('MCP OAuth credentials invalidated', { scope });
   }
 }
 

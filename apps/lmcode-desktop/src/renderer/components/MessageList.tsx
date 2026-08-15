@@ -3,6 +3,7 @@ import { ArrowDown, ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { MessageItem } from '@/components/MessageItem'
 import { findConversationMessageIds } from '@/lib/conversation-search'
+import { historyToMessages } from '@/lib/history'
 import { cn } from '@/lib/utils'
 import type { ConversationFindRequest } from '@/lib/menu-command'
 
@@ -15,6 +16,10 @@ interface MessageListProps {
 
 export function MessageList({ findRequest }: MessageListProps) {
   const messages = useSessionStore((s) => s.messages)
+  const currentSessionId = useSessionStore((s) => s.currentSessionId)
+  const isStreaming = useSessionStore((s) => s.isStreaming)
+  const setMessagesForSession = useSessionStore((s) => s.setMessagesForSession)
+  const enqueueMessage = useSessionStore((s) => s.enqueueMessage)
   const scrollRef = useRef<HTMLDivElement>(null)
   const findInputRef = useRef<HTMLInputElement>(null)
   const messageRefs = useRef(new Map<string, HTMLDivElement>())
@@ -69,6 +74,14 @@ export function MessageList({ findRequest }: MessageListProps) {
   const closeFind = useCallback(() => {
     setFindOpen(false)
   }, [])
+
+  useEffect(() => {
+    // Session switch replaces messages wholesale: re-stick to the bottom so a
+    // scrolled-up position (and the jump button) never leaks into the new
+    // session. Declared before the messages effect so it runs first.
+    stickToBottomRef.current = true
+    setShowJumpToBottom(false)
+  }, [currentSessionId])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -127,6 +140,40 @@ export function MessageList({ findRequest }: MessageListProps) {
     })
     return () => cancelAnimationFrame(animationFrame)
   }, [findQuery, findRequest, moveMatch])
+
+  // ── Regenerate ────────────────────────────────────────────────────
+  const lastAssistantId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m && m.role === 'assistant') return m.id
+    }
+    return null
+  }, [messages])
+
+  const lastUserText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m && m.role === 'user' && m.content?.trim()) return m.content
+    }
+    return ''
+  }, [messages])
+
+  const handleRegenerate = useCallback(async () => {
+    if (!currentSessionId) return
+    const text = lastUserText
+    if (!text.trim()) return
+    try {
+      // Undo the last assistant turn, refresh the transcript from disk, then
+      // re-queue the same user message — the message queue drain ships it once
+      // the session is idle, mirroring the /revoke flow.
+      await window.lmcodeAPI.undoHistory(currentSessionId, 1)
+      const history = await window.lmcodeAPI.getSessionHistory(currentSessionId)
+      setMessagesForSession(currentSessionId, historyToMessages(history))
+      enqueueMessage(currentSessionId, text)
+    } catch (err) {
+      console.error('Failed to regenerate:', err)
+    }
+  }, [currentSessionId, enqueueMessage, lastUserText, setMessagesForSession])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -200,7 +247,15 @@ export function MessageList({ findRequest }: MessageListProps) {
                   'bg-[var(--lm-accent-soft)]/70 ring-2 ring-[var(--lm-accent)]',
               )}
             >
-              <MessageItem message={msg} />
+              <MessageItem
+                message={msg}
+                isStreaming={isStreaming && msg.id === lastAssistantId}
+                onRegenerate={
+                  msg.id === lastAssistantId && !isStreaming && lastUserText.trim()
+                    ? handleRegenerate
+                    : undefined
+                }
+              />
             </div>
           ))}
         </div>

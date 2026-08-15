@@ -1,6 +1,6 @@
-export { LmcodeHarness } from '#/lmcode-harness';
-export { Session } from '#/session';
-export { LmcodeAuthFacade } from '#/auth';
+export { LmcodeHarness } from './lmcode-harness';
+export { Session } from './session';
+export { LmcodeAuthFacade } from './auth';
 
 export {
   applyCatalogProvider,
@@ -15,13 +15,13 @@ export {
   loadBuiltInCatalog,
   loadCatalogCache,
   saveCatalogCache,
-} from '#/catalog';
+} from './catalog';
 export type {
   ApplyCatalogProviderOptions,
   Catalog,
   CatalogModel,
   CatalogProviderEntry,
-} from '#/catalog';
+} from './catalog';
 
 export {
   ErrorCodes,
@@ -59,5 +59,5 @@ export type {
 } from '@lmcode-cli/agent-core';
 export type { GoalSnapshotData } from '@lmcode-cli/agent-core';
 
-export * from '#/events';
-export type * from '#/types';
+export * from './events';
+export type * from './types';

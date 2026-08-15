@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CronJobInfo } from '@lmcode-cli/lmcode-sdk'
 import {
   AlertTriangle,
   CalendarClock,
   Clock3,
   Loader2,
+  Pencil,
+  Play,
   Plus,
   RefreshCw,
   Repeat2,
@@ -12,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
+import { createLatestRequestGate } from '@/lib/latest-request'
 
 interface AutomationsPanelProps {
   readonly open: boolean
@@ -49,19 +52,33 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  /** 正在编辑的定时任务；非 null 时表单进入编辑态，保存后删旧建新。 */
+  const [editingJob, setEditingJob] = useState<CronJobInfo | null>(null)
+  /** 正在"立即执行"的任务 id。 */
+  const [runningId, setRunningId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Latest-wins guard: cron.fired events, create/delete follow-ups and manual
+  // refreshes may overlap; a slow stale resolve must not overwrite the list.
+  const refreshGateRef = useRef(createLatestRequestGate())
 
   const refresh = useCallback(async () => {
+    const gate = refreshGateRef.current
+    // Begin before the null check so a deleted session (sessionId -> null)
+    // still invalidates its in-flight refresh.
+    const ticket = gate.begin()
     if (!sessionId) return
     setLoading(true)
     setError(null)
     try {
-      setJobs(await window.lmcodeAPI.listCronJobs(sessionId))
+      const next = await window.lmcodeAPI.listCronJobs(sessionId)
+      if (!gate.isCurrent(ticket)) return
+      setJobs(next)
     } catch (reason) {
+      if (!gate.isCurrent(ticket)) return
       setJobs([])
       setError(errorMessage(reason))
     } finally {
-      setLoading(false)
+      if (gate.isCurrent(ticket)) setLoading(false)
     }
   }, [sessionId])
 
@@ -88,22 +105,59 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, onClose])
 
-  const createJob = async (): Promise<void> => {
+  const submitJob = async (): Promise<void> => {
     if (!sessionId || !cron.trim() || !prompt.trim()) return
     setCreating(true)
     setError(null)
     try {
+      // 编辑态：删旧建新（SDK 无更新接口；id 变化对用户无感）。
+      if (editingJob) {
+        await window.lmcodeAPI.deleteCronJob(sessionId, editingJob.id)
+      }
       await window.lmcodeAPI.createCronJob(sessionId, {
         cron: cron.trim(),
         prompt: prompt.trim(),
         recurring,
       })
       setPrompt('')
+      setEditingJob(null)
       await refresh()
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
       setCreating(false)
+    }
+  }
+
+  /** 把任务回填到表单并进入编辑态。 */
+  const beginEdit = (job: CronJobInfo): void => {
+    setEditingJob(job)
+    setCron(job.cron)
+    setPrompt(job.prompt)
+    setRecurring(job.recurring)
+  }
+
+  const cancelEdit = (): void => {
+    setEditingJob(null)
+    setCron('0 9 * * 1-5')
+    setPrompt('')
+    setRecurring(true)
+  }
+
+  /** 立即执行一次该任务：把提示词作为转向消息注入当前会话。 */
+  const runNow = async (job: CronJobInfo): Promise<void> => {
+    if (!sessionId) return
+    setRunningId(job.id)
+    setError(null)
+    try {
+      await window.lmcodeAPI.steerMessage(sessionId, {
+        text: job.prompt,
+        attachments: [],
+      })
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setRunningId(null)
     }
   }
 
@@ -160,6 +214,12 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
         )}
 
         <div className="border-b border-[var(--lm-border)] p-4">
+          {editingJob && (
+            <div className="mb-2 flex items-center gap-2 text-[11px] text-[var(--lm-accent-text)]">
+              <Pencil size={12} />
+              正在编辑：{editingJob.humanSchedule}
+            </div>
+          )}
           <div className="grid grid-cols-[140px_1fr] gap-2">
             <select
               value={presetValue}
@@ -202,13 +262,22 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
               使用本机时区；关闭重复后仅在下一次匹配时执行
             </span>
             <button
-              onClick={() => void createJob()}
+              onClick={() => void submitJob()}
               disabled={creating || !cron.trim() || !prompt.trim()}
               className="ml-auto flex items-center gap-1.5 rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[10px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
             >
               {creating ? <Loader2 size={12} className="lm-spin" /> : <Plus size={12} />}
-              创建
+              {editingJob ? '保存修改' : '创建'}
             </button>
+            {editingJob && (
+              <button
+                onClick={cancelEdit}
+                className="flex items-center gap-1.5 rounded-lg border border-[var(--lm-border)] px-3 py-1.5 text-[10px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+              >
+                <X size={12} />
+                取消编辑
+              </button>
+            )}
           </div>
         </div>
 
@@ -259,14 +328,31 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
                         {job.lastFiredAt !== undefined && <span>上次：{formatTime(job.lastFiredAt)}</span>}
                       </div>
                     </div>
-                    <button
-                      onClick={() => void deleteJob(job.id)}
-                      disabled={deletingId === job.id}
-                      className="rounded-md p-1.5 text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-error)] disabled:opacity-40"
-                      title="删除自动化"
-                    >
-                      {deletingId === job.id ? <Loader2 size={13} className="lm-spin" /> : <Trash2 size={13} />}
-                    </button>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        onClick={() => void runNow(job)}
+                        disabled={runningId === job.id}
+                        className="rounded-md p-1.5 text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-accent-text)] disabled:opacity-40"
+                        title="立即执行一次"
+                      >
+                        {runningId === job.id ? <Loader2 size={13} className="lm-spin" /> : <Play size={13} />}
+                      </button>
+                      <button
+                        onClick={() => beginEdit(job)}
+                        className="rounded-md p-1.5 text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+                        title="编辑自动化"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        onClick={() => void deleteJob(job.id)}
+                        disabled={deletingId === job.id}
+                        className="rounded-md p-1.5 text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-error)] disabled:opacity-40"
+                        title="删除自动化"
+                      >
+                        {deletingId === job.id ? <Loader2 size={13} className="lm-spin" /> : <Trash2 size={13} />}
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}

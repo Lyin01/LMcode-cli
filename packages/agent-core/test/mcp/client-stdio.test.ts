@@ -345,7 +345,7 @@ describe('StdioMcpClient', () => {
       transport: 'stdio',
       command: process.execPath,
       args: [crashAfterConnectFixture],
-      env: { LMCODE_TEST_MCP_EXIT_AFTER_MS: '50', LMCODE_TEST_MCP_STDERR: banner },
+      env: { LMCODE_TEST_MCP_STDERR: banner },
     });
     const closes: Array<{ stderr?: string; error?: string }> = [];
     client.onUnexpectedClose((reason) => {
@@ -353,6 +353,8 @@ describe('StdioMcpClient', () => {
     });
     try {
       await client.connect();
+      const reply = await client.callTool('exit_after_reply', {});
+      expect(reply.isError).toBe(false);
       // Wait for the child to exit and onclose to fire.
       for (let i = 0; i < 100; i++) {
         if (closes.length > 0) break;

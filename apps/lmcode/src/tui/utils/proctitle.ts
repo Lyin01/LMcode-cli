@@ -1,8 +1,9 @@
 /**
  * Terminal window title synchronization.
  *
- * Uses the session title when present, capped at 80 characters to keep tabs
- * readable. New or unnamed sessions fall back to `LMcode`.
+ * Uses the session title when present, capped at `MAX_PROCESS_TITLE_LENGTH`
+ * characters to keep tabs readable. New or unnamed sessions fall back to
+ * `LMcode`.
  *
  * Writes both `process.title`, for process listings, and OSC 0/2 escape
  * sequences, which most terminals use for window/tab titles. Non-TTY stdout
@@ -11,7 +12,7 @@
 import { PRODUCT_NAME } from '#/constant/app';
 import { MAX_PROCESS_TITLE_LENGTH } from '#/tui/constant/terminal';
 
-export function setProcessTitle(title: string | null, _sessionId: string): void {
+export function setProcessTitle(title: string | null): void {
   const trimmed = title?.trim() ?? '';
   const label = trimmed.length > 0 ? trimmed.slice(0, MAX_PROCESS_TITLE_LENGTH) : PRODUCT_NAME;
   try {

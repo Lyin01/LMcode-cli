@@ -12,6 +12,7 @@ LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 
 - 项目工具：Codex 式代码审查（未暂存/已暂存范围、双侧行号、逐文件/逐 hunk 暂存与撤销、行内评论回填对话）、Git 提交、worktree 创建或接力、项目终端。
 - 自动化：在当前会话中创建、查看和删除 Cron 任务；桌面端运行时会自动恢复包含计划任务的持久化会话。
 - 生态能力：Skills、MCP、记忆浏览与搜索、系统托盘和桌面通知。
+- 远程连接（0.6.8+）：设置 →「远程连接」开启后，手机/其他电脑/浏览器可通过配对令牌远程连接（对话、审批、提问、目标、自动化、任务、技能、MCP、配置与记忆）；支持局域网直连与 Tailscale/ngrok/frp 公网穿透。
 - 秒退（0.3.4+）：退出时跳过逐会话的退出记忆提取（LLM 调用，单次最多 30s），关闭即时完成；记忆仍由压缩时提取和空闲 15 分钟提取保留。SDK 侧体现为 `LmcodeHarness.close({ extractMemories: false })`，CLI/TUI 的默认提取行为不变。
 
 ## 关键边界
@@ -21,6 +22,16 @@ LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 
 - 文本附件最大 256 KiB；图片附件单个最大 10 MiB，每条消息最多 8 个附件。凭据文件、未知二进制和非法 UTF-8 内容会被拒绝。
 - 项目终端是会话级持久 PowerShell 进程，适合项目命令和连续工作流；它不是完整 PTY 终端模拟器。
 - Cron 自动化依赖桌面应用正在运行，可以最小化到托盘；应用完全退出后不会在系统后台独立触发。
+- 远程服务默认关闭，仅在设置中手动开启；令牌 32 字节随机、重新生成后旧令牌立即失效；远程暴露面刻意收窄（无文件读写、无项目终端、无 Git 写操作、无应用退出）。
+
+## 远程连接（lmcode app）
+
+1. 设置（`Ctrl+,`）→ **远程连接** → 打开「允许远程连接」。
+2. 复制**配对令牌**，记下**局域网地址**（如 `http://192.168.1.100:37991`）。
+3. 用手机/浏览器打开 lmcode-remote-app（见 `E:\project from lmcode\lmcode-remote-app\README.md`），填入地址与令牌；也可扫描面板二维码直达（含令牌）。
+4. 外网连接：用 Tailscale / `ngrok http 37991` / frp 把端口映射到公网，客户端填对应的 wss/ws 地址。
+
+远程服务层实现位于 `src/main/remote/`（`interaction-hub` / `remote-bridge` / `remote-manager` / `remote-server`），协议定义在 `src/shared/remote-types.ts`（与 lmcode-remote-app 的 `src/protocol/types.ts` 单点同步）。
 
 ## 技术栈
 

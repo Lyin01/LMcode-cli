@@ -3,6 +3,10 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import type { GitWorktreeInfo } from '../shared/worktree-types.js'
 import { inspectGitRepository, runGitCommand } from './git-review.js'
+import {
+  removeEmptyWorktreeDirectory,
+  reserveWorktreePath,
+} from './worktree-path-reservation.js'
 
 function gitError(stderr: string, fallback: string): Error {
   const firstLine = stderr.trim().split(/\r?\n/, 1)[0]
@@ -12,6 +16,22 @@ function gitError(stderr: string, fallback: string): Error {
 function comparablePath(value: string): string {
   const resolved = path.resolve(value)
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+async function comparableExistingPath(value: string): Promise<string> {
+  const resolved = await fs.realpath(value).catch(() => path.resolve(value))
+  return comparablePath(resolved)
+}
+
+async function findWorktreeByPath(
+  worktrees: readonly GitWorktreeInfo[],
+  requestedPath: string,
+): Promise<GitWorktreeInfo | undefined> {
+  const requested = await comparableExistingPath(requestedPath)
+  for (const worktree of worktrees) {
+    if (await comparableExistingPath(worktree.path) === requested) return worktree
+  }
+  return undefined
 }
 
 export function parseGitWorktrees(output: string, currentRoot: string): readonly GitWorktreeInfo[] {
@@ -59,29 +79,9 @@ export async function resolveGitWorktree(
   requestedPath: string,
 ): Promise<GitWorktreeInfo> {
   if (!requestedPath || requestedPath.includes('\0')) throw new Error('工作树路径无效')
-  const requested = comparablePath(requestedPath)
-  const worktree = (await listGitWorktrees(workDir)).find(
-    (candidate) => comparablePath(candidate.path) === requested,
-  )
+  const worktree = await findWorktreeByPath(await listGitWorktrees(workDir), requestedPath)
   if (!worktree) throw new Error('目标目录不在当前仓库的 Git 工作树列表中')
   return worktree
-}
-
-async function nextAvailablePath(baseDir: string, branchName: string): Promise<string> {
-  const slug = branchName
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'worktree'
-
-  for (let suffix = 1; suffix <= 1_000; suffix += 1) {
-    const candidate = path.join(baseDir, suffix === 1 ? slug : `${slug}-${suffix}`)
-    try {
-      await fs.access(candidate)
-    } catch {
-      return candidate
-    }
-  }
-  throw new Error('无法为工作树分配目录')
 }
 
 export async function createGitWorktree(
@@ -113,30 +113,34 @@ export async function createGitWorktree(
     .slice(0, 10)
   const baseDir = path.join(storageRoot, 'worktrees', `${repositoryName}-${repositoryKey}`)
   await fs.mkdir(baseDir, { recursive: true })
-  const targetPath = await nextAvailablePath(baseDir, branch)
-
-  const branchExists = await runGitCommand(snapshot.root, [
-    'show-ref',
-    '--verify',
-    '--quiet',
-    `refs/heads/${branch}`,
-  ])
-  const args = branchExists.ok
-    ? ['worktree', 'add', targetPath, branch]
-    : ['worktree', 'add', '-b', branch, targetPath, 'HEAD']
-  const result = await runGitCommand(snapshot.root, args)
-  if (!result.ok) {
-    const relativeTarget = path.relative(baseDir, targetPath)
-    if (!relativeTarget.startsWith('..') && !path.isAbsolute(relativeTarget)) {
-      await fs.rm(targetPath, { recursive: true, force: true }).catch(() => undefined)
+  // Reserve the target path atomically before Git ever sees it: concurrent
+  // requests for the same branch can no longer share a candidate, and the
+  // lock is held until registration and discovery below have finished.
+  const reservation = await reserveWorktreePath(baseDir, branch)
+  const targetPath = reservation.path
+  try {
+    const branchExists = await runGitCommand(snapshot.root, [
+      'show-ref',
+      '--verify',
+      '--quiet',
+      `refs/heads/${branch}`,
+    ])
+    const args = branchExists.ok
+      ? ['worktree', 'add', targetPath, branch]
+      : ['worktree', 'add', '-b', branch, targetPath, 'HEAD']
+    const result = await runGitCommand(snapshot.root, args)
+    if (!result.ok) {
+      // Only remove the directory while it is still empty — a competing
+      // request may have legitimately populated it by now.
+      await removeEmptyWorktreeDirectory(targetPath).catch(() => undefined)
+      throw gitError(result.stderr, '无法创建 Git 工作树')
     }
-    throw gitError(result.stderr, '无法创建 Git 工作树')
-  }
 
-  const worktrees = await listGitWorktrees(targetPath)
-  const created = worktrees.find(
-    (candidate) => comparablePath(candidate.path) === comparablePath(targetPath),
-  )
-  if (!created) throw new Error('Git 已创建工作树，但无法从列表中读取它')
-  return created
+    const worktrees = await listGitWorktrees(targetPath)
+    const created = await findWorktreeByPath(worktrees, targetPath)
+    if (!created) throw new Error('Git 已创建工作树，但无法从列表中读取它')
+    return created
+  } finally {
+    await reservation.release().catch(() => undefined)
+  }
 }

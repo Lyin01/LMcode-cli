@@ -4,6 +4,7 @@ import {
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
+  isRetryableGenerateError,
 } from '#/errors';
 import { convertAnthropicError, AnthropicChatProvider } from '#/providers/anthropic';
 import {
@@ -299,6 +300,31 @@ describe('stream error propagation', () => {
         }
       })(),
     ).rejects.toThrow(APIConnectionError);
+  });
+
+  it('raw undici terminated error during stream iteration is retryable', async () => {
+    const provider = createStreamProvider();
+    (provider as any)._client.messages.create = vi
+      .fn()
+      .mockResolvedValue(makeErrorStream(new TypeError('terminated'))) as never;
+
+    const result = await provider.generate(
+      '',
+      [],
+      [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
+    );
+
+    let caught: unknown;
+    try {
+      for await (const _ of result) {
+        void _;
+      }
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(APIConnectionError);
+    expect(isRetryableGenerateError(caught)).toBe(true);
   });
 
   it('APIError with status during stream iteration is converted to APIStatusError', async () => {

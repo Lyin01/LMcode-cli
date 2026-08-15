@@ -31,7 +31,7 @@ describe('desktop tool progress events', () => {
       type: 'turn.started',
       turnId: 1,
       origin: { kind: 'user' },
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
     store.handleEvent('session-a', {
@@ -40,7 +40,7 @@ describe('desktop tool progress events', () => {
       toolCallId: 'call-1',
       name: 'Write',
       args: {},
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
     store.handleEvent('session-a', {
@@ -48,7 +48,7 @@ describe('desktop tool progress events', () => {
       turnId: 1,
       toolCallId: 'call-1',
       update: { kind: 'status', text: '正在运行浏览器校验…' },
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
 
@@ -65,7 +65,7 @@ describe('desktop tool progress events', () => {
       type: 'turn.started',
       turnId: 1,
       origin: { kind: 'user' },
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
     store.handleEvent('session-a', {
@@ -74,7 +74,7 @@ describe('desktop tool progress events', () => {
       toolCallId: 'call-1',
       name: 'Bash',
       args: {},
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
     store.handleEvent('session-a', {
@@ -82,7 +82,7 @@ describe('desktop tool progress events', () => {
       turnId: 1,
       toolCallId: 'call-1',
       update: { kind: 'progress', percent: 42.4 },
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
     expect(useSessionStore.getState().messages[0]?.toolCalls?.[0]?.progress).toBe('42%')
@@ -93,10 +93,50 @@ describe('desktop tool progress events', () => {
       turnId: 1,
       toolCallId: 'call-1',
       update: { kind: 'custom', customKind: 'ping' },
-      agentId: 'agent-a',
+      agentId: 'main',
       sessionId: 'session-a',
     })
     expect(useSessionStore.getState().messages).toBe(before)
     expect(useSessionStore.getState().messages[0]?.toolCalls?.[0]?.progress).toBe('42%')
+  })
+
+  it('records startedAt on tool start and endedAt on tool result', () => {
+    const store = useSessionStore.getState()
+    store.handleEvent('session-a', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+    store.handleEvent('session-a', {
+      type: 'tool.call.started',
+      turnId: 1,
+      toolCallId: 'call-1',
+      name: 'Read',
+      args: { path: 'a.ts' },
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+
+    const started = useSessionStore.getState().messages[0]?.toolCalls?.[0]
+    expect(started?.startedAt).toBeTypeOf('number')
+    expect(started?.endedAt).toBeUndefined()
+
+    const startedAt = started?.startedAt ?? 0
+    store.handleEvent('session-a', {
+      type: 'tool.result',
+      turnId: 1,
+      toolCallId: 'call-1',
+      output: 'ok',
+      isError: false,
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+
+    const finished = useSessionStore.getState().messages[0]?.toolCalls?.[0]
+    expect(finished?.status).toBe('completed')
+    expect(finished?.endedAt).toBeTypeOf('number')
+    expect(finished?.endedAt).toBeGreaterThanOrEqual(startedAt)
   })
 })

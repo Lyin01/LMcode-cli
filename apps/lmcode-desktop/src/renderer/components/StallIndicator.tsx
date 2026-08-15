@@ -10,19 +10,21 @@ import {
 /**
  * Heartbeat shown while a turn is active but no streaming event has arrived
  * for a while (long tool execution such as automatic post-write validation,
- * or a slow first token). Any store event resets the clock; the notice itself
- * re-renders once per second to keep the elapsed time honest.
+ * or a slow first token). Any store event resets the clock — including
+ * retry/interrupted transitions, which only update `streamStatus`; the notice
+ * itself re-renders once per second to keep the elapsed time honest.
  */
 export function StallIndicator() {
   const isStreaming = useSessionStore((s) => s.isStreaming)
   const messages = useSessionStore((s) => s.messages)
+  const streamStatus = useSessionStore((s) => s.streamStatus)
   const lastEventAtRef = useRef(Date.now())
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     lastEventAtRef.current = Date.now()
     setNow(Date.now())
-  }, [messages, isStreaming])
+  }, [messages, isStreaming, streamStatus])
 
   useEffect(() => {
     if (!isStreaming) return

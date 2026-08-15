@@ -18,13 +18,14 @@ import type {
   CronJobInfo,
   BackgroundTaskInfo,
   SessionStatus,
+  Logger,
 } from '@lmcode-cli/lmcode-sdk'
-import { randomUUID } from 'node:crypto'
-import { dirname } from 'node:path'
+import { writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import type { RemoteState } from '../../shared/remote-types.js'
 import type {
-  ApprovalRequestPayload,
-  InteractionSettledPayload,
-  QuestionRequestPayload,
+  DesktopCreateSessionOptions,
+  DesktopNotificationPayload,
 } from '../../shared/ipc-types.js'
 import type {
   GitCommitResult,
@@ -51,8 +52,12 @@ import {
   resolveGitWorktree,
 } from '../git-worktree.js'
 import { ProjectTerminalManager } from '../project-terminal.js'
-import { PendingInteractionRegistry } from './pending-interactions.js'
 import { isTrustedIpcSender } from '../security.js'
+import {
+  CANCELLED_APPROVAL,
+  InteractionHub,
+  type InteractionSurface,
+} from '../remote/interaction-hub.js'
 import {
   buildDesktopPromptInput,
   readFileAttachment,
@@ -66,48 +71,32 @@ import type {
 } from '../../shared/file-types.js'
 import { scheduledSessionIds } from '../scheduled-sessions.js'
 import {
-  addMcpServerArgsSchema,
-  applyGitHunkActionArgsSchema,
-  createCronJobArgsSchema,
-  createGoalArgsSchema,
-  createSessionArgsSchema,
-  discardGitFileChangesArgsSchema,
-  parseIpcArgs,
-  promptArgsSchema,
-  respondApprovalArgsSchema,
-  respondQuestionArgsSchema,
-  setGitFileStagedArgsSchema,
-  setPermissionArgsSchema,
-  setPlanModeArgsSchema,
-  updateGoalStatusArgsSchema,
-  worktreeHandoffArgsSchema,
-} from '../../shared/ipc-schemas.js'
-import type { ZodType } from 'zod'
+  restoreRedactedConfigPatch,
+  sanitizeConfigForRenderer,
+} from '../config-security.js'
+import { ProviderUsageService } from '../provider-usage.js'
+import { isPermissionMode } from '../../shared/permission-mode.js'
+import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types.js'
 
 interface SessionEntry {
   session: Session
   unsubscribeEvent: () => void
 }
 
-const CANCELLED_APPROVAL: ApprovalResponse = { decision: 'cancelled' }
-const REVERSE_RPC_TIMEOUT_MS = 300_000
-
 export interface DesktopHandlerRegistration {
   close(): Promise<void>
 }
 
-function notifyInteractionSettled(
-  mainWindow: BrowserWindow,
-  requestId: string,
-  sessionId: string,
-): void {
-  if (mainWindow.isDestroyed()) return
-  const payload: InteractionSettledPayload = { requestId, sessionId }
-  try {
-    mainWindow.webContents.send('lmcode:interactionSettled', payload)
-  } catch {
-    // Renderer teardown can race the destroyed check.
-  }
+/**
+ * Remote-service control surface used by the settings panel. Implemented by
+ * `RemoteManager`; defined as an interface so the IPC layer never depends on
+ * the manager's implementation details.
+ */
+export interface RemoteController {
+  getState(): RemoteState
+  setEnabled(enabled: boolean): Promise<RemoteState>
+  setPort(port: number): Promise<RemoteState>
+  regenerateToken(): Promise<RemoteState>
 }
 
 /**
@@ -135,6 +124,11 @@ export function registerAllHandlers(
   harness: LmcodeHarness,
   mainWindow: BrowserWindow,
   trustedRendererUrl: string,
+  logger: Logger | undefined = undefined,
+  noProjectWorkDir: string | undefined = undefined,
+  hub: InteractionHub = new InteractionHub(),
+  remote: RemoteController | undefined = undefined,
+  memoryStore: MemoryMemoStore | undefined = undefined,
 ): DesktopHandlerRegistration {
   const invokeChannels: string[] = []
   const eventListeners: Array<{
@@ -142,8 +136,47 @@ export function registerAllHandlers(
     readonly listener: (event: IpcMainEvent, ...args: unknown[]) => void
   }> = []
   const activeSessions = new Map<string, SessionEntry>()
-  const pendingApprovals = new PendingInteractionRegistry<ApprovalResponse>()
-  const pendingQuestions = new PendingInteractionRegistry<QuestionResult>()
+  const credentialRoots = [harness.homeDir, dirname(harness.configPath)]
+
+  // The renderer is the primary interaction surface. Remote clients attach
+  // their own surface so approvals/questions reach every UI that is watching
+  // the session; the first responder settles the request.
+  const rendererSurface: InteractionSurface = {
+    name: 'renderer',
+    sendApproval: (payload) => {
+      if (mainWindow.isDestroyed()) return false
+      try {
+        mainWindow.webContents.send('lmcode:approvalRequest', payload)
+        return true
+      } catch {
+        return false
+      }
+    },
+    sendQuestion: (payload) => {
+      if (mainWindow.isDestroyed()) return false
+      try {
+        mainWindow.webContents.send('lmcode:questionRequest', payload)
+        return true
+      } catch {
+        return false
+      }
+    },
+    notifySettled: (payload) => {
+      if (mainWindow.isDestroyed()) return
+      try {
+        mainWindow.webContents.send('lmcode:interactionSettled', payload)
+      } catch {
+        // Renderer teardown can race the destroyed check.
+      }
+    },
+  }
+  // Idempotent: replace any surface previously registered under this name
+  // (a recreated window re-registers while the old registration may still be
+  // draining its cleanup).
+  hub.detachSurface('renderer')
+  hub.attachSurface(rendererSurface)
+  const auditLog = logger?.createChild({ surface: 'desktop-ipc' })
+  const providerUsage = new ProviderUsageService({ loadConfig: () => harness.getConfig() })
   let closing = false
   let closePromise: Promise<void> | undefined
   const terminalManager = new ProjectTerminalManager((payload: TerminalOutputPayload) => {
@@ -155,9 +188,16 @@ export function registerAllHandlers(
     }
   })
 
-  function settleSessionInteractions(sessionId: string): void {
-    pendingApprovals.settleSession(sessionId, CANCELLED_APPROVAL)
-    pendingQuestions.settleSession(sessionId, null)
+  // The no-project sentinel directory is resolved by the main process only.
+  // The renderer can ask for it (to recognize such sessions) but can never
+  // steer it — `noProject` session requests never accept a caller path.
+  function resolveNoProjectWorkDir(): string {
+    if (noProjectWorkDir) return noProjectWorkDir
+    const homeDir = harness.homeDir
+    if (typeof homeDir === 'string' && homeDir.trim().length > 0) {
+      return join(homeDir, 'no-project-workspace')
+    }
+    throw new Error('The no-project workspace directory is not configured')
   }
 
   /** Set up event forwarding and reverse-RPC handlers for one live session. */
@@ -169,7 +209,7 @@ export function registerAllHandlers(
     if (prior) {
       prior.unsubscribeEvent()
       activeSessions.delete(session.id)
-      settleSessionInteractions(session.id)
+      hub.settleSession(session.id)
     }
 
     const unsubscribeEvent = session.onEvent((event: Event) => {
@@ -193,59 +233,12 @@ export function registerAllHandlers(
         `需要审批：${request.action || '执行操作'}`,
       )
 
-      const requestId = `approval:${session.id}:${randomUUID()}`
-      const promise = pendingApprovals.request(requestId, session.id, {
-        timeoutMs: REVERSE_RPC_TIMEOUT_MS,
-        timeoutValue: CANCELLED_APPROVAL,
-        onSettled: (settledRequestId, sessionId) => {
-          notifyInteractionSettled(mainWindow, settledRequestId, sessionId)
-        },
-      })
-
-      if (!mainWindow.isDestroyed()) {
-        const payload: ApprovalRequestPayload = {
-          sessionId: session.id,
-          requestId,
-          request,
-        }
-        try {
-          mainWindow.webContents.send('lmcode:approvalRequest', payload)
-        } catch {
-          pendingApprovals.settle(requestId, CANCELLED_APPROVAL)
-        }
-      } else {
-        pendingApprovals.settle(requestId, CANCELLED_APPROVAL)
-      }
-      return promise
+      return hub.requestApproval(session.id, request)
     })
 
     session.setQuestionHandler((request: QuestionRequest): Promise<QuestionResult> => {
       if (closing) return Promise.resolve(null)
-
-      const requestId = `question:${session.id}:${randomUUID()}`
-      const promise = pendingQuestions.request(requestId, session.id, {
-        timeoutMs: REVERSE_RPC_TIMEOUT_MS,
-        timeoutValue: null,
-        onSettled: (settledRequestId, sessionId) => {
-          notifyInteractionSettled(mainWindow, settledRequestId, sessionId)
-        },
-      })
-
-      if (!mainWindow.isDestroyed()) {
-        const payload: QuestionRequestPayload = {
-          sessionId: session.id,
-          requestId,
-          request,
-        }
-        try {
-          mainWindow.webContents.send('lmcode:questionRequest', payload)
-        } catch {
-          pendingQuestions.settle(requestId, null)
-        }
-      } else {
-        pendingQuestions.settle(requestId, null)
-      }
-      return promise
+      return hub.requestQuestion(session.id, request)
     })
 
     activeSessions.set(session.id, { session, unsubscribeEvent })
@@ -254,15 +247,21 @@ export function registerAllHandlers(
   function secureInvoke<Args extends unknown[], Result>(
     channel: string,
     listener: (event: IpcMainInvokeEvent, ...args: Args) => Result | Promise<Result>,
-    argsSchema?: ZodType<unknown[]>,
   ): void {
-    ipcMain.handle(channel, (event, ...rawArgs) => {
+    ipcMain.handle(channel, async (event, ...args) => {
       if (closing) throw new Error(`Desktop IPC registration is closed on "${channel}"`)
       if (!isTrustedIpcSender(event, mainWindow.webContents, trustedRendererUrl)) {
         throw new Error(`Rejected IPC from an untrusted renderer on "${channel}"`)
       }
-      const args = argsSchema === undefined ? rawArgs : parseIpcArgs(argsSchema, rawArgs, channel)
-      return listener(event, ...(args as Args))
+      try {
+        return await listener(event, ...(args as Args))
+      } catch (error) {
+        auditLog?.warn('desktop IPC operation failed', {
+          channel,
+          errorKind: error instanceof Error ? 'error' : typeof error,
+        })
+        throw error
+      }
     })
     invokeChannels.push(channel)
   }
@@ -348,23 +347,30 @@ export function registerAllHandlers(
 
   // ── Session management ──────────────────────────────────────────
 
-  secureInvoke('lmcode:createSession', async (_event, opts: {
-    workDir: string
-    model?: string
-    thinking?: string
-    permission?: 'yolo' | 'manual' | 'auto'
-  }): Promise<SessionSummary> => {
-    const workDir = opts.workDir.trim()
+  secureInvoke('lmcode:createSession', async (_event, opts: DesktopCreateSessionOptions): Promise<SessionSummary> => {
+    const requestedWorkDir = opts.workDir?.trim() ?? ''
+    if (opts.noProject === true && requestedWorkDir) {
+      throw new Error('A no-project session cannot also specify a project directory')
+    }
+    const workDir = opts.noProject === true ? resolveNoProjectWorkDir() : requestedWorkDir
     if (!workDir) {
       throw new Error('A project directory is required to create a desktop session')
     }
-    const session = await harness.createSession({ ...opts, workDir })
+    const session = await harness.createSession({
+      workDir,
+      model: opts.model,
+      thinking: opts.thinking,
+      permission: opts.permission,
+    })
     setupSessionListeners(session)
     if (!session.summary) {
       throw new Error('The desktop session was created without a summary')
     }
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'session.create',
+    })
     return session.summary
-  }, createSessionArgsSchema)
+  })
 
   secureInvoke(
     'lmcode:selectWorkDirectory',
@@ -395,16 +401,25 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:deleteSession', async (_event, id: string): Promise<void> => {
     await terminalManager.stop(id)
+    // A resume still in flight for this session would re-attach it to
+    // activeSessions after the delete (the SDK reads the store once at the
+    // start of resumeSession, so it cannot observe a mid-flight deletion).
+    // Let it settle first so the delete below unregisters the session.
+    const inflightResume = resumingSessions.get(id)
+    if (inflightResume) await inflightResume.catch(() => {})
     const entry = activeSessions.get(id)
     if (entry) {
       entry.unsubscribeEvent()
       activeSessions.delete(id)
     }
-    settleSessionInteractions(id)
+    hub.settleSession(id)
     try {
       await harness.deleteSession(id)
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'session.delete',
+      })
     } finally {
-      settleSessionInteractions(id)
+      hub.settleSession(id)
     }
   })
 
@@ -412,6 +427,22 @@ export function registerAllHandlers(
     const result = await harness.exportSession({ id, version: app.getVersion() })
     return result.zipPath
   })
+
+  secureInvoke(
+    'lmcode:saveTextFile',
+    async (
+      _event,
+      input: { readonly suggestedName: string; readonly content: string },
+    ): Promise<string | null> => {
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: '导出为文件',
+        defaultPath: input.suggestedName.trim() || 'export.txt',
+      })
+      if (result.canceled || !result.filePath) return null
+      await writeFile(result.filePath, input.content, 'utf8')
+      return result.filePath
+    },
+  )
 
   secureInvoke('lmcode:listSessions', async (): Promise<readonly SessionSummary[]> => {
     return harness.listSessions()
@@ -427,22 +458,20 @@ export function registerAllHandlers(
     'lmcode:sendMessage',
     async (_event, sessionId: string, request: DesktopPromptRequest): Promise<void> => {
       const entry = await ensureActiveSession(sessionId)
-      await entry.session.prompt(await buildDesktopPromptInput(request))
+      await entry.session.prompt(await buildDesktopPromptInput(request, credentialRoots))
     },
-    promptArgsSchema,
   )
 
   secureInvoke(
     'lmcode:steerMessage',
     async (_event, sessionId: string, request: DesktopPromptRequest): Promise<void> => {
       const entry = await ensureActiveSession(sessionId)
-      await entry.session.steer(await buildDesktopPromptInput(request))
+      await entry.session.steer(await buildDesktopPromptInput(request, credentialRoots))
     },
-    promptArgsSchema,
   )
 
   secureInvoke('lmcode:cancelResponse', async (_event, sessionId: string): Promise<void> => {
-    settleSessionInteractions(sessionId)
+    hub.settleSession(sessionId)
     const entry = activeSessions.get(sessionId)
     if (!entry) throw new Error(`Session "${sessionId}" not found`)
     try {
@@ -450,7 +479,7 @@ export function registerAllHandlers(
     } finally {
       // Cancellation can itself race a new reverse-RPC request. Sweep again
       // after the SDK has finished unwinding the active turn.
-      settleSessionInteractions(sessionId)
+      hub.settleSession(sessionId)
     }
   })
 
@@ -482,10 +511,11 @@ export function registerAllHandlers(
     await entry.session.setThinking(level)
   })
 
-  secureInvoke('lmcode:setPermission', async (_event, sessionId: string, mode: string): Promise<void> => {
+  secureInvoke('lmcode:setPermission', async (_event, sessionId: string, mode: unknown): Promise<void> => {
+    if (!isPermissionMode(mode)) throw new Error('Invalid permission mode')
     const entry = await ensureActiveSession(sessionId)
-    await entry.session.setPermission(mode as 'yolo' | 'manual' | 'auto')
-  }, setPermissionArgsSchema)
+    await entry.session.setPermission(mode)
+  })
 
   secureInvoke(
     'lmcode:createGoal',
@@ -498,7 +528,6 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.createGoal(objective, { replace })
     },
-    createGoalArgsSchema,
   )
 
   secureInvoke(
@@ -519,7 +548,6 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.updateGoalStatus(status)
     },
-    updateGoalStatusArgsSchema,
   )
 
   secureInvoke(
@@ -536,7 +564,6 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.setPlanMode(enabled)
     },
-    setPlanModeArgsSchema,
   )
 
   secureInvoke(
@@ -562,11 +589,11 @@ export function registerAllHandlers(
       entry.unsubscribeEvent()
       activeSessions.delete(sessionId)
     }
-    settleSessionInteractions(sessionId)
+    hub.settleSession(sessionId)
     try {
       await harness.closeSession(sessionId)
     } finally {
-      settleSessionInteractions(sessionId)
+      hub.settleSession(sessionId)
     }
   })
 
@@ -594,7 +621,6 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.createCronJob(input)
     },
-    createCronJobArgsSchema,
   )
 
   secureInvoke(
@@ -640,7 +666,7 @@ export function registerAllHandlers(
   secureInvoke('lmcode:addMcpServer', async (_event, sessionId: string, name: string, config: Record<string, unknown>): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.addMcpServer(name, config)
-  }, addMcpServerArgsSchema)
+  })
 
   secureInvoke('lmcode:stopMcpServer', async (_event, sessionId: string, name: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
@@ -655,23 +681,49 @@ export function registerAllHandlers(
   // ── Config ──────────────────────────────────────────────────────
 
   secureInvoke('lmcode:getConfig', async (): Promise<LmcodeConfig> => {
-    return harness.getConfig()
+    return sanitizeConfigForRenderer(await harness.getConfig())
   })
 
+  secureInvoke(
+    'lmcode:getProviderUsage',
+    async (_event, force: unknown): Promise<ProviderUsageSnapshot> => {
+      return providerUsage.get(force === true)
+    },
+  )
+
   secureInvoke('lmcode:setConfig', async (_event, patch: LmcodeConfigPatch): Promise<LmcodeConfig> => {
-    return harness.setConfig(patch)
+    const current = await harness.getConfig()
+    const config = await harness.setConfig(restoreRedactedConfigPatch(patch, current))
+    providerUsage.invalidate()
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'provider-config.update',
+    })
+    return sanitizeConfigForRenderer(config)
+  })
+
+  secureInvoke('lmcode:removeProvider', async (_event, providerId: string): Promise<LmcodeConfig> => {
+    const config = await harness.removeProvider(providerId)
+    providerUsage.invalidate()
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'provider-config.remove',
+    })
+    return sanitizeConfigForRenderer(config)
+  })
+
+  secureInvoke('lmcode:removeModel', async (_event, modelId: string): Promise<LmcodeConfig> => {
+    return sanitizeConfigForRenderer(await harness.removeModel(modelId))
   })
 
   // ── File operations ─────────────────────────────────────────────
 
   secureInvoke('lmcode:readFileContent', async (_event, filePath: string): Promise<TextAttachment> => {
-    return readTextAttachment(filePath)
+    return readTextAttachment(filePath, credentialRoots)
   })
 
   secureInvoke(
     'lmcode:readFileAttachment',
     async (_event, filePath: string): Promise<FileAttachmentPreview> => {
-      return readFileAttachment(filePath)
+      return readFileAttachment(filePath, credentialRoots)
     },
   )
 
@@ -708,7 +760,6 @@ export function registerAllHandlers(
     ): Promise<void> => {
       await setGitFileStaged(await getSessionWorkDir(sessionId), filePath, staged)
     },
-    setGitFileStagedArgsSchema,
   )
 
   secureInvoke(
@@ -723,7 +774,6 @@ export function registerAllHandlers(
     async (_event, sessionId: string, input: GitHunkActionInput): Promise<void> => {
       await applyGitHunkAction(await getSessionWorkDir(sessionId), input)
     },
-    applyGitHunkActionArgsSchema,
   )
 
   secureInvoke(
@@ -740,8 +790,10 @@ export function registerAllHandlers(
         scope,
         (target) => shell.trashItem(target),
       )
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'git.discard-file',
+      })
     },
-    discardGitFileChangesArgsSchema,
   )
 
   secureInvoke(
@@ -751,13 +803,20 @@ export function registerAllHandlers(
         await getSessionWorkDir(sessionId),
         (target) => shell.trashItem(target),
       )
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'git.discard-all',
+      })
     },
   )
 
   secureInvoke(
     'lmcode:commitGitChanges',
     async (_event, sessionId: string, message: string): Promise<GitCommitResult> => {
-      return commitGitChanges(await getSessionWorkDir(sessionId), message)
+      const result = await commitGitChanges(await getSessionWorkDir(sessionId), message)
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'git.commit',
+      })
+      return result
     },
   )
 
@@ -784,7 +843,6 @@ export function registerAllHandlers(
       )
       return { worktree, session: await forkSessionIntoWorktree(sessionId, worktree) }
     },
-    worktreeHandoffArgsSchema,
   )
 
   secureInvoke(
@@ -800,7 +858,6 @@ export function registerAllHandlers(
       )
       return { worktree, session: await forkSessionIntoWorktree(sessionId, worktree) }
     },
-    worktreeHandoffArgsSchema,
   )
 
   // ── Project terminal ────────────────────────────────────────────
@@ -838,25 +895,53 @@ export function registerAllHandlers(
     return harness.homeDir
   })
 
+  secureInvoke('lmcode:getNoProjectWorkDir', (): string => {
+    return resolveNoProjectWorkDir()
+  })
+
   // ── Approval / Question responses ──────────────────────────────
 
   secureInvoke('lmcode:respondApproval', (_event, payload: {
     requestId: string
     response: ApprovalResponse
   }): void => {
-    if (!pendingApprovals.settle(payload.requestId, payload.response)) {
+    if (!hub.respondApproval(payload.requestId, payload.response)) {
       throw new Error(`Approval request "${payload.requestId}" is no longer pending`)
     }
-  }, respondApprovalArgsSchema)
+  })
 
   secureInvoke('lmcode:respondQuestion', (_event, payload: {
     requestId: string
     result: QuestionResult
   }): void => {
-    if (!pendingQuestions.settle(payload.requestId, payload.result)) {
+    if (!hub.respondQuestion(payload.requestId, payload.result)) {
       throw new Error(`Question request "${payload.requestId}" is no longer pending`)
     }
-  }, respondQuestionArgsSchema)
+  })
+
+  // ── Remote service (settings panel control) ──────────────────────
+
+  if (remote !== undefined) {
+    secureInvoke('lmcode:getRemoteState', async (): Promise<RemoteState> => {
+      return remote.getState()
+    })
+
+    secureInvoke('lmcode:setRemoteEnabled', async (_event, enabled: unknown): Promise<RemoteState> => {
+      if (typeof enabled !== 'boolean') throw new Error('Invalid remote enabled value')
+      return remote.setEnabled(enabled)
+    })
+
+    secureInvoke('lmcode:setRemotePort', async (_event, port: unknown): Promise<RemoteState> => {
+      if (typeof port !== 'number' || !Number.isFinite(port)) {
+        throw new Error('Invalid remote port')
+      }
+      return remote.setPort(port)
+    })
+
+    secureInvoke('lmcode:regenerateRemoteToken', async (): Promise<RemoteState> => {
+      return remote.regenerateToken()
+    })
+  }
 
   // ── App control ─────────────────────────────────────────────────
 
@@ -864,24 +949,46 @@ export function registerAllHandlers(
     app.quit()
   })
 
+  // ── Desktop notifications ──────────────────────────────────────
+
+  // Renderer-originated notifications (currently: a background session's
+  // turn finished). The renderer sees everything while the window is
+  // focused, so only escalate to the OS when the user is looking
+  // elsewhere. Approval notifications keep their own main-side path.
+  secureOn('lmcode:sendNotification', (_event, payload: DesktopNotificationPayload) => {
+    if (mainWindow.isDestroyed() || mainWindow.isFocused()) return
+    if (payload?.kind !== 'turn-completed' || typeof payload.title !== 'string') return
+    const title = payload.title.trim().slice(0, 120) || '新任务'
+    const body = (payload.body ?? '后台任务的回合已完成').slice(0, 200)
+    sendNotification(`LMCODE - ${title}`, body)
+  })
+
   // ── Memory store ───────────────────────────────────────────────
 
-  // Share the user's existing memory store (~/.lmcode/memory), same dir as the
-  // shared config, so the desktop sees the memories the CLI recorded.
-  const memoryStore = new MemoryMemoStore(dirname(harness.configPath))
+  // Keep memory in the same profile boundary as this runtime's config. This is
+  // intentionally isolated from the CLI and from the other desktop profile.
+  // A shared store is injected by the app lifecycle so the remote bridge and
+  // the desktop IPC layer operate on the same SQLite store. When no store is
+  // injected, this handler owns the instance it creates and closes it here.
+  const memoryStoreInstance =
+    memoryStore ?? new MemoryMemoStore(dirname(harness.configPath))
+  const ownsMemoryStore = memoryStore === undefined
 
   secureInvoke('lmcode:listMemories', async (): Promise<MemoryMemoSummary[]> => {
-    const result = await memoryStore.list({ limit: 100 })
+    const result = await memoryStoreInstance.list({ limit: 100 })
     return result.memos
   })
 
   secureInvoke('lmcode:searchMemories', async (_event, query: string): Promise<MemoryMemoSummary[]> => {
-    const result = await memoryStore.list({ search: query, limit: 20 })
+    const result = await memoryStoreInstance.list({ search: query, limit: 20 })
     return result.memos
   })
 
   secureInvoke('lmcode:deleteMemory', async (_event, id: string): Promise<void> => {
-    await memoryStore.delete(id)
+    await memoryStoreInstance.delete(id)
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'memory.delete',
+    })
   })
 
   // ── Background task operations ─────────────────────────────────
@@ -922,14 +1029,15 @@ export function registerAllHandlers(
   // ── Cleanup on window close ─────────────────────────────────────
 
   const cancelAllPendingInteractions = (): void => {
-    pendingApprovals.settleAll(CANCELLED_APPROVAL)
-    pendingQuestions.settleAll(null)
+    hub.settleAll()
   }
 
   // A reload or renderer crash destroys the UI that owns the dialogs. Resolve
   // every reverse-RPC request immediately so agent turns cannot hang forever.
-  const handleNavigation = (_event: Electron.Event, _url: string, _isInPlace: boolean, isMainFrame: boolean): void => {
-    if (isMainFrame) cancelAllPendingInteractions()
+  // In-page navigations (pushState/hash) keep the document and its dialogs
+  // alive, so pending interactions must survive them.
+  const handleNavigation = (_event: Electron.Event, _url: string, isInPlace: boolean, isMainFrame: boolean): void => {
+    if (isMainFrame && !isInPlace) cancelAllPendingInteractions()
   }
   const handleRenderProcessGone = (): void => {
     cancelAllPendingInteractions()
@@ -957,6 +1065,7 @@ export function registerAllHandlers(
     }
 
     runStep(cancelAllPendingInteractions)
+    runStep(() => hub.detachSurface('renderer'))
     for (const entry of activeSessions.values()) {
       runStep(entry.unsubscribeEvent)
       runStep(() => entry.session.setApprovalHandler(undefined))
@@ -969,7 +1078,7 @@ export function registerAllHandlers(
       errors.push(error)
     }
     try {
-      await memoryStore.close()
+      if (ownsMemoryStore) await memoryStoreInstance.close()
     } catch (error) {
       errors.push(error)
     }

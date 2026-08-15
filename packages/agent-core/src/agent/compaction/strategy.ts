@@ -1,6 +1,6 @@
-import type { Message } from "@lmcode-cli/ltod";
-import { estimateTokensForMessage } from "../../utils/tokens";
-import type { CompactionSource } from "./types";
+import type { Message } from '@lmcode-cli/ltod';
+import { estimateTokensForMessage } from '../../utils/tokens';
+import type { CompactionSource } from './types';
 
 export interface CompactionConfig {
   triggerRatio: number;

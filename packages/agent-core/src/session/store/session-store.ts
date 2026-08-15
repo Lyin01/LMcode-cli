@@ -86,20 +86,26 @@ export class SessionStore {
     const dir = this.sessionDirFor({ id: input.id, workDir });
 
     const indexed = await this.findSessionEntry(input.id);
-    if (indexed !== undefined) {
-      await this.delete(input.id);
-    } else if (await isDirectory(dir)) {
-      // Directory exists but no index entry — orphaned from partial delete.
-      await rm(dir, { recursive: true, force: true });
+    if (indexed !== undefined || (await isDirectory(dir))) {
+      throw new LmcodeError(
+        ErrorCodes.SESSION_ALREADY_EXISTS,
+        `Session "${input.id}" already exists`,
+      );
     }
 
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    await appendSessionIndexEntry(this.homeDir, {
-      sessionId: input.id,
-      sessionDir: dir,
-      workDir,
-    });
-    return this.summaryFromDir(input.id, dir, workDir);
+    try {
+      await appendSessionIndexEntry(this.homeDir, {
+        sessionId: input.id,
+        sessionDir: dir,
+        workDir,
+      });
+      return await this.summaryFromDir(input.id, dir, workDir);
+    } catch (error) {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+      await removeSessionIndexEntry(this.homeDir, input.id).catch(() => {});
+      throw error;
+    }
   }
 
   async fork(input: ForkSessionRecordInput): Promise<SessionSummary> {

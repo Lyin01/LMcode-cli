@@ -10,6 +10,7 @@ import {
 } from '../src/main/git-worktree'
 
 const temporaryDirectories: string[] = []
+const GIT_INTEGRATION_TEST_TIMEOUT_MS = 30_000
 
 function git(workDir: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -48,12 +49,17 @@ async function createRepository(): Promise<{
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
-      fs.rm(directory, { recursive: true, force: true }),
+      fs.rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: process.platform === 'win32' ? 5 : 0,
+        retryDelay: 100,
+      }),
     ),
   )
 })
 
-describe('desktop Git worktrees', () => {
+describe('desktop Git worktrees', { timeout: GIT_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it('creates an isolated branch and returns it as the current worktree', async () => {
     const { repository, storage } = await createRepository()
     const initial = await listGitWorktrees(repository)
@@ -85,5 +91,49 @@ describe('desktop Git worktrees', () => {
       '分支名称不符合 Git 规范',
     )
     await expect(fs.access(path.join(storage, 'worktrees'))).rejects.toBeDefined()
+  })
+
+  it('keeps the surviving worktree intact when concurrent same-branch requests race', async () => {
+    const { repository, storage } = await createRepository()
+
+    const results = await Promise.allSettled([
+      createGitWorktree(repository, storage, 'feature/duplicate'),
+      createGitWorktree(repository, storage, 'feature/duplicate'),
+    ])
+
+    // Exactly one request may win the branch; the loser must fail without
+    // deleting the winner's checked-out files.
+    const created = results.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value] : [],
+    )
+    const failed = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
+    )
+    expect(created).toHaveLength(1)
+    expect(failed).toHaveLength(1)
+    const surviving = created[0]
+    if (surviving === undefined) throw new Error('expected one surviving worktree')
+    await expect(fs.readFile(path.join(surviving.path, 'README.md'), 'utf8')).resolves.toContain(
+      'worktree test',
+    )
+    await expect(listGitWorktrees(repository)).resolves.toHaveLength(2)
+  })
+
+  it('gives slug-colliding branches distinct live worktrees', async () => {
+    const { repository, storage } = await createRepository()
+
+    const [slashBranch, dashBranch] = await Promise.all([
+      createGitWorktree(repository, storage, 'feature/collision'),
+      createGitWorktree(repository, storage, 'feature-collision'),
+    ])
+
+    expect(slashBranch.path).not.toBe(dashBranch.path)
+    await expect(
+      fs.readFile(path.join(slashBranch.path, 'README.md'), 'utf8'),
+    ).resolves.toContain('worktree test')
+    await expect(
+      fs.readFile(path.join(dashBranch.path, 'README.md'), 'utf8'),
+    ).resolves.toContain('worktree test')
+    await expect(listGitWorktrees(repository)).resolves.toHaveLength(3)
   })
 })

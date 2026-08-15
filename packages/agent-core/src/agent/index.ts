@@ -248,7 +248,7 @@ export class Agent {
     }
     this.sessionMemory = new SessionMemory();
     this.workingSet = new WorkingSet();
-    this.dreamTracker = new DreamTracker(lmcodeHomeDir ?? '');
+    this.dreamTracker = new DreamTracker(lmcodeHomeDir);
     // Start loading the persisted dream state immediately so the first
     // turn's step-1 check (which awaits the same promise) sees the real
     // counters instead of the defaults — without this a single-turn

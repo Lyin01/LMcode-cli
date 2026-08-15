@@ -151,6 +151,10 @@ pnpm install
 pnpm run dev:cli
 ```
 
+开发入口默认使用 `~/.lmcode-development`，不会读取或写入生产目录
+`~/.lmcode`。如需自定义开发数据目录，请使用 `LMCODE_DEVELOPMENT_HOME`；
+它不能与生产 `LMCODE_HOME` 指向同一路径。
+
 提交前常用的检查：
 
 ```bash

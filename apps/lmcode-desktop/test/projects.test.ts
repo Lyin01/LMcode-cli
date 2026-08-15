@@ -65,6 +65,32 @@ describe('collectProjects', () => {
   it('skips sessions without a usable working directory', () => {
     expect(collectProjects([session('s1', '   ', 10)])).toEqual([])
   })
+
+  it('excludes the no-project sentinel directory from the project list', () => {
+    const projects = collectProjects(
+      [session('s1', 'C:/repo-a', 10), session('s2', 'C:/data/no-project-workspace', 20)],
+      'C:/data/no-project-workspace',
+    )
+
+    expect(projects).toEqual([
+      { workDir: 'C:/repo-a', sessionCount: 1, latestActivity: 10 },
+    ])
+  })
+
+  it('recognizes Windows sentinel paths across separator and case variants', () => {
+    const projects = collectProjects(
+      [
+        session(
+          's1',
+          'C:/Users/Owner/AppData/Roaming/LMCODE/no-project-workspace/',
+          10,
+        ),
+      ],
+      'c:\\users\\owner\\appdata\\roaming\\lmcode\\no-project-workspace',
+    )
+
+    expect(projects).toEqual([])
+  })
 })
 
 describe('groupSessionsByProject', () => {
@@ -89,6 +115,20 @@ describe('groupSessionsByProject', () => {
       session('s2', 'C:/repo-b', 30),
     ])
     expect(groups.map((group) => group.workDir)).toEqual(['C:/repo-b', 'C:/repo-a'])
+  })
+
+  it('buckets sentinel-directory sessions into the unassociated group', () => {
+    const groups = groupSessionsByProject(
+      [
+        session('s1', 'C:/repo-a', 10),
+        session('s2', 'C:/data/no-project-workspace', 30),
+      ],
+      'C:/data/no-project-workspace',
+      'C:/data/no-project-workspace',
+    )
+
+    expect(groups.map((group) => group.workDir)).toEqual(['', 'C:/repo-a'])
+    expect(groups[0]?.sessions.map((item) => item.id)).toEqual(['s2'])
   })
 })
 

@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { X, Terminal, Square, Clock, CheckCircle2, XCircle, AlertTriangle, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { X, Terminal, Square, Clock, CheckCircle2, XCircle, AlertTriangle, Loader2, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTaskStore, type TaskEntry } from '@/stores/task-store'
 
@@ -32,12 +32,35 @@ const STATUS_CONFIG: Record<
 function TaskCard({ task }: { task: TaskEntry }) {
   const cfg = STATUS_CONFIG[task.status]
   const isActive = task.status === 'running' || task.status === 'awaiting_approval'
+  const [outputOpen, setOutputOpen] = useState(false)
+  const [output, setOutput] = useState<string | null>(null)
+  const [outputLoading, setOutputLoading] = useState(false)
+  const [outputError, setOutputError] = useState<string | null>(null)
 
   const handleStop = async () => {
     try {
       await window.lmcodeAPI.stopTask(task.sessionId, task.taskId)
     } catch (err) {
       console.error('Failed to stop task:', err)
+    }
+  }
+
+  const handleToggleOutput = async () => {
+    if (outputOpen) {
+      setOutputOpen(false)
+      return
+    }
+    setOutputOpen(true)
+    if (output !== null || outputLoading) return
+    setOutputLoading(true)
+    setOutputError(null)
+    try {
+      const text = await window.lmcodeAPI.getTaskOutput(task.sessionId, task.taskId)
+      setOutput(text)
+    } catch (err) {
+      setOutputError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOutputLoading(false)
     }
   }
 
@@ -81,6 +104,38 @@ function TaskCard({ task }: { task: TaskEntry }) {
           <Square size={10} />
           停止任务
         </button>
+      )}
+
+      <button
+        onClick={handleToggleOutput}
+        className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-accent-text)]"
+      >
+        <FileText size={10} />
+        {outputOpen ? '收起输出' : '查看输出'}
+      </button>
+
+      {outputOpen && (
+        <div className="mt-2 overflow-hidden rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-base)]">
+          <div className="border-b border-[var(--lm-border)] px-2.5 py-1.5 text-[10px] font-medium text-[var(--lm-text-muted)]">
+            输出
+          </div>
+          <div className="max-h-56 overflow-y-auto p-2">
+            {outputLoading ? (
+              <p className="flex items-center gap-1.5 text-[11px] text-[var(--lm-text-muted)]">
+                <Loader2 size={11} className="lm-spin" />
+                正在加载输出…
+              </p>
+            ) : outputError ? (
+              <p className="text-[11px] text-[var(--lm-error)]">读取失败：{outputError}</p>
+            ) : output !== null && output.trim().length === 0 ? (
+              <p className="text-[11px] text-[var(--lm-text-muted)]">（任务无输出）</p>
+            ) : (
+              <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-[var(--lm-text-secondary)]">
+                {output}
+              </pre>
+            )}
+          </div>
+        </div>
       )}
 
       {task.status === 'killed' && task.stopReason && (

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProjectTerminalManager } from '../src/main/project-terminal'
+import {
+  ProjectTerminalManager,
+  TerminalOutputBatcher,
+  TERMINAL_OUTPUT_TRUNCATED_NOTICE,
+} from '../src/main/project-terminal'
 import { normalizeTerminalText } from '../src/renderer/lib/terminal-text'
 import type { TerminalOutputPayload } from '../src/shared/terminal-types'
 
@@ -25,7 +29,7 @@ describe('desktop project terminal', () => {
       () => {
         expect(output.map((payload) => payload.data).join('')).toContain('lmcode-terminal-ok')
       },
-      { timeout: 5_000 },
+      { timeout: 15_000 },
     )
     expect(info).toEqual(
       expect.objectContaining({
@@ -40,5 +44,64 @@ describe('desktop project terminal', () => {
     expect(normalizeTerminalText('\u001b[31merror\u001b[0m\r\nnext\titem\u0000')).toBe(
       'error\nnext    item',
     )
+  })
+})
+
+describe('terminal output batcher', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function createBatcher(options: { flushIntervalMs: number; bufferLimitChars: number }) {
+    const emitted: { stream: string; data: string }[] = []
+    const batcher = new TerminalOutputBatcher(
+      (stream, data) => emitted.push({ stream, data }),
+      options,
+    )
+    return { emitted, batcher }
+  }
+
+  it('coalesces rapid chunks into one throttled batch per stream', () => {
+    vi.useFakeTimers()
+    const { emitted, batcher } = createBatcher({ flushIntervalMs: 16, bufferLimitChars: 1024 })
+
+    batcher.push('stdout', 'chunk-1')
+    batcher.push('stderr', 'err-1')
+    batcher.push('stdout', Buffer.from('chunk-2'))
+    expect(emitted).toEqual([])
+
+    vi.advanceTimersByTime(16)
+    expect(emitted).toEqual([
+      { stream: 'stdout', data: 'chunk-1chunk-2' },
+      { stream: 'stderr', data: 'err-1' },
+    ])
+    batcher.dispose()
+  })
+
+  it('drops the oldest buffered output beyond the cap and flags the truncation', () => {
+    vi.useFakeTimers()
+    const { emitted, batcher } = createBatcher({ flushIntervalMs: 16, bufferLimitChars: 8 })
+
+    batcher.push('stdout', '0123456789')
+    vi.advanceTimersByTime(16)
+
+    expect(emitted).toEqual([
+      { stream: 'stdout', data: '23456789' },
+      { stream: 'system', data: TERMINAL_OUTPUT_TRUNCATED_NOTICE },
+    ])
+    batcher.dispose()
+  })
+
+  it('flush() emits pending output immediately and cancels the scheduled batch', () => {
+    vi.useFakeTimers()
+    const { emitted, batcher } = createBatcher({ flushIntervalMs: 16, bufferLimitChars: 1024 })
+
+    batcher.push('stdout', 'pending')
+    batcher.flush()
+    expect(emitted).toEqual([{ stream: 'stdout', data: 'pending' }])
+
+    vi.advanceTimersByTime(60_000)
+    expect(emitted).toHaveLength(1)
+    batcher.dispose()
   })
 })

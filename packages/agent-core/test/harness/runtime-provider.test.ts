@@ -625,6 +625,32 @@ describe('ProviderManager prompt cache key', () => {
   });
 });
 
+describe('ProviderManager disabled providers', () => {
+  it('rejects aliases whose provider is disabled', () => {
+    const manager = new ProviderManager({
+      config: {
+        ...BASE_CONFIG,
+        providers: {
+          'managed:lmcode': {
+            ...BASE_CONFIG.providers['managed:lmcode']!,
+            enabled: false,
+          },
+        },
+      },
+    });
+
+    expect(() => manager.resolveProviderConfig('lmcode/lmcode-for-coding')).toThrow(LmcodeError);
+    expect(() => manager.resolveProviderConfig('lmcode/lmcode-for-coding')).toThrow(/disabled/);
+  });
+
+  it('treats providers without an enabled field as enabled', () => {
+    const manager = new ProviderManager({ config: BASE_CONFIG });
+
+    const resolved = manager.resolveProviderConfig('lmcode/lmcode-for-coding');
+    expect(resolved.providerName).toBe('managed:lmcode');
+  });
+});
+
 describe('resolveThinkingLevel', () => {
   it('normalizes requested thinking into a concrete effort', () => {
     expect(

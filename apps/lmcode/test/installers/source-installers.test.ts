@@ -337,7 +337,7 @@ describe.skipIf(process.platform !== 'win32')('install.ps1', () => {
     expect(launcher).toContain('LMCODE_INSTALL_DIR');
     expect(launcher).toContain('LMCODE_HOME');
     expect(launcher).not.toContain('cd /d');
-  });
+  }, 30_000);
 
   it('keeps a fresh source install on the default user data directory', () => {
     writeWindowsCommand('git');

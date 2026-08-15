@@ -22,3 +22,8 @@ dream-lock.json
 # Session export artifact accidentally written to the repo root by the
 # export tests/CLI; regenerated (with a fresh timestamp) on every run.
 session_default_output.zip
+
+# Runtime credentials and per-environment overrides
+.env
+.env.*
+!.env.example

@@ -49,6 +49,40 @@ describe('LmcodeCore session lifecycle', () => {
     expect(core.sessions.get(created.id)).not.toBe(session);
     await rpc.closeSession({ sessionId: created.id });
   });
+
+  it('never overwrites a persisted session when an explicit id is reused', async () => {
+    const { rpc, workDir } = await createCoreHarness('lmcode-core-persisted-duplicate-');
+    const created = await rpc.createSession({ id: 'ses_persisted_duplicate', workDir });
+    await rpc.renameSession({ sessionId: created.id, title: 'Preserve this session' });
+    await rpc.closeSession({ sessionId: created.id });
+
+    await expect(
+      rpc.createSession({ id: created.id, workDir }),
+    ).rejects.toMatchObject({ code: 'session.already_exists' });
+
+    const resumed = await rpc.resumeSession({ sessionId: created.id });
+    expect(resumed.title).toBe('Preserve this session');
+    await rpc.closeSession({ sessionId: created.id });
+  });
+
+  it('rolls back persisted state when session initialization fails', async () => {
+    const { core, rpc, workDir } = await createCoreHarness('lmcode-core-create-rollback-');
+    vi.spyOn(
+      core as unknown as { resolveRuntime: () => Promise<never> },
+      'resolveRuntime',
+    ).mockRejectedValueOnce(new Error('runtime bootstrap failed'));
+
+    await expect(
+      rpc.createSession({ id: 'ses_create_rollback', workDir }),
+    ).rejects.toThrow('runtime bootstrap failed');
+    await expect(
+      rpc.listSessions({ sessionId: 'ses_create_rollback' }),
+    ).resolves.toEqual([]);
+
+    const retried = await rpc.createSession({ id: 'ses_create_rollback', workDir });
+    expect(retried.id).toBe('ses_create_rollback');
+    await rpc.closeSession({ sessionId: retried.id });
+  });
 });
 
 async function createCoreHarness(prefix: string) {

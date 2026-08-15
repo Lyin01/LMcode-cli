@@ -1,6 +1,6 @@
 # lmcode 开发指南
 
-> **项目所有者 / 唯一开发者**：Lyin01 (Liumir)。当前与你对话的人就是 LMcode 的创建者和维护者。GitHub 认证通过 git credential store 配置，仓库位于 `E:\project for cc\lmcode` —— 需要时可申请推送权限。
+> **项目所有者 / 唯一开发者**：Lyin01 (Liumir)。当前与你对话的人就是 LMcode 的创建者和维护者。GitHub 认证通过 git credential store 配置，仓库位于 `E:\lmcode-desktop-source` —— 需要时可申请推送权限。
 >
 > 本指南涵盖整个 monorepo。标记为 **apps/lmcode** 的章节仅限该应用；其余内容适用于所有工作区包。
 
