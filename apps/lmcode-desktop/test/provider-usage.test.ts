@@ -3,6 +3,7 @@ import type { LmcodeConfig } from '@lmcode-cli/lmcode-sdk'
 import {
   fetchConfiguredProviderUsage,
   parseMoonshotBalancePayload,
+  parseOpenCodeGoUsagePayload,
   parseSubscriptionUsagePayload,
   ProviderUsageService,
 } from '../src/main/provider-usage'
@@ -147,5 +148,57 @@ describe('desktop provider usage', () => {
       cash: 40,
       bonus: 9.5,
     }])
+  })
+
+  it('queries OpenCode Go usage once and attributes it to the default provider', async () => {
+    const config: LmcodeConfig = {
+      defaultProvider: 'opencode-go-rsp',
+      defaultModel: 'opencode-go-rsp/deepseek-v4-flash',
+      models: {
+        'opencode-go-rsp/deepseek-v4-flash': {
+          provider: 'opencode-go-rsp',
+          model: 'deepseek-v4-flash',
+          maxContextSize: 100000,
+        },
+      },
+      providers: {
+        'opencode-go': {
+          type: 'openai',
+          baseUrl: 'https://opencode.ai/zen/go/v1',
+          apiKey: 'go-secret',
+        },
+        'opencode-go-rsp': {
+          type: 'openai_responses',
+          baseUrl: 'https://opencode.ai/zen/go/v1',
+          apiKey: 'go-secret',
+        },
+      },
+    }
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
+      usage: {
+        rolling: { status: 'ok', percent: 38.4, resetsAt: '2026-08-16T20:00:00Z' },
+        weekly: { status: 'ok', percent: 62, resetsAt: '2026-08-17T00:00:00Z' },
+        monthly: { status: 'ok', percent: 11, resetsAt: '2026-09-01T00:00:00Z' },
+      },
+    }))
+
+    const snapshot = await fetchConfiguredProviderUsage(config, {
+      fetchImpl: fetchMock,
+      now: () => 1234,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(requestUrl(fetchMock.mock.calls[0]![0])).toBe('https://opencode.ai/zen/go/v1/usage')
+    expect(snapshot.subscriptions).toHaveLength(1)
+    expect(snapshot.subscriptions[0]?.providerId).toBe('opencode-go-rsp')
+    expect(snapshot.subscriptions[0]?.summary).toMatchObject({ name: '滚动', used: 38, limit: 100 })
+    expect(snapshot.subscriptions[0]?.limits).toHaveLength(2)
+    expect(snapshot.subscriptions[0]?.limits[1]).toMatchObject({ name: '每月', used: 11 })
+  })
+
+  it('rejects malformed OpenCode Go usage payloads', () => {
+    expect(parseOpenCodeGoUsagePayload({ usage: { rolling: { status: 'ok' } } })).toBeNull()
+    expect(parseOpenCodeGoUsagePayload({ usage: { rolling: { status: 'ok', percent: 5, resetsAt: 'not-a-date' } } })).toBeNull()
+    expect(parseOpenCodeGoUsagePayload(null)).toBeNull()
   })
 })
