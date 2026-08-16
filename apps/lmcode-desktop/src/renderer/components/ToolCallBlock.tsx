@@ -3,11 +3,11 @@ import { cn } from '@/lib/utils'
 import type { ToolCallInfo } from '@/types'
 import { artifactIdForToolCall, useArtifactsStore } from '@/stores/artifacts-store'
 import { pruneToolOutput, formatCharCount } from '@/lib/tool-pruner'
+import { toolFamily, summarizeToolArgs, summarizeToolResult } from '@/lib/tool-summary'
 import {
   Loader2,
   CheckCircle2,
   XCircle,
-  Clock,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -23,128 +23,46 @@ import {
   Code2,
   Maximize2,
   Minimize2,
+  Globe,
 } from 'lucide-react'
 
 interface ToolCallBlockProps {
   toolCall: ToolCallInfo
 }
 
+const FAMILY_ICONS = {
+  bash: Terminal,
+  read: FileText,
+  write: FileCode,
+  edit: FileEdit,
+  search: Search,
+  todo: ListTodo,
+  agent: Bot,
+  web: Globe,
+  other: Sparkles,
+} as const
+
+const FAMILY_TITLES = {
+  bash: 'Bash',
+  read: 'Read',
+  write: 'Write',
+  edit: 'Edit',
+  search: 'Search',
+  todo: 'TodoList',
+  agent: 'Agent',
+  web: 'Web',
+} as const
+
 interface ToolMeta {
-  variant: 'terminal' | 'read' | 'write' | 'edit' | 'search' | 'todo' | 'subagent' | 'other'
+  variant: keyof typeof FAMILY_ICONS
   title: string
   icon: typeof Terminal
-  summary?: string
 }
 
 function classifyTool(toolName: string, argsRaw?: string): ToolMeta {
-  const name = (toolName || '').toLowerCase()
-  let parsedArgs: Record<string, unknown> | null = null
-  if (argsRaw) {
-    try {
-      parsedArgs = JSON.parse(argsRaw)
-    } catch {
-      // Ignore JSON parse error
-    }
-  }
-
-  const getArg = (keys: string[]): string | undefined => {
-    if (!parsedArgs) return undefined
-    for (const k of keys) {
-      const v = parsedArgs[k]
-      if (typeof v === 'string' && v.trim()) return v.trim()
-    }
-    return undefined
-  }
-
-  // 1. Terminal / Shell
-  if (name.includes('command') || name.includes('bash') || name.includes('pwsh') || name.includes('terminal') || name.includes('exec')) {
-    const cmd = getArg(['CommandLine', 'command', 'cmd', 'script'])
-    const shortCmd = cmd ? cmd.split('\n')[0]?.slice(0, 50) : undefined
-    return {
-      variant: 'terminal',
-      title: 'Bash',
-      icon: Terminal,
-      summary: shortCmd,
-    }
-  }
-
-  // 2. Read File / URL
-  if (name.includes('view_file') || name.includes('read_file') || name.includes('read_url') || name.startsWith('read')) {
-    const path = getArg(['AbsolutePath', 'TargetFile', 'path', 'filePath', 'Url', 'url'])
-    const shortPath = path ? path.replace(/^[a-zA-Z]:[/\\]/, '').split(/[/\\]/).slice(-2).join('/') : undefined
-    return {
-      variant: 'read',
-      title: 'Read',
-      icon: FileText,
-      summary: shortPath || path,
-    }
-  }
-
-  // 3. Write / Create File
-  if (name.includes('write_to_file') || name.includes('write_file') || name.startsWith('write') || name.includes('create_file')) {
-    const path = getArg(['TargetFile', 'AbsolutePath', 'path', 'filePath'])
-    const shortPath = path ? path.replace(/^[a-zA-Z]:[/\\]/, '').split(/[/\\]/).slice(-2).join('/') : undefined
-    return {
-      variant: 'write',
-      title: 'Write',
-      icon: FileCode,
-      summary: shortPath || path,
-    }
-  }
-
-  // 4. Edit / Replace File
-  if (name.includes('replace_file') || name.includes('multi_replace') || name.includes('edit_file') || name.startsWith('edit')) {
-    const path = getArg(['TargetFile', 'AbsolutePath', 'path', 'filePath'])
-    const shortPath = path ? path.replace(/^[a-zA-Z]:[/\\]/, '').split(/[/\\]/).slice(-2).join('/') : undefined
-    return {
-      variant: 'edit',
-      title: 'Edit',
-      icon: FileEdit,
-      summary: shortPath || path,
-    }
-  }
-
-  // 5. Search / Grep / Glob
-  if (name.includes('search') || name.includes('grep') || name.includes('list_dir') || name.includes('glob') || name.includes('find')) {
-    const query = getArg(['Query', 'query', 'pattern', 'DirectoryPath', 'path'])
-    return {
-      variant: 'search',
-      title: 'Search',
-      icon: Search,
-      summary: query ? `"${query.slice(0, 40)}"` : undefined,
-    }
-  }
-
-  // 6. Todo / Task List
-  if (name.includes('todo') || name.includes('task')) {
-    const title = getArg(['Prompt', 'title', 'task', 'description'])
-    return {
-      variant: 'todo',
-      title: 'TodoList',
-      icon: ListTodo,
-      summary: title ? title.slice(0, 40) : undefined,
-    }
-  }
-
-  // 7. Subagents
-  if (name.includes('subagent') || name.includes('agent')) {
-    const role = getArg(['Role', 'role', 'name', 'Prompt'])
-    return {
-      variant: 'subagent',
-      title: 'Subagent',
-      icon: Bot,
-      summary: role ? role.slice(0, 40) : undefined,
-    }
-  }
-
-  // Default fallback
-  const firstVal = parsedArgs ? Object.values(parsedArgs).find((v) => typeof v === 'string' && v.trim()) as string : undefined
-  return {
-    variant: 'other',
-    title: toolName || 'Tool',
-    icon: Sparkles,
-    summary: firstVal ? firstVal.slice(0, 40) : undefined,
-  }
+  const family = toolFamily(toolName, argsRaw)
+  const title = family === 'other' ? toolName || 'Tool' : FAMILY_TITLES[family]
+  return { variant: family, icon: FAMILY_ICONS[family], title }
 }
 
 export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
@@ -167,8 +85,18 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
     duration !== null ? (duration < 1000 ? `${duration}ms` : `${(duration / 1000).toFixed(1)}s`) : null
 
   const isRunning = toolCall.status === 'running'
+  const isPending = toolCall.status === 'pending'
   const isFailed = toolCall.status === 'failed'
   const isCompleted = toolCall.status === 'completed'
+
+  // 运行中展示「要做什么」（参数摘要），结束后展示「做成了什么」（结果摘要）。
+  const summary = useMemo(() => {
+    if (isCompleted || isFailed) {
+      return summarizeToolResult(toolCall.toolName, toolCall.args, toolCall.result, isFailed)
+        ?? summarizeToolArgs(toolCall.toolName, toolCall.args)
+    }
+    return summarizeToolArgs(toolCall.toolName, toolCall.args)
+  }, [toolCall.toolName, toolCall.args, toolCall.result, isCompleted, isFailed])
 
   const prunedResult = useMemo(() => {
     if (!toolCall.result) return null
@@ -182,54 +110,63 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
     setTimeout(() => setCopied(false), 1500)
   }
 
+  // 折叠态：无边框单行（ZCode 风格「工具 · 摘要」）；展开态才呈现卡片细节。
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[12.5px] transition-all duration-150 hover:border-[var(--lm-border-strong)]">
-      {/* DSH-style Header Row */}
+    <div
+      className={cn(
+        'overflow-hidden rounded-lg text-[12.5px] transition-all duration-150',
+        expanded
+          ? 'border border-[var(--lm-border)] bg-[var(--lm-bg-surface)]'
+          : 'border border-transparent hover:border-[var(--lm-border)] hover:bg-[var(--lm-bg-surface)]/60',
+      )}
+    >
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
+        className="flex w-full items-center gap-2 px-2 py-[5px] text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
       >
         {expanded ? (
-          <ChevronDown size={14} className="text-[var(--lm-text-muted)] shrink-0 transition-transform" />
+          <ChevronDown size={13} className="text-[var(--lm-text-muted)] shrink-0 transition-transform" />
         ) : (
-          <ChevronRight size={14} className="text-[var(--lm-text-muted)] shrink-0 transition-transform" />
+          <ChevronRight size={13} className="text-[var(--lm-text-muted)] shrink-0 transition-transform" />
         )}
 
-        <div className="flex items-center gap-2 min-w-0">
-          <ToolIcon size={14} className="text-[var(--lm-text-secondary)] shrink-0" />
-          <span className="font-semibold text-[var(--lm-text-primary)] shrink-0">{meta.title}</span>
-          {meta.summary && (
-            <span className="truncate font-mono text-[11.5px] text-[var(--lm-text-muted)]">
-              {meta.summary}
-            </span>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <ToolIcon size={13} className="text-[var(--lm-text-muted)] shrink-0" />
+          <span className="shrink-0 font-medium text-[var(--lm-text-secondary)]">{meta.title}</span>
+          {summary && (
+            <>
+              <span className="shrink-0 text-[var(--lm-text-muted)]/60">·</span>
+              <span className="truncate font-mono text-[11.5px] text-[var(--lm-text-muted)]">{summary}</span>
+            </>
           )}
         </div>
 
-        {/* Right Status Badge (DSH Style) */}
-        <div className="ml-auto flex items-center gap-2 shrink-0">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {isRunning && (
-            <span className="flex items-center gap-1.5 font-medium text-[11.5px] text-[var(--lm-accent-text)]">
-              <Loader2 size={13} className="lm-spin text-[var(--lm-accent-text)]" />
+            <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--lm-accent-text)]">
+              <Loader2 size={12} className="lm-spin" />
               <span>运行中</span>
             </span>
           )}
-
-          {isCompleted && (
-            <span className="flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--lm-success)]">
-              <CheckCircle2 size={13} />
-              <span>已完成</span>
+          {isPending && (
+            <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--lm-text-muted)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--lm-text-muted)]/50" />
+              <span>等待</span>
             </span>
           )}
-
+          {isCompleted && (
+            <span className="flex items-center text-[var(--lm-success)]">
+              <CheckCircle2 size={13} />
+            </span>
+          )}
           {isFailed && (
-            <span className="flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--lm-error)]">
+            <span className="flex items-center gap-1 text-[11px] font-medium text-[var(--lm-error)]">
               <XCircle size={13} />
               <span>失败</span>
             </span>
           )}
-
           {durationLabel && (
-            <span className="font-mono text-[10.5px] text-[var(--lm-text-muted)]">
+            <span className="font-mono text-[10.5px] text-[var(--lm-text-muted)]/70">
               {durationLabel}
             </span>
           )}
@@ -238,7 +175,7 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
 
       {/* Expanded Details Pane */}
       {expanded && (
-        <div className="border-t border-[var(--lm-border)] bg-[var(--lm-bg-base)]/50 divide-y divide-[var(--lm-border)]">
+        <div className="divide-y divide-[var(--lm-border)] border-t border-[var(--lm-border)] bg-[var(--lm-bg-base)]/50">
           {/* Tool Parameters */}
           {toolCall.args && (
             <div className="p-3">
