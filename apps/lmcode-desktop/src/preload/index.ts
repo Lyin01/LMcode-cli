@@ -267,6 +267,19 @@ const lmcodeAPI = {
 
   getHomeDir: () => ipcRenderer.invoke('lmcode:getHomeDir'),
 
+  // 点击对话里的输出文件 / 链接：用系统默认程序打开本地路径，
+  // 或把 https 外链交给系统浏览器；右键菜单提供资源管理器定位与 VSCode 打开。
+
+  openPath: (filePath: string): Promise<string> => ipcRenderer.invoke('lmcode:openPath', filePath),
+
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('lmcode:openExternal', url),
+
+  showItemInFolder: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke('lmcode:showItemInFolder', filePath),
+
+  openInVscode: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke('lmcode:openInVscode', filePath),
+
   // ── Event listeners (main → renderer) ───────────────────────────
 
   onSessionEvent: (callback: (event: SessionEventPayload) => void) => {

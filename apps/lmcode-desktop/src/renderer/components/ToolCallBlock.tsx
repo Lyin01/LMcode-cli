@@ -3,7 +3,8 @@ import { cn } from '@/lib/utils'
 import type { ToolCallInfo } from '@/types'
 import { artifactIdForToolCall, useArtifactsStore } from '@/stores/artifacts-store'
 import { pruneToolOutput, formatCharCount } from '@/lib/tool-pruner'
-import { toolFamily, summarizeToolArgs, summarizeToolResult } from '@/lib/tool-summary'
+import { toolFamily, summarizeToolArgs, summarizeToolResult, toolFilePath } from '@/lib/tool-summary'
+import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
 import {
   Loader2,
   CheckCircle2,
@@ -69,6 +70,11 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false)
   const [showFullOutput, setShowFullOutput] = useState(false)
   const [copied, setCopied] = useState(false)
+  const fileMenu = useFileContextMenu()
+  const filePath = useMemo(
+    () => toolFilePath(toolCall.toolName, toolCall.args),
+    [toolCall.toolName, toolCall.args],
+  )
 
   const meta = useMemo(() => classifyTool(toolCall.toolName, toolCall.args), [toolCall.toolName, toolCall.args])
   const ToolIcon = meta.icon
@@ -119,7 +125,9 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
           ? 'border border-[var(--lm-border)] bg-[var(--lm-bg-surface)]'
           : 'border border-transparent hover:border-[var(--lm-border)] hover:bg-[var(--lm-bg-surface)]/60',
       )}
+      onContextMenu={filePath === undefined ? undefined : fileMenu.openFromEvent(filePath)}
     >
+      {fileMenu.menu}
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-2 py-[5px] text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
@@ -136,7 +144,28 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
           {summary && (
             <>
               <span className="shrink-0 text-[var(--lm-text-muted)]/60">·</span>
-              <span className="truncate font-mono text-[11.5px] text-[var(--lm-text-muted)]">{summary}</span>
+              {filePath !== undefined ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title={`点击用系统默认程序打开：${filePath}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void openFileWithSystem(filePath)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.stopPropagation()
+                      void openFileWithSystem(filePath)
+                    }
+                  }}
+                  className="cursor-pointer truncate font-mono text-[11.5px] text-[var(--lm-text-muted)] underline decoration-dotted decoration-[var(--lm-text-muted)]/40 underline-offset-2 hover:text-[var(--lm-accent-text)] hover:decoration-[var(--lm-accent-text)]"
+                >
+                  {summary}
+                </span>
+              ) : (
+                <span className="truncate font-mono text-[11.5px] text-[var(--lm-text-muted)]">{summary}</span>
+              )}
             </>
           )}
         </div>
