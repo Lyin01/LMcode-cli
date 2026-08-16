@@ -1,8 +1,10 @@
 import type { Message } from '@/types'
 import { memo, useCallback, useState, type ReactNode } from 'react'
-import { AlertTriangle, Check, Copy, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Check, Copy, FileText, RotateCcw } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallList } from '@/components/ToolCallList'
+import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
+import { resolveOpenTarget, fileUrlToLocalPath } from '@/lib/open-target'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -80,20 +82,34 @@ const CodeBlockWithCopy = memo(function CodeBlockWithCopy({
   )
 })
 
-const MARKDOWN_COMPONENTS: Components = { pre: CodeBlockWithCopy, a: MarkdownLink }
+const MARKDOWN_COMPONENTS: Components = { pre: CodeBlockWithCopy, a: MarkdownLink, code: MarkdownCode }
 
-/** 渲染层 file:// → 本地路径转换（file:///C:/a/b → C:\a\b）。 */
-function fileUrlToPath(url: string): string | null {
-  if (!url.startsWith('file:///')) return null
-  let pathname: string
-  try {
-    pathname = decodeURIComponent(new URL(url).pathname)
-  } catch {
-    return null
-  }
-  const isWindowsDrive = /^\/[a-zA-Z]:[\\/]/.test(pathname)
-  const path = isWindowsDrive ? pathname.slice(1) : pathname
-  return path.length > 0 ? path : null
+/** 行内代码里的输出文件：反引号包裹的本地路径渲染成可点击 chip（左键打开、右键菜单）。 */
+const FileChip = memo(function FileChip({ target, children }: { target: string; children?: ReactNode }) {
+  const fileMenu = useFileContextMenu()
+  return (
+    <>
+      {fileMenu.menu}
+      <button
+        type="button"
+        title={`打开 ${target}`}
+        aria-label={`打开文件 ${target}`}
+        onClick={() => void openFileWithSystem(target)}
+        onContextMenu={fileMenu.openFromEvent(target)}
+        className="inline-flex max-w-full items-baseline gap-1 rounded-md border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-1.5 py-0.5 transition-colors hover:border-[var(--lm-border-strong)] hover:bg-[var(--lm-bg-hover)]"
+      >
+        <FileText size={11} className="shrink-0 translate-y-px text-[var(--lm-text-muted)]" />
+        <span className="truncate">{children}</span>
+      </button>
+    </>
+  )
+})
+
+function MarkdownCode({ className, children }: { className?: string; children?: ReactNode }) {
+  if (className !== undefined) return <code className={className}>{children}</code>
+  const target = resolveOpenTarget(extractCodeText(children))
+  if (target !== null) return <FileChip target={target}>{children}</FileChip>
+  return <code>{children}</code>
 }
 
 /** 对话里的链接：file:// 交给系统默认程序，https 交给系统浏览器，其余保持默认。 */
@@ -101,7 +117,7 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
   const handle = href === undefined ? undefined : (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (href.startsWith('file://')) {
       event.preventDefault()
-      const path = fileUrlToPath(href)
+      const path = fileUrlToLocalPath(href)
       if (path !== null) void window.lmcodeAPI.openPath(path)
       return
     }
