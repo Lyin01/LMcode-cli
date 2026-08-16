@@ -28,7 +28,7 @@ import {
   type OpenAIContentPart,
   type ToolMessageConversion,
   reasoningEffortToThinkingEffort,
-  thinkingEffortToReasoningEffort,
+  gatewayAwareReasoningEffort,
   toolToOpenAI,
 } from './openai-common';
 import {
@@ -519,7 +519,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): OpenAILegacyChatProvider {
-    const reasoningEffort = thinkingEffortToReasoningEffort(effort);
+    const reasoningEffort = gatewayAwareReasoningEffort(effort, this._model, this._baseUrl);
     const clone = this._clone();
     clone._reasoningEffort = reasoningEffort;
     clone._thinkingConfigured = true;

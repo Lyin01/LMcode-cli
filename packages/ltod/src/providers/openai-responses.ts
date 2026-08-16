@@ -27,7 +27,7 @@ import {
   convertOpenAIError,
   type ToolMessageConversion,
   reasoningEffortToThinkingEffort,
-  thinkingEffortToReasoningEffort,
+  gatewayAwareReasoningEffort,
 } from './openai-common';
 import {
   mergeRequestHeaders,
@@ -971,7 +971,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   }
 
   withThinking(effort: ThinkingEffort): OpenAIResponsesChatProvider {
-    const reasoningEffort = thinkingEffortToReasoningEffort(effort);
+    const reasoningEffort = gatewayAwareReasoningEffort(effort, this._model, this._baseUrl);
     const clone = this._clone();
     clone._generationKwargs = {
       ...clone._generationKwargs,
