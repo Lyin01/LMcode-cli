@@ -1,7 +1,7 @@
 import type { Message } from '@/types'
 import { AlertTriangle } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
-import { ToolCallBlock } from '@/components/ToolCallBlock'
+import { ToolCallList } from '@/components/ToolCallList'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -56,10 +56,8 @@ export function MessageItem({ message }: MessageItemProps) {
         )}
 
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mb-2.5 space-y-1.5">
-            {message.toolCalls.map((tc) => (
-              <ToolCallBlock key={tc.id} toolCall={tc} />
-            ))}
+          <div className="mb-2 space-y-0.5">
+            <ToolCallList toolCalls={message.toolCalls} />
           </div>
         )}
 
