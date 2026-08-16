@@ -41,9 +41,7 @@ export function buildProviderUsageDisplay(
   snapshot: ProviderUsageSnapshot,
 ): ProviderUsageDisplay {
   const apiIssues = snapshot.issues.filter((issue) => issue.kind === 'api-balance')
-  const subscriptionIssues = snapshot.issues.filter(
-    (issue) => issue.kind === 'subscription-quota',
-  )
+  const subscriptionIssues = snapshot.issues.filter((issue) => issue.kind !== 'api-balance')
   const apiValues = snapshot.apiBalances.flatMap((provider) =>
     provider.balances.map((balance) => `${provider.providerId} ${formatMoney(balance)}`),
   )

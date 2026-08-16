@@ -15,6 +15,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 8_000
 const KIMI_CODE_HOST = 'api.kimi.com'
 const DEEPSEEK_HOST = 'api.deepseek.com'
 const MOONSHOT_HOSTS = new Set(['api.moonshot.cn', 'api.moonshot.ai'])
+const OPENCODE_GO_HOST = 'opencode.ai'
+const OPENCODE_GO_USAGE_PATH = '/zen/go/v1/usage'
 
 export interface ProviderUsageServiceOptions {
   readonly loadConfig: () => Promise<LmcodeConfig>
@@ -46,7 +48,14 @@ interface SubscriptionTarget {
   readonly apiKey: string
 }
 
-type ProviderUsageTarget = ApiBalanceTarget | SubscriptionTarget
+interface OpenCodeGoTarget {
+  readonly kind: 'opencode-go'
+  readonly providerId: string
+  readonly url: string
+  readonly apiKey: string
+}
+
+type ProviderUsageTarget = ApiBalanceTarget | SubscriptionTarget | OpenCodeGoTarget
 
 type ProviderUsageTargetResult =
   | { readonly kind: 'api-balance'; readonly value: ProviderApiBalance }
@@ -159,7 +168,7 @@ function discoverUsageTargets(config: LmcodeConfig): {
   const issues: ProviderUsageIssue[] = []
   const seen = new Set<string>()
 
-  for (const [providerId, provider] of Object.entries(config.providers)) {
+  for (const [providerId, provider] of orderedProviderEntries(config)) {
     if (provider.enabled === false || provider.baseUrl === undefined) continue
     const endpoint = usageEndpoint(provider.baseUrl)
     if (endpoint === null) continue
@@ -178,6 +187,8 @@ function discoverUsageTargets(config: LmcodeConfig): {
 
     if (endpoint.kind === 'subscription-quota') {
       targets.push({ kind: endpoint.kind, providerId, url: endpoint.url, apiKey })
+    } else if (endpoint.kind === 'opencode-go') {
+      targets.push({ kind: endpoint.kind, providerId, url: endpoint.url, apiKey })
     } else {
       targets.push({
         kind: endpoint.kind,
@@ -193,6 +204,22 @@ function discoverUsageTargets(config: LmcodeConfig): {
   return { targets, issues }
 }
 
+/** 默认 provider 优先，保证用量条目挂靠用户实际在用的 provider 名下。 */
+function orderedProviderEntries(config: LmcodeConfig): readonly (readonly [string, ProviderConfig])[] {
+  const providers = config.providers ?? {}
+  const orderedIds: string[] = []
+  const seen = new Set<string>()
+  const append = (providerId: string | undefined): void => {
+    if (providerId === undefined || seen.has(providerId) || !(providerId in providers)) return
+    seen.add(providerId)
+    orderedIds.push(providerId)
+  }
+  append(config.defaultProvider)
+  if (config.defaultModel !== undefined) append(config.models?.[config.defaultModel]?.provider)
+  for (const providerId of Object.keys(providers)) append(providerId)
+  return orderedIds.map((providerId) => [providerId, providers[providerId]!] satisfies [string, ProviderConfig])
+}
+
 function usageEndpoint(baseUrl: string):
   | {
       readonly kind: 'api-balance'
@@ -201,6 +228,7 @@ function usageEndpoint(baseUrl: string):
       readonly currencyHint?: string
     }
   | { readonly kind: 'subscription-quota'; readonly url: string }
+  | { readonly kind: 'opencode-go'; readonly url: string }
   | null {
   let url: URL
   try {
@@ -232,6 +260,12 @@ function usageEndpoint(baseUrl: string):
     return {
       kind: 'subscription-quota',
       url: `${url.origin}/coding/v1/usages`,
+    }
+  }
+  if (hostname === OPENCODE_GO_HOST && (path === '/zen/go' || path === '/zen/go/v1')) {
+    return {
+      kind: 'opencode-go',
+      url: `${url.origin}${OPENCODE_GO_USAGE_PATH}`,
     }
   }
   return null
@@ -291,6 +325,16 @@ async function queryUsageTarget(
         value: { providerId: target.providerId, ...parsed },
       }
     }
+    if (target.kind === 'opencode-go') {
+      const parsed = parseOpenCodeGoUsagePayload(payload)
+      if (parsed === null) {
+        return usageError(target, 'OpenCode Go 返回了无法识别的用量数据')
+      }
+      return {
+        kind: 'subscription-quota',
+        value: { providerId: target.providerId, ...parsed },
+      }
+    }
 
     const balances = target.service === 'deepseek'
       ? parseDeepSeekBalancePayload(payload)
@@ -319,6 +363,31 @@ function usageError(
     issue: { providerId: target.providerId, kind: target.kind, message },
   }
 }
+
+export function parseOpenCodeGoUsagePayload(payload: unknown): ParsedSubscriptionUsage | null {
+  if (!isRecord(payload) || !isRecord(payload['usage'])) return null
+  const usage = payload['usage']
+  const rows: SubscriptionQuotaRow[] = []
+  for (const window of OPENCODE_GO_USAGE_WINDOWS) {
+    const period = usage[window.key]
+    if (!isRecord(period)) continue
+    const percent = finiteNumber(period['percent'])
+    const resetsAt = text(period['resetsAt'])
+    if (percent === null || percent < 0 || resetsAt === undefined || !Number.isFinite(Date.parse(resetsAt))) {
+      continue
+    }
+    rows.push({ name: window.label, used: Math.round(percent), limit: 100, resetAt: resetsAt })
+  }
+  if (rows.length === 0) return null
+  const [summary, ...limits] = rows
+  return { summary: summary ?? null, limits, extraUsage: null }
+}
+
+const OPENCODE_GO_USAGE_WINDOWS = [
+  { key: 'rolling', label: '滚动' },
+  { key: 'weekly', label: '每周' },
+  { key: 'monthly', label: '每月' },
+] as const
 
 export function parseDeepSeekBalancePayload(payload: unknown): ProviderMoneyBalance[] {
   if (!isRecord(payload) || !Array.isArray(payload['balance_infos'])) return []
