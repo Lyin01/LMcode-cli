@@ -2,7 +2,7 @@ import type { Message } from '@/types'
 import { memo, useCallback, useState, type ReactNode } from 'react'
 import { AlertTriangle, Check, Copy, RotateCcw } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
-import { ToolCallBlock } from '@/components/ToolCallBlock'
+import { ToolCallList } from '@/components/ToolCallList'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -168,10 +168,8 @@ export const MessageItem = memo(function MessageItem({
         )}
 
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mb-2.5 space-y-1.5">
-            {message.toolCalls.map((tc) => (
-              <ToolCallBlock key={tc.id} toolCall={tc} />
-            ))}
+          <div className="mb-2 space-y-0.5">
+            <ToolCallList toolCalls={message.toolCalls} />
           </div>
         )}
 
