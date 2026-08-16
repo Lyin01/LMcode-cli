@@ -12,6 +12,7 @@ import {
   convertOpenAIError,
   reasoningEffortToThinkingEffort,
   thinkingEffortToReasoningEffort,
+  gatewayAwareReasoningEffort,
 } from '#/providers/openai-common';
 import { OpenAILegacyChatProvider, OpenAILegacyStreamedMessage } from '#/providers/openai-legacy';
 import {
@@ -358,6 +359,56 @@ describe('thinkingEffortToReasoningEffort', () => {
     );
   });
 });
+describe('gatewayAwareReasoningEffort', () => {
+  it('passes max through on custom gateways', () => {
+    expect(
+      gatewayAwareReasoningEffort('max', 'deepseek-v4-pro', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('max');
+  });
+  it('folds max to xhigh on api.openai.com', () => {
+    expect(
+      gatewayAwareReasoningEffort('max', 'gpt-5.2', 'https://api.openai.com/v1'),
+    ).toBe('xhigh');
+  });
+  it('folds max to xhigh on an api.openai.com subdomain', () => {
+    expect(
+      gatewayAwareReasoningEffort('max', 'gpt-5.2', 'https://eu.api.openai.com/v1'),
+    ).toBe('xhigh');
+  });
+  it('remaps xhigh to max for GLM models (gateway error 1210)', () => {
+    expect(
+      gatewayAwareReasoningEffort('xhigh', 'glm-5.3', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('max');
+  });
+  it('remaps medium to high for GLM models', () => {
+    expect(
+      gatewayAwareReasoningEffort('medium', 'glm-5.3', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('high');
+  });
+  it('keeps max for GLM models', () => {
+    expect(
+      gatewayAwareReasoningEffort('max', 'GLM-5.3', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('max');
+  });
+  it('keeps xhigh for non-GLM models on custom gateways', () => {
+    expect(
+      gatewayAwareReasoningEffort('xhigh', 'deepseek-v4-pro', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('xhigh');
+  });
+  it('returns undefined for off regardless of gateway', () => {
+    expect(
+      gatewayAwareReasoningEffort('off', 'glm-5.3', 'https://opencode.ai/zen/go/v1'),
+    ).toBeUndefined();
+  });
+  it('treats an unparseable baseUrl as a custom gateway', () => {
+    expect(gatewayAwareReasoningEffort('max', 'deepseek-v4-pro', 'not-a-url')).toBe('max');
+  });
+  it('applies the api.openai.com ceiling when baseUrl is undefined', () => {
+    // The provider constructors default to api.openai.com, so undefined here
+    // only occurs in direct unit usage; keep the safe official ceiling.
+    expect(gatewayAwareReasoningEffort('max', 'gpt-5.2', undefined)).toBe('xhigh');
+  });
+});
 describe('reasoningEffortToThinkingEffort', () => {
   it('returns null for undefined', () => {
     const effort: string | undefined = undefined;
@@ -378,8 +429,8 @@ describe('reasoningEffortToThinkingEffort', () => {
   it('maps "xhigh" -> xhigh', () => {
     expect(reasoningEffortToThinkingEffort('xhigh')).toBe('xhigh');
   });
-  it('maps "max" -> xhigh (alias)', () => {
-    expect(reasoningEffortToThinkingEffort('max')).toBe('xhigh');
+  it('maps "max" -> max', () => {
+    expect(reasoningEffortToThinkingEffort('max')).toBe('max');
   });
   it('maps "none" -> off', () => {
     expect(reasoningEffortToThinkingEffort('none')).toBe('off');

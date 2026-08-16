@@ -184,6 +184,45 @@ export function thinkingEffortToReasoningEffort(effort: ThinkingEffort): string 
 }
 
 /**
+ * Map ltod `ThinkingEffort` to an OpenAI-compatible `reasoning_effort` string,
+ * adjusted for the gateway serving `model` at `baseUrl`.
+ *
+ * - GLM models served via OpenAI-compatible gateways (e.g. opencode-go) only
+ *   accept `low`/`high`/`max`; `xhigh`/`medium` are rejected upstream with
+ *   error 1210, so they are remapped before sending.
+ * - Custom gateways (any host other than api.openai.com) may accept `max`
+ *   natively, so it is passed through instead of folding onto the official
+ *   OpenAI `xhigh` ceiling.
+ */
+export function gatewayAwareReasoningEffort(
+  effort: ThinkingEffort,
+  model: string | undefined,
+  baseUrl: string | undefined,
+): string | undefined {
+  const mapped = thinkingEffortToReasoningEffort(effort);
+  if (mapped === undefined) return mapped;
+  if (/^glm/i.test(String(model ?? ''))) {
+    if (mapped === 'xhigh') return 'max';
+    if (mapped === 'medium') return 'high';
+    return mapped;
+  }
+  if (effort === 'max') {
+    // An unset baseUrl only happens in direct unit usage (provider
+    // constructors default to api.openai.com); keep the official ceiling
+    // there. A provided-but-unparseable URL is treated as a custom gateway.
+    if (baseUrl === undefined) return mapped;
+    let host = '';
+    try {
+      host = new URL(baseUrl).hostname;
+    } catch {
+      host = '';
+    }
+    if (!/(^|\.)api\.openai\.com$/i.test(host)) return 'max';
+  }
+  return mapped;
+}
+
+/**
  * Map OpenAI `reasoning_effort` string back to ltod `ThinkingEffort`.
  */
 export function reasoningEffortToThinkingEffort(
@@ -201,8 +240,9 @@ export function reasoningEffortToThinkingEffort(
     case 'high':
       return 'high';
     case 'xhigh':
-    case 'max':
       return 'xhigh';
+    case 'max':
+      return 'max';
     case 'none':
       return 'off';
     default:
