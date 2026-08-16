@@ -21,7 +21,10 @@ import type {
   Logger,
 } from '@lmcode-cli/lmcode-sdk'
 import { writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { RemoteState } from '../../shared/remote-types.js'
 import type {
   DesktopCreateSessionOptions,
@@ -895,6 +898,48 @@ export function registerAllHandlers(
     return harness.homeDir
   })
 
+  // ── Shell / file open actions ───────────────────────────────────
+  // 点击输出文件、右键「资源管理器 / VSCode 打开」都走这里。输入来自模型
+  // 可控的工具结果文本，所以只接受绝对本地路径或 https 外链，不经 shell 拼接。
+
+  secureInvoke('lmcode:openPath', async (_event, input: string): Promise<string> => {
+    const target = normalizeOpenPathTarget(input)
+    if (target === null) return input.trim().length === 0 ? '路径为空' : '仅支持打开绝对路径'
+    return (await shell.openPath(target)) || ''
+  })
+
+  secureInvoke('lmcode:openExternal', async (_event, url: string): Promise<void> => {
+    if (typeof url !== 'string' || url.length === 0) return
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      return
+    }
+    if (parsed.protocol !== 'https:' || parsed.hostname.length === 0) return
+    await shell.openExternal(parsed.href)
+  })
+
+  secureInvoke('lmcode:showItemInFolder', async (_event, input: string): Promise<string> => {
+    const target = normalizeOpenPathTarget(input)
+    if (target === null) return '仅支持打开绝对路径'
+    await shell.showItemInFolder(target)
+    return ''
+  })
+
+  secureInvoke('lmcode:openInVscode', async (_event, input: string): Promise<string> => {
+    const target = normalizeOpenPathTarget(input)
+    if (target === null) return '仅支持打开绝对路径'
+    const executable = resolveVscodeExecutable()
+    if (executable === null) {
+      return '未找到 VSCode（可用环境变量 LMCODE_VSCODE_PATH 指定 Code.exe 路径）'
+    }
+    const child = spawn(executable, [target], { detached: true, stdio: 'ignore' })
+    child.on('error', () => {})
+    child.unref()
+    return ''
+  })
+
   secureInvoke('lmcode:getNoProjectWorkDir', (): string => {
     return resolveNoProjectWorkDir()
   })
@@ -1109,4 +1154,45 @@ export function registerAllHandlers(
   mainWindow.on('closed', handleWindowClosed)
 
   return { close }
+}
+
+/** 校验并归一化可打开的本地路径：去除空白、转换 file:// 链接、拒绝非绝对路径。 */
+function normalizeOpenPathTarget(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (trimmed.length === 0 || trimmed.includes('\0')) return null
+  let target = trimmed
+  if (trimmed.startsWith('file://')) {
+    try {
+      target = fileURLToPath(trimmed)
+    } catch {
+      return null
+    }
+  }
+  return isAbsolute(target) ? target : null
+}
+
+/** 定位 VSCode 主程序。Windows 上 code 命令是 .cmd，无法安全地 shell-less spawn，直接找 Code.exe。 */
+function resolveVscodeExecutable(): string | null {
+  const candidates: string[] = []
+  const override = process.env['LMCODE_VSCODE_PATH']
+  if (override !== undefined && override.trim().length > 0) candidates.push(override.trim())
+  const localAppData = process.env['LOCALAPPDATA']
+  if (localAppData !== undefined && localAppData.length > 0) {
+    candidates.push(join(localAppData, 'Programs', 'Microsoft VS Code', 'Code.exe'))
+    candidates.push(join(localAppData, 'Programs', 'VSCodium', 'VSCodium.exe'))
+  }
+  for (const programFiles of [process.env['ProgramFiles'], process.env['ProgramFiles(x86)']]) {
+    if (programFiles !== undefined && programFiles.length > 0) {
+      candidates.push(join(programFiles, 'Microsoft VS Code', 'Code.exe'))
+    }
+  }
+  if (process.platform === 'win32' && typeof process.env['USERPROFILE'] === 'string') {
+    // scoop / 自定义安装位置兜底
+    candidates.push(join(process.env['USERPROFILE'], 'scoop', 'apps', 'vscode', 'current', 'Code.exe'))
+  }
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+  return null
 }
