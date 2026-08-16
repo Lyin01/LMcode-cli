@@ -636,6 +636,72 @@ describe('OpenAILegacyChatProvider', () => {
 
       expect(body['reasoning_effort']).toBe('high');
     });
+
+    it('disables DeepSeek thinking on a provider-neutral gateway when thinking is off', async () => {
+      const provider = createProvider({ model: 'opencode-go/deepseek-v4-pro' }).withThinking(
+        'off',
+      );
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Answer briefly' }], toolCalls: [] },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['thinking']).toEqual({ type: 'disabled' });
+      expect(body['reasoning_effort']).toBeUndefined();
+      expect(provider.thinkingEffort).toBe('off');
+    });
+
+    it('keeps DeepSeek thinking off when tool-call history contains reasoning', async () => {
+      const provider = createProvider({ model: 'deepseek-v4-pro' }).withThinking('off');
+      const history: Message[] = [
+        {
+          role: 'assistant',
+          content: [{ type: 'think', think: 'Prior tool reasoning' }],
+          toolCalls: [
+            {
+              type: 'function',
+              id: 'call_read',
+              name: 'Read',
+              arguments: '{"path":"a.ts"}',
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'file contents' }],
+          toolCalls: [],
+          toolCallId: 'call_read',
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['thinking']).toEqual({ type: 'disabled' });
+      expect(body['reasoning_effort']).toBeUndefined();
+    });
+
+    it('enables DeepSeek thinking for a pinned raw reasoning effort', async () => {
+      const provider = createProvider({ model: 'deepseek-v4-pro' }).withGenerationKwargs({
+        reasoning_effort: 'high',
+      });
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Solve this' }], toolCalls: [] },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['thinking']).toEqual({ type: 'enabled' });
+      expect(body['reasoning_effort']).toBe('high');
+    });
+
+    it('enables DeepSeek thinking when reasoning effort is configured', async () => {
+      const provider = createProvider({ model: 'deepseek-v4-pro' }).withThinking('high');
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Solve this' }], toolCalls: [] },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['thinking']).toEqual({ type: 'enabled' });
+      expect(body['reasoning_effort']).toBe('high');
+    });
   });
 
   describe('auto reasoning_effort', () => {
@@ -729,11 +795,7 @@ describe('OpenAILegacyChatProvider', () => {
   });
 
   describe('default reasoning protocol (no explicit reasoningKey)', () => {
-    it('serializes ThinkPart back to reasoning_content even without reasoningKey', async () => {
-      // The whole point of issue #69: a hand-written config.toml never sets
-      // reasoningKey, but the round-trip must still work against DeepSeek-style
-      // providers — otherwise the next turn sends the assistant message without
-      // any reasoning field and the server rejects it.
+    it('drops DeepSeek reasoning from completed text-only assistant turns', async () => {
       const provider = createProvider({ model: 'deepseek-reasoner' });
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'q' }], toolCalls: [] },
@@ -753,8 +815,48 @@ describe('OpenAILegacyChatProvider', () => {
       expect(messages[1]).toEqual({
         role: 'assistant',
         content: 'answer',
-        reasoning_content: 'inner monologue',
       });
+      expect(body['reasoning_effort']).toBeUndefined();
+    });
+
+    it('replays DeepSeek reasoning for assistant tool-call turns', async () => {
+      const provider = createProvider({ model: 'deepseek-v4-pro' });
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Inspect the file' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: [{ type: 'think', think: 'I need to read it first.' }],
+          toolCalls: [
+            {
+              type: 'function',
+              id: 'call_read',
+              name: 'Read',
+              arguments: '{"path":"a.ts"}',
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'export const value = 1;' }],
+          toolCalls: [],
+          toolCallId: 'call_read',
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      const messages = body['messages'] as Record<string, unknown>[];
+      expect(messages[1]).toMatchObject({
+        role: 'assistant',
+        reasoning_content: 'I need to read it first.',
+        tool_calls: [
+          {
+            id: 'call_read',
+            function: { name: 'Read', arguments: '{"path":"a.ts"}' },
+          },
+        ],
+      });
+      expect(body['reasoning_effort']).toBe('medium');
+      expect(body['thinking']).toEqual({ type: 'enabled' });
     });
 
     it('explicit reasoningKey overrides the default outbound field', async () => {

@@ -1,17 +1,20 @@
 import type { GenerateResult, Message, ToolCall } from '@lmcode-cli/ltod';
 import { createControlledPromise } from '@antfu/utils';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createCommandJian, testAgent } from './harness/agent';
 
 /**
- * Spec-consistency critic: when a user-driven turn that changed files, or a
- * high-constraint direct-answer request, stops naturally, one utility-model
- * pass reviews the original request against the final response. SPEC_MISSING
- * answers continue the turn once; everything else (SPEC_OK, disabled, low-risk
- * no-mutation answers, failures) completes it untouched.
+ * Completion review: after a user-driven turn changes files, one bounded
+ * utility-model pass reviews the request, the final response, and captured
+ * mutation evidence. Only explicit SPEC_MISSING blockers continue the turn.
  */
 describe('Spec-consistency critic', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it('continues the turn once when the critic reports missing requirements', async () => {
     const ctx = testAgent({ jian: createCommandJian('') });
     ctx.configure({ tools: ['Write'] });
@@ -31,9 +34,11 @@ describe('Spec-consistency critic', () => {
 
     expect(ctx.llmCalls).toHaveLength(4);
     const criticCall = ctx.llmCalls[2];
-    expect(criticCall?.systemPrompt).toContain('specification-compliance reviewer');
+    expect(criticCall?.systemPrompt).toContain('final completion reviewer');
     const criticInput = messageText(criticCall?.history.at(-1));
     expect(criticInput).toContain('Original user request');
+    expect(criticInput).toContain('Changed code evidence');
+    expect(criticInput).toContain('hello world');
     expect(criticInput).toContain('Automatic validation evidence');
     expect(criticInput).toContain('Automatic post-write validation did not complete');
 
@@ -81,7 +86,7 @@ describe('Spec-consistency critic', () => {
     expect(followupTexts.some((text) => text.includes('README was not updated'))).toBe(true);
   });
 
-  it('continues once when the critic returns a non-protocol verdict', async () => {
+  it('fails open when the critic returns a non-protocol verdict', async () => {
     const ctx = testAgent({ jian: createCommandJian('') });
     ctx.configure({ tools: ['Write'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -89,19 +94,20 @@ describe('Spec-consistency critic', () => {
     ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
     ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
     ctx.mockNextResponse({ type: 'text', text: 'Everything looks good overall.' });
-    ctx.mockNextResponse({ type: 'text', text: 'Rechecked the requirements and finished.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt and update README' }] });
     await ctx.untilTurnEnd();
 
     const specCriticCalls = ctx.llmCalls.filter((call) =>
-      call.systemPrompt.includes('specification-compliance reviewer'),
+      call.systemPrompt.includes('final completion reviewer'),
     );
     expect(specCriticCalls).toHaveLength(1);
-    const followupTexts = ctx.llmCalls[3]?.history.map(messageText) ?? [];
+    expect(ctx.llmCalls).toHaveLength(3);
     expect(
-      followupTexts.some((text) => text.includes('returned no valid verdict')),
-    ).toBe(true);
+      ctx.agent.context.history.some(
+        (message) => message.origin?.kind === 'system_trigger' && message.origin.name === 'spec_critic',
+      ),
+    ).toBe(false);
   });
 
   it('completes the turn without continuation when the critic approves', async () => {
@@ -121,6 +127,27 @@ describe('Spec-consistency critic', () => {
     expect(
       historyTexts.some((text) => text.includes('LMcode internal specification review')),
     ).toBe(false);
+  });
+
+  it('disables reviewer thinking so the utility pass stays bounded', async () => {
+    const ctx = testAgent({
+      jian: createCommandJian(''),
+      initialConfig: { providers: {}, enableSelfHealing: false },
+    });
+    ctx.configure({ tools: ['Write'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    const utility = ctx.agent.config.utility;
+    const withThinking = vi.spyOn(utility.provider, 'withThinking');
+    vi.spyOn(ctx.agent.config, 'utility', 'get').mockReturnValue(utility);
+
+    ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
+    ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
+    ctx.mockNextResponse({ type: 'text', text: 'SPEC_OK' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
+    await ctx.untilTurnEnd();
+
+    expect(withThinking).toHaveBeenCalledWith('off');
   });
 
   it('charges critic usage to the active goal before a later terminal update', async () => {
@@ -164,7 +191,7 @@ describe('Spec-consistency critic', () => {
     const criticResponse = createControlledPromise<GenerateResult>();
     let mainCalls = 0;
     vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
-      if (args[1].includes('specification-compliance reviewer')) {
+      if (args[1].includes('final completion reviewer')) {
         criticStarted.resolve();
         return criticResponse;
       }
@@ -223,107 +250,23 @@ describe('Spec-consistency critic', () => {
     expect(ctx.llmCalls).toHaveLength(2);
   });
 
-  it('skips the critic when the turn changed no files', async () => {
+  it('skips the critic for direct answers even when the wording is highly constrained', async () => {
     const ctx = testAgent();
     ctx.configure();
 
     ctx.mockNextResponse({ type: 'text', text: 'Here is your answer.' });
 
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Just answer a question' }] });
+    await ctx.rpc.prompt({
+      input: [
+        {
+          type: 'text',
+          text: 'Answer completely and strictly. You must give at least three reasons.',
+        },
+      ],
+    });
     await ctx.untilTurnEnd();
 
     expect(ctx.llmCalls).toHaveLength(1);
-  });
-
-  it('injects and enforces an action model for observable guarantee answers', async () => {
-    const ctx = testAgent({
-      initialConfig: { providers: {}, enableSpecCritic: false },
-    });
-    ctx.configure();
-
-    ctx.mockNextResponse({ type: 'text', text: '\u7b54\u6848\u662f 29\u3002' });
-    ctx.mockNextResponse({
-      type: 'text',
-      text:
-        '\u884c\u52a8\u6a21\u578b\uff1a\u5f62\u72b6\u53ef\u6478\u51fa\uff0c\u6240\u4ee5\u53ef\u4ee5\u5206\u522b\u51b3\u5b9a\u53d6 9 \u4e2a\u5706\u5f62\u548c 12 \u4e2a\u4e94\u89d2\u661f\u5f62\u3002\u7b54\u6848\u662f 21\u3002',
-    });
-
-    await ctx.rpc.prompt({
-      input: [
-        {
-          type: 'text',
-          text:
-            '\u888b\u5b50\u91cc\u7cd6\u679c\u5f62\u72b6\u9760\u624b\u611f\u53ef\u5206\u8fa8\uff0c\u95ee\u6700\u5c11\u53d6\u591a\u5c11\u624d\u80fd\u4fdd\u8bc1\u6ee1\u8db3\u6761\u4ef6\u3002',
-        },
-      ],
-    });
-    await ctx.untilTurnEnd();
-
-    expect(ctx.llmCalls).toHaveLength(2);
-    const firstCallTexts = ctx.llmCalls[0]?.history.map(messageText) ?? [];
-    expect(
-      firstCallTexts.some((text) => text.includes('Requirement-fidelity reminder')),
-    ).toBe(true);
-    expect(firstCallTexts.some((text) => text.includes('r ') && text.includes('s '))).toBe(
-      true,
-    );
-
-    const followupTexts = ctx.llmCalls[1]?.history.map(messageText) ?? [];
-    expect(
-      followupTexts.some((text) => text.includes('Requirement-fidelity check')),
-    ).toBe(true);
-    expect(followupTexts.some((text) => text.includes('blind-pool'))).toBe(true);
-    const fidelityReminder = ctx.agent.context.history.find(
-      (message) =>
-        message.origin?.kind === 'system_trigger' &&
-        message.origin.name === 'direct_answer_requirement_fidelity',
-    );
-    expect(messageText(fidelityReminder)).toContain('<system-reminder>');
-  });
-
-  it('reviews high-constraint direct answers even when no files changed', async () => {
-    const ctx = testAgent();
-    ctx.configure();
-
-    ctx.mockNextResponse({
-      type: 'text',
-      text:
-        '\u884c\u52a8\u6a21\u578b\uff1a\u53d6 r \u4e2a\u5706\u5f62\u3001s \u4e2a\u4e94\u89d2\u661f\u5f62\u3002\u7b54\u6848\u662f 29\u3002',
-    });
-    ctx.mockNextResponse({
-      type: 'text',
-      text: 'SPEC_MISSING:\n- ignored that shapes can be distinguished by touch',
-    });
-    ctx.mockNextResponse({
-      type: 'text',
-      text: '行动模型：形状可摸出，所以应决定取多少圆形和多少五角星形。答案是 21。',
-    });
-
-    await ctx.rpc.prompt({
-      input: [
-        {
-          type: 'text',
-          text:
-            '袋子里糖果形状可分辨，问最少取多少才能保证满足条件。',
-        },
-      ],
-    });
-    await ctx.untilTurnEnd();
-
-    expect(ctx.llmCalls).toHaveLength(3);
-    const criticCall = ctx.llmCalls[1];
-    expect(criticCall?.systemPrompt).toContain('direct-answer responses');
-    expect(criticCall?.systemPrompt).toContain('distinguished by touch');
-    expect(messageText(criticCall?.history.at(-1))).toContain('Files the agent changed');
-    expect(messageText(criticCall?.history.at(-1))).toContain('(none)');
-
-    const followupTexts = ctx.llmCalls[2]?.history.map(messageText) ?? [];
-    expect(
-      followupTexts.some((text) => text.includes('LMcode internal specification review')),
-    ).toBe(true);
-    expect(
-      followupTexts.some((text) => text.includes('ignored that shapes can be distinguished')),
-    ).toBe(true);
   });
 
   it('completes the turn when the critic call itself fails', async () => {
@@ -339,6 +282,40 @@ describe('Spec-consistency critic', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
     const events = await ctx.untilTurnEnd();
 
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'completed' }),
+      }),
+    );
+  });
+
+  it('times out a stalled critic and completes the turn', async () => {
+    const ctx = testAgent({ jian: createCommandJian('') });
+    ctx.configure({ tools: ['Write'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
+    const criticStarted = createControlledPromise<void>();
+    let criticSignal: AbortSignal | undefined;
+    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
+      if (args[1].includes('final completion reviewer')) {
+        criticSignal = args[5]?.signal;
+        criticStarted.resolve();
+        return new Promise<never>(() => {});
+      }
+      return rawGenerate(...args);
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
+    ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
+    await criticStarted;
+    await vi.advanceTimersByTimeAsync(30_000);
+    const events = await ctx.untilTurnEnd();
+
+    expect(criticSignal?.aborted).toBe(true);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',

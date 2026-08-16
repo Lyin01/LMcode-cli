@@ -1,8 +1,7 @@
-import type { GenerateResult, Message, ToolCall } from '@lmcode-cli/ltod';
+import type { Message, ToolCall } from '@lmcode-cli/ltod';
 import { createControlledPromise } from '@antfu/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ProviderManager } from '../../src/session/provider-manager';
 import * as selfHealing from '../../src/utils/self-healing';
 import { createCommandJian, testAgent } from './harness/agent';
 
@@ -58,38 +57,42 @@ describe('post-write validation evidence', () => {
     const ctx = await validationAgent();
 
     ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
     ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
     await ctx.untilTurnEnd();
 
-    expect(ctx.llmCalls).toHaveLength(3);
-    const finalStepText = ctx.llmCalls[2]?.history.map(messageText).join('\n') ?? '';
+    expect(ctx.llmCalls).toHaveLength(2);
+    const finalStepText = ctx.llmCalls[1]?.history.map(messageText).join('\n') ?? '';
     expect(finalStepText).toContain('Automatic validation notice');
     expect(finalStepText).toContain('syntax validation was skipped');
     expect(finalStepText).toContain('Runtime behavior and visual output were not verified');
     expect(finalStepText).not.toContain("file's syntax passed");
   });
 
-  it('skips local parsing and source review for an oversized written file', async () => {
-    const validate = vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots');
+  it('does not call an LLM source reviewer after an ordinary write', async () => {
+    const validate = vi
+      .spyOn(selfHealing, 'validateFileSyntaxWithScreenshots')
+      .mockResolvedValue({
+        error: null,
+        syntax: { status: 'passed' },
+        runtime: { status: 'passed' },
+        screenshots: undefined,
+        keyframeTimesMs: undefined,
+      });
     const ctx = await validationAgent();
-    vi.spyOn(ctx.agent.jian, 'readText').mockResolvedValue(
-      'x'.repeat(selfHealing.MAX_SELF_HEALING_SOURCE_BYTES + 1),
-    );
 
-    ctx.mockNextResponse(writeCall('call_write', 'large.ts'));
-    ctx.mockNextResponse({ type: 'text', text: 'Created large.ts with limited validation.' });
+    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
+    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
 
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create large.ts' }] });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
     await ctx.untilTurnEnd();
 
     expect(validate).toHaveBeenCalledOnce();
     expect(ctx.llmCalls).toHaveLength(2);
-    const finalStepText = ctx.llmCalls.at(-1)?.history.map(messageText).join('\n') ?? '';
-    expect(finalStepText).toContain('source-too-large');
-    expect(finalStepText).toContain('source review was skipped');
+    expect(
+      ctx.llmCalls.some((call) => call.systemPrompt.includes('critical code reviewer')),
+    ).toBe(false);
   });
 
   it('does not describe captured keyframes as visually reviewed without image input', async () => {
@@ -103,55 +106,17 @@ describe('post-write validation evidence', () => {
     const ctx = await validationAgent();
 
     ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
     ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
     await ctx.untilTurnEnd();
 
-    expect(ctx.llmCalls).toHaveLength(3);
-    expect(ctx.llmCalls[1]?.systemPrompt).toContain('critical code reviewer');
-    const finalStepText = ctx.llmCalls[2]?.history.map(messageText).join('\n') ?? '';
+    expect(ctx.llmCalls).toHaveLength(2);
+    const finalStepText = ctx.llmCalls[1]?.history.map(messageText).join('\n') ?? '';
     expect(finalStepText).toContain('active model cannot inspect images');
     expect(finalStepText).toContain(
       'Do not claim that appearance, animation timing, or the terminal frame was visually verified.',
     );
-  });
-
-  it('records visual and source review usage in the session and active goal', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
-      error: null,
-      syntax: { status: 'passed' },
-      runtime: { status: 'passed' },
-      screenshots: ['ZmFrZS1wbmc='],
-      keyframeTimesMs: [0],
-    });
-    const ctx = await validationAgent(false, true);
-    await ctx.rpc.setActiveTools({ names: ['Write', 'UpdateGoal'] });
-    await ctx.agent.goal.createGoal({ objective: 'Create and validate page.html' });
-
-    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'VISUAL_APPROVE' });
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
-    ctx.mockNextResponse({ type: 'text', text: 'Created and validated page.html.' });
-    ctx.mockNextResponse({
-      type: 'function',
-      id: 'call_goal_blocked',
-      name: 'UpdateGoal',
-      arguments: JSON.stringify({ status: 'blocked' }),
-    });
-
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await ctx.agent.turn.waitForCurrentTurn();
-
-    const usageRecords = ctx.allEvents.filter(
-      (event) => event.type === '[wire]' && event.event === 'usage.record',
-    );
-    const goal = ctx.agent.goal.getGoal().goal;
-    expect(ctx.llmCalls).toHaveLength(5);
-    expect(usageRecords).toHaveLength(5);
-    expect(goal?.status).toBe('blocked');
-    expect(goal?.tokensUsed).toBe(ctx.agent.usage.stats().totalTokens);
   });
 
   it('does not label a single 2-second screenshot as the terminal animation frame', async () => {
@@ -166,12 +131,12 @@ describe('post-write validation evidence', () => {
 
     ctx.mockNextResponse(writeCall('call_write', 'page.html'));
     ctx.mockNextResponse({ type: 'text', text: 'VISUAL_APPROVE' });
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
     ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
     await ctx.untilTurnEnd();
 
+    expect(ctx.llmCalls).toHaveLength(3);
     const visualCall = ctx.llmCalls.find((call) =>
       call.systemPrompt.includes('visual quality inspector'),
     );
@@ -202,9 +167,7 @@ describe('post-write validation evidence', () => {
     const ctx = await validationAgent(true);
 
     ctx.mockNextResponse(writeCall('call_write_1', './page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
     ctx.mockNextResponse(writeCall('call_write_2', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
     ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
     ctx.mockNextResponse({ type: 'text', text: 'SPEC_OK' });
 
@@ -212,14 +175,14 @@ describe('post-write validation evidence', () => {
     await ctx.untilTurnEnd();
 
     const specCriticCall = ctx.llmCalls.find((call) =>
-      call.systemPrompt.includes('specification-compliance reviewer'),
+      call.systemPrompt.includes('final completion reviewer'),
     );
     const specCriticInput = messageText(specCriticCall?.history.at(-1));
     expect(specCriticInput).toContain('(none recorded; absence is not evidence that validation ran)');
     expect(specCriticInput).not.toContain('browser validation was skipped');
   });
 
-  it('forwards an explicit runtime failure to the spec critic when the model ignores it', async () => {
+  it('forwards an explicit runtime failure to the final reviewer when the model ignores it', async () => {
     vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
       error: 'Headless Playwright captured runtime errors:\nReferenceError: boom',
       syntax: { status: 'passed' },
@@ -237,83 +200,14 @@ describe('post-write validation evidence', () => {
     await ctx.untilTurnEnd();
 
     const specCriticCall = ctx.llmCalls.find((call) =>
-      call.systemPrompt.includes('specification-compliance reviewer'),
+      call.systemPrompt.includes('final completion reviewer'),
     );
     const specCriticInput = messageText(specCriticCall?.history.at(-1));
     expect(specCriticInput).toContain('Automatic runtime validation failed');
     expect(specCriticInput).toContain('ReferenceError: boom');
   });
 
-  it('retains runtime limitations when a later write only completes syntax validation', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots')
-      .mockResolvedValueOnce({
-        error: null,
-        syntax: { status: 'passed' },
-        runtime: {
-          status: 'skipped',
-          reason: 'playwright-unavailable',
-          detail: undefined,
-        },
-        screenshots: undefined,
-        keyframeTimesMs: undefined,
-      })
-      .mockResolvedValueOnce({
-        error: 'HTML Script block error: JavaScript syntax error: Unexpected token',
-        syntax: { status: 'failed' },
-        runtime: undefined,
-        screenshots: undefined,
-        keyframeTimesMs: undefined,
-      });
-    const ctx = await validationAgent(true);
-
-    ctx.mockNextResponse(writeCall('call_write_1', './page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
-    ctx.mockNextResponse(writeCall('call_write_2', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'page.html is complete.' });
-    ctx.mockNextResponse({ type: 'text', text: 'SPEC_OK' });
-
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await ctx.untilTurnEnd();
-
-    const specCriticCall = ctx.llmCalls.find((call) =>
-      call.systemPrompt.includes('specification-compliance reviewer'),
-    );
-    const specCriticInput = messageText(specCriticCall?.history.at(-1));
-    expect(specCriticInput).toContain('browser validation was skipped');
-    expect(specCriticInput).toContain('Automatic syntax validation failed');
-    expect(specCriticInput).toContain('Unexpected token');
-  });
-
-  it('reports a source-review failure without discarding successful syntax and runtime evidence', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
-      error: null,
-      syntax: { status: 'passed' },
-      runtime: { status: 'passed' },
-      screenshots: undefined,
-      keyframeTimesMs: undefined,
-    });
-    const ctx = await validationAgent();
-    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
-    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
-      if (args[1].includes('critical code reviewer')) {
-        throw new Error('critic unavailable');
-      }
-      return rawGenerate(...args);
-    });
-
-    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
-
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await ctx.untilTurnEnd();
-
-    const finalStepText = ctx.llmCalls[1]?.history.map(messageText).join('\n') ?? '';
-    expect(finalStepText).toContain('source review failed or timed out');
-    expect(finalStepText).not.toContain('overall result is inconclusive');
-    expect(finalStepText).not.toContain('Do not claim syntax, runtime, or visual verification');
-  });
-
-  it('forwards a visual rejection to the spec critic when the model ignores it', async () => {
+  it('forwards a visual rejection to the final reviewer when the model ignores it', async () => {
     vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
       error: null,
       syntax: { status: 'passed' },
@@ -332,40 +226,14 @@ describe('post-write validation evidence', () => {
     await ctx.untilTurnEnd();
 
     const specCriticCall = ctx.llmCalls.find((call) =>
-      call.systemPrompt.includes('specification-compliance reviewer'),
+      call.systemPrompt.includes('final completion reviewer'),
     );
     const specCriticInput = messageText(specCriticCall?.history.at(-1));
     expect(specCriticInput).toContain('Automatic visual review rejected');
     expect(specCriticInput).toContain('canvas is blank');
   });
 
-  it('forwards a source rejection to the spec critic when the model ignores it', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
-      error: null,
-      syntax: { status: 'passed' },
-      runtime: undefined,
-      screenshots: undefined,
-      keyframeTimesMs: undefined,
-    });
-    const ctx = await validationAgent(true);
-
-    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'REJECT: the completion handler is missing' });
-    ctx.mockNextResponse({ type: 'text', text: 'page.html is complete.' });
-    ctx.mockNextResponse({ type: 'text', text: 'SPEC_OK' });
-
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await ctx.untilTurnEnd();
-
-    const specCriticCall = ctx.llmCalls.find((call) =>
-      call.systemPrompt.includes('specification-compliance reviewer'),
-    );
-    const specCriticInput = messageText(specCriticCall?.history.at(-1));
-    expect(specCriticInput).toContain('Automatic source review rejected');
-    expect(specCriticInput).toContain('completion handler is missing');
-  });
-
-  it('reuses one complete post-write review for same-step duplicate writes', async () => {
+  it('reuses local validation for same-step duplicate writes', async () => {
     const validate = vi
       .spyOn(selfHealing, 'validateFileSyntaxWithScreenshots')
       .mockResolvedValue({
@@ -381,20 +249,15 @@ describe('post-write validation evidence', () => {
       writeCall('call_write_1', 'page.html'),
       writeCall('call_write_2', 'page.html'),
     );
-    ctx.mockNextResponse({ type: 'text', text: 'REJECT: shared review failure' });
-    ctx.mockNextResponse({ type: 'text', text: 'I could not complete page.html.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
     await ctx.untilTurnEnd();
 
     expect(validate).toHaveBeenCalledTimes(1);
-    const sourceCalls = ctx.llmCalls.filter((call) =>
-      call.systemPrompt.startsWith('You are a critical code reviewer'),
-    );
-    expect(sourceCalls).toHaveLength(1);
+    expect(ctx.llmCalls).toHaveLength(2);
     const toolResults = ctx.agent.context.history.filter((message) => message.role === 'tool');
     expect(toolResults).toHaveLength(2);
-    expect(messageText(toolResults[0])).toContain('shared review failure');
     expect(messageText(toolResults[1])).toBe(messageText(toolResults[0]));
   });
 
@@ -450,7 +313,7 @@ describe('post-write validation evidence', () => {
     );
   });
 
-  it('cancels a pending visual review without starting source review', async () => {
+  it('cancels a pending visual review through the turn signal', async () => {
     vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
       error: null,
       syntax: { status: 'passed' },
@@ -462,16 +325,12 @@ describe('post-write validation evidence', () => {
     const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
     const visualStarted = createControlledPromise<void>();
     let visualSignal: AbortSignal | undefined;
-    let sourceStarted = false;
     vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
       if (args[2].length === 0 && args[1].startsWith('You are a visual quality inspector')) {
         visualSignal = args[5]?.signal;
         visualStarted.resolve();
         if (visualSignal === undefined) throw new Error('Visual review signal is missing');
         return pendingUntilAborted(visualSignal);
-      }
-      if (args[2].length === 0 && args[1].startsWith('You are a critical code reviewer')) {
-        sourceStarted = true;
       }
       return rawGenerate(...args);
     });
@@ -484,7 +343,6 @@ describe('post-write validation evidence', () => {
 
     expect(visualSignal).toBeInstanceOf(AbortSignal);
     expect(visualSignal?.aborted).toBe(true);
-    expect(sourceStarted).toBe(false);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
@@ -493,45 +351,7 @@ describe('post-write validation evidence', () => {
     );
   });
 
-  it('cancels a pending source review through the turn signal', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
-      error: null,
-      syntax: { status: 'passed' },
-      runtime: { status: 'passed' },
-      screenshots: undefined,
-      keyframeTimesMs: undefined,
-    });
-    const ctx = await validationAgent();
-    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
-    const sourceStarted = createControlledPromise<void>();
-    let sourceSignal: AbortSignal | undefined;
-    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
-      if (args[2].length === 0 && args[1].startsWith('You are a critical code reviewer')) {
-        sourceSignal = args[5]?.signal;
-        sourceStarted.resolve();
-        if (sourceSignal === undefined) throw new Error('Source review signal is missing');
-        return pendingUntilAborted(sourceSignal);
-      }
-      return rawGenerate(...args);
-    });
-
-    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await sourceStarted;
-    await ctx.rpc.cancel({ turnId: 0 });
-    const events = await ctx.untilTurnEnd();
-
-    expect(sourceSignal).toBeInstanceOf(AbortSignal);
-    expect(sourceSignal?.aborted).toBe(true);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        event: 'turn.ended',
-        args: expect.objectContaining({ reason: 'cancelled' }),
-      }),
-    );
-  });
-
-  it('times out a visual review and continues with source review', async () => {
+  it('times out a visual review without cancelling the turn', async () => {
     vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
       error: null,
       syntax: { status: 'passed' },
@@ -543,22 +363,17 @@ describe('post-write validation evidence', () => {
     const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
     const visualStarted = createControlledPromise<void>();
     let deadlineSignal: AbortSignal | undefined;
-    let sourceStarted = false;
     vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
       if (args[2].length === 0 && args[1].startsWith('You are a visual quality inspector')) {
         deadlineSignal = args[5]?.signal;
         visualStarted.resolve();
         return new Promise<never>(() => {});
       }
-      if (args[2].length === 0 && args[1].startsWith('You are a critical code reviewer')) {
-        sourceStarted = true;
-      }
       return rawGenerate(...args);
     });
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
     ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
     ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
     await visualStarted;
@@ -566,7 +381,6 @@ describe('post-write validation evidence', () => {
     const events = await ctx.untilTurnEnd();
 
     expect(deadlineSignal?.aborted).toBe(true);
-    expect(sourceStarted).toBe(true);
     const finalStepText = ctx.llmCalls.at(-1)?.history.map(messageText).join('\n') ?? '';
     expect(finalStepText).toContain('visual auditor failed or timed out');
     expect(events).toContainEqual(
@@ -575,98 +389,6 @@ describe('post-write validation evidence', () => {
         args: expect.objectContaining({ reason: 'completed' }),
       }),
     );
-  });
-
-  it('times out a source review without cancelling the turn', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
-      error: null,
-      syntax: { status: 'passed' },
-      runtime: { status: 'passed' },
-      screenshots: undefined,
-      keyframeTimesMs: undefined,
-    });
-    const ctx = await validationAgent();
-    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
-    const sourceStarted = createControlledPromise<void>();
-    let deadlineSignal: AbortSignal | undefined;
-    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
-      if (args[2].length === 0 && args[1].startsWith('You are a critical code reviewer')) {
-        deadlineSignal = args[5]?.signal;
-        sourceStarted.resolve();
-        return new Promise<never>(() => {});
-      }
-      return rawGenerate(...args);
-    });
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
-    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await sourceStarted;
-    await vi.advanceTimersByTimeAsync(30_000);
-    const events = await ctx.untilTurnEnd();
-
-    expect(deadlineSignal?.aborted).toBe(true);
-    const finalStepText = ctx.llmCalls.at(-1)?.history.map(messageText).join('\n') ?? '';
-    expect(finalStepText).toContain('source review failed or timed out');
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        event: 'turn.ended',
-        args: expect.objectContaining({ reason: 'completed' }),
-      }),
-    );
-  });
-
-  it('records a late timed-out source review outside the ended turn window', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
-      error: null,
-      syntax: { status: 'passed' },
-      runtime: { status: 'passed' },
-      screenshots: undefined,
-      keyframeTimesMs: undefined,
-    });
-    const ctx = await validationAgent();
-    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
-    const sourceStarted = createControlledPromise<void>();
-    const lateSourceResponse = createControlledPromise<GenerateResult>();
-    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
-      if (args[2].length === 0 && args[1].startsWith('You are a critical code reviewer')) {
-        sourceStarted.resolve();
-        return lateSourceResponse;
-      }
-      return rawGenerate(...args);
-    });
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-
-    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'Created page.html with limited validation.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await sourceStarted;
-    await vi.advanceTimersByTimeAsync(30_000);
-    await ctx.untilTurnEnd();
-    expect(ctx.agent.usage.data().currentTurn).toBeUndefined();
-    const lateUsageRecorded = ctx.once('usage.record');
-
-    lateSourceResponse.resolve({
-      id: 'late-source-review',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'APPROVE' }],
-        toolCalls: [],
-      },
-      usage: {
-        inputOther: 7,
-        output: 3,
-        inputCacheRead: 0,
-        inputCacheCreation: 0,
-      },
-      finishReason: 'completed',
-      rawFinishReason: 'stop',
-    });
-    await lateUsageRecorded;
-
-    expect(ctx.agent.usage.stats().totalTokens).toBeGreaterThanOrEqual(10);
-    expect(ctx.agent.usage.data().currentTurn).toBeUndefined();
   });
 
   it('times out a local validator without cancelling the turn', async () => {
@@ -727,80 +449,6 @@ describe('post-write validation evidence', () => {
       }),
     );
   });
-
-  it('passes OAuth request auth to visual and source reviewers', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
-      error: null,
-      syntax: { status: 'passed' },
-      runtime: { status: 'passed' },
-      screenshots: ['ZmFrZS1wbmc='],
-      keyframeTimesMs: [2000],
-    });
-    const getAccessToken = vi.fn().mockResolvedValue('oauth-review-token');
-    const ctx = await oauthValidationAgent(getAccessToken, true);
-    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
-    const reviewAuth: Array<string | undefined> = [];
-    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
-      if (
-        args[2].length === 0 &&
-        (args[1].startsWith('You are a visual quality inspector') ||
-          args[1].startsWith('You are a critical code reviewer'))
-      ) {
-        reviewAuth.push(args[5]?.auth?.apiKey);
-      }
-      return rawGenerate(...args);
-    });
-
-    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    ctx.mockNextResponse({ type: 'text', text: 'VISUAL_APPROVE' });
-    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
-    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await ctx.untilTurnEnd();
-
-    expect(reviewAuth).toEqual(['oauth-review-token', 'oauth-review-token']);
-  });
-
-  it('cancels while OAuth token acquisition for a reviewer is pending', async () => {
-    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
-      error: null,
-      syntax: { status: 'passed' },
-      runtime: { status: 'passed' },
-      screenshots: undefined,
-      keyframeTimesMs: undefined,
-    });
-    const tokenFetchStarted = createControlledPromise<void>();
-    let tokenCallCount = 0;
-    const getAccessToken = vi.fn((): Promise<string> => {
-      tokenCallCount += 1;
-      if (tokenCallCount === 1) return Promise.resolve('initial-token');
-      tokenFetchStarted.resolve();
-      return new Promise<string>(() => {});
-    });
-    const ctx = await oauthValidationAgent(getAccessToken, false);
-    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
-    let sourceBackendStarted = false;
-    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
-      if (args[1].startsWith('You are a critical code reviewer')) {
-        sourceBackendStarted = true;
-      }
-      return rawGenerate(...args);
-    });
-
-    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
-    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
-    await tokenFetchStarted;
-    await ctx.rpc.cancel({ turnId: 0 });
-    const events = await ctx.untilTurnEnd();
-
-    expect(sourceBackendStarted).toBe(false);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        event: 'turn.ended',
-        args: expect.objectContaining({ reason: 'cancelled' }),
-      }),
-    );
-  });
 });
 
 async function validationAgent(enableSpecCritic = false, imageInput = false) {
@@ -815,45 +463,6 @@ async function validationAgent(enableSpecCritic = false, imageInput = false) {
   ctx.configure({
     tools: ['Write'],
     modelCapabilities: imageInput ? IMAGE_INPUT_CAPABILITIES : undefined,
-  });
-  await ctx.rpc.setPermission({ mode: 'yolo' });
-  return ctx;
-}
-
-async function oauthValidationAgent(
-  getAccessToken: (options?: { readonly force?: boolean }) => Promise<string>,
-  imageInput: boolean,
-) {
-  const config = {
-    defaultModel: 'lmcode',
-    providers: {
-      'managed:lmcode': {
-        type: 'vertexai' as const,
-        baseUrl: 'https://api.example/v1',
-        oauth: { storage: 'file' as const, key: 'oauth/lmcode' },
-      },
-    },
-    models: {
-      'lmcode': {
-        provider: 'managed:lmcode',
-        model: 'lmcode-for-coding',
-        maxContextSize: 256_000,
-        capabilities: imageInput ? ['image_in'] : [],
-      },
-    },
-  };
-  const providerManager = new ProviderManager({
-    config: () => config,
-    resolveOAuthTokenProvider: () => ({ getAccessToken }),
-  });
-  const jian = createCommandJian('');
-  vi.spyOn(jian, 'readText').mockResolvedValue(
-    '<!doctype html><html><body><canvas></canvas></body></html>',
-  );
-  const ctx = testAgent({ jian, initialConfig: config, providerManager });
-  ctx.configure({
-    tools: ['Write'],
-    provider: { type: 'lmcode', apiKey: 'unused', model: 'lmcode' },
   });
   await ctx.rpc.setPermission({ mode: 'yolo' });
   return ctx;

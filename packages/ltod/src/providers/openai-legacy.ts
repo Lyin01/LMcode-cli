@@ -47,6 +47,13 @@ import {
 const KNOWN_REASONING_KEYS = ['reasoning_content', 'reasoning_details', 'reasoning'] as const;
 const DEFAULT_OUTBOUND_REASONING_KEY = KNOWN_REASONING_KEYS[0];
 
+function usesDeepSeekProtocol(model: string, baseUrl: string | undefined): boolean {
+  return (
+    model.toLowerCase().includes('deepseek') ||
+    baseUrl?.toLowerCase().includes('deepseek') === true
+  );
+}
+
 const OPENAI_CHAT_TOOL_CALL_ID_POLICY: ToolCallIdPolicy = {
   normalize: (id) => sanitizeToolCallId(id, 64),
   maxLength: 64,
@@ -108,6 +115,7 @@ function convertMessage(
   message: Message,
   reasoningKey: string | undefined,
   toolMessageConversion: ToolMessageConversion,
+  replayReasoningOnlyWithToolCalls: boolean,
 ): OpenAIMessage {
   let reasoningContent = '';
   const nonThinkParts: ContentPart[] = [];
@@ -178,12 +186,14 @@ function convertMessage(
     result.tool_call_id = message.toolCallId;
   }
 
-  // Round-trip thinking content back to the server. Default to the de facto
-  // `reasoning_content` field so OpenAI-compatible reasoners (DeepSeek, Qwen,
-  // One API gateways) work without per-provider configuration. Servers that
-  // don't understand the field ignore it; servers that require a specific
-  // field can override via the explicit `reasoningKey`.
-  if (reasoningContent) {
+  // DeepSeek only requires prior reasoning for assistant tool-call messages.
+  // Dropping it from completed text-only replies avoids paying for stale
+  // reasoning again on the next user turn while preserving other providers'
+  // existing round-trip behavior.
+  if (
+    reasoningContent &&
+    (!replayReasoningOnlyWithToolCalls || message.toolCalls.length > 0)
+  ) {
     result[reasoningKey ?? DEFAULT_OUTBOUND_REASONING_KEY] = reasoningContent;
   }
 
@@ -343,6 +353,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   private _defaultHeaders: Record<string, string> | undefined;
   private _reasoningKey: string | undefined;
   private _reasoningEffort: string | undefined;
+  private _thinkingConfigured: boolean;
   private _generationKwargs: OpenAILegacyGenerationKwargs;
   private _toolMessageConversion: ToolMessageConversion;
   private _client: OpenAI | undefined;
@@ -366,6 +377,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
         ? normalizedReasoningKey
         : undefined;
     this._reasoningEffort = undefined;
+    this._thinkingConfigured = false;
     this._generationKwargs = {};
     if (options.maxTokens !== undefined) {
       this._generationKwargs.max_tokens = options.maxTokens;
@@ -382,6 +394,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
+    if (this._thinkingConfigured && this._reasoningEffort === undefined) return 'off';
     return reasoningEffortToThinkingEffort(this._reasoningEffort);
   }
 
@@ -404,12 +417,15 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     options?: GenerateOptions,
   ): Promise<StreamedMessage> {
     const messages: OpenAIMessage[] = [];
+    const deepSeekProtocol = usesDeepSeekProtocol(this._model, this._baseUrl);
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
     const normalizedHistory = normalizeToolCallIdsForProvider(history, OPENAI_CHAT_TOOL_CALL_ID_POLICY);
     for (const msg of normalizedHistory) {
-      messages.push(convertMessage(msg, this._reasoningKey, this._toolMessageConversion));
+      messages.push(
+        convertMessage(msg, this._reasoningKey, this._toolMessageConversion, deepSeekProtocol),
+      );
     }
 
     const kwargs: Record<string, unknown> = {
@@ -425,13 +441,26 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     // Skip when the caller already pinned reasoning_effort via withGenerationKwargs —
     // their value would otherwise be silently overwritten below.
     // See: https://github.com/Lyin01/LMcode-cli/issues/1616
-    if (reasoningEffort === undefined && kwargs['reasoning_effort'] === undefined) {
-      const hasThinkPart = history.some((message) =>
-        message.content.some((part) => part.type === 'think'),
+    if (
+      !this._thinkingConfigured &&
+      reasoningEffort === undefined &&
+      kwargs['reasoning_effort'] === undefined
+    ) {
+      const hasThinkPart = history.some(
+        (message) =>
+          (!deepSeekProtocol || message.toolCalls.length > 0) &&
+          message.content.some((part) => part.type === 'think'),
       );
       if (hasThinkPart) {
         reasoningEffort = 'medium';
       }
+    }
+
+    // An explicit withThinking() selection wins over raw generation kwargs,
+    // including `off`, which is represented by an undefined wire effort.
+    if (this._thinkingConfigured) {
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+      delete kwargs['reasoning_effort'];
     }
 
     // Remove undefined values from kwargs
@@ -466,11 +495,15 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     // disable reasoning, so "thinking off" still burns reasoning tokens and
     // latency on routine turns. The toggle must be set explicitly via the
     // `thinking` body field. Mirror the resolved reasoning state so "off" is
-    // truly off. Gated to DeepSeek endpoints so other OpenAI-compatible
-    // providers (which would reject an unknown `thinking` field) are unaffected.
-    if (this._baseUrl?.toLowerCase().includes('deepseek') === true) {
+    // truly off. Detect by model as well as endpoint because generic gateways
+    // commonly serve DeepSeek models from a provider-neutral URL.
+    if (deepSeekProtocol) {
+      const pinnedReasoningEffort = kwargs['reasoning_effort'];
+      const effectiveReasoningEffort =
+        reasoningEffort ??
+        (typeof pinnedReasoningEffort === 'string' ? pinnedReasoningEffort : undefined);
       createParams['thinking'] =
-        reasoningEffort === undefined ? { type: 'disabled' } : { type: 'enabled' };
+        effectiveReasoningEffort === undefined ? { type: 'disabled' } : { type: 'enabled' };
     }
 
     try {
@@ -489,6 +522,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     const reasoningEffort = thinkingEffortToReasoningEffort(effort);
     const clone = this._clone();
     clone._reasoningEffort = reasoningEffort;
+    clone._thinkingConfigured = true;
     return clone;
   }
 
