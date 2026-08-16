@@ -29,6 +29,7 @@ export interface ContextMemorySnapshot {
   readonly pendingToolResultIds: ReadonlySet<string>;
   readonly deferredMessages: readonly ContextMessage[];
   readonly revision: number;
+  readonly anchorResponseSeenInEpoch: boolean;
 }
 
 export class ContextMemory {
@@ -39,6 +40,7 @@ export class ContextMemory {
   private pendingToolResultIds = new Set<string>();
   private deferredMessages: ContextMessage[] = [];
   private _revision = 0;
+  private _anchorResponseSeenInEpoch = false;
 
   constructor(protected readonly agent: Agent) {}
 
@@ -51,6 +53,7 @@ export class ContextMemory {
       pendingToolResultIds: new Set(this.pendingToolResultIds),
       deferredMessages: [...this.deferredMessages],
       revision: this._revision,
+      anchorResponseSeenInEpoch: this._anchorResponseSeenInEpoch,
     };
   }
 
@@ -62,6 +65,7 @@ export class ContextMemory {
     this.pendingToolResultIds = new Set(snapshot.pendingToolResultIds);
     this.deferredMessages = [...snapshot.deferredMessages];
     this._revision = snapshot.revision;
+    this._anchorResponseSeenInEpoch = snapshot.anchorResponseSeenInEpoch;
   }
 
   appendUserMessage(
@@ -94,6 +98,7 @@ export class ContextMemory {
     this.openSteps.clear();
     this.pendingToolResultIds.clear();
     this.deferredMessages = [];
+    this._anchorResponseSeenInEpoch = false;
     this._revision += 1;
     this.agent.goal.onContextClear();
     this.agent.injection.onContextClear();
@@ -181,6 +186,7 @@ export class ContextMemory {
     this.agent.microCompaction.reset();
     this.agent.goal.onContextCompacted(summary.compactedCount);
     this.agent.injection.onContextCompacted(summary.compactedCount);
+    this._anchorResponseSeenInEpoch = false;
     this._revision += 1;
     if (emitStatus) this.agent.emitStatusUpdated();
   }
@@ -209,12 +215,24 @@ export class ContextMemory {
     return this._revision;
   }
 
+  /** True after the anchor request produced a durable response in this context epoch. */
+  get hasSeenAnchorResponseInCurrentEpoch(): boolean {
+    return this._anchorResponseSeenInEpoch;
+  }
+
   get messages(): Message[] {
     // Apply micro-compaction before projecting: old tool results are
     // truncated to a short marker, freeing context tokens without an
     // LLM call.  Detect() is a no-op when the feature flag is off.
     this.agent.microCompaction.detect();
     return project(this.agent.microCompaction.compact(this.history));
+  }
+
+  /** First-request projection used by the DeepSeek anchor bootstrap. */
+  get messagesWithoutAutomaticInjections(): Message[] {
+    this.agent.microCompaction.detect();
+    const compacted = this.agent.microCompaction.compact(this.history);
+    return project(compacted.filter((message) => message.origin?.kind !== 'injection'));
   }
 
   appendLoopEvent(event: LoopRecordedEvent): void {
@@ -235,6 +253,7 @@ export class ContextMemory {
         return;
       }
       case 'step.end': {
+        this._anchorResponseSeenInEpoch = true;
         const openStep = this.openSteps.get(event.uuid);
         this.openSteps.delete(event.uuid);
         if (event.usage !== undefined) {
@@ -258,6 +277,7 @@ export class ContextMemory {
             `Received content_part for unknown step_uuid '${event.stepUuid}' (no open step_begin)`,
           );
         }
+        this._anchorResponseSeenInEpoch = true;
         openStep.content.push(event.part);
         this._revision += 1;
         return;
@@ -269,6 +289,7 @@ export class ContextMemory {
             `Received tool_call for unknown step_uuid '${event.stepUuid}' (no open step_begin)`,
           );
         }
+        this._anchorResponseSeenInEpoch = true;
         openStep.toolCalls.push({
           type: 'function',
           id: event.toolCallId,

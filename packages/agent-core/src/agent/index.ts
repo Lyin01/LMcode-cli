@@ -239,7 +239,9 @@ export class Agent {
       // Attach embedding engine for semantic search. Best-effort — gracefully
       // degrades to keyword-only if fastembed fails to load.
       try {
-        this.memoStore.setEmbeddingEngine(createFastEmbedEngine());
+        this.memoStore.setEmbeddingEngine(
+          createFastEmbedEngine(join(lmcodeHomeDir, 'models', 'fastembed')),
+        );
       } catch {
         // fastembed not available — keyword search still works.
       }

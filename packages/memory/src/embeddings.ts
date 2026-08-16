@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+
 import type { MemoryMemo } from './models.js';
 
 /**
@@ -51,7 +53,7 @@ const LOAD_FAILURE_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
  * Create an embedding engine backed by fastembed.
  * Lazily loads the model on first use so startup is not blocked.
  */
-export function createFastEmbedEngine(): EmbeddingEngine {
+export function createFastEmbedEngine(cacheDir?: string): EmbeddingEngine {
   let embedder: FastembedModel | null = null;
   let initPromise: Promise<FastembedModel | null> | null = null;
   let loadFailedAt: number | undefined;
@@ -81,7 +83,7 @@ export function createFastEmbedEngine(): EmbeddingEngine {
       try {
         if (embedder === null) {
           if (initPromise === null) {
-            initPromise = loadEmbedder();
+            initPromise = loadEmbedder(cacheDir);
           }
           embedder = await initPromise;
           if (embedder === null) {
@@ -126,10 +128,17 @@ export function createFastEmbedEngine(): EmbeddingEngine {
   };
 }
 
-async function loadEmbedder(): Promise<FastembedModel | null> {
+async function loadEmbedder(cacheDir: string | undefined): Promise<FastembedModel | null> {
   try {
+    if (cacheDir !== undefined) {
+      await mkdir(cacheDir, { recursive: true });
+    }
     const { FlagEmbedding, EmbeddingModel } = await import('fastembed');
-    return await FlagEmbedding.init({ model: EmbeddingModel.BGESmallZH });
+    return await FlagEmbedding.init({
+      model: EmbeddingModel.BGESmallZH,
+      cacheDir,
+      showDownloadProgress: false,
+    });
   } catch {
     return null;
   }

@@ -16,7 +16,15 @@ import type { LoopEventDispatcher } from './events';
 import type { LLM, LLMChatParams, LLMChatResponse } from './llm';
 import { chatWithRetry } from './retry';
 import { runToolCallBatch, type ToolCallStepContext } from './tool-call';
-import type { ExecutableTool, LoopHooks, LoopMessageBuilder, LoopStepStopReason } from './types';
+import type {
+  ExecutableTool,
+  LoopHooks,
+  LoopMessageBuilder,
+  LoopStepHookContext,
+  LoopStepStopReason,
+  LoopSystemPromptBuilder,
+  LoopToolBuilder,
+} from './types';
 
 type ChatStreamingCallbacks = Pick<
   LLMChatParams,
@@ -30,6 +38,8 @@ export interface ExecuteLoopStepDeps {
   readonly dispatchEvent: LoopEventDispatcher;
   readonly llm: LLM;
   readonly tools?: readonly ExecutableTool[] | undefined;
+  readonly buildTools?: LoopToolBuilder | undefined;
+  readonly buildSystemPrompt?: LoopSystemPromptBuilder | undefined;
   readonly hooks?: LoopHooks | undefined;
   readonly log?: Logger | undefined;
   readonly currentStep: number;
@@ -48,6 +58,8 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     dispatchEvent,
     llm,
     tools,
+    buildTools,
+    buildSystemPrompt,
     hooks,
     log,
     currentStep,
@@ -55,13 +67,15 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
     recordUsage,
   } = deps;
 
+  const hookContext: LoopStepHookContext = {
+    turnId,
+    stepNumber: currentStep,
+    signal,
+    llm,
+  };
+
   if (hooks?.beforeStep !== undefined) {
-    const beforeStep = await hooks.beforeStep({
-      turnId,
-      stepNumber: currentStep,
-      signal,
-      llm,
-    });
+    const beforeStep = await hooks.beforeStep(hookContext);
     if (beforeStep?.block === true) {
       throw new Error(beforeStep.reason ?? `Step ${String(currentStep)} was blocked`);
     }
@@ -73,13 +87,19 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
 
   signal.throwIfAborted();
 
+  const effectiveTools = buildTools === undefined ? tools : await buildTools(hookContext);
+  signal.throwIfAborted();
+
+  const systemPrompt = await buildSystemPrompt?.(hookContext);
+  signal.throwIfAborted();
+
   const messages = await buildMessages();
   signal.throwIfAborted();
 
   const stepUuid = randomUUID();
 
   const step: ToolCallStepContext = {
-    tools,
+    tools: effectiveTools,
     hooks,
     log,
     dispatchEvent,
@@ -99,7 +119,8 @@ export async function executeLoopStep(deps: ExecuteLoopStepDeps): Promise<{
 
   const chatParams: LLMChatParams = {
     messages,
-    tools: tools ?? [],
+    tools: effectiveTools ?? [],
+    systemPrompt,
     signal,
     ...createChatStreamingCallbacks({
       dispatchEvent,

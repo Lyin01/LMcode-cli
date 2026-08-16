@@ -20,6 +20,9 @@ export * from './lsp-tool';
 
 export * from './collaboration/skill-tool';
 export * from './collaboration/wolfpack';
+export * from './deepseek-anchor/bash';
+export * from './deepseek-anchor/names';
+export * from './deepseek-anchor/str-replace-editor';
 export * from './file/edit';
 export * from './file/glob';
 export * from './file/grep';

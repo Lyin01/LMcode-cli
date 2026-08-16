@@ -39,6 +39,8 @@ export interface LLMStreamTiming {
 export interface LLMChatParams {
   messages: Message[];
   tools: readonly Tool[];
+  /** Optional per-step override; omitted calls use the LLM's configured prompt. */
+  systemPrompt?: string | undefined;
   signal: AbortSignal;
   requestLogContext?: LLMRequestLogContext;
   onTextDelta?: ((delta: string) => void) | undefined;

@@ -23,7 +23,9 @@ import type {
   ExecutableTool,
   LoopHooks,
   LoopMessageBuilder,
+  LoopSystemPromptBuilder,
   LoopTerminalStepStopReason,
+  LoopToolBuilder,
   LoopTurnStopReason,
   TurnResult,
 } from './types';
@@ -35,6 +37,8 @@ export interface RunTurnInput {
   readonly buildMessages: LoopMessageBuilder;
   readonly dispatchEvent: LoopEventDispatcher;
   readonly tools?: readonly ExecutableTool[] | undefined;
+  readonly buildTools?: LoopToolBuilder | undefined;
+  readonly buildSystemPrompt?: LoopSystemPromptBuilder | undefined;
   readonly hooks?: LoopHooks | undefined;
   readonly log?: Logger | undefined;
   readonly maxSteps?: number | undefined;
@@ -49,6 +53,8 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     buildMessages,
     dispatchEvent,
     tools,
+    buildTools,
+    buildSystemPrompt,
     hooks,
     log,
     maxSteps,
@@ -80,6 +86,8 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
         dispatchEvent,
         llm,
         tools,
+        buildTools,
+        buildSystemPrompt,
         hooks,
         log,
         currentStep: steps,

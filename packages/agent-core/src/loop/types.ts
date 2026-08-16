@@ -20,6 +20,14 @@ export type { ToolCall };
 
 export type LoopMessageBuilder = () => Message[] | Promise<Message[]>;
 
+export type LoopToolBuilder = (
+  ctx: LoopStepHookContext,
+) => readonly ExecutableTool[] | Promise<readonly ExecutableTool[]>;
+
+export type LoopSystemPromptBuilder = (
+  ctx: LoopStepHookContext,
+) => string | undefined | Promise<string | undefined>;
+
 /**
  * Stop reason for one completed model step.
  *

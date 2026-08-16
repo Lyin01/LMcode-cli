@@ -33,10 +33,19 @@ interface McpToolEntry {
   readonly serverName: string;
 }
 
+export interface DeepSeekAnchorToolCatalog {
+  readonly bootstrap: readonly ExecutableTool[];
+  readonly promoted: readonly ExecutableTool[];
+}
+
+const DEEPSEEK_ANCHOR_CANONICAL_TOOLS = ['Bash', 'Read', 'Write', 'Edit'] as const;
+const DEEPSEEK_ANCHOR_TOOL_NAMES = ['bash', 'str_replace_editor'] as const;
+
 export class ToolManager {
   protected builtinTools: Map<string, BuiltinTool> = new Map();
   protected readonly userTools: Map<string, ExecutableTool> = new Map();
   protected readonly mcpTools: Map<string, McpToolEntry> = new Map();
+  private deepSeekAnchorTools: Map<string, BuiltinTool> = new Map();
   /** server name → list of qualified tool names registered for that server. */
   protected readonly mcpToolsByServer: Map<string, string[]> = new Map();
   protected enabledTools: Set<string> = new Set();
@@ -45,6 +54,7 @@ export class ToolManager {
   protected readonly store: Partial<ToolStoreData> = {};
   private mcpToolStatusUnsubscribe: (() => void) | undefined;
   private lspRegistry: LspRegistry | undefined;
+  private warnedDeepSeekAnchorUnavailable = false;
 
   constructor(protected readonly agent: Agent) {
     this.attachMcpTools();
@@ -433,18 +443,22 @@ export class ToolManager {
       this.enabledTools.has('TaskList') &&
       this.enabledTools.has('TaskOutput') &&
       this.enabledTools.has('TaskStop');
+    const read = new b.ReadTool(jian, workspace);
+    const write = new b.WriteTool(jian, workspace);
+    const edit = new b.EditTool(jian, workspace);
+    const bash = new b.BashTool(jian, cwd, background, {
+      allowBackground,
+    });
     this.builtinTools = new Map(
       [
-        new b.ReadTool(jian, workspace),
+        read,
         new b.ReadGroupTool(jian, workspace),
-        new b.WriteTool(jian, workspace),
-        new b.EditTool(jian, workspace),
+        write,
+        edit,
         new b.MultiEditTool(jian, workspace),
         new b.GrepTool(jian, workspace),
         new b.GlobTool(jian, workspace),
-        new b.BashTool(jian, cwd, background, {
-          allowBackground,
-        }),
+        bash,
         (modelCapabilities.image_in || modelCapabilities.video_in) &&
           new b.ReadMediaFileTool(jian, workspace, modelCapabilities, videoUploader),
         new b.EnterPlanModeTool(this.agent),
@@ -495,6 +509,12 @@ export class ToolManager {
         .filter((tool) => !!tool)
         .map((tool) => [tool.name, tool] as const),
     );
+    this.deepSeekAnchorTools = new Map(
+      [
+        new b.DeepSeekAnchorBashTool(bash),
+        new b.DeepSeekStrReplaceEditorTool(jian, workspace, write, edit),
+      ].map((tool) => [tool.name, tool] as const),
+    );
   }
 
   async close(): Promise<void> {
@@ -532,5 +552,49 @@ export class ToolManager {
           this.builtinTools.get(name),
       )
       .filter((tool) => !!tool);
+  }
+
+  /**
+   * Internal DeepSeek-compatible aliases. They stay out of toolInfos() and
+   * only become visible while TurnFlow is applying the V4 anchor protocol.
+   */
+  getDeepSeekAnchorToolCatalog(): DeepSeekAnchorToolCatalog | undefined {
+    const activeTools = this.loopTools;
+    const activeByName = new Map(activeTools.map((tool) => [tool.name, tool] as const));
+    const invalidCanonicalNames = DEEPSEEK_ANCHOR_CANONICAL_TOOLS.filter(
+      (name) => activeByName.get(name) !== this.builtinTools.get(name),
+    );
+    const aliases = DEEPSEEK_ANCHOR_TOOL_NAMES.map((name) =>
+      this.deepSeekAnchorTools.get(name),
+    );
+    const conflictingAliasNames = DEEPSEEK_ANCHOR_TOOL_NAMES.filter((name) =>
+      activeByName.has(name),
+    );
+
+    if (
+      invalidCanonicalNames.length > 0 ||
+      aliases.some((tool) => tool === undefined) ||
+      conflictingAliasNames.length > 0
+    ) {
+      if (!this.warnedDeepSeekAnchorUnavailable) {
+        this.warnedDeepSeekAnchorUnavailable = true;
+        this.agent.log.warn('DeepSeek V4 anchor unavailable; using the full active tool catalog', {
+          invalidCanonicalNames,
+          conflictingAliasNames,
+        });
+      }
+      return undefined;
+    }
+
+    const bootstrap = aliases.filter((tool): tool is BuiltinTool => tool !== undefined);
+    return {
+      bootstrap,
+      promoted: [
+        ...bootstrap,
+        ...activeTools.filter(
+          (tool) => !DEEPSEEK_ANCHOR_TOOL_NAMES.some((name) => name === tool.name),
+        ),
+      ],
+    };
   }
 }

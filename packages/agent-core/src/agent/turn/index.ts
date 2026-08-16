@@ -38,10 +38,12 @@ import { GOAL_BUDGET_REACHED_REASON, isGoalResourceBudgetReached } from '../goal
 import type { UsageRecordScope } from '../usage';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { ToolCallDeduplicator } from './tool-dedup';
+import DEEPSEEK_ANCHOR_SYSTEM_PROMPT_RAW from './deepseek-anchor-system.md';
 import SPEC_CRITIC_CONTINUATION_PROMPT from './spec-critic-continuation.md';
 import SPEC_CRITIC_SYSTEM_PROMPT from './spec-critic-system.md';
 import VISUAL_AUDITOR_SYSTEM_PROMPT from './visual-auditor-system.md';
 import { resolveRealPathAccessPath } from '../../tools/policies/path-access';
+import { canonicalDeepSeekAnchorToolName } from '../../tools/builtin/deepseek-anchor/names';
 import { validateFileSyntaxWithScreenshots } from '../../utils/self-healing';
 
 interface ActiveTurn {
@@ -93,6 +95,11 @@ const SPEC_CRITIC_MAX_MUTATION_ENTRY_CHARS = 8_000;
 const SPEC_CRITIC_MAX_FILES = 30;
 const SPEC_CRITIC_MAX_OUTPUT_TOKENS = 1_200;
 const POST_WRITE_STAGE_TIMEOUT_MS = 30_000;
+const DEEPSEEK_ANCHOR_MODELS = new Set([
+  'opencode-go/deepseek-v4-pro',
+  'opencode-go-rsp/deepseek-v4-flash',
+]);
+const DEEPSEEK_ANCHOR_SYSTEM_PROMPT = DEEPSEEK_ANCHOR_SYSTEM_PROMPT_RAW.trim();
 
 async function withPostWriteStageDeadline<T>(
   sourceSignal: AbortSignal,
@@ -815,6 +822,15 @@ export class TurnFlow {
     while (true) {
       signal.throwIfAborted();
       const model = this.agent.config.model;
+      const deepSeekAnchorCatalog =
+        this.agent.type === 'main' &&
+        DEEPSEEK_ANCHOR_MODELS.has(model) &&
+        !this.agent.planMode.isActive &&
+        !this.agent.wolfpackMode.isActive &&
+        this.agent.goal.getActiveGoal() === null
+          ? this.agent.tools.getDeepSeekAnchorToolCatalog()
+          : undefined;
+      let automaticInjectionsApplied = false;
       const loopControl = this.agent.lmcodeConfig?.loopControl;
       let pendingStepUsage: TokenUsage | undefined;
       let stepGoalId: string | undefined;
@@ -862,14 +878,32 @@ export class TurnFlow {
           turnId: String(turnId),
           signal,
           llm: this.agent.llm,
-          buildMessages: () => this.agent.context.messages,
+          buildMessages: () =>
+            deepSeekAnchorCatalog !== undefined &&
+            !this.agent.context.hasSeenAnchorResponseInCurrentEpoch
+              ? this.agent.context.messagesWithoutAutomaticInjections
+              : this.agent.context.messages,
           dispatchEvent: this.buildDispatchEvent(turnId, signal),
           tools: this.agent.tools.loopTools,
+          buildTools:
+            deepSeekAnchorCatalog === undefined
+              ? undefined
+              : () =>
+                  this.agent.context.hasSeenAnchorResponseInCurrentEpoch
+                    ? deepSeekAnchorCatalog.promoted
+                    : deepSeekAnchorCatalog.bootstrap,
+          buildSystemPrompt:
+            deepSeekAnchorCatalog === undefined
+              ? undefined
+              : () =>
+                  this.agent.context.hasSeenAnchorResponseInCurrentEpoch
+                    ? undefined
+                    : DEEPSEEK_ANCHOR_SYSTEM_PROMPT,
           log: this.agent.log,
           maxSteps: loopControl?.maxStepsPerTurn,
           maxRetryAttempts: loopControl?.maxRetriesPerStep,
           hooks: {
-            beforeStep: async ({ signal: stepSignal, stepNumber }) => {
+            beforeStep: async ({ signal: stepSignal }) => {
               this.flushSteerBuffer();
               if (stepGoalCaptured && !stepGoalStillActive()) return { endTurn: true };
               const goalIdBeforeCompaction = this.agent.goal.getActiveGoal()?.goalId;
@@ -880,11 +914,14 @@ export class TurnFlow {
               if (await stopForInTurnBudget()) return { endTurn: true };
               refreshDedupContext();
 
-              // Only inject on the first step of each turn to preserve
-              // the prefix-cache across steps within the same turn.
-              // Session-memory, dream-suggestions, and injection-manager
-              // content is turn-scoped and rarely changes mid-turn.
-              if (stepNumber === 1) {
+              // The DeepSeek anchor's first request must not contain automatic
+              // session context. Apply the deferred injections on request #2;
+              // all other models retain their normal first-step behavior.
+              const deferAutomaticInjections =
+                deepSeekAnchorCatalog !== undefined &&
+                !this.agent.context.hasSeenAnchorResponseInCurrentEpoch;
+              if (deferAutomaticInjections) automaticInjectionsApplied = false;
+              if (!deferAutomaticInjections && !automaticInjectionsApplied) {
                 // Inject session memory summary so the model retains context
                 // after compaction strips detailed tool-call history.
                 const sessionSummary = this.agent.sessionMemory.getSessionSummary();
@@ -911,6 +948,7 @@ export class TurnFlow {
                 }
 
                 await this.agent.injection.inject();
+                automaticInjectionsApplied = true;
               }
 
               stepGoalId = this.agent.goal.getActiveGoal()?.goalId;
@@ -1008,9 +1046,10 @@ export class TurnFlow {
                 return { syntheticResult: GOAL_CHANGED_TOOL_RESULT };
               }
               refreshDedupContext();
+              const dedupToolName = deepSeekDedupToolName(ctx.toolCall.name, ctx.args);
               const cached = deduper.checkSameStep(
                 ctx.toolCall.id,
-                ctx.toolCall.name,
+                dedupToolName,
                 ctx.args,
               );
               if (cached !== null) return { syntheticResult: cached };
@@ -1025,8 +1064,13 @@ export class TurnFlow {
                 goalTransitionSignal === undefined
                   ? ctx.signal
                   : AbortSignal.any([ctx.signal, goalTransitionSignal]);
+              const canonicalToolName = canonicalDeepSeekAnchorToolName(
+                ctx.toolCall.name,
+                ctx.args,
+              );
               const authorization = await this.agent.permission.beforeToolCall({
                 ...ctx,
+                toolCall: { ...ctx.toolCall, name: canonicalToolName },
                 signal: authorizationSignal,
               });
               refreshDedupContext();
@@ -1042,9 +1086,9 @@ export class TurnFlow {
                     ? (ctx.args as Record<string, unknown>)
                     : undefined;
                 const hasAsynchronousWorkspaceSideEffects =
-                  ctx.toolCall.name === 'Agent' ||
-                  ctx.toolCall.name === 'WolfPack' ||
-                  (ctx.toolCall.name === 'Bash' && argRecord?.['run_in_background'] === true);
+                  canonicalToolName === 'Agent' ||
+                  canonicalToolName === 'WolfPack' ||
+                  (canonicalToolName === 'Bash' && argRecord?.['run_in_background'] === true);
                 if (hasAsynchronousWorkspaceSideEffects) {
                   deduper.disableReadCoverage();
                 } else {
@@ -1057,10 +1101,15 @@ export class TurnFlow {
               return authorization;
             },
             finalizeToolResult: async (ctx) => {
+              const canonicalToolName = canonicalDeepSeekAnchorToolName(
+                ctx.toolCall.name,
+                ctx.args,
+              );
+              const dedupToolName = deepSeekDedupToolName(ctx.toolCall.name, ctx.args);
               const sameStepDuplicate = deduper.isSameStepDuplicate(ctx.toolCall.id);
               let finalResult = await deduper.finalizeResult(
                 ctx.toolCall.id,
-                ctx.toolCall.name,
+                dedupToolName,
                 ctx.args,
                 ctx.result,
               );
@@ -1074,16 +1123,16 @@ export class TurnFlow {
               if (
                 !sameStepDuplicate &&
                 finalResult.isError !== true &&
-                (ctx.toolCall.name === 'Write' ||
-                  ctx.toolCall.name === 'Edit' ||
-                  ctx.toolCall.name === 'MultiEdit')
+                (canonicalToolName === 'Write' ||
+                  canonicalToolName === 'Edit' ||
+                  canonicalToolName === 'MultiEdit')
               ) {
                 const argRecord = ctx.args as Record<string, unknown>;
                 const pathArg = argRecord['path'] ?? argRecord['file_path'];
                 if (typeof pathArg === 'string' && pathArg.length > 0) {
                   specMutatedPaths.add(pathArg);
                   specMutationEvidence.push(
-                    renderMutationEvidence(ctx.toolCall.name, pathArg, argRecord),
+                    renderMutationEvidence(canonicalToolName, pathArg, argRecord),
                   );
                 }
               }
@@ -1093,9 +1142,9 @@ export class TurnFlow {
                 !sameStepDuplicate &&
                 finalResult.isError !== true &&
                 this.agent.lmcodeConfig?.enableSelfHealing !== false &&
-                (ctx.toolCall.name === 'Write' ||
-                  ctx.toolCall.name === 'Edit' ||
-                  ctx.toolCall.name === 'MultiEdit')
+                (canonicalToolName === 'Write' ||
+                  canonicalToolName === 'Edit' ||
+                  canonicalToolName === 'MultiEdit')
               ) {
                 const path = pathArgFromToolArgs(ctx.args);
                 if (path !== undefined) {
@@ -1381,11 +1430,11 @@ export class TurnFlow {
               const { isError, output } = finalResult;
 
               // Count the tool execution for session stats.
-              this.agent.usage.recordToolCall(ctx.toolCall.name);
+              this.agent.usage.recordToolCall(canonicalToolName);
 
               // Record in session memory for post-compaction context injection
               this.agent.sessionMemory.recordToolExecution(
-                ctx.toolCall.name,
+                canonicalToolName,
                 summarizeToolArgs(ctx.args),
                 isError === true,
                 ctx.stepNumber,
@@ -1393,16 +1442,16 @@ export class TurnFlow {
 
               // Track accessed files for the working-set reminder.
               this.recordWorkingSetPaths(
-                ctx.toolCall.name,
+                canonicalToolName,
                 ctx.args,
                 Number(ctx.turnId),
               );
 
               const event = isError === true ? 'PostToolUseFailure' : 'PostToolUse';
               void this.agent.hooks?.fireAndForgetTrigger(event, {
-                matcherValue: ctx.toolCall.name,
+                matcherValue: canonicalToolName,
                 inputData: {
-                  toolName: ctx.toolCall.name,
+                  toolName: canonicalToolName,
                   toolInput: toolInputRecord(ctx.args),
                   toolCallId: ctx.toolCall.id,
                   error: isError === true ? toLmcodeErrorPayload(toolOutputText(output)) : undefined,
@@ -1617,6 +1666,14 @@ function toolOutputText(output: ExecutableToolResult['output']): string {
     .join('');
 }
 
+function deepSeekDedupToolName(toolName: string, args: unknown): string {
+  const canonical = canonicalDeepSeekAnchorToolName(toolName, args);
+  // The native Read deduper understands Read's line_offset/n_lines contract.
+  // str_replace_editor uses view_range, so keep its exact schema identity to
+  // avoid treating two different view ranges as the same read.
+  return toolName === 'str_replace_editor' && canonical === 'Read' ? toolName : canonical;
+}
+
 
 
 /** Extract a short human-readable summary from tool arguments. */
@@ -1658,19 +1715,33 @@ function renderMutationEvidence(
 ): string {
   const evidence: Record<string, unknown> = { tool: toolName, path };
   if (toolName === 'Write') {
-    const content = args['content'];
+    const content = args['content'] ?? args['file_text'];
     evidence['content'] =
       typeof content === 'string'
         ? truncateReviewText(content, SPEC_CRITIC_MAX_MUTATION_ENTRY_CHARS)
         : '(not captured)';
   } else if (toolName === 'Edit') {
     const fieldLimit = Math.floor(SPEC_CRITIC_MAX_MUTATION_ENTRY_CHARS / 2);
-    const oldString = args['old_string'];
-    const newString = args['new_string'];
-    evidence['before'] =
-      typeof oldString === 'string' ? truncateReviewText(oldString, fieldLimit) : '(not captured)';
-    evidence['after'] =
-      typeof newString === 'string' ? truncateReviewText(newString, fieldLimit) : '(not captured)';
+    const command = args['command'];
+    const newString = args['new_string'] ?? args['new_str'];
+    if (command === 'insert') {
+      evidence['insertAfterLine'] = args['insert_line'];
+      evidence['after'] =
+        typeof newString === 'string'
+          ? truncateReviewText(newString, fieldLimit)
+          : '(not captured)';
+    } else {
+      const oldString = args['old_string'] ?? args['old_str'];
+      const replacement = command === 'str_replace' && newString === undefined ? '' : newString;
+      evidence['before'] =
+        typeof oldString === 'string'
+          ? truncateReviewText(oldString, fieldLimit)
+          : '(not captured)';
+      evidence['after'] =
+        typeof replacement === 'string'
+          ? truncateReviewText(replacement, fieldLimit)
+          : '(not captured)';
+    }
   } else if (toolName === 'MultiEdit') {
     const edits = args['edits'];
     evidence['edits'] = Array.isArray(edits)
