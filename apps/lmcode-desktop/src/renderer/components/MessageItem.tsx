@@ -80,7 +80,42 @@ const CodeBlockWithCopy = memo(function CodeBlockWithCopy({
   )
 })
 
-const MARKDOWN_COMPONENTS: Components = { pre: CodeBlockWithCopy }
+const MARKDOWN_COMPONENTS: Components = { pre: CodeBlockWithCopy, a: MarkdownLink }
+
+/** 渲染层 file:// → 本地路径转换（file:///C:/a/b → C:\a\b）。 */
+function fileUrlToPath(url: string): string | null {
+  if (!url.startsWith('file:///')) return null
+  let pathname: string
+  try {
+    pathname = decodeURIComponent(new URL(url).pathname)
+  } catch {
+    return null
+  }
+  const isWindowsDrive = /^\/[a-zA-Z]:[\\/]/.test(pathname)
+  const path = isWindowsDrive ? pathname.slice(1) : pathname
+  return path.length > 0 ? path : null
+}
+
+/** 对话里的链接：file:// 交给系统默认程序，https 交给系统浏览器，其余保持默认。 */
+function MarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
+  const handle = href === undefined ? undefined : (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (href.startsWith('file://')) {
+      event.preventDefault()
+      const path = fileUrlToPath(href)
+      if (path !== null) void window.lmcodeAPI.openPath(path)
+      return
+    }
+    if (href.startsWith('https://')) {
+      event.preventDefault()
+      void window.lmcodeAPI.openExternal(href)
+    }
+  }
+  return (
+    <a href={href} onClick={handle} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  )
+}
 
 interface MessageItemProps {
   message: Message
