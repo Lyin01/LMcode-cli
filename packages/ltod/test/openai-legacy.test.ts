@@ -462,6 +462,23 @@ describe('OpenAILegacyChatProvider', () => {
       });
       expect(provider.modelParameters['max_tokens']).toBe(2048);
     });
+
+    it('uses the caller completion cap when no provider maximum is configured', async () => {
+      const provider = createProvider().withMaxCompletionTokens(65_536);
+      const body = await captureRequestBody(provider, '', [], []);
+      expect(body['max_tokens']).toBe(65_536);
+    });
+
+    it('keeps an explicit provider maximum below the caller completion cap', async () => {
+      const provider = new OpenAILegacyChatProvider({
+        model: 'gpt-4.1',
+        apiKey: 'test-key',
+        stream: false,
+        maxTokens: 8_192,
+      }).withMaxCompletionTokens(65_536);
+      const body = await captureRequestBody(provider, '', [], []);
+      expect(body['max_tokens']).toBe(8_192);
+    });
   });
 
   describe('toolMessageConversion option', () => {

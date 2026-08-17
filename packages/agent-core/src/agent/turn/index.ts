@@ -38,7 +38,6 @@ import { GOAL_BUDGET_REACHED_REASON, isGoalResourceBudgetReached } from '../goal
 import type { UsageRecordScope } from '../usage';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { ToolCallDeduplicator } from './tool-dedup';
-import DEEPSEEK_ANCHOR_SYSTEM_PROMPT_RAW from './deepseek-anchor-system.md';
 import SPEC_CRITIC_CONTINUATION_PROMPT from './spec-critic-continuation.md';
 import SPEC_CRITIC_SYSTEM_PROMPT from './spec-critic-system.md';
 import VISUAL_AUDITOR_SYSTEM_PROMPT from './visual-auditor-system.md';
@@ -93,13 +92,14 @@ const SPEC_CRITIC_MAX_VALIDATION_CHARS = 4_000;
 const SPEC_CRITIC_MAX_MUTATION_CHARS = 24_000;
 const SPEC_CRITIC_MAX_MUTATION_ENTRY_CHARS = 8_000;
 const SPEC_CRITIC_MAX_FILES = 30;
-const SPEC_CRITIC_MAX_OUTPUT_TOKENS = 1_200;
+const SPEC_CRITIC_MAX_OUTPUT_TOKENS = 4_096;
+const SPEC_CRITIC_INCONCLUSIVE_FINDING =
+  'The automated specification review returned no valid verdict. Re-check every explicit requirement against the changed artifacts and available validation evidence before completing.';
 const POST_WRITE_STAGE_TIMEOUT_MS = 30_000;
 const DEEPSEEK_ANCHOR_MODELS = new Set([
   'opencode-go/deepseek-v4-pro',
   'opencode-go-rsp/deepseek-v4-flash',
 ]);
-const DEEPSEEK_ANCHOR_SYSTEM_PROMPT = DEEPSEEK_ANCHOR_SYSTEM_PROMPT_RAW.trim();
 
 async function withPostWriteStageDeadline<T>(
   sourceSignal: AbortSignal,
@@ -656,8 +656,8 @@ export class TurnFlow {
   /**
    * Runs a one-shot spec-consistency review over the finished turn on the
    * utility model. Returns the critic's list of unaddressed requirements,
-   * or `undefined` when the work passes. The critic must never block a
-   * turn from completing, so every failure path degrades to `undefined`.
+   * or `undefined` when the work passes. An inconclusive review gets one
+   * main-model self-check, guarded by the same once-per-turn latch.
    */
   private async runSpecCritic(
     signal: AbortSignal,
@@ -685,10 +685,10 @@ export class TurnFlow {
 
     try {
       const utility = this.agent.config.utility;
-      const noThinkingProvider = utility.provider.withThinking('off');
+      const thinkingProvider = utility.provider.withThinking(this.agent.config.thinkingLevel);
       const reviewProvider =
-        noThinkingProvider.withMaxCompletionTokens?.(SPEC_CRITIC_MAX_OUTPUT_TOKENS) ??
-        noThinkingProvider;
+        thinkingProvider.withMaxCompletionTokens?.(SPEC_CRITIC_MAX_OUTPUT_TOKENS) ??
+        thinkingProvider;
       const goalId = this.agent.goal.getActiveGoal()?.goalId;
       const response = await withPostWriteStageDeadline(signal, async (reviewSignal) => {
         const result = await this.agent.generate(
@@ -746,16 +746,15 @@ export class TurnFlow {
           .trim();
         if (missing.length > 0) return missing;
       }
-      if (verdict !== 'SPEC_OK') {
-        this.agent.log.warn('spec critic returned an invalid verdict; completing turn', {
-          verdict: verdict.slice(0, 200),
-        });
-      }
-      return undefined;
+      if (verdict === 'SPEC_OK') return undefined;
+      this.agent.log.warn('spec critic returned an invalid verdict; requesting self-check', {
+        verdict: verdict.slice(0, 200),
+      });
+      return SPEC_CRITIC_INCONCLUSIVE_FINDING;
     } catch (error) {
       if (isAbortError(error)) throw error;
-      this.agent.log.warn('spec critic failed; completing turn without review', { error });
-      return undefined;
+      this.agent.log.warn('spec critic failed; requesting one main-model self-check', { error });
+      return SPEC_CRITIC_INCONCLUSIVE_FINDING;
     }
   }
 
@@ -878,11 +877,7 @@ export class TurnFlow {
           turnId: String(turnId),
           signal,
           llm: this.agent.llm,
-          buildMessages: () =>
-            deepSeekAnchorCatalog !== undefined &&
-            !this.agent.context.hasSeenAnchorResponseInCurrentEpoch
-              ? this.agent.context.messagesWithoutAutomaticInjections
-              : this.agent.context.messages,
+          buildMessages: () => this.agent.context.messages,
           dispatchEvent: this.buildDispatchEvent(turnId, signal),
           tools: this.agent.tools.loopTools,
           buildTools:
@@ -892,13 +887,6 @@ export class TurnFlow {
                   this.agent.context.hasSeenAnchorResponseInCurrentEpoch
                     ? deepSeekAnchorCatalog.promoted
                     : deepSeekAnchorCatalog.bootstrap,
-          buildSystemPrompt:
-            deepSeekAnchorCatalog === undefined
-              ? undefined
-              : () =>
-                  this.agent.context.hasSeenAnchorResponseInCurrentEpoch
-                    ? undefined
-                    : DEEPSEEK_ANCHOR_SYSTEM_PROMPT,
           log: this.agent.log,
           maxSteps: loopControl?.maxStepsPerTurn,
           maxRetryAttempts: loopControl?.maxRetriesPerStep,
@@ -914,14 +902,7 @@ export class TurnFlow {
               if (await stopForInTurnBudget()) return { endTurn: true };
               refreshDedupContext();
 
-              // The DeepSeek anchor's first request must not contain automatic
-              // session context. Apply the deferred injections on request #2;
-              // all other models retain their normal first-step behavior.
-              const deferAutomaticInjections =
-                deepSeekAnchorCatalog !== undefined &&
-                !this.agent.context.hasSeenAnchorResponseInCurrentEpoch;
-              if (deferAutomaticInjections) automaticInjectionsApplied = false;
-              if (!deferAutomaticInjections && !automaticInjectionsApplied) {
+              if (!automaticInjectionsApplied) {
                 // Inject session memory summary so the model retains context
                 // after compaction strips detailed tool-call history.
                 const sessionSummary = this.agent.sessionMemory.getSessionSummary();

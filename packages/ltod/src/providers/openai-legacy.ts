@@ -530,7 +530,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     const currentMax = this._generationKwargs.max_tokens;
     const clamped = currentMax !== undefined
       ? Math.min(maxCompletionTokens, currentMax)
-      : Math.min(maxCompletionTokens, 16384);
+      : maxCompletionTokens;
     return this.withGenerationKwargs({ max_tokens: clamped });
   }
 

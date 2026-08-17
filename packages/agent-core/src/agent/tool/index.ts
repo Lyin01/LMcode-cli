@@ -39,13 +39,11 @@ export interface DeepSeekAnchorToolCatalog {
 }
 
 const DEEPSEEK_ANCHOR_CANONICAL_TOOLS = ['Bash', 'Read', 'Write', 'Edit'] as const;
-const DEEPSEEK_ANCHOR_TOOL_NAMES = ['bash', 'str_replace_editor'] as const;
 
 export class ToolManager {
   protected builtinTools: Map<string, BuiltinTool> = new Map();
   protected readonly userTools: Map<string, ExecutableTool> = new Map();
   protected readonly mcpTools: Map<string, McpToolEntry> = new Map();
-  private deepSeekAnchorTools: Map<string, BuiltinTool> = new Map();
   /** server name → list of qualified tool names registered for that server. */
   protected readonly mcpToolsByServer: Map<string, string[]> = new Map();
   protected enabledTools: Set<string> = new Set();
@@ -509,12 +507,6 @@ export class ToolManager {
         .filter((tool) => !!tool)
         .map((tool) => [tool.name, tool] as const),
     );
-    this.deepSeekAnchorTools = new Map(
-      [
-        new b.DeepSeekAnchorBashTool(bash),
-        new b.DeepSeekStrReplaceEditorTool(jian, workspace, write, edit),
-      ].map((tool) => [tool.name, tool] as const),
-    );
   }
 
   async close(): Promise<void> {
@@ -554,47 +546,28 @@ export class ToolManager {
       .filter((tool) => !!tool);
   }
 
-  /**
-   * Internal DeepSeek-compatible aliases. They stay out of toolInfos() and
-   * only become visible while TurnFlow is applying the V4 anchor protocol.
-   */
+  /** First-request canonical subset and promoted full catalog for DeepSeek V4. */
   getDeepSeekAnchorToolCatalog(): DeepSeekAnchorToolCatalog | undefined {
     const activeTools = this.loopTools;
     const activeByName = new Map(activeTools.map((tool) => [tool.name, tool] as const));
     const invalidCanonicalNames = DEEPSEEK_ANCHOR_CANONICAL_TOOLS.filter(
       (name) => activeByName.get(name) !== this.builtinTools.get(name),
     );
-    const aliases = DEEPSEEK_ANCHOR_TOOL_NAMES.map((name) =>
-      this.deepSeekAnchorTools.get(name),
-    );
-    const conflictingAliasNames = DEEPSEEK_ANCHOR_TOOL_NAMES.filter((name) =>
-      activeByName.has(name),
-    );
-
-    if (
-      invalidCanonicalNames.length > 0 ||
-      aliases.some((tool) => tool === undefined) ||
-      conflictingAliasNames.length > 0
-    ) {
+    if (invalidCanonicalNames.length > 0) {
       if (!this.warnedDeepSeekAnchorUnavailable) {
         this.warnedDeepSeekAnchorUnavailable = true;
         this.agent.log.warn('DeepSeek V4 anchor unavailable; using the full active tool catalog', {
           invalidCanonicalNames,
-          conflictingAliasNames,
         });
       }
       return undefined;
     }
 
-    const bootstrap = aliases.filter((tool): tool is BuiltinTool => tool !== undefined);
+    const canonicalNames = new Set<string>(DEEPSEEK_ANCHOR_CANONICAL_TOOLS);
+    const bootstrap = activeTools.filter((tool) => canonicalNames.has(tool.name));
     return {
       bootstrap,
-      promoted: [
-        ...bootstrap,
-        ...activeTools.filter(
-          (tool) => !DEEPSEEK_ANCHOR_TOOL_NAMES.some((name) => name === tool.name),
-        ),
-      ],
+      promoted: activeTools,
     };
   }
 }

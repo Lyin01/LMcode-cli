@@ -1392,7 +1392,7 @@ describe('Agent compaction', () => {
     await ctx.expectResumeMatches();
   });
 
-  it('keeps an unresolved tool exchange out of the compaction prompt', async () => {
+  it('repairs an unresolved tool exchange in the compaction prompt', async () => {
     const ctx = testAgent();
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1415,6 +1415,7 @@ describe('Agent compaction', () => {
         user: text "run both tools"
         assistant: []  calls call_open_one:LookupOne { "query": "one" }, call_open_two:LookupTwo { "query": "two" }
         tool[call_open_one]: text "one result"
+        tool[call_open_two]: text "<system>ERROR: This tool call was interrupted before its result was recorded. Treat it as failed and retry the tool call with complete arguments if it is still needed.</system>"
         user: text <compaction-instruction>
     `);
     expect(ctx.agent.context.history.map((message) => message.role)).toEqual([

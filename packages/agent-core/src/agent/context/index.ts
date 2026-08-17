@@ -204,7 +204,9 @@ export class ContextMemory {
 
   get tokenCountWithPending(): number {
     const pendingMessages = this._history.slice(this.tokenCountCoveredMessageCount);
-    return this._tokenCount + estimateTokensForMessages(project(pendingMessages));
+    // This suffix can start with a valid result whose tool call is already
+    // covered by the previous usage snapshot, so do not project it alone.
+    return this._tokenCount + estimateTokensForMessages(pendingMessages);
   }
 
   get history(): readonly ContextMessage[] {

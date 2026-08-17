@@ -44,6 +44,7 @@ describe('Agent context', () => {
   it('renders tool error and empty-output status as model-visible text', () => {
     const ctx = testAgent();
     ctx.configure();
+    ctx.agent.context.appendMessage(assistantToolMessage(['call_error', 'call_empty']));
 
     ctx.dispatch({
       type: 'context.append_loop_event',
@@ -64,7 +65,7 @@ describe('Agent context', () => {
       },
     });
 
-    expect(ctx.agent.context.messages).toMatchObject([
+    expect(ctx.agent.context.messages.filter((message) => message.role === 'tool')).toMatchObject([
       {
         role: 'tool',
         content: [
@@ -362,7 +363,13 @@ describe('Agent context', () => {
       'user',
       'assistant',
       'tool',
+      'tool',
     ]);
+    expect(ctx.agent.context.messages[3]?.toolCallId).toBe('call_open_one');
+    expect(ctx.agent.context.messages[4]?.toolCallId).toBe('call_open_two');
+    expect(textOf(ctx.agent.context.messages[4]!)).toContain(
+      'interrupted before its result was recorded',
+    );
 
     ctx.dispatch({
       type: 'context.append_loop_event',
@@ -454,6 +461,7 @@ describe('Agent context', () => {
     const bigOutput = `tool-output-${'x'.repeat(600)}`;
     for (let i = 0; i < 11; i += 1) {
       ctx.agent.context.appendUserMessage([{ type: 'text', text: `question ${String(i)}` }]);
+      ctx.agent.context.appendMessage(assistantToolMessage([`tc-${String(i)}`]));
       ctx.dispatch({
         type: 'context.append_loop_event',
         event: {
@@ -465,6 +473,7 @@ describe('Agent context', () => {
       });
     }
     ctx.appendAssistantTextWithUsage(99, 'usage carrier', 160);
+    ctx.agent.context.appendMessage(assistantToolMessage(['tc-last']));
     ctx.dispatch({
       type: 'context.append_loop_event',
       event: {
@@ -482,7 +491,7 @@ describe('Agent context', () => {
 
     ctx.agent.context.applyCompaction({
       summary: 'compacted summary',
-      compactedCount: 22,
+      compactedCount: 33,
       tokensBefore: 160,
       tokensAfter: 10,
     });
@@ -563,6 +572,50 @@ describe('Agent context', () => {
     expect(ctx.agent.context.tokenCountWithPending).toBe(
       1_280 + estimateTokensForMessages(pendingMessages),
     );
+  });
+
+  it('synthesizes a missing result in a partially recorded parallel tool batch', () => {
+    const messages = project([
+      assistantToolMessage(['call_one', 'call_two']),
+      toolResultMessage('call_two', 'second result'),
+      userMessage('continue', { kind: 'user' }),
+    ]);
+
+    expect(messages.map((message) => message.role)).toEqual([
+      'assistant',
+      'tool',
+      'tool',
+      'user',
+    ]);
+    expect(messages.slice(1, 3).map((message) => message.toolCallId)).toEqual([
+      'call_one',
+      'call_two',
+    ]);
+    expect(textOf(messages[1]!)).toContain('interrupted before its result was recorded');
+    expect(textOf(messages[2]!)).toBe('second result');
+  });
+
+  it('keeps a tail tool call and synthesizes its interrupted result', () => {
+    const messages = project([assistantToolMessage(['call_tail'])]);
+
+    expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool']);
+    expect(messages[1]?.toolCallId).toBe('call_tail');
+    expect(textOf(messages[1]!)).toContain('Treat it as failed');
+  });
+
+  it('drops orphaned and duplicate tool results', () => {
+    const messages = project([
+      toolResultMessage('call_orphan', 'orphan before'),
+      assistantToolMessage(['call_once']),
+      toolResultMessage('call_once', 'first result'),
+      toolResultMessage('call_once', 'duplicate result'),
+      toolResultMessage('call_other', 'orphan after'),
+      userMessage('next prompt', { kind: 'user' }),
+    ]);
+
+    expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool', 'user']);
+    expect(messages[1]?.toolCallId).toBe('call_once');
+    expect(textOf(messages[1]!)).toBe('first result');
   });
 
 });
@@ -697,6 +750,28 @@ function userMessage(text: string, origin?: ContextMessage['origin']): ContextMe
     content: [{ type: 'text', text }],
     toolCalls: [],
     origin,
+  };
+}
+
+function assistantToolMessage(ids: readonly string[]): ContextMessage {
+  return {
+    role: 'assistant',
+    content: [],
+    toolCalls: ids.map((id) => ({
+      type: 'function',
+      id,
+      name: 'Lookup',
+      arguments: '{}',
+    })),
+  };
+}
+
+function toolResultMessage(toolCallId: string, text: string): ContextMessage {
+  return {
+    role: 'tool',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    toolCallId,
   };
 }
 

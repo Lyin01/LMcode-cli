@@ -15,7 +15,7 @@ import {
 const DEEPSEEK_PRO = 'opencode-go/deepseek-v4-pro';
 const DEEPSEEK_FLASH = 'opencode-go-rsp/deepseek-v4-flash';
 const REQUIRED_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Grep'] as const;
-const MINIMAL_SYSTEM_PROMPT = 'You are a helpful software engineer assistant.';
+const BOOTSTRAP_TOOLS = ['Bash', 'Edit', 'Read', 'Write'] as const;
 
 describe('DeepSeek V4 request anchoring', () => {
   beforeEach(() => {
@@ -27,10 +27,10 @@ describe('DeepSeek V4 request anchoring', () => {
   });
 
   it.each([DEEPSEEK_PRO, DEEPSEEK_FLASH])(
-    'sends the exact Minimal tool schemas on the first %s request',
+    'sends canonical bootstrap tools and full context on the first %s request',
     async (model) => {
       const ctx = configuredDeepSeekAgent(model);
-      ctx.agent.context.appendSystemReminder('automatic context must be hidden', {
+      ctx.agent.context.appendSystemReminder('automatic context must remain visible', {
         kind: 'injection',
         variant: 'test',
       });
@@ -38,66 +38,14 @@ describe('DeepSeek V4 request anchoring', () => {
       await runTextTurn(ctx, 'inspect the project', 'done');
 
       const request = ctx.llmCalls[0]!;
-      expect(request.systemPrompt).toBe(MINIMAL_SYSTEM_PROMPT);
-      expect(request.tools.map((tool) => tool.name)).toEqual(['bash', 'str_replace_editor']);
-      expect(request.tools[0]?.parameters).toEqual({
-        type: 'object',
-        properties: {
-          command: {
-            type: 'string',
-            description: 'The bash command to run. Relative path is preferred in the command.',
-          },
-        },
-        required: ['command'],
-      });
-      expect(request.tools[1]?.parameters).toEqual({
-        type: 'object',
-        properties: {
-          command: {
-            type: 'string',
-            enum: ['view', 'create', 'str_replace', 'insert'],
-            description:
-              'The commands to run. Allowed options are: `view`, `create`, `str_replace`, `insert`.',
-          },
-          path: {
-            type: 'string',
-            description: 'Absolute path to file or directory, e.g. `/repo/file.py` or `/repo`.',
-          },
-          file_text: {
-            type: 'string',
-            description:
-              'Required parameter of `create` command, with the content of the file to be created.',
-          },
-          insert_line: {
-            type: 'integer',
-            description:
-              'Required parameter of `insert` command. The `new_str` will be inserted AFTER the line `insert_line` of `path`.',
-          },
-          new_str: {
-            type: 'string',
-            description:
-              'Optional parameter of `str_replace` command containing the new string (if not given, no string will be added). Required parameter of `insert` command containing the string to insert.',
-          },
-          old_str: {
-            type: 'string',
-            description:
-              'Required parameter of `str_replace` command containing the string in `path` to replace.',
-          },
-          view_range: {
-            type: 'array',
-            items: { type: 'integer' },
-            description:
-              'Optional parameter of `view` command when `path` points to a file. If none is given, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file.',
-          },
-        },
-        required: ['command', 'path'],
-      });
+      expect(request.systemPrompt).toBe(DEFAULT_TEST_SYSTEM_PROMPT);
+      expect(request.tools.map((tool) => tool.name)).toEqual(BOOTSTRAP_TOOLS);
       expect(requestText(request)).toContain('inspect the project');
-      expect(requestText(request)).not.toContain('automatic context must be hidden');
+      expect(requestText(request)).toContain('automatic context must remain visible');
     },
   );
 
-  it('promotes a text-only first reply to aliases plus the full LMcode catalog', async () => {
+  it('promotes a text-only first reply to the canonical full LMcode catalog', async () => {
     const ctx = configuredDeepSeekAgent(DEEPSEEK_PRO);
     ctx.agent.context.appendSystemReminder('deferred automatic context', {
       kind: 'injection',
@@ -108,16 +56,14 @@ describe('DeepSeek V4 request anchoring', () => {
     await runTextTurn(ctx, 'second prompt', 'second answer');
 
     const [first, second] = ctx.llmCalls;
-    expect(first?.systemPrompt).toBe(MINIMAL_SYSTEM_PROMPT);
+    expect(first?.systemPrompt).toBe(DEFAULT_TEST_SYSTEM_PROMPT);
     expect(second?.systemPrompt).toBe(DEFAULT_TEST_SYSTEM_PROMPT);
-    expect(new Set(second?.tools.map((tool) => tool.name))).toEqual(
-      new Set(['bash', 'str_replace_editor', ...REQUIRED_TOOLS]),
-    );
-    expect(requestText(first!)).not.toContain('deferred automatic context');
+    expect(new Set(second?.tools.map((tool) => tool.name))).toEqual(new Set(REQUIRED_TOOLS));
+    expect(requestText(first!)).toContain('deferred automatic context');
     expect(requestText(second!)).toContain('deferred automatic context');
   });
 
-  it('promotes request #2 in the same turn and accounts for aliases canonically', async () => {
+  it('promotes request #2 in the same turn and accounts for canonical tools', async () => {
     const ctx = configuredDeepSeekAgent(DEEPSEEK_PRO, {
       jian: createCommandJian('anchored'),
     });
@@ -125,7 +71,7 @@ describe('DeepSeek V4 request anchoring', () => {
     ctx.mockNextResponse({
       type: 'function',
       id: 'call_anchor_bash',
-      name: 'bash',
+      name: 'Bash',
       arguments: '{"command":"printf anchored"}',
     });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
@@ -134,17 +80,15 @@ describe('DeepSeek V4 request anchoring', () => {
     await ctx.untilTurnEnd();
 
     const [first, second] = ctx.llmCalls;
-    expect(first?.tools.map((tool) => tool.name)).toEqual(['bash', 'str_replace_editor']);
-    expect(new Set(second?.tools.map((tool) => tool.name))).toEqual(
-      new Set(['bash', 'str_replace_editor', ...REQUIRED_TOOLS]),
-    );
-    expect(requestText(first!)).not.toContain('Auto permission mode is active');
+    expect(first?.tools.map((tool) => tool.name)).toEqual(BOOTSTRAP_TOOLS);
+    expect(new Set(second?.tools.map((tool) => tool.name))).toEqual(new Set(REQUIRED_TOOLS));
+    expect(requestText(first!)).toContain('Auto permission mode is active');
     expect(requestText(second!)).toContain('Auto permission mode is active');
     expect(ctx.agent.usage.stats().toolCallsByName).toEqual({ Bash: 1 });
     const toolCall = ctx.agent.context.history
       .flatMap((message) => message.toolCalls)
       .find((call) => call.id === 'call_anchor_bash');
-    expect(toolCall?.name).toBe('bash');
+    expect(toolCall?.name).toBe('Bash');
   });
 
   it('keeps the alias in the transcript while requesting permission as canonical Bash', async () => {
@@ -155,7 +99,7 @@ describe('DeepSeek V4 request anchoring', () => {
     ctx.mockNextResponse({
       type: 'function',
       id: 'call_permission_bash',
-      name: 'bash',
+      name: 'Bash',
       arguments: '{"command":"printf approved"}',
     });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
@@ -178,7 +122,7 @@ describe('DeepSeek V4 request anchoring', () => {
     const toolCall = ctx.agent.context.history
       .flatMap((message) => message.toolCalls)
       .find((call) => call.id === 'call_permission_bash');
-    expect(toolCall?.name).toBe('bash');
+    expect(toolCall?.name).toBe('Bash');
   });
 
   it('preserves promotion when the completed session is resumed', async () => {
@@ -197,7 +141,7 @@ describe('DeepSeek V4 request anchoring', () => {
 
     expect(resumed.llmCalls[0]?.systemPrompt).toBe(DEFAULT_TEST_SYSTEM_PROMPT);
     expect(new Set(resumed.llmCalls[0]?.tools.map((tool) => tool.name))).toEqual(
-      new Set(['bash', 'str_replace_editor', ...REQUIRED_TOOLS]),
+      new Set(REQUIRED_TOOLS),
     );
   });
 
@@ -212,11 +156,8 @@ describe('DeepSeek V4 request anchoring', () => {
 
     await runTextTurn(ctx, 'retry after interruption', 'answer');
 
-    expect(ctx.llmCalls[0]?.systemPrompt).toBe(MINIMAL_SYSTEM_PROMPT);
-    expect(ctx.llmCalls[0]?.tools.map((tool) => tool.name)).toEqual([
-      'bash',
-      'str_replace_editor',
-    ]);
+    expect(ctx.llmCalls[0]?.systemPrompt).toBe(DEFAULT_TEST_SYSTEM_PROMPT);
+    expect(ctx.llmCalls[0]?.tools.map((tool) => tool.name)).toEqual(BOOTSTRAP_TOOLS);
   });
 
   it('re-anchors after clear and full compaction, but not after undo', async () => {
@@ -224,7 +165,7 @@ describe('DeepSeek V4 request anchoring', () => {
     await runTextTurn(cleared, 'before clear', 'answer');
     await cleared.rpc.clearContext({});
     await runTextTurn(cleared, 'after clear', 'answer');
-    expect(cleared.llmCalls[1]?.systemPrompt).toBe(MINIMAL_SYSTEM_PROMPT);
+    expect(cleared.llmCalls[1]?.systemPrompt).toBe(DEFAULT_TEST_SYSTEM_PROMPT);
 
     const compacted = configuredDeepSeekAgent(DEEPSEEK_PRO);
     await runTextTurn(compacted, 'before compaction', 'answer');
@@ -235,7 +176,7 @@ describe('DeepSeek V4 request anchoring', () => {
       tokensAfter: 10,
     });
     await runTextTurn(compacted, 'after compaction', 'answer');
-    expect(compacted.llmCalls[1]?.systemPrompt).toBe(MINIMAL_SYSTEM_PROMPT);
+    expect(compacted.llmCalls[1]?.systemPrompt).toBe(DEFAULT_TEST_SYSTEM_PROMPT);
 
     const undone = configuredDeepSeekAgent(DEEPSEEK_PRO);
     await runTextTurn(undone, 'before undo', 'answer');
