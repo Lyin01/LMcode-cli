@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InteractionHub } from '../src/main/remote/interaction-hub'
@@ -37,6 +38,25 @@ function fakeMemoryStore() {
 }
 
 let tempDirs: string[] = []
+let managers: RemoteManager[] = []
+
+async function getAvailablePort(): Promise<number> {
+  const server = createServer()
+  const { promise, resolve, reject } = Promise.withResolvers<number>()
+  server.once('error', reject)
+  server.listen(0, '127.0.0.1', () => {
+    const address = server.address()
+    if (address === null || typeof address === 'string') {
+      server.close(() => reject(new Error('Failed to allocate a test port')))
+      return
+    }
+    server.close((error) => {
+      if (error !== undefined) reject(error)
+      else resolve(address.port)
+    })
+  })
+  return promise
+}
 
 async function makeManager(): Promise<{
   manager: RemoteManager
@@ -56,10 +76,13 @@ async function makeManager(): Promise<{
     noProjectWorkDir: join(configDir, 'no-project'),
     onStateChange: (state) => states.push(state),
   })
+  managers.push(manager)
   return { manager, configDir, configPath: join(configDir, 'remote-config.json'), states }
 }
 
 afterEach(async () => {
+  await Promise.all(managers.map((manager) => manager.close()))
+  managers = []
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })))
   tempDirs = []
 })
@@ -79,8 +102,10 @@ describe('RemoteManager', () => {
   it('persists config to disk and reloads it on init', async () => {
     const { manager, configPath } = await makeManager()
     await manager.init()
+    await manager.setPort(await getAvailablePort())
     await manager.setEnabled(true)
-    await manager.setPort(38_000)
+    const persistedPort = await getAvailablePort()
+    await manager.setPort(persistedPort)
     await manager.regenerateToken()
 
     const persisted = JSON.parse(await readFile(configPath, 'utf8')) as {
@@ -89,7 +114,7 @@ describe('RemoteManager', () => {
       token: string
     }
     expect(persisted.enabled).toBe(true)
-    expect(persisted.port).toBe(38_000)
+    expect(persisted.port).toBe(persistedPort)
     expect(persisted.token).toBe(manager.getState().token)
 
     // A fresh manager over the SAME directory restores the same state.
@@ -102,16 +127,17 @@ describe('RemoteManager', () => {
       version: '0.0.0-test',
       noProjectWorkDir: join(manager['options'].configDir, 'no-project'),
     })
+    managers.push(reloaded)
     await reloaded.init()
     expect(reloaded.getState().enabled).toBe(true)
-    expect(reloaded.getState().port).toBe(38_000)
+    expect(reloaded.getState().port).toBe(persistedPort)
     expect(reloaded.getState().token).toBe(persisted.token)
-    await reloaded.close()
   })
 
   it('emits state changes for every mutation', async () => {
     const { manager, states } = await makeManager()
     await manager.init()
+    await manager.setPort(await getAvailablePort())
     const before = states.length
     await manager.setEnabled(true)
     await manager.regenerateToken()
@@ -130,6 +156,7 @@ describe('RemoteManager', () => {
   it('serves health and accepts a client after being enabled', async () => {
     const { manager } = await makeManager()
     await manager.init()
+    await manager.setPort(await getAvailablePort())
     await manager.setEnabled(true)
     const state = manager.getState()
     expect(state.enabled).toBe(true)
@@ -138,18 +165,17 @@ describe('RemoteManager', () => {
     expect(health.status).toBe(200)
     const body = (await health.json()) as { ok: boolean }
     expect(body.ok).toBe(true)
-    await manager.close()
   })
 
   it('regenerating the token does not restart the server (state stays enabled)', async () => {
     const { manager } = await makeManager()
     await manager.init()
+    await manager.setPort(await getAvailablePort())
     await manager.setEnabled(true)
     const before = manager.getState()
     const after = await manager.regenerateToken()
     expect(after.enabled).toBe(true)
     expect(after.token).not.toBe(before.token)
     expect(after.port).toBe(before.port)
-    await manager.close()
   })
 })
