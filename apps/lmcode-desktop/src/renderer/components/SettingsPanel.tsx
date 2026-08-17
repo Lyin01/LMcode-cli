@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import {
   X,
   Sun,
@@ -13,13 +13,10 @@ import {
   Check,
   Copy,
   Trash2,
-  RefreshCw,
-  Plus,
   Search,
   ExternalLink,
   Minimize2,
   Download,
-  AlertTriangle,
   Keyboard,
   ArrowLeft,
 } from 'lucide-react'
@@ -73,7 +70,6 @@ const THEME_OPTIONS: readonly { value: ThemePref; label: string; icon: typeof Su
 export function SettingsPanel({
   open,
   onClose,
-  onOpenExtensions,
   onOpenKeyboardShortcuts,
   theme,
   onThemeChange,
@@ -107,8 +103,6 @@ export function SettingsPanel({
 
   // Remote state
   const [remoteLanEnabled, setRemoteLanEnabled] = useState(false)
-  const [remoteUrls, setRemoteUrls] = useState<string[]>([])
-
   // Maintenance state
   const [compacting, setCompacting] = useState(false)
   const [compactSuccess, setCompactSuccess] = useState(false)
@@ -249,7 +243,7 @@ export function SettingsPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+      className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-50 flex items-center justify-center p-4 sm:p-6"
       ref={panelRef}
       tabIndex={-1}
       role="dialog"
@@ -263,7 +257,7 @@ export function SettingsPanel({
       />
 
       {/* DSH Modal Dialog Panel (860px x 640px) */}
-      <div className="relative z-10 flex h-[640px] w-[900px] max-w-full overflow-hidden rounded-[24px] border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-pop)] animate-scale-in">
+      <div className="relative z-10 flex h-[640px] max-h-full w-[900px] max-w-full overflow-hidden rounded-[24px] border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-pop)] animate-scale-in">
         {/* Left Navigation Rail (DSH Style) */}
         <nav
           className="flex w-[210px] shrink-0 flex-col border-r border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)] p-3"
@@ -534,7 +528,7 @@ export function SettingsPanel({
                     <input
                       type="password"
                       placeholder="sk-••••••••••••••••••••••••"
-                      defaultValue="sk-deepseek-enterprise-key-configured"
+                      defaultValue="stored-locally"
                       disabled
                       className="w-full rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[12.5px] font-mono text-[var(--lm-text-primary)]"
                     />

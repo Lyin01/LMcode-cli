@@ -25,6 +25,7 @@ import { InboxPanel } from '@/components/InboxPanel'
 import { ArtifactPanel } from '@/components/ArtifactPanel'
 import { KeyboardShortcutsPanel } from '@/components/KeyboardShortcutsPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { UsageFooter } from '@/components/UsageFooter'
 import { applyTheme, getStoredTheme, type ThemePref } from '@/lib/theme'
 import { summarizeUsage } from '@/lib/usage'
 import { historyToMessages } from '@/lib/history'
@@ -459,111 +460,115 @@ export default function App() {
   )
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-[var(--lm-bg-base)] text-[var(--lm-text-primary)]">
-      <Sidebar
-        open={sidebarOpen}
-        onToggle={() => setSidebarOpen((v) => !v)}
-        onOpenSettings={handleOpenSettings}
-        onOpenMemory={handleOpenMemory}
-        onOpenExtensions={handleOpenExtensions}
-        searchRequestNonce={searchRequestNonce}
-        renameRequest={renameRequest}
-      />
-
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <TopBar
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen((v) => !v)}
-          onOpenInbox={handleOpenInbox}
-          onOpenTasks={handleToggleTasks}
-          onOpenGitReview={handleOpenGitReview}
-          onOpenTerminal={handleOpenTerminal}
-          onOpenWorktrees={handleOpenWorktrees}
-          onOpenSubagents={handleOpenSubagents}
-          onOpenAutomations={handleOpenAutomations}
+    <div className="flex h-full w-full flex-col overflow-hidden bg-[var(--lm-bg-base)] text-[var(--lm-text-primary)]">
+      <div className="flex min-h-0 w-full flex-1 overflow-hidden">
+        <Sidebar
+          open={sidebarOpen}
+          onToggle={() => setSidebarOpen((v) => !v)}
           onOpenSettings={handleOpenSettings}
-          theme={theme}
-          onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          onOpenMemory={handleOpenMemory}
+          onOpenExtensions={handleOpenExtensions}
+          searchRequestNonce={searchRequestNonce}
+          renameRequest={renameRequest}
         />
 
-        {currentSessionId ? (
-          <ErrorBoundary name="对话">
-            <ChatPanel
-              onOpenSettings={handleOpenSettings}
-              onOpenGitReview={handleOpenGitReview}
-              findRequest={findRequest}
-              commandPaletteRequest={commandPaletteRequest}
-              composerDraftRequest={composerDraftRequest}
-              onCommandPaletteRequestConsumed={handleCommandPaletteRequestConsumed}
-              onComposerDraftRequestConsumed={handleComposerDraftRequestConsumed}
-            />
-          </ErrorBoundary>
-        ) : (
-          <ErrorBoundary name="欢迎">
-            <WelcomeScreen />
-          </ErrorBoundary>
-        )}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <TopBar
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen((v) => !v)}
+            onOpenInbox={handleOpenInbox}
+            onOpenTasks={handleToggleTasks}
+            onOpenGitReview={handleOpenGitReview}
+            onOpenTerminal={handleOpenTerminal}
+            onOpenWorktrees={handleOpenWorktrees}
+            onOpenSubagents={handleOpenSubagents}
+            onOpenAutomations={handleOpenAutomations}
+            onOpenSettings={handleOpenSettings}
+            theme={theme}
+            onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          />
+
+          {currentSessionId ? (
+            <ErrorBoundary name="对话">
+              <ChatPanel
+                onOpenSettings={handleOpenSettings}
+                onOpenGitReview={handleOpenGitReview}
+                findRequest={findRequest}
+                commandPaletteRequest={commandPaletteRequest}
+                composerDraftRequest={composerDraftRequest}
+                onCommandPaletteRequestConsumed={handleCommandPaletteRequestConsumed}
+                onComposerDraftRequestConsumed={handleComposerDraftRequestConsumed}
+              />
+            </ErrorBoundary>
+          ) : (
+            <ErrorBoundary name="欢迎">
+              <WelcomeScreen />
+            </ErrorBoundary>
+          )}
+        </div>
+
+        {/* Overlays */}
+        <ErrorBoundary name="设置">
+          <SettingsPanel
+            open={activePanel === 'settings'}
+            onClose={() => setActivePanel(null)}
+            onOpenExtensions={handleOpenExtensions}
+            onOpenKeyboardShortcuts={handleOpenKeyboardShortcuts}
+            theme={theme}
+            onThemeChange={setTheme}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary name="记忆库">
+          <MemoryBrowser open={activePanel === 'memory'} onClose={() => setActivePanel(null)} />
+        </ErrorBoundary>
+        <ErrorBoundary name="任务">
+          <TasksPanel open={activePanel === 'tasks'} onClose={() => setActivePanel(null)} />
+        </ErrorBoundary>
+        <ErrorBoundary name="扩展">
+          <ExtensionsPanel open={activePanel === 'extensions'} onClose={() => setActivePanel(null)} />
+        </ErrorBoundary>
+        <ErrorBoundary name="Git 审查">
+          <GitReviewPanel
+            open={activePanel === 'git-review'}
+            onClose={() => setActivePanel(null)}
+            onAddCommentsToChat={handleAddReviewCommentsToChat}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary name="终端">
+          <TerminalPanel open={activePanel === 'terminal'} onClose={() => setActivePanel(null)} />
+        </ErrorBoundary>
+        <ErrorBoundary name="Worktrees">
+          <WorktreesPanel open={activePanel === 'worktrees'} onClose={() => setActivePanel(null)} />
+        </ErrorBoundary>
+        <ErrorBoundary name="子代理">
+          <SubagentsPanel open={activePanel === 'subagents'} onClose={() => setActivePanel(null)} />
+        </ErrorBoundary>
+        <ErrorBoundary name="自动化">
+          <AutomationsPanel open={activePanel === 'automations'} onClose={() => setActivePanel(null)} />
+        </ErrorBoundary>
+        <ErrorBoundary name="通知中心">
+          <InboxPanel open={activePanel === 'inbox'} onClose={() => setActivePanel(null)} />
+        </ErrorBoundary>
+        <ErrorBoundary name="文档审阅">
+          <ArtifactPanel onSendFeedback={handleAddReviewCommentsToChat} />
+        </ErrorBoundary>
+        <ErrorBoundary name="键盘快捷键">
+          <KeyboardShortcutsPanel
+            open={activePanel === 'keyboard-shortcuts'}
+            onClose={() => setActivePanel(null)}
+          />
+        </ErrorBoundary>
+
+        {/* Dialogs */}
+        <ErrorBoundary name="审批对话框">
+          <ApprovalDialog />
+        </ErrorBoundary>
+        <ErrorBoundary name="提问对话框">
+          <QuestionDialog />
+        </ErrorBoundary>
       </div>
 
-      {/* Overlays */}
-      <ErrorBoundary name="设置">
-        <SettingsPanel
-          open={activePanel === 'settings'}
-          onClose={() => setActivePanel(null)}
-          onOpenExtensions={handleOpenExtensions}
-          onOpenKeyboardShortcuts={handleOpenKeyboardShortcuts}
-          theme={theme}
-          onThemeChange={setTheme}
-        />
-      </ErrorBoundary>
-      <ErrorBoundary name="记忆库">
-        <MemoryBrowser open={activePanel === 'memory'} onClose={() => setActivePanel(null)} />
-      </ErrorBoundary>
-      <ErrorBoundary name="任务">
-        <TasksPanel open={activePanel === 'tasks'} onClose={() => setActivePanel(null)} />
-      </ErrorBoundary>
-      <ErrorBoundary name="扩展">
-        <ExtensionsPanel open={activePanel === 'extensions'} onClose={() => setActivePanel(null)} />
-      </ErrorBoundary>
-      <ErrorBoundary name="Git 审查">
-        <GitReviewPanel
-          open={activePanel === 'git-review'}
-          onClose={() => setActivePanel(null)}
-          onAddCommentsToChat={handleAddReviewCommentsToChat}
-        />
-      </ErrorBoundary>
-      <ErrorBoundary name="终端">
-        <TerminalPanel open={activePanel === 'terminal'} onClose={() => setActivePanel(null)} />
-      </ErrorBoundary>
-      <ErrorBoundary name="Worktrees">
-        <WorktreesPanel open={activePanel === 'worktrees'} onClose={() => setActivePanel(null)} />
-      </ErrorBoundary>
-      <ErrorBoundary name="子代理">
-        <SubagentsPanel open={activePanel === 'subagents'} onClose={() => setActivePanel(null)} />
-      </ErrorBoundary>
-      <ErrorBoundary name="自动化">
-        <AutomationsPanel open={activePanel === 'automations'} onClose={() => setActivePanel(null)} />
-      </ErrorBoundary>
-      <ErrorBoundary name="通知中心">
-        <InboxPanel open={activePanel === 'inbox'} onClose={() => setActivePanel(null)} />
-      </ErrorBoundary>
-      <ErrorBoundary name="文档审阅">
-        <ArtifactPanel onSendFeedback={handleAddReviewCommentsToChat} />
-      </ErrorBoundary>
-      <ErrorBoundary name="键盘快捷键">
-        <KeyboardShortcutsPanel
-          open={activePanel === 'keyboard-shortcuts'}
-          onClose={() => setActivePanel(null)}
-        />
-      </ErrorBoundary>
-
-      {/* Dialogs */}
-      <ErrorBoundary name="审批对话框">
-        <ApprovalDialog />
-      </ErrorBoundary>
-      <ErrorBoundary name="提问对话框">
-        <QuestionDialog />
-      </ErrorBoundary>
+      <UsageFooter />
     </div>
   )
 }

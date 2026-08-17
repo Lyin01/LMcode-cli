@@ -432,7 +432,7 @@ export function GitReviewPanel({
   const pendingCopy = pendingDestructive ? destructiveCopy(pendingDestructive) : null
 
   return (
-    <div className="fixed inset-0 z-40 flex">
+    <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
       <button
         type="button"
         className="absolute inset-0 cursor-default bg-black/30 backdrop-blur-sm"

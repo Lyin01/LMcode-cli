@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildOpenCodeUsageDisplay,
   buildProviderUsageDisplay,
   remainingQuotaPercent,
 } from '../src/renderer/lib/provider-usage'
@@ -43,6 +44,44 @@ describe('provider usage footer formatting', () => {
       apiText: 'API 余额 · 查询失败',
       subscriptionText: '订阅额度 · 未配置',
       hasIssues: true,
+    })
+  })
+
+  it('projects OpenCode quota windows as stable remaining meters', () => {
+    const snapshot: ProviderUsageSnapshot = {
+      apiBalances: [],
+      subscriptions: [{
+        providerId: 'opencode-go-rsp',
+        summary: {
+          name: '滚动',
+          used: 38,
+          limit: 100,
+          resetAt: '2026-08-16T20:00:00Z',
+        },
+        limits: [
+          { name: '每月', used: 11, limit: 100 },
+          { name: '每周', used: 62, limit: 100 },
+        ],
+        extraUsage: null,
+      }],
+      issues: [],
+      fetchedAt: 1,
+    }
+
+    expect(buildOpenCodeUsageDisplay(snapshot)).toEqual({
+      providerId: 'opencode-go-rsp',
+      meters: [
+        {
+          label: '滚动',
+          remainingPercent: 62,
+          remaining: 62,
+          limit: 100,
+          resetAt: '2026-08-16T20:00:00Z',
+        },
+        { label: '每周', remainingPercent: 38, remaining: 38, limit: 100 },
+        { label: '每月', remainingPercent: 89, remaining: 89, limit: 100 },
+      ],
+      issue: null,
     })
   })
 })

@@ -82,8 +82,10 @@ export function FileActionMenu({ state, onClose }: FileActionMenuProps) {
   // 靠近右/下边缘时向内翻转，避免菜单被窗口裁掉。
   const estimateWidth = 190
   const estimateHeight = MENU_ITEMS.length * 32 + 12
+  const usageBar = document.querySelector<HTMLElement>('[data-lm-global-usage="true"]')
+  const availableBottom = usageBar?.getBoundingClientRect().top ?? window.innerHeight
   const left = Math.min(state.x, window.innerWidth - estimateWidth - 8)
-  const top = Math.min(state.y, window.innerHeight - estimateHeight - 8)
+  const top = Math.min(state.y, availableBottom - estimateHeight - 8)
 
   return createPortal(
     <div

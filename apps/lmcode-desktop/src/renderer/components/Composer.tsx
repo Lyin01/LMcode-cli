@@ -15,7 +15,6 @@ import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
 import { ProjectPicker } from '@/components/ProjectPicker'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
-import { UsageFooter } from '@/components/UsageFooter'
 import { SlashCommandsDialog, SLASH_COMMANDS, type SlashCommand } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
 import {
@@ -813,7 +812,6 @@ export function Composer({
             </button>
           )}
         </div>
-        <UsageFooter />
       </div>
 
       <input

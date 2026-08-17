@@ -49,6 +49,7 @@
   --lm-shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.04), 0 6px 20px rgba(0, 0, 0, 0.05);
   --lm-shadow-composer: 0 2px 6px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(65, 118, 230, 0.06);
   --lm-shadow-pop: 0 16px 48px -8px rgba(15, 23, 42, 0.18);
+  --lm-global-usage-height: 38px;
 
   color-scheme: light;
 }
@@ -851,6 +852,7 @@ h1, h2, h3, h4, h5, h6 {
   backdrop-filter: blur(2px);
   position: fixed;
   inset: 0;
+  bottom: var(--lm-global-usage-height);
   z-index: 50;
 }
 .dialog-content {
