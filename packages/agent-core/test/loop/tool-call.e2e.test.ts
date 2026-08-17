@@ -174,9 +174,31 @@ describe('runTurn — tool-call behaviour', () => {
     const results = sink.byType('tool.result');
     expect(results.length).toBe(1);
     expect(results[0]?.result.isError).toBe(true);
-    // Truncation repair may fix malformed JSON; if repaired, schema validation
-    // reports the real issue; if unrepairable, JSON parse error is reported.
-    expect(results[0]?.result.output).toMatch(/malformed JSON in arguments|must have required property/);
+    expect(results[0]?.result.output).toMatch(/truncated JSON|malformed JSON in arguments/);
+  });
+
+  it('never executes repaired arguments from a truncated JSON tool call', async () => {
+    const echo = new EchoTool();
+    const { sink } = await runTurn({
+      tools: [echo],
+      responses: [
+        makeToolUseResponse([
+          {
+            type: 'function',
+            id: 'tc-truncated',
+            name: 'echo',
+            arguments: '{"text":"partial value',
+          },
+        ]),
+        makeEndTurnResponse('done'),
+      ],
+    });
+
+    expect(echo.calls).toHaveLength(0);
+    const result = sink.byType('tool.result')[0]?.result;
+    expect(result?.isError).toBe(true);
+    expect(expectTextOutput(result?.output)).toContain('truncated JSON');
+    expect(expectTextOutput(result?.output)).toContain('retry the tool call');
   });
 
   it('captures tool execution failures as error results', async () => {

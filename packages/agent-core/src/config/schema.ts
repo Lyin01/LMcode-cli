@@ -239,7 +239,7 @@ export const AnchoredBootstrapSchema = z
      *  reply, default), `'tool-call'`, or `'assistant-message'`. */
     promoteOn: z.enum(['tool-call', 'assistant-message', 'either']).optional(),
     /** Whether auto-injected context is filtered from the first request.
-     *  Defaults to true. */
+     *  Defaults to false so project instructions are never hidden implicitly. */
     suppressContext: z.boolean().optional(),
     /** Injection variants filtered while unpromoted. Defaults to
      *  `['session_context']` (the AGENTS.md + skill-catalog digest). */

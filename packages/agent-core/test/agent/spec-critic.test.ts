@@ -1,4 +1,4 @@
-import type { GenerateResult, Message, ToolCall } from '@lmcode-cli/ltod';
+import type { ChatProvider, GenerateResult, Message, ToolCall } from '@lmcode-cli/ltod';
 import { createControlledPromise } from '@antfu/utils';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -121,6 +121,34 @@ describe('Spec-consistency critic', () => {
     expect(
       historyTexts.some((text) => text.includes('LMcode internal specification review')),
     ).toBe(false);
+  });
+
+  it('uses the configured thinking level and a non-truncating output budget', async () => {
+    const ctx = testAgent({ jian: createCommandJian('') });
+    ctx.configure({ tools: ['Write'] });
+    await ctx.rpc.setThinking({ level: 'high' });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
+    let criticProvider: ChatProvider | undefined;
+    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
+      if (args[1].includes('specification-compliance reviewer')) {
+        criticProvider = args[0];
+      }
+      return rawGenerate(...args);
+    });
+
+    ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
+    ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
+    ctx.mockNextResponse({ type: 'text', text: 'SPEC_OK' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
+    await ctx.untilTurnEnd();
+
+    expect(criticProvider?.thinkingEffort).toBe('high');
+    expect(
+      (criticProvider as ChatProvider & { modelParameters: Record<string, unknown> })
+        .modelParameters['max_completion_tokens'],
+    ).toBe(4_096);
   });
 
   it('charges critic usage to the active goal before a later terminal update', async () => {
@@ -326,19 +354,30 @@ describe('Spec-consistency critic', () => {
     ).toBe(true);
   });
 
-  it('completes the turn when the critic call itself fails', async () => {
+  it('requests one main-model self-check when the critic call itself fails', async () => {
     const ctx = testAgent({ jian: createCommandJian('') });
     ctx.configure({ tools: ['Write'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
+    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
+    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation((...args) => {
+      if (args[1].includes('specification-compliance reviewer')) {
+        throw new Error('critic unavailable');
+      }
+      return rawGenerate(...args);
+    });
 
     ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
     ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
-    // No third scripted response: the critic's generate call throws
-    // "Unexpected generate call #3", which must be swallowed.
+    // The critic throws before consuming this response, so it is used by the
+    // one allowed main-model self-check.
+    ctx.mockNextResponse({ type: 'text', text: 'Rechecked all explicit requirements.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
     const events = await ctx.untilTurnEnd();
 
+    expect(ctx.llmCalls).toHaveLength(3);
+    const followupTexts = ctx.llmCalls[2]?.history.map(messageText) ?? [];
+    expect(followupTexts.some((text) => text.includes('returned no valid verdict'))).toBe(true);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',

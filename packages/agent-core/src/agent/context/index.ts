@@ -198,7 +198,10 @@ export class ContextMemory {
 
   get tokenCountWithPending(): number {
     const pendingMessages = this._history.slice(this.tokenCountCoveredMessageCount);
-    return this._tokenCount + estimateTokensForMessages(project(pendingMessages));
+    // The pending suffix can begin with a valid tool result whose assistant
+    // call is already covered by the provider usage snapshot. Projecting the
+    // suffix in isolation would misclassify that result as orphaned.
+    return this._tokenCount + estimateTokensForMessages(pendingMessages);
   }
 
   get history(): readonly ContextMessage[] {

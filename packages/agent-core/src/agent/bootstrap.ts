@@ -75,7 +75,7 @@ export class AnchoredBootstrap {
           ? config.bootstrapTools
           : DEFAULT_BOOTSTRAP_TOOLS,
       promoteOn: config.promoteOn ?? PROMOTE_EITHER,
-      suppressContext: config.suppressContext !== false,
+      suppressContext: config.suppressContext === true,
       suppressedVariants:
         Array.isArray(config.suppressedVariants) && config.suppressedVariants.length > 0
           ? config.suppressedVariants

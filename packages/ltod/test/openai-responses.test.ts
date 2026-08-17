@@ -742,6 +742,22 @@ describe('OpenAIResponsesChatProvider', () => {
       expect(body['temperature']).toBe(0.7);
       expect(body['max_output_tokens']).toBe(2048);
     });
+
+    it('uses the caller completion cap when no provider maximum is configured', async () => {
+      const provider = createProvider().withMaxCompletionTokens(65_536);
+      const body = await captureRequestBody(provider, '', [], []);
+      expect(body['max_output_tokens']).toBe(65_536);
+    });
+
+    it('keeps an explicit provider maximum below the caller completion cap', async () => {
+      const provider = new OpenAIResponsesChatProvider({
+        model: 'gpt-4.1',
+        apiKey: 'test-key',
+        maxOutputTokens: 8_192,
+      }).withMaxCompletionTokens(65_536);
+      const body = await captureRequestBody(provider, '', [], []);
+      expect(body['max_output_tokens']).toBe(8_192);
+    });
   });
 
   describe('reasoning configuration', () => {

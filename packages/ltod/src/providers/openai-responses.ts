@@ -984,7 +984,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     const currentMax = this._generationKwargs.max_output_tokens;
     const clamped = currentMax !== undefined
       ? Math.min(maxCompletionTokens, currentMax)
-      : Math.min(maxCompletionTokens, 16384);
+      : maxCompletionTokens;
     return this.withGenerationKwargs({ max_output_tokens: clamped });
   }
 

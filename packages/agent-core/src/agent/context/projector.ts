@@ -12,12 +12,54 @@ export function project(history: readonly ContextMessage[]): Message[] {
       !(message.role === 'assistant' && message.content.length === 0 && message.toolCalls.length === 0)
     );
   });
-  // A crash mid-tool-execution leaves an assistant message with tool_calls at
-  // the tail but no matching tool results — the API rejects this. Drop it.
-  const last = usable.at(-1);
-  const repaired =
-    last?.role === 'assistant' && last.toolCalls.length > 0 ? usable.slice(0, -1) : usable;
-  return mergeAdjacentUserMessages(repaired);
+  return mergeAdjacentUserMessages(repairToolExchanges(usable));
+}
+
+const MISSING_TOOL_RESULT =
+  '<system>ERROR: This tool call was interrupted before its result was recorded. Treat it as failed and retry the tool call with complete arguments if it is still needed.</system>';
+
+/**
+ * Provider APIs require every assistant tool call to be followed by exactly
+ * one matching tool result. WAL recovery and older transcripts can contain a
+ * partially recorded batch, so normalize each contiguous exchange here.
+ */
+function repairToolExchanges(history: readonly ContextMessage[]): ContextMessage[] {
+  const out: ContextMessage[] = [];
+
+  for (let index = 0; index < history.length; index += 1) {
+    const message = history[index]!;
+    if (message.role === 'tool') continue;
+
+    out.push(message);
+    if (message.role !== 'assistant' || message.toolCalls.length === 0) continue;
+
+    const expectedIds = new Set(message.toolCalls.map((toolCall) => toolCall.id));
+    const results = new Map<string, ContextMessage>();
+    while (history[index + 1]?.role === 'tool') {
+      const result = history[index + 1]!;
+      index += 1;
+      const id = result.toolCallId;
+      if (id !== undefined && expectedIds.has(id) && !results.has(id)) {
+        results.set(id, result);
+      }
+    }
+
+    for (const toolCall of message.toolCalls) {
+      out.push(results.get(toolCall.id) ?? missingToolResult(toolCall.id));
+    }
+  }
+
+  return out;
+}
+
+function missingToolResult(toolCallId: string): ContextMessage {
+  return {
+    role: 'tool',
+    content: [{ type: 'text', text: MISSING_TOOL_RESULT }],
+    toolCalls: [],
+    toolCallId,
+    isError: true,
+  };
 }
 
 function mergeAdjacentUserMessages(history: readonly ContextMessage[]): Message[] {

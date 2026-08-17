@@ -31,7 +31,7 @@ function hasSessionContext(
   );
 }
 
-it('anchors the first request on the bootstrap tool subset and suppresses session context', async () => {
+it('anchors the first request on the bootstrap tool subset and preserves session context', async () => {
   const ctx = testAgent({ initialConfig: ANCHORED_CONFIG });
   ctx.configure({ tools: FULL });
   seedSessionContext(ctx);
@@ -42,7 +42,24 @@ it('anchors the first request on the bootstrap tool subset and suppresses sessio
 
   const input = ctx.lastLlmInput().input;
   expect(input.tools.map((tool) => tool.name)).toEqual(BOOTSTRAP);
-  expect(hasSessionContext(input.history)).toBe(false);
+  expect(hasSessionContext(input.history)).toBe(true);
+});
+
+it('suppresses session context only when explicitly configured', async () => {
+  const ctx = testAgent({
+    initialConfig: {
+      ...BASE_CONFIG,
+      anchoredBootstrap: { enabled: true, suppressContext: true },
+    },
+  });
+  ctx.configure({ tools: FULL });
+  seedSessionContext(ctx);
+
+  ctx.mockNextResponse({ type: 'text', text: 'hello there' });
+  await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+  await ctx.untilTurnEnd();
+
+  expect(hasSessionContext(ctx.lastLlmInput().input.history)).toBe(false);
 });
 
 it('promotes to the full catalog and restores context after the first tool call (either)', async () => {
@@ -70,9 +87,9 @@ it('promotes to the full catalog and restores context after the first tool call 
   expect(inputs).toHaveLength(2);
   const first = inputs[0]!;
   const second = inputs[1]!;
-  // Request #1: bootstrap catalog, no session context.
+  // Request #1: bootstrap catalog with the full instruction context.
   expect(first.tools.map((tool) => tool.name)).toEqual(BOOTSTRAP);
-  expect(hasSessionContext(first.history)).toBe(false);
+  expect(hasSessionContext(first.history)).toBe(true);
   // Request #2 (after the durable tool call): full catalog, context restored.
   expect(second.tools.map((tool) => tool.name)).toEqual(FULL);
   expect(hasSessionContext(second.history)).toBe(true);
@@ -88,7 +105,7 @@ it('promotes after the first assistant reply (either), including across turns', 
   await ctx.untilTurnEnd();
   const first = ctx.lastLlmInput().input;
   expect(first.tools.map((tool) => tool.name)).toEqual(BOOTSTRAP);
-  expect(hasSessionContext(first.history)).toBe(false);
+  expect(hasSessionContext(first.history)).toBe(true);
 
   // A brand-new turn now sees the promoted surface (durable from history).
   ctx.mockNextResponse({ type: 'text', text: 'second reply' });

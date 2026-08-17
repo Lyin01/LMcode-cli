@@ -232,7 +232,11 @@ function parseToolCallArguments(
   } catch (error) {
     const repaired = repairTruncatedJson(raw);
     try {
-      return { success: true, data: JSON.parse(repaired) as unknown };
+      JSON.parse(repaired);
+      return {
+        success: false,
+        error: 'truncated JSON; retry the tool call with the complete JSON arguments',
+      };
     } catch {
       return { success: false, error: errorMessage(error) };
     }

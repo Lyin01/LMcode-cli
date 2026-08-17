@@ -93,6 +93,7 @@ const SPEC_CRITIC_MAX_REQUEST_CHARS = 6_000;
 const SPEC_CRITIC_MAX_RESPONSE_CHARS = 4_000;
 const SPEC_CRITIC_MAX_VALIDATION_CHARS = 4_000;
 const SPEC_CRITIC_MAX_FILES = 30;
+const SPEC_CRITIC_MAX_COMPLETION_TOKENS = 4_096;
 const SPEC_CRITIC_INCONCLUSIVE_FINDING =
   'The automated specification review returned no valid verdict. Re-check every explicit requirement against the changed artifacts and available validation evidence before completing.';
 const DIRECT_ANSWER_REVIEW_MIN_LENGTH = 20;
@@ -699,8 +700,8 @@ export class TurnFlow {
   /**
    * Runs a one-shot spec-consistency review over the finished turn on the
    * utility model. Returns the critic's list of unaddressed requirements,
-   * or `undefined` when the work passes. The critic must never block a
-   * turn from completing, so every failure path degrades to `undefined`.
+   * or `undefined` when the work passes. An inconclusive review gets one
+   * main-model self-check, guarded by the same once-per-turn latch.
    */
   private async runSpecCritic(
     signal: AbortSignal,
@@ -727,8 +728,12 @@ export class TurnFlow {
     try {
       const utility = this.agent.config.utility;
       const goalId = this.agent.goal.getActiveGoal()?.goalId;
+      const thinkingProvider = utility.provider.withThinking(this.agent.config.thinkingLevel);
+      const criticProvider =
+        thinkingProvider.withMaxCompletionTokens?.(SPEC_CRITIC_MAX_COMPLETION_TOKENS) ??
+        thinkingProvider;
       const response = await this.agent.generate(
-        utility.provider,
+        criticProvider,
         SPEC_CRITIC_SYSTEM_PROMPT,
         [],
         [
@@ -774,8 +779,8 @@ export class TurnFlow {
       return verdict === 'SPEC_OK' ? undefined : SPEC_CRITIC_INCONCLUSIVE_FINDING;
     } catch (error) {
       if (isAbortError(error)) throw error;
-      this.agent.log.warn('spec critic failed; completing turn without review', { error });
-      return undefined;
+      this.agent.log.warn('spec critic failed; requesting one main-model self-check', { error });
+      return SPEC_CRITIC_INCONCLUSIVE_FINDING;
     }
   }
 
