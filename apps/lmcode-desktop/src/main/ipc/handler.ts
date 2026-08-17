@@ -904,7 +904,9 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:openPath', async (_event, input: string): Promise<string> => {
     const target = normalizeOpenPathTarget(input)
-    if (target === null) return input.trim().length === 0 ? '路径为空' : '仅支持打开绝对路径'
+    if (target === null) {
+      return typeof input !== 'string' || input.trim().length === 0 ? '路径为空' : '仅支持打开绝对路径'
+    }
     return (await shell.openPath(target)) || ''
   })
 
@@ -923,7 +925,7 @@ export function registerAllHandlers(
   secureInvoke('lmcode:showItemInFolder', async (_event, input: string): Promise<string> => {
     const target = normalizeOpenPathTarget(input)
     if (target === null) return '仅支持打开绝对路径'
-    await shell.showItemInFolder(target)
+    shell.showItemInFolder(target)
     return ''
   })
 

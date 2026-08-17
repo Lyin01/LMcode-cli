@@ -11,15 +11,14 @@ export function isWindowsPath(value: string): boolean {
 
 /** file:///C:/a/b → C:\a\b；非 file:// 协议或无法解析时返回 null。 */
 export function fileUrlToLocalPath(url: string): string | null {
-  let parsed: URL
   try {
-    parsed = new URL(url)
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'file:') return null
+    const pathname = decodeURIComponent(parsed.pathname)
+    return /^\/[A-Za-z]:[\\/]/.test(pathname) ? pathname.slice(1) : pathname
   } catch {
     return null
   }
-  if (parsed.protocol !== 'file:') return null
-  const pathname = decodeURIComponent(parsed.pathname)
-  return /^\/[A-Za-z]:[\\/]/.test(pathname) ? pathname.slice(1) : pathname
 }
 
 /** 命中则返回归一化后的本地路径，否则 null。 */
