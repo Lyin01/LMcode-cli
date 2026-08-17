@@ -1,10 +1,73 @@
 import type { Message } from '@/types'
-import { AlertTriangle } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { AlertTriangle, FileText } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallList } from '@/components/ToolCallList'
-import Markdown from 'react-markdown'
+import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
+import { resolveOpenTarget, fileUrlToLocalPath } from '@/lib/open-target'
+import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+
+function extractCodeText(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(extractCodeText).join('')
+  if (typeof node === 'object' && node !== null && 'props' in node) {
+    const props = (node as { props?: { children?: ReactNode } }).props
+    return extractCodeText(props?.children)
+  }
+  return ''
+}
+
+function FileChip({ target, children }: { readonly target: string; readonly children?: ReactNode }) {
+  const fileMenu = useFileContextMenu()
+  return (
+    <>
+      {fileMenu.menu}
+      <button
+        type="button"
+        title={`打开 ${target}`}
+        aria-label={`打开文件 ${target}`}
+        onClick={() => void openFileWithSystem(target)}
+        onContextMenu={fileMenu.openFromEvent(target)}
+        className="inline-flex max-w-full items-baseline gap-1 rounded-md border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-1.5 py-0.5 transition-colors hover:border-[var(--lm-border-strong)] hover:bg-[var(--lm-bg-hover)]"
+      >
+        <FileText size={11} className="shrink-0 translate-y-px text-[var(--lm-text-muted)]" />
+        <span className="truncate">{children}</span>
+      </button>
+    </>
+  )
+}
+
+function MarkdownCode({ className, children }: { readonly className?: string; readonly children?: ReactNode }) {
+  const text = extractCodeText(children)
+  if (className !== undefined || text.endsWith('\n')) return <code className={className}>{children}</code>
+  const target = resolveOpenTarget(text)
+  if (target !== null) return <FileChip target={target}>{children}</FileChip>
+  return <code>{children}</code>
+}
+
+function MarkdownLink({ href, children }: { readonly href?: string; readonly children?: ReactNode }) {
+  const handle = href === undefined ? undefined : (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (href.startsWith('file://')) {
+      event.preventDefault()
+      const path = fileUrlToLocalPath(href)
+      if (path !== null) void window.lmcodeAPI.openPath(path)
+      return
+    }
+    if (href.startsWith('https://')) {
+      event.preventDefault()
+      void window.lmcodeAPI.openExternal(href)
+    }
+  }
+  return (
+    <a href={href} onClick={handle} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  )
+}
+
+const MARKDOWN_COMPONENTS: Components = { a: MarkdownLink, code: MarkdownCode }
 
 interface MessageItemProps {
   message: Message
@@ -63,7 +126,7 @@ export function MessageItem({ message }: MessageItemProps) {
 
         {message.content ? (
           <div className="lm-markdown">
-            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={MARKDOWN_COMPONENTS}>
               {message.content}
             </Markdown>
           </div>

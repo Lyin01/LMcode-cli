@@ -158,6 +158,15 @@ export function summarizeToolArgs(toolName: string, argsRaw?: string): string | 
   }
 }
 
+/** Primary absolute file path for Read/Write/Edit tool interactions. */
+export function toolFilePath(toolName: string, argsRaw?: string): string | undefined {
+  const family = toolFamily(toolName, argsRaw)
+  if (family !== 'read' && family !== 'write' && family !== 'edit') return undefined
+  const path = parseArgs(argsRaw).get(['path', 'file_path', 'TargetFile', 'AbsolutePath', 'filePath'])
+  if (path === undefined) return undefined
+  return /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('/') || path.startsWith('\\\\') ? path : undefined
+}
+
 /** 完成后展示的结果摘要：「做成了什么」。无结果时回落到参数摘要。 */
 export function summarizeToolResult(
   toolName: string,

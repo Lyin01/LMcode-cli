@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI, exposeElectronAPI } from '@electron-toolkit/preload'
+import { exposeElectronAPI } from '@electron-toolkit/preload'
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -130,6 +130,14 @@ const lmcodeAPI = {
   // ── Misc ────────────────────────────────────────────────────────
 
   getHomeDir: () => ipcRenderer.invoke('lmcode:getHomeDir'),
+
+  // Open output files and links without exposing Electron primitives.
+  openPath: (filePath: string): Promise<string> => ipcRenderer.invoke('lmcode:openPath', filePath),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('lmcode:openExternal', url),
+  showItemInFolder: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke('lmcode:showItemInFolder', filePath),
+  openInVscode: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke('lmcode:openInVscode', filePath),
 
   // ── Event listeners (main → renderer) ───────────────────────────
 
