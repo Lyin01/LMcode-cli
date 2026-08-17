@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, Notification } from 'electron'
+import { app, ipcMain, BrowserWindow, Notification, shell } from 'electron'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { MemoryMemoStore } from '@lmcode/memory'
 import type { MemoryMemoSummary } from '@lmcode/memory'
@@ -16,7 +16,9 @@ import type {
   LmcodeConfigPatch,
 } from '@lmcode-cli/lmcode-sdk'
 import { randomUUID } from 'node:crypto'
-import { dirname } from 'node:path'
+import { spawn } from 'node:child_process'
+import { dirname, isAbsolute, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import type {
   ApprovalRequestPayload,
@@ -434,6 +436,50 @@ export function registerAllHandlers(
     return harness.homeDir
   })
 
+  // ── Shell / file open actions ───────────────────────────────────
+  // Tool results are model-controlled, so accept only absolute local paths
+  // and https links and never pass the input through a shell.
+
+  secureInvoke('lmcode:openPath', async (_event, input: string): Promise<string> => {
+    const target = normalizeOpenPathTarget(input)
+    if (target === null) {
+      return typeof input !== 'string' || input.trim().length === 0 ? '路径为空' : '仅支持打开绝对路径'
+    }
+    return (await shell.openPath(target)) || ''
+  })
+
+  secureInvoke('lmcode:openExternal', async (_event, url: string): Promise<void> => {
+    if (typeof url !== 'string' || url.length === 0) return
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      return
+    }
+    if (parsed.protocol !== 'https:' || parsed.hostname.length === 0) return
+    await shell.openExternal(parsed.href)
+  })
+
+  secureInvoke('lmcode:showItemInFolder', async (_event, input: string): Promise<string> => {
+    const target = normalizeOpenPathTarget(input)
+    if (target === null) return '仅支持打开绝对路径'
+    shell.showItemInFolder(target)
+    return ''
+  })
+
+  secureInvoke('lmcode:openInVscode', async (_event, input: string): Promise<string> => {
+    const target = normalizeOpenPathTarget(input)
+    if (target === null) return '仅支持打开绝对路径'
+    const executable = resolveVscodeExecutable()
+    if (executable === null) {
+      return '未找到 VSCode（可用环境变量 LMCODE_VSCODE_PATH 指定 Code.exe 路径）'
+    }
+    const child = spawn(executable, [target], { detached: true, stdio: 'ignore' })
+    child.on('error', () => {})
+    child.unref()
+    return ''
+  })
+
   // ── Approval / Question responses ──────────────────────────────
 
   secureInvoke('lmcode:respondApproval', (_event, payload: {
@@ -581,4 +627,45 @@ export function registerAllHandlers(
   mainWindow.on('closed', handleWindowClosed)
 
   return { close }
+}
+
+/** Validate and normalize a local path before passing it to Electron. */
+function normalizeOpenPathTarget(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (trimmed.length === 0 || trimmed.includes('\0')) return null
+  let target = trimmed
+  if (trimmed.startsWith('file://')) {
+    try {
+      target = fileURLToPath(trimmed)
+    } catch {
+      return null
+    }
+  }
+  return isAbsolute(target) ? target : null
+}
+
+/** Resolve Code.exe directly because the Windows `code` shim requires a shell. */
+function resolveVscodeExecutable(): string | null {
+  const candidates: string[] = []
+  const override = process.env['LMCODE_VSCODE_PATH']
+  if (override !== undefined && override.trim().length > 0) candidates.push(override.trim())
+  const localAppData = process.env['LOCALAPPDATA']
+  if (localAppData !== undefined && localAppData.length > 0) {
+    candidates.push(join(localAppData, 'Programs', 'Microsoft VS Code', 'Code.exe'))
+    candidates.push(join(localAppData, 'Programs', 'VSCodium', 'VSCodium.exe'))
+  }
+  for (const programFiles of [process.env['ProgramFiles'], process.env['ProgramFiles(x86)']]) {
+    if (programFiles !== undefined && programFiles.length > 0) {
+      candidates.push(join(programFiles, 'Microsoft VS Code', 'Code.exe'))
+    }
+  }
+  const userProfile = process.env['USERPROFILE']
+  if (process.platform === 'win32' && userProfile !== undefined) {
+    candidates.push(join(userProfile, 'scoop', 'apps', 'vscode', 'current', 'Code.exe'))
+  }
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
 }

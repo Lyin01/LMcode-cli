@@ -134,6 +134,12 @@ interface LmcodeAPI {
   // Config store access
   getHomeDir: () => Promise<string>
 
+  // File / link opening. String results are empty on success.
+  openPath: (filePath: string) => Promise<string>
+  openExternal: (url: string) => Promise<void>
+  showItemInFolder: (filePath: string) => Promise<string>
+  openInVscode: (filePath: string) => Promise<string>
+
   // Event listeners
   onSessionEvent: (callback: (event: SessionEventPayload) => void) => () => void
 
