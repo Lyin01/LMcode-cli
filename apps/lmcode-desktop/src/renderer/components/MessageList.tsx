@@ -193,11 +193,11 @@ export function MessageList({ findRequest }: MessageListProps) {
                 moveMatch(event.shiftKey ? -1 : 1)
               }
             }}
-            className="w-52 bg-transparent px-1 py-1 text-[12px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)]"
+            className="w-52 bg-transparent px-1 py-1 text-[13px] text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)]"
             placeholder="在当前对话中查找"
             aria-label="在当前对话中查找"
           />
-          <span className="min-w-12 text-center font-mono text-[10px] text-[var(--lm-text-muted)]">
+          <span className="min-w-12 text-center font-mono text-[11px] text-[var(--lm-text-muted)]">
             {matchingMessageIds.length > 0
               ? `${activeMatchIndex + 1} / ${matchingMessageIds.length}`
               : '0 / 0'}

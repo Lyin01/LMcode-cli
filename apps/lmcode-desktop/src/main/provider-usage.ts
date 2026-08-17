@@ -9,14 +9,10 @@ import type {
   SubscriptionQuotaRow,
   SubscriptionQuotaWindow,
 } from '../shared/provider-usage-types.js'
+import { resolveUsageEndpoint } from './usage-endpoints.js'
 
 const DEFAULT_CACHE_TTL_MS = 30_000
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000
-const KIMI_CODE_HOST = 'api.kimi.com'
-const DEEPSEEK_HOST = 'api.deepseek.com'
-const MOONSHOT_HOSTS = new Set(['api.moonshot.cn', 'api.moonshot.ai'])
-const OPENCODE_GO_HOST = 'opencode.ai'
-const OPENCODE_GO_USAGE_PATH = '/zen/go/v1/usage'
 
 export interface ProviderUsageServiceOptions {
   readonly loadConfig: () => Promise<LmcodeConfig>
@@ -170,7 +166,7 @@ function discoverUsageTargets(config: LmcodeConfig): {
 
   for (const [providerId, provider] of orderedProviderEntries(config)) {
     if (provider.enabled === false || provider.baseUrl === undefined) continue
-    const endpoint = usageEndpoint(provider.baseUrl)
+    const endpoint = resolveUsageEndpoint(provider.baseUrl)
     if (endpoint === null) continue
     const apiKey = providerApiKey(provider)
     if (apiKey === undefined) {
@@ -185,9 +181,7 @@ function discoverUsageTargets(config: LmcodeConfig): {
     if (seen.has(dedupeKey)) continue
     seen.add(dedupeKey)
 
-    if (endpoint.kind === 'subscription-quota') {
-      targets.push({ kind: endpoint.kind, providerId, url: endpoint.url, apiKey })
-    } else if (endpoint.kind === 'opencode-go') {
+    if (endpoint.kind === 'subscription-quota' || endpoint.kind === 'opencode-go') {
       targets.push({ kind: endpoint.kind, providerId, url: endpoint.url, apiKey })
     } else {
       targets.push({
@@ -204,7 +198,7 @@ function discoverUsageTargets(config: LmcodeConfig): {
   return { targets, issues }
 }
 
-/** 默认 provider 优先，保证用量条目挂靠用户实际在用的 provider 名下。 */
+/** Prefer the active provider so duplicate endpoints are attributed to the provider shown in the UI. */
 function orderedProviderEntries(config: LmcodeConfig): readonly (readonly [string, ProviderConfig])[] {
   const providers = config.providers ?? {}
   const orderedIds: string[] = []
@@ -217,59 +211,11 @@ function orderedProviderEntries(config: LmcodeConfig): readonly (readonly [strin
   append(config.defaultProvider)
   if (config.defaultModel !== undefined) append(config.models?.[config.defaultModel]?.provider)
   for (const providerId of Object.keys(providers)) append(providerId)
-  return orderedIds.map((providerId) => [providerId, providers[providerId]!] satisfies [string, ProviderConfig])
+  return orderedIds.map(
+    (providerId) => [providerId, providers[providerId]!] satisfies [string, ProviderConfig],
+  )
 }
 
-function usageEndpoint(baseUrl: string):
-  | {
-      readonly kind: 'api-balance'
-      readonly service: 'deepseek' | 'moonshot'
-      readonly url: string
-      readonly currencyHint?: string
-    }
-  | { readonly kind: 'subscription-quota'; readonly url: string }
-  | { readonly kind: 'opencode-go'; readonly url: string }
-  | null {
-  let url: URL
-  try {
-    url = new URL(baseUrl)
-  } catch {
-    return null
-  }
-  if (url.protocol !== 'https:') return null
-
-  const hostname = url.hostname.toLowerCase()
-  if (hostname === DEEPSEEK_HOST) {
-    return {
-      kind: 'api-balance',
-      service: 'deepseek',
-      url: `${url.origin}/user/balance`,
-      currencyHint: undefined,
-    }
-  }
-  if (MOONSHOT_HOSTS.has(hostname)) {
-    return {
-      kind: 'api-balance',
-      service: 'moonshot',
-      url: `${url.origin}/v1/users/me/balance`,
-      currencyHint: hostname.endsWith('.cn') ? 'CNY' : 'USD',
-    }
-  }
-  const path = url.pathname.replace(/\/+$/, '')
-  if (hostname === KIMI_CODE_HOST && (path === '/coding' || path === '/coding/v1')) {
-    return {
-      kind: 'subscription-quota',
-      url: `${url.origin}/coding/v1/usages`,
-    }
-  }
-  if (hostname === OPENCODE_GO_HOST && (path === '/zen/go' || path === '/zen/go/v1')) {
-    return {
-      kind: 'opencode-go',
-      url: `${url.origin}${OPENCODE_GO_USAGE_PATH}`,
-    }
-  }
-  return null
-}
 
 function providerApiKey(provider: ProviderConfig): string | undefined {
   const configured = nonEmpty(provider.apiKey)
@@ -373,7 +319,12 @@ export function parseOpenCodeGoUsagePayload(payload: unknown): ParsedSubscriptio
     if (!isRecord(period)) continue
     const percent = finiteNumber(period['percent'])
     const resetsAt = text(period['resetsAt'])
-    if (percent === null || percent < 0 || resetsAt === undefined || !Number.isFinite(Date.parse(resetsAt))) {
+    if (
+      percent === null
+      || percent < 0
+      || resetsAt === undefined
+      || !Number.isFinite(Date.parse(resetsAt))
+    ) {
       continue
     }
     rows.push({ name: window.label, used: Math.round(percent), limit: 100, resetAt: resetsAt })

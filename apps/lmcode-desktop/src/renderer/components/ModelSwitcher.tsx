@@ -64,7 +64,7 @@ export function ModelSwitcher({ open: controlledOpen, onOpenChange }: ModelSwitc
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>
       <DropdownMenu.Trigger asChild>
         <button
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           title="切换模型"
         >
           <Cpu size={14} className="text-[var(--lm-text-muted)]" />
@@ -83,12 +83,12 @@ export function ModelSwitcher({ open: controlledOpen, onOpenChange }: ModelSwitc
           sideOffset={6}
           className="z-50 min-w-[200px] max-w-[300px] overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] shadow-[var(--lm-shadow-pop)]"
         >
-          <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
+          <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
             模型
           </div>
           <div className="max-h-[280px] overflow-y-auto p-1">
             {models.length === 0 && (
-              <div className="px-3 py-4 text-center text-[12px] text-[var(--lm-text-muted)]">
+              <div className="px-3 py-4 text-center text-[13px] text-[var(--lm-text-muted)]">
                 未配置模型
               </div>
             )}
@@ -97,7 +97,7 @@ export function ModelSwitcher({ open: controlledOpen, onOpenChange }: ModelSwitc
                 key={entry.id}
                 onSelect={() => handleSelect(entry.id)}
                 className={cn(
-                  'flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] outline-none transition-colors',
+                  'flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[14px] outline-none transition-colors',
                   'data-[highlighted]:bg-[var(--lm-bg-hover)]',
                   effectiveModel === entry.id ? 'text-[var(--lm-text-primary)]' : 'text-[var(--lm-text-secondary)]',
                 )}
@@ -107,7 +107,7 @@ export function ModelSwitcher({ open: controlledOpen, onOpenChange }: ModelSwitc
                     {entry.label}
                   </span>
                   {entry.provider && (
-                    <span className="text-[10px] text-[var(--lm-text-muted)]">{entry.provider}</span>
+                    <span className="text-[11px] text-[var(--lm-text-muted)]">{entry.provider}</span>
                   )}
                 </div>
                 {effectiveModel === entry.id && (

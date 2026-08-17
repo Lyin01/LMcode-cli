@@ -190,7 +190,7 @@ export function SlashCommandsDialog({
         'animate-fade-in',
       )}
     >
-      <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
+      <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
         命令
       </div>
       <div
@@ -207,7 +207,7 @@ export function SlashCommandsDialog({
             onClick={() => handleClick(cmd)}
             onMouseEnter={() => setSelectedIndex(index)}
             className={cn(
-              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] outline-none transition-colors',
+              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] outline-none transition-colors',
               index === selectedIndex
                 ? 'bg-[var(--lm-bg-hover)] text-[var(--lm-text-primary)]'
                 : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
@@ -216,7 +216,7 @@ export function SlashCommandsDialog({
             <span className="shrink-0 text-[var(--lm-text-muted)]">{cmd.icon}</span>
             <div className="flex flex-col">
               <span className="font-medium text-[var(--lm-text-primary)]">{cmd.label}</span>
-              <span className="text-[11px] text-[var(--lm-text-muted)]">{cmd.description}</span>
+              <span className="text-[12px] text-[var(--lm-text-muted)]">{cmd.description}</span>
             </div>
           </button>
         ))}

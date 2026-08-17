@@ -32,7 +32,7 @@ function defaultToken(): string {
 }
 
 function defaultConfig(): RemoteConfig {
-  return { enabled: false, port: DEFAULT_PORT, token: defaultToken() }
+  return { enabled: false, port: DEFAULT_PORT, token: defaultToken(), appUrl: '' }
 }
 
 /**
@@ -68,6 +68,7 @@ export class RemoteManager {
       enabled: this.config.enabled,
       port: this.config.port,
       token: this.config.token,
+      appUrl: this.config.appUrl,
       lanUrls: this.computeLanUrls(this.config.port),
       clientCount: this.server?.clientCount ?? 0,
       version: this.options.version,
@@ -86,6 +87,7 @@ export class RemoteManager {
           typeof parsed.token === 'string' && parsed.token.length > 0
             ? parsed.token
             : defaultToken(),
+        appUrl: typeof parsed.appUrl === 'string' ? parsed.appUrl : '',
       }
     } catch {
       // No config yet: defaults apply.
@@ -146,6 +148,14 @@ export class RemoteManager {
 
   async regenerateToken(): Promise<RemoteState> {
     this.config = { ...this.config, token: defaultToken() }
+    await this.persist()
+    this.emitStateChange()
+    return this.getState()
+  }
+
+  async setAppUrl(appUrl: string): Promise<RemoteState> {
+    const normalized = normalizeAppUrl(appUrl)
+    this.config = { ...this.config, appUrl: normalized }
     await this.persist()
     this.emitStateChange()
     return this.getState()
@@ -218,4 +228,17 @@ export class RemoteManager {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+/**
+ * Normalize the configured app URL: trim, strip a trailing slash, and reject
+ * anything that is not an http(s) absolute URL or empty.
+ */
+function normalizeAppUrl(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return ''
+  if (!/^https?:\/\//i.test(trimmed)) {
+    throw new Error('App 地址必须是 http(s):// 开头的完整地址')
+  }
+  return trimmed.replace(/\/+$/, '')
 }

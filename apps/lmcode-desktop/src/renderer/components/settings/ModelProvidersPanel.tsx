@@ -20,9 +20,9 @@ const providerTypeLabel = (type: ProviderType) =>
   PROVIDER_TYPES.find((t) => t.value === type)?.label ?? type
 
 const inputClass =
-  'w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[13px] text-[var(--lm-text-primary)] outline-none transition-colors focus:border-[var(--lm-accent)] disabled:cursor-not-allowed disabled:opacity-50'
+  'w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[14px] text-[var(--lm-text-primary)] outline-none transition-colors focus:border-[var(--lm-accent)] disabled:cursor-not-allowed disabled:opacity-50'
 
-const labelClass = 'mb-1.5 block text-[12px] font-medium text-[var(--lm-text-secondary)]'
+const labelClass = 'mb-1.5 block text-[13px] font-medium text-[var(--lm-text-secondary)]'
 
 function formatContextSize(n: number): string {
   if (n >= 10_000) {
@@ -78,11 +78,11 @@ export function ModelProvidersPanel() {
 
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-[var(--lm-text-muted)]">
+      <p className="text-[12px] text-[var(--lm-text-muted)]">
         管理自定义模型供应商，配置后可在聊天时选择使用。
       </p>
       {providers.length === 0 && (
-        <div className="rounded-lg border border-dashed border-[var(--lm-border-strong)] px-3 py-6 text-center text-[12px] text-[var(--lm-text-muted)]">
+        <div className="rounded-lg border border-dashed border-[var(--lm-border-strong)] px-3 py-6 text-center text-[13px] text-[var(--lm-text-muted)]">
           还没有配置供应商
         </div>
       )}
@@ -106,10 +106,10 @@ export function ModelProvidersPanel() {
                 title={enabled ? '已启用' : '已禁用'}
               />
               <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
+                <span className="truncate text-[14px] font-medium text-[var(--lm-text-primary)]">
                   {id}
                 </span>
-                <span className="truncate text-[11px] text-[var(--lm-text-muted)]">
+                <span className="truncate text-[12px] text-[var(--lm-text-muted)]">
                   {providerTypeLabel(provider.type)}
                   {(modelCountByProvider[id] ?? 0) > 0 && ` · ${modelCountByProvider[id]} 个模型`}
                 </span>
@@ -122,7 +122,7 @@ export function ModelProvidersPanel() {
                 void updateConfig({ providers: { [id]: { enabled: !enabled } } })
               }}
               className={cn(
-                'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors',
+                'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
                 enabled
                   ? 'bg-green-500/15 text-green-600 hover:bg-green-500/25 dark:text-green-400'
                   : 'bg-[var(--lm-bg-hover)] text-[var(--lm-text-muted)] hover:text-[var(--lm-text-secondary)]',
@@ -135,7 +135,7 @@ export function ModelProvidersPanel() {
       })}
       <button
         onClick={() => setView({ kind: 'edit', id: null })}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--lm-border-strong)] px-3 py-2 text-[12px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-accent)] hover:text-[var(--lm-text-primary)]"
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--lm-border-strong)] px-3 py-2 text-[13px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-accent)] hover:text-[var(--lm-text-primary)]"
       >
         <Plus size={13} />
         添加供应商
@@ -221,7 +221,7 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
       <div className="flex items-center justify-between">
         <button
           onClick={onBack}
-          className="text-[12px] text-[var(--lm-text-muted)] transition-colors hover:text-[var(--lm-text-primary)]"
+          className="text-[13px] text-[var(--lm-text-muted)] transition-colors hover:text-[var(--lm-text-primary)]"
         >
           ← 返回列表
         </button>
@@ -229,7 +229,7 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
           <button
             onClick={handleDelete}
             className={cn(
-              'flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors',
+              'flex items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors',
               confirmDelete
                 ? 'bg-red-500/15 text-red-500'
                 : 'text-[var(--lm-text-muted)] hover:text-red-500',
@@ -251,7 +251,7 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
           className={inputClass}
         />
         {idConflict && (
-          <p className="mt-1 text-[11px] text-red-500">该名称已存在</p>
+          <p className="mt-1 text-[12px] text-red-500">该名称已存在</p>
         )}
       </section>
 
@@ -303,19 +303,19 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
           <button
             type="button"
             onClick={() => setPreserveStoredApiKey(false)}
-            className="mt-1 text-[11px] text-[var(--lm-text-muted)] transition-colors hover:text-red-500"
+            className="mt-1 text-[12px] text-[var(--lm-text-muted)] transition-colors hover:text-red-500"
           >
             清除已保存密钥
           </button>
         )}
       </section>
 
-      {error && <p className="text-[11px] text-red-500">{error}</p>}
+      {error && <p className="text-[12px] text-red-500">{error}</p>}
 
       <button
         onClick={handleSave}
         disabled={!canSave}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--lm-accent)] px-3 py-2 text-[13px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--lm-accent)] px-3 py-2 text-[14px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saved && <Check size={14} />}
         {saving ? '保存中…' : saved ? '已保存' : '保存'}
@@ -391,7 +391,7 @@ function ProviderModels({ providerId }: { providerId: string }) {
       <label className={labelClass}>模型列表</label>
       <div className="space-y-1.5">
         {models.length === 0 && !adding && (
-          <p className="py-1 text-[11px] text-[var(--lm-text-muted)]">
+          <p className="py-1 text-[12px] text-[var(--lm-text-muted)]">
             还没有模型，添加后即可在聊天中选择。
           </p>
         )}
@@ -401,14 +401,14 @@ function ProviderModels({ providerId }: { providerId: string }) {
             className="flex items-center gap-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1.5"
           >
             <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
+              <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
                 {m.displayName ?? modelId}
               </span>
               {m.model !== modelId && (
-                <span className="truncate text-[10px] text-[var(--lm-text-muted)]">{m.model}</span>
+                <span className="truncate text-[11px] text-[var(--lm-text-muted)]">{m.model}</span>
               )}
             </div>
-            <span className="shrink-0 rounded bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
+            <span className="shrink-0 rounded bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[11px] text-[var(--lm-text-muted)]">
               {formatContextSize(m.maxContextSize)}
             </span>
             <button
@@ -434,7 +434,7 @@ function ProviderModels({ providerId }: { providerId: string }) {
               placeholder="模型 ID（选择器中的名字），如 k3"
               className={inputClass}
             />
-            {aliasConflict && <p className="text-[11px] text-red-500">该模型 ID 已存在</p>}
+            {aliasConflict && <p className="text-[12px] text-red-500">该模型 ID 已存在</p>}
             <input
               value={modelName}
               onChange={(e) => setModelName(e.target.value)}
@@ -448,18 +448,18 @@ function ProviderModels({ providerId }: { providerId: string }) {
               inputMode="numeric"
               className={inputClass}
             />
-            {error && <p className="text-[11px] text-red-500">{error}</p>}
+            {error && <p className="text-[12px] text-red-500">{error}</p>}
             <div className="flex gap-2">
               <button
                 onClick={handleAdd}
                 disabled={!canAdd}
-                className="flex-1 rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex-1 rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[13px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 添加
               </button>
               <button
                 onClick={() => setAdding(false)}
-                className="rounded-lg px-3 py-1.5 text-[12px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)]"
+                className="rounded-lg px-3 py-1.5 text-[13px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)]"
               >
                 取消
               </button>
@@ -468,7 +468,7 @@ function ProviderModels({ providerId }: { providerId: string }) {
         ) : (
           <button
             onClick={() => setAdding(true)}
-            className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-[var(--lm-border-strong)] px-3 py-1.5 text-[11px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-accent)] hover:text-[var(--lm-text-primary)]"
+            className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-[var(--lm-border-strong)] px-3 py-1.5 text-[12px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-accent)] hover:text-[var(--lm-text-primary)]"
           >
             <Plus size={12} />
             添加模型

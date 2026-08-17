@@ -69,21 +69,21 @@ function TaskCard({ task }: { task: TaskEntry }) {
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Terminal size={13} className="shrink-0 text-[var(--lm-text-muted)]" />
-          <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
+          <span className="truncate text-[14px] font-medium text-[var(--lm-text-primary)]">
             {task.description || task.command}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--lm-bg-hover)] px-2 py-0.5">
           <span className={cfg.color}>{cfg.icon}</span>
-          <span className={cn('text-[10px] font-medium', cfg.color)}>{cfg.label}</span>
+          <span className={cn('text-[11px] font-medium', cfg.color)}>{cfg.label}</span>
         </div>
       </div>
 
       {task.description && task.command && (
-        <p className="mt-1.5 truncate font-mono text-[11px] text-[var(--lm-text-muted)]">{task.command}</p>
+        <p className="mt-1.5 truncate font-mono text-[12px] text-[var(--lm-text-muted)]">{task.command}</p>
       )}
 
-      <div className="mt-2 flex items-center gap-3 text-[10px] text-[var(--lm-text-muted)]">
+      <div className="mt-2 flex items-center gap-3 text-[11px] text-[var(--lm-text-muted)]">
         <span className="flex items-center gap-1">
           <Clock size={10} />
           {formatDuration(task.startedAt, task.endedAt)}
@@ -99,7 +99,7 @@ function TaskCard({ task }: { task: TaskEntry }) {
       {isActive && (
         <button
           onClick={handleStop}
-          className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-error)]"
+          className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-error)]"
         >
           <Square size={10} />
           停止任务
@@ -108,7 +108,7 @@ function TaskCard({ task }: { task: TaskEntry }) {
 
       <button
         onClick={handleToggleOutput}
-        className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-accent-text)]"
+        className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-accent-soft)] hover:text-[var(--lm-accent-text)]"
       >
         <FileText size={10} />
         {outputOpen ? '收起输出' : '查看输出'}
@@ -116,21 +116,21 @@ function TaskCard({ task }: { task: TaskEntry }) {
 
       {outputOpen && (
         <div className="mt-2 overflow-hidden rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-base)]">
-          <div className="border-b border-[var(--lm-border)] px-2.5 py-1.5 text-[10px] font-medium text-[var(--lm-text-muted)]">
+          <div className="border-b border-[var(--lm-border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--lm-text-muted)]">
             输出
           </div>
           <div className="max-h-56 overflow-y-auto p-2">
             {outputLoading ? (
-              <p className="flex items-center gap-1.5 text-[11px] text-[var(--lm-text-muted)]">
+              <p className="flex items-center gap-1.5 text-[12px] text-[var(--lm-text-muted)]">
                 <Loader2 size={11} className="lm-spin" />
                 正在加载输出…
               </p>
             ) : outputError ? (
-              <p className="text-[11px] text-[var(--lm-error)]">读取失败：{outputError}</p>
+              <p className="text-[12px] text-[var(--lm-error)]">读取失败：{outputError}</p>
             ) : output !== null && output.trim().length === 0 ? (
-              <p className="text-[11px] text-[var(--lm-text-muted)]">（任务无输出）</p>
+              <p className="text-[12px] text-[var(--lm-text-muted)]">（任务无输出）</p>
             ) : (
-              <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-[var(--lm-text-secondary)]">
+              <pre className="whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed text-[var(--lm-text-secondary)]">
                 {output}
               </pre>
             )}
@@ -139,7 +139,7 @@ function TaskCard({ task }: { task: TaskEntry }) {
       )}
 
       {task.status === 'killed' && task.stopReason && (
-        <p className="mt-1.5 text-[10px] text-[var(--lm-text-muted)]">原因: {task.stopReason}</p>
+        <p className="mt-1.5 text-[11px] text-[var(--lm-text-muted)]">原因: {task.stopReason}</p>
       )}
     </div>
   )
@@ -178,9 +178,9 @@ export function TasksPanel({ open, onClose }: TasksPanelProps) {
       <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3">
         <div className="flex items-center gap-2">
           <Terminal size={15} className="text-[var(--lm-text-secondary)]" />
-          <h3 className="text-[14px] font-medium text-[var(--lm-text-primary)]">后台任务</h3>
+          <h3 className="text-[15px] font-medium text-[var(--lm-text-primary)]">后台任务</h3>
           {activeTasks.length > 0 && (
-            <span className="rounded-full bg-[var(--lm-accent-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--lm-accent-text)]">
+            <span className="rounded-full bg-[var(--lm-accent-soft)] px-2 py-0.5 text-[11px] font-medium text-[var(--lm-accent-text)]">
               {activeTasks.length} 运行中
             </span>
           )}
@@ -197,14 +197,14 @@ export function TasksPanel({ open, onClose }: TasksPanelProps) {
         {tasks.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <Terminal size={24} className="text-[var(--lm-text-muted)]" />
-            <p className="text-[14px] text-[var(--lm-text-secondary)]">暂无后台任务</p>
-            <p className="text-[12px] text-[var(--lm-text-muted)]">AI 运行后台命令时，任务将显示在这里</p>
+            <p className="text-[15px] text-[var(--lm-text-secondary)]">暂无后台任务</p>
+            <p className="text-[13px] text-[var(--lm-text-muted)]">AI 运行后台命令时，任务将显示在这里</p>
           </div>
         )}
 
         {activeTasks.length > 0 && (
           <div className="mb-3">
-            <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">运行中</h4>
+            <h4 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">运行中</h4>
             <div className="space-y-2">
               {activeTasks.map((task) => <TaskCard key={task.taskId} task={task} />)}
             </div>
@@ -213,7 +213,7 @@ export function TasksPanel({ open, onClose }: TasksPanelProps) {
 
         {completedTasks.length > 0 && (
           <div>
-            <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">已完成</h4>
+            <h4 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">已完成</h4>
             <div className="space-y-2">
               {completedTasks.map((task) => <TaskCard key={task.taskId} task={task} />)}
             </div>

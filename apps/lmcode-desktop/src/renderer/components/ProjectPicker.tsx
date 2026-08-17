@@ -18,7 +18,7 @@ interface ProjectPickerProps {
 }
 
 const projectItemClass =
-  'flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]'
+  'flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]'
 
 /** Shared, keyboard-accessible project switcher for sidebar and composer. */
 export function ProjectPicker({ display, className }: ProjectPickerProps) {
@@ -59,7 +59,7 @@ export function ProjectPicker({ display, className }: ProjectPickerProps) {
             title={currentWorkDir ?? accessibleLabel}
             aria-label={accessibleLabel}
             className={cn(
-              'flex items-center gap-2 border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[11px] font-medium text-[var(--lm-text-secondary)] outline-none transition-colors hover:border-[var(--lm-border-strong)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]',
+              'flex items-center gap-2 border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[12px] font-medium text-[var(--lm-text-secondary)] outline-none transition-colors hover:border-[var(--lm-border-strong)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]',
               display === 'path'
                 ? 'w-full rounded-lg px-2.5 py-1.5'
                 : 'max-w-[160px] rounded-lg border-transparent bg-transparent px-2.5 py-1.5 sm:max-w-56',
@@ -88,11 +88,11 @@ export function ProjectPicker({ display, className }: ProjectPickerProps) {
               display === 'path' ? 'w-[var(--radix-dropdown-menu-trigger-width)]' : 'w-72',
             )}
           >
-            <DropdownMenu.Label className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--lm-text-muted)]">
+            <DropdownMenu.Label className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--lm-text-muted)]">
               最近项目
             </DropdownMenu.Label>
             {projects.length === 0 && (
-              <p className="px-2.5 py-3 text-[11px] text-[var(--lm-text-muted)]">
+              <p className="px-2.5 py-3 text-[12px] text-[var(--lm-text-muted)]">
                 暂无最近项目
               </p>
             )}
@@ -112,7 +112,7 @@ export function ProjectPicker({ display, className }: ProjectPickerProps) {
                   <span className="min-w-0 flex-1 truncate">
                     {truncateProjectPath(project.workDir, display === 'path' ? 25 : 34)}
                   </span>
-                  <span className="shrink-0 text-[9px] text-[var(--lm-text-muted)]">
+                  <span className="shrink-0 text-[10px] text-[var(--lm-text-muted)]">
                     {project.sessionCount}
                   </span>
                   {selected && (

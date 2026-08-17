@@ -39,7 +39,7 @@ interface TopBarProps {
 }
 
 const menuItemClass =
-  'flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)] data-[disabled]:opacity-40'
+  'flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)] data-[disabled]:opacity-40'
 
 function formatTokens(tokens: number): string {
   if (tokens >= 1_000_000) {
@@ -143,10 +143,10 @@ export function TopBar({
       )}
 
       <div className="min-w-0 flex-1 leading-tight">
-        <h1 className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
+        <h1 className="truncate text-[14px] font-medium text-[var(--lm-text-primary)]">
           {title}
         </h1>
-        <p className="mt-0.5 truncate text-[10px] text-[var(--lm-text-muted)]">
+        <p className="mt-0.5 truncate text-[11px] text-[var(--lm-text-muted)]">
           {locationLabel}
         </p>
       </div>
@@ -162,7 +162,7 @@ export function TopBar({
               style={{ width: `${contextPercentage}%` }}
             />
           </div>
-          <span className="font-mono text-[10px] tabular-nums text-[var(--lm-text-muted)]">
+          <span className="font-mono text-[11px] tabular-nums text-[var(--lm-text-muted)]">
             {formatTokens(contextTokens)} / {formatTokens(maxContextTokens)}
           </span>
         </div>
@@ -172,7 +172,7 @@ export function TopBar({
 
       {currentSessionId && (
         <span
-          className="hidden items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-[var(--lm-text-secondary)] sm:flex"
+          className="hidden items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium text-[var(--lm-text-secondary)] sm:flex"
           title="当前权限模式（Shift+Tab 切换）"
           aria-live="polite"
         >
@@ -204,7 +204,7 @@ export function TopBar({
         <span className="relative">
           <Bell size={17} />
           {inboxUnread > 0 && (
-            <span className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--lm-accent-text)] px-0.5 text-[8px] font-semibold text-[var(--lm-bg-base)]">
+            <span className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--lm-accent-text)] px-0.5 text-[9px] font-semibold text-[var(--lm-bg-base)]">
               {inboxUnread > 99 ? '99+' : inboxUnread}
             </span>
           )}
@@ -232,7 +232,7 @@ export function TopBar({
             sideOffset={6}
             className="z-50 min-w-52 rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] p-1 shadow-[var(--lm-shadow-pop)]"
           >
-            <DropdownMenu.Label className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--lm-text-muted)]">
+            <DropdownMenu.Label className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--lm-text-muted)]">
               工作区工具
             </DropdownMenu.Label>
             <DropdownMenu.Item
@@ -242,7 +242,7 @@ export function TopBar({
             >
               <GitFork size={15} />
               <span className="flex-1">工作树</span>
-              <span className="text-[9px] text-[var(--lm-text-muted)]">隔离任务</span>
+              <span className="text-[10px] text-[var(--lm-text-muted)]">隔离任务</span>
             </DropdownMenu.Item>
             <DropdownMenu.Item
               disabled={!currentSessionId}
@@ -252,7 +252,7 @@ export function TopBar({
               <Bot size={15} />
               <span className="flex-1">子 Agent</span>
               {runningAgents > 0 && (
-                <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--lm-accent-text)]">
+                <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--lm-accent-text)]">
                   {runningAgents} 运行中
                 </span>
               )}
@@ -269,7 +269,7 @@ export function TopBar({
               <ListTodo size={15} />
               <span className="flex-1">后台任务</span>
               {runningCount > 0 && (
-                <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--lm-accent-text)]">
+                <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--lm-accent-text)]">
                   {runningCount}
                 </span>
               )}

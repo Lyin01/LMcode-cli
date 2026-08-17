@@ -37,12 +37,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <AlertTriangle size={22} className="text-[var(--lm-error)]" />
-          <p className="text-[13px] text-[var(--lm-text-secondary)]">
+          <p className="text-[14px] text-[var(--lm-text-secondary)]">
             {this.props.name ? `「${this.props.name}」` : ''}渲染出错：{error.message}
           </p>
           <button
             onClick={this.handleRetry}
-            className="rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-1.5 text-[13px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-1.5 text-[14px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >
             重试
           </button>

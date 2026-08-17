@@ -26,7 +26,7 @@ import type { UserAttachment } from '@/types'
 
 const NO_PROJECT_LABEL = '不关联项目'
 const targetMenuItemClass =
-  'flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]'
+  'flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]'
 
 /**
  * Start surface for a new task. The project, model, prompt and submit action
@@ -175,7 +175,7 @@ export function WelcomeScreen() {
             onPaste={handlePaste}
             placeholder="描述你想交给 Agent 完成的任务…"
             rows={2}
-            className="block max-h-[220px] min-h-[78px] w-full resize-none bg-transparent px-4 pb-2 pt-3.5 text-[14px] leading-relaxed text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)]"
+            className="block max-h-[220px] min-h-[78px] w-full resize-none bg-transparent px-4 pb-2 pt-3.5 text-[15px] leading-relaxed text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)]"
           />
 
           {attachments.length > 0 && (
@@ -191,7 +191,7 @@ export function WelcomeScreen() {
                   type="button"
                   title={targetTitle}
                   aria-label={`任务位置：${targetTitle}`}
-                  className="flex max-w-[190px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-[var(--lm-text-secondary)] outline-none transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
+                  className="flex max-w-[190px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-[var(--lm-text-secondary)] outline-none transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
                 >
                   {target.kind === 'no-project' ? (
                     <FolderX size={14} className="shrink-0 text-[var(--lm-text-muted)]" />
@@ -212,12 +212,12 @@ export function WelcomeScreen() {
                   sideOffset={6}
                   className="z-50 w-80 rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] p-1 shadow-[var(--lm-shadow-pop)]"
                 >
-                  <DropdownMenu.Label className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--lm-text-muted)]">
+                  <DropdownMenu.Label className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--lm-text-muted)]">
                     任务位置
                   </DropdownMenu.Label>
                   <div className="max-h-60 overflow-y-auto">
                     {projects.length === 0 && (
-                      <p className="px-2.5 py-3 text-[11px] text-[var(--lm-text-muted)]">
+                      <p className="px-2.5 py-3 text-[12px] text-[var(--lm-text-muted)]">
                         暂无最近项目
                       </p>
                     )}
@@ -234,11 +234,11 @@ export function WelcomeScreen() {
                           <Folder size={14} className="shrink-0 text-[var(--lm-text-muted)]" />
                           <span className="flex min-w-0 flex-1 flex-col">
                             <span className="truncate font-medium">{projectDisplayName(project.workDir)}</span>
-                            <span className="truncate text-[9px] text-[var(--lm-text-muted)]">
+                            <span className="truncate text-[10px] text-[var(--lm-text-muted)]">
                               {truncateProjectPath(project.workDir, 42)}
                             </span>
                           </span>
-                          <span className="shrink-0 text-[9px] text-[var(--lm-text-muted)]">
+                          <span className="shrink-0 text-[10px] text-[var(--lm-text-muted)]">
                             {project.sessionCount}
                           </span>
                           {selected && <Check size={13} className="shrink-0 text-[var(--lm-accent-text)]" />}
@@ -274,7 +274,7 @@ export function WelcomeScreen() {
             <ModelSwitcher />
             <ThinkingSwitcher />
             <div className="flex-1" />
-            <span className="hidden text-[9px] text-[var(--lm-text-muted)] sm:inline">
+            <span className="hidden text-[10px] text-[var(--lm-text-muted)] sm:inline">
               Enter 发送 · Shift+Enter 换行
             </span>
             <button
@@ -291,12 +291,12 @@ export function WelcomeScreen() {
         </div>
 
         {attachmentError && (
-          <p className="mt-2 text-center text-[11px] text-[var(--lm-error)]">
+          <p className="mt-2 text-center text-[12px] text-[var(--lm-error)]">
             {attachmentError}
           </p>
         )}
 
-        <p className="mt-3 text-center text-[10px] text-[var(--lm-text-muted)]">
+        <p className="mt-3 text-center text-[11px] text-[var(--lm-text-muted)]">
           Agent 默认只在所选工作区内操作，需要额外权限时会向你确认。
         </p>
       </div>

@@ -272,9 +272,9 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
     <section className="fixed bottom-0 right-0 z-40 flex h-[45vh] w-[min(1000px,calc(100vw-48px))] flex-col overflow-hidden rounded-tl-2xl border-l border-t border-[var(--lm-border)] bg-[var(--lm-bg-code)] shadow-[var(--lm-shadow-pop)]">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-3">
         <SquareTerminal size={15} className="text-[var(--lm-accent-text)]" />
-        <span className="text-[12px] font-semibold text-[var(--lm-text-primary)]">项目终端</span>
+        <span className="text-[13px] font-semibold text-[var(--lm-text-primary)]">项目终端</span>
         {info && (
-          <span className="min-w-0 truncate font-mono text-[10px] text-[var(--lm-text-muted)]">
+          <span className="min-w-0 truncate font-mono text-[11px] text-[var(--lm-text-muted)]">
             {info.shell} · {info.workDir}
           </span>
         )}
@@ -343,7 +343,7 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
       </header>
 
       {error && (
-        <div className="shrink-0 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-3 py-1.5 text-[11px] text-[var(--lm-error)]">
+        <div className="shrink-0 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-3 py-1.5 text-[12px] text-[var(--lm-error)]">
           {error}
         </div>
       )}
@@ -354,11 +354,11 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
         className="min-h-0 flex-1 overflow-auto p-3"
       >
         {starting && chunks.length === 0 && (
-          <div className="flex items-center gap-2 text-[11px] text-[var(--lm-text-muted)]">
+          <div className="flex items-center gap-2 text-[12px] text-[var(--lm-text-muted)]">
             <Loader2 size={13} className="lm-spin" /> 启动项目终端…
           </div>
         )}
-        <pre className="m-0 whitespace-pre-wrap break-words font-mono text-[11px] leading-5">
+        <pre className="m-0 whitespace-pre-wrap break-words font-mono text-[12px] leading-5">
           {chunks.map((chunk) => (
             <span
               key={chunk.id}
@@ -386,7 +386,7 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-2 border-t border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-3 py-2">
-        <span className="font-mono text-[12px] text-[var(--lm-accent-text)]">›</span>
+        <span className="font-mono text-[13px] text-[var(--lm-accent-text)]">›</span>
         <input
           ref={inputRef}
           value={command}
@@ -409,14 +409,14 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
           }}
           disabled={!running}
           placeholder={running ? '输入命令并按 Enter' : '终端已停止'}
-          className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)] disabled:cursor-not-allowed"
+          className="min-w-0 flex-1 bg-transparent font-mono text-[13px] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)] disabled:cursor-not-allowed"
           spellCheck={false}
         />
         {!running && !starting && (
           <button
             onClick={() => void start()}
             disabled={!sessionId}
-            className="flex items-center gap-1 rounded-md bg-[var(--lm-accent)] px-2 py-1 text-[10px] font-medium text-[var(--lm-accent-fg)] disabled:opacity-40"
+            className="flex items-center gap-1 rounded-md bg-[var(--lm-accent)] px-2 py-1 text-[11px] font-medium text-[var(--lm-accent-fg)] disabled:opacity-40"
           >
             <Play size={10} /> 启动
           </button>

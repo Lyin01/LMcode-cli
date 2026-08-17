@@ -16,7 +16,7 @@ export function ThinkingBlock({ content, state = 'complete' }: ThinkingBlockProp
     <div className="mb-2.5 overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)]">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:text-[var(--lm-text-primary)]"
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-[13px] text-[var(--lm-text-secondary)] transition-colors hover:text-[var(--lm-text-primary)]"
       >
         {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         <Sparkles size={12} className="text-[var(--lm-accent-text)]" />
@@ -32,7 +32,7 @@ export function ThinkingBlock({ content, state = 'complete' }: ThinkingBlockProp
         <div className="border-t border-[var(--lm-border)] px-3 py-2.5">
           <p
             className={cn(
-              'whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--lm-text-secondary)]',
+              'whitespace-pre-wrap text-[13.5px] leading-relaxed text-[var(--lm-text-secondary)]',
               state === 'streaming' && 'typing-cursor',
             )}
           >

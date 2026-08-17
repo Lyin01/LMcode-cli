@@ -25,7 +25,7 @@ export type {
 
 // Provider interfaces
 export * from './provider';
-export { createProvider } from './providers';
+export { createProvider, hasProvider, listProviderTypes, registerProvider } from './providers';
 export type { ProviderConfig, ProviderType } from './providers';
 
 // Model capability matrix

@@ -186,8 +186,8 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
         <header className="flex items-center gap-2 border-b border-[var(--lm-border)] px-4 py-3.5">
           <CalendarClock size={16} className="text-[var(--lm-accent-text)]" />
           <div className="min-w-0 flex-1">
-            <h2 className="text-[14px] font-semibold text-[var(--lm-text-primary)]">自动化</h2>
-            <p className="text-[10px] text-[var(--lm-text-muted)]">按计划把任务重新注入当前会话</p>
+            <h2 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">自动化</h2>
+            <p className="text-[11px] text-[var(--lm-text-muted)]">按计划把任务重新注入当前会话</p>
           </div>
           <button
             onClick={() => void refresh()}
@@ -207,7 +207,7 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
         </header>
 
         {error && (
-          <div className="flex items-start gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-4 py-2 text-[11px] text-[var(--lm-error)]">
+          <div className="flex items-start gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-accent-soft)] px-4 py-2 text-[12px] text-[var(--lm-error)]">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
@@ -215,7 +215,7 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
 
         <div className="border-b border-[var(--lm-border)] p-4">
           {editingJob && (
-            <div className="mb-2 flex items-center gap-2 text-[11px] text-[var(--lm-accent-text)]">
+            <div className="mb-2 flex items-center gap-2 text-[12px] text-[var(--lm-accent-text)]">
               <Pencil size={12} />
               正在编辑：{editingJob.humanSchedule}
             </div>
@@ -226,7 +226,7 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
               onChange={(event) => {
                 if (event.target.value !== 'custom') setCron(event.target.value)
               }}
-              className="rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-2.5 py-2 text-[11px] text-[var(--lm-text-primary)]"
+              className="rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-2.5 py-2 text-[12px] text-[var(--lm-text-primary)]"
             >
               {SCHEDULE_PRESETS.map((preset) => (
                 <option key={preset.cron} value={preset.cron}>{preset.label}</option>
@@ -237,7 +237,7 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
               value={cron}
               onChange={(event) => setCron(event.target.value)}
               placeholder="分 时 日 月 周"
-              className="rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-2.5 py-2 font-mono text-[11px] text-[var(--lm-text-primary)] outline-none focus:border-[var(--lm-accent)]"
+              className="rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-2.5 py-2 font-mono text-[12px] text-[var(--lm-text-primary)] outline-none focus:border-[var(--lm-accent)]"
             />
           </div>
           <textarea
@@ -246,10 +246,10 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
             maxLength={8_000}
             rows={4}
             placeholder="到点后让 LMCODE 做什么？例如：检查未提交变更并运行相关测试。"
-            className="mt-2 w-full resize-none rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-2.5 py-2 text-[11px] leading-relaxed text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent)]"
+            className="mt-2 w-full resize-none rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-2.5 py-2 text-[12px] leading-relaxed text-[var(--lm-text-primary)] outline-none placeholder:text-[var(--lm-text-muted)] focus:border-[var(--lm-accent)]"
           />
           <div className="mt-2 flex items-center gap-3">
-            <label className="flex cursor-pointer items-center gap-2 text-[10px] text-[var(--lm-text-secondary)]">
+            <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--lm-text-secondary)]">
               <input
                 type="checkbox"
                 checked={recurring}
@@ -258,13 +258,13 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
               />
               <Repeat2 size={11} /> 重复执行
             </label>
-            <span className="text-[9px] text-[var(--lm-text-muted)]">
+            <span className="text-[10px] text-[var(--lm-text-muted)]">
               使用本机时区；关闭重复后仅在下一次匹配时执行
             </span>
             <button
               onClick={() => void submitJob()}
               disabled={creating || !cron.trim() || !prompt.trim()}
-              className="ml-auto flex items-center gap-1.5 rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[10px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
+              className="ml-auto flex items-center gap-1.5 rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[11px] font-medium text-[var(--lm-accent-fg)] hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
             >
               {creating ? <Loader2 size={12} className="lm-spin" /> : <Plus size={12} />}
               {editingJob ? '保存修改' : '创建'}
@@ -272,7 +272,7 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
             {editingJob && (
               <button
                 onClick={cancelEdit}
-                className="flex items-center gap-1.5 rounded-lg border border-[var(--lm-border)] px-3 py-1.5 text-[10px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+                className="flex items-center gap-1.5 rounded-lg border border-[var(--lm-border)] px-3 py-1.5 text-[11px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
               >
                 <X size={12} />
                 取消编辑
@@ -283,14 +283,14 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           {loading && jobs.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-[12px] text-[var(--lm-text-muted)]">
+            <div className="flex items-center justify-center gap-2 py-12 text-[13px] text-[var(--lm-text-muted)]">
               <Loader2 size={15} className="lm-spin" /> 正在读取自动化…
             </div>
           ) : jobs.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center">
               <CalendarClock size={26} className="text-[var(--lm-text-muted)]" />
-              <p className="text-[13px] text-[var(--lm-text-secondary)]">当前会话暂无自动化</p>
-              <p className="max-w-xs text-[11px] text-[var(--lm-text-muted)]">
+              <p className="text-[14px] text-[var(--lm-text-secondary)]">当前会话暂无自动化</p>
+              <p className="max-w-xs text-[12px] text-[var(--lm-text-muted)]">
                 创建后任务会持久化，并在桌面端运行期间按计划触发。
               </p>
             </div>
@@ -305,25 +305,25 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
                     <Clock3 size={14} className="mt-0.5 shrink-0 text-[var(--lm-accent-text)]" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="truncate text-[11px] font-medium text-[var(--lm-text-primary)]">
+                        <span className="truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
                           {job.humanSchedule}
                         </span>
-                        <span className="rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[9px] text-[var(--lm-text-muted)]">
+                        <span className="rounded-full bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
                           {job.recurring ? '重复' : '单次'}
                         </span>
                         {job.stale && (
-                          <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[9px] text-[var(--lm-error)]">
+                          <span className="rounded-full bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--lm-error)]">
                             已过期
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 font-mono text-[9px] text-[var(--lm-text-muted)]">
+                      <p className="mt-0.5 font-mono text-[10px] text-[var(--lm-text-muted)]">
                         {job.cron} · {job.id}
                       </p>
-                      <p className="mt-2 whitespace-pre-wrap text-[11px] leading-relaxed text-[var(--lm-text-secondary)]">
+                      <p className="mt-2 whitespace-pre-wrap text-[12px] leading-relaxed text-[var(--lm-text-secondary)]">
                         {job.prompt}
                       </p>
-                      <div className="mt-2 flex gap-3 text-[9px] text-[var(--lm-text-muted)]">
+                      <div className="mt-2 flex gap-3 text-[10px] text-[var(--lm-text-muted)]">
                         <span>下次：{formatTime(job.nextFireAt)}</span>
                         {job.lastFiredAt !== undefined && <span>上次：{formatTime(job.lastFiredAt)}</span>}
                       </div>
