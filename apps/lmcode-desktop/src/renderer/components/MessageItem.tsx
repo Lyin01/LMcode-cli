@@ -106,8 +106,9 @@ const FileChip = memo(function FileChip({ target, children }: { target: string; 
 })
 
 function MarkdownCode({ className, children }: { className?: string; children?: ReactNode }) {
-  if (className !== undefined) return <code className={className}>{children}</code>
-  const target = resolveOpenTarget(extractCodeText(children))
+  const text = extractCodeText(children)
+  if (className !== undefined || text.endsWith('\n')) return <code className={className}>{children}</code>
+  const target = resolveOpenTarget(text)
   if (target !== null) return <FileChip target={target}>{children}</FileChip>
   return <code>{children}</code>
 }
