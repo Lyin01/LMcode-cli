@@ -4,7 +4,7 @@
 
 **目标**：系统性排查并消除 LMcode 全仓的跨平台隐患，让 Windows（主用户群、宪法红线）与 POSIX 行为一致、无静默降级。
 
-**分支**：`codex/kill-hook-process-trees`（`main` 保持干净）。
+**分支**：`auto/loop-iterations`（`main` 保持干净）。
 
 ## 护栏（不可违反）
 - 主干常绿：每步都要 lint + typecheck/test 通过才提交。
