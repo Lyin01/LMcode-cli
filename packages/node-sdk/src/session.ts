@@ -159,6 +159,11 @@ export class Session {
     await this.rpc.setPermission({ sessionId: this.id, mode });
   }
 
+  async setActiveTools(names: readonly string[]): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.setActiveTools({ sessionId: this.id, names });
+  }
+
   async setPlanMode(enabled: boolean): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {

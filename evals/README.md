@@ -61,7 +61,7 @@ env. Nothing is hardcoded — you supply the key.
 | `LMCODE_EVAL_API_KEY`   | yes      | API key for the provider.                                               |
 | `LMCODE_EVAL_PROVIDER`  | no       | `anthropic` \| `openai` \| `openai_responses` \| `lmcode` \| `google-genai`. Default `lmcode`. |
 | `LMCODE_EVAL_BASE_URL`  | no       | Base URL override (self-hosted gateway, proxy, etc.).                   |
-| `LMCODE_EVAL_MAX_CONTEXT` | no     | Max context size for the model alias. Default `262144`.                 |
+| `LMCODE_EVAL_MAX_CONTEXT` | yes    | Model context window used for compaction. Required for real-model tasks; unset tasks SKIP. |
 
 Example (bash):
 
@@ -73,20 +73,28 @@ pnpm eval fix-failing-fn
 ```
 
 The session runs in `yolo` permission mode so the agent can edit files without
-an interactive approver. The shipped real-model tasks:
+an interactive approver. The runner waits until the session is idle (including
+any goal-drive follow-up turns), not the first `turn.ended`. A last turn that
+`failed` or was `cancelled` is a harness error, not a scored attempt.
+
+Eval sessions pin a coding-only tool surface (no Goal / Agent / WolfPack /
+Plan / MCP), disable self-healing and Anchored Bootstrap, cap steps at 80, and
+sandbox writes to the workdir so scoring measures the task instead of harness
+side paths.
+
+The shipped real-model tasks:
 
 | Task | Axis | Scoring |
 | ---- | ---- | ------- |
 | `fix-failing-fn` | fix one buggy function | binary: `node check.mjs` exits 0 |
-| `env-parser` | implement a `.env` parser from a written `SPEC.md` | **partial credit**: `score = (visible + hidden) / total`; `passed` = all *visible* cases. The agent sees the visible suite but never the hidden cases, so the hidden pass-rate measures generalization vs. "implemented to the tests". |
+| `env-parser` | implement a `.env` parser from a written `SPEC.md` | **partial credit**: `score = (visible + hidden) / total`; `passed` = all visible *and* hidden cases. Editing `test/` is a hard fail. |
 | `csv-median-debug` | localize + fix bugs across two files | `score = passing / 8`; `passed` = all pass. Scored against authoritative inline cases, so editing the workdir test can't inflate it. |
-| `expr-eval` | deep reasoning: a precedence-correct expression evaluator | same visible + hidden scoring as `env-parser`. Hidden cases concentrate on precedence/associativity traps (right-assoc `^`, unary vs. `^`), so this **discriminates between models** the other tasks max out. |
+| `expr-eval` | deep reasoning: a precedence-correct expression evaluator | same scoring as `env-parser` (hidden cases count toward `passed`). Hidden cases concentrate on precedence/associativity traps (right-assoc `^`, unary vs. `^`). |
 | `spec-drift` | spec consistency: one prompt embedding five explicit details (second file, edge-case rules mid-sentence) | **detail coverage**: `score = details met / 5`; `passed` = all five. Measures whether the agent addresses *everything* asked — the axis the spec-consistency critic targets — rather than just the headline task. |
 
-The `score` is a soft [0,1] number, so a model that nails the shown tests but
-misses a spec edge case reports **PASS with a sub-1.0 score** — green, but the
-tracked number shows the gap. Track it across prompt/model changes to turn "the
-prompt feels worse" into a measurement.
+The `score` is a soft [0,1] number. Hidden or fixture-tamper misses now fail
+`passed` as well as lowering `score`, so CI cannot go green on incomplete spec
+coverage.
 
 Example (DeepSeek, OpenAI-compatible):
 
@@ -95,6 +103,7 @@ LMCODE_EVAL_PROVIDER=openai \
 LMCODE_EVAL_BASE_URL=https://api.deepseek.com \
 LMCODE_EVAL_MODEL=deepseek-v4-flash \
 LMCODE_EVAL_API_KEY=sk-... \
+LMCODE_EVAL_MAX_CONTEXT=128000 \
 pnpm eval env-parser csv-median-debug
 ```
 
@@ -190,9 +199,13 @@ evals/
   framework/
     types.ts                   Task / ScoreResult / RunResult
     runner.ts                  drives one task via the SDK, scores the workdir
+    session-idle.ts            wait until all turns (including goal drive) finish
+    fixture-guard.ts           fail if protected test/check files were edited
+    runner.test.ts             idle-wait + failed/cancelled reason tests
     report.ts                  pure table/aggregate formatting (unit-tested)
     report.test.ts             vitest for the pure report logic
     providers.ts               fake + real provider/model setup from env
+    providers.test.ts          env resolution + required context window
     fake-provider.ts           keyless local OpenAI-compatible stub server
     index.ts                   framework barrel
   tasks/

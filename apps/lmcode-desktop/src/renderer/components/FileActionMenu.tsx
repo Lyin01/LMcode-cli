@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { FolderOpen, ExternalLink, Code2, Copy, Check } from 'lucide-react'
+import { FolderOpen, ExternalLink, Code2, Copy, Check, FileCode, Globe } from 'lucide-react'
+import { fileBasename } from '@/lib/open-target'
 
 interface MenuState {
   readonly x: number
@@ -134,4 +135,72 @@ export async function openFileWithSystem(path: string): Promise<void> {
   } catch (error) {
     console.error('openPath failed:', error)
   }
+}
+
+/** 在资源管理器 / Finder 中定位文件。 */
+export async function revealFileInFolder(path: string): Promise<void> {
+  try {
+    const error = await window.lmcodeAPI.showItemInFolder(path)
+    if (error !== undefined && error.length > 0) console.error('showItemInFolder failed:', error)
+  } catch (error) {
+    console.error('showItemInFolder failed:', error)
+  }
+}
+
+function isHtmlPath(path: string): boolean {
+  return /\.html?$/i.test(path)
+}
+
+/**
+ * Codex 风格产物卡片：单击用系统默认程序打开，右键弹出资源管理器/VSCode 菜单。
+ */
+export function FileOutputCard({
+  target,
+  label,
+}: {
+  readonly target: string
+  readonly label?: string
+}) {
+  const fileMenu = useFileContextMenu()
+  const name = label ?? fileBasename(target)
+  const Icon = isHtmlPath(target) ? Globe : FileCode
+
+  return (
+    <>
+      {fileMenu.menu}
+      <div
+        className="flex items-center gap-1 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-1.5 py-1"
+        onContextMenu={fileMenu.openFromEvent(target)}
+      >
+        <button
+          type="button"
+          title={`单击打开：${target}`}
+          aria-label={`打开文件 ${name}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            void openFileWithSystem(target)
+          }}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
+        >
+          <Icon size={13} className="shrink-0 text-[var(--lm-accent-text)]" />
+          <span className="truncate font-mono text-[12px] text-[var(--lm-text-primary)]">{name}</span>
+          <span className="shrink-0 text-[10.5px] text-[var(--lm-text-muted)]">
+            {isHtmlPath(target) ? '单击用浏览器打开' : '单击打开'}
+          </span>
+        </button>
+        <button
+          type="button"
+          title="在资源管理器中显示"
+          aria-label={`在资源管理器中显示 ${name}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            void revealFileInFolder(target)
+          }}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+        >
+          <FolderOpen size={13} />
+        </button>
+      </div>
+    </>
+  )
 }

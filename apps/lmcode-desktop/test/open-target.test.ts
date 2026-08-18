@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { fileUrlToLocalPath, resolveOpenTarget } from '../src/renderer/lib/open-target'
+import {
+  fileBasename,
+  fileUrlToLocalPath,
+  resolveHrefOpenTarget,
+  resolveOpenTarget,
+} from '../src/renderer/lib/open-target'
 
 describe('output file open targets', () => {
   it('keeps absolute paths and decodes file URLs', () => {
@@ -26,5 +31,18 @@ describe('output file open targets', () => {
   it('does not turn arbitrary inline code into a file action', () => {
     expect(resolveOpenTarget('npm test', 'E:\\workspace')).toBeNull()
     expect(resolveOpenTarget('profile.html')).toBeNull()
+  })
+
+  it('resolves markdown hrefs to local HTML and ignores web links', () => {
+    expect(resolveHrefOpenTarget('burning-letter.html', 'E:\\workspace')).toBe(
+      'E:\\workspace\\burning-letter.html',
+    )
+    expect(resolveHrefOpenTarget('./out/index.html', 'E:\\workspace')).toBe(
+      'E:\\workspace\\out\\index.html',
+    )
+    expect(resolveHrefOpenTarget('file:///C:/Users/me/out.html')).toBe('C:/Users/me/out.html')
+    expect(resolveHrefOpenTarget('https://example.com/a.html', 'E:\\workspace')).toBeNull()
+    expect(resolveHrefOpenTarget('#section', 'E:\\workspace')).toBeNull()
+    expect(fileBasename('E:\\workspace\\burning-letter.html')).toBe('burning-letter.html')
   })
 })

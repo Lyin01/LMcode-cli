@@ -328,6 +328,15 @@ export class SDKRpcClient {
     });
   }
 
+  async setActiveTools(input: SessionIdRpcInput & { names: readonly string[] }): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.setActiveTools({
+      sessionId: input.sessionId,
+      agentId: this.interactiveAgentId,
+      names: [...input.names],
+    });
+  }
+
   async createGoal(input: CreateGoalRpcInput): Promise<GoalSnapshotData> {
     const rpc = await this.getRpc();
     return rpc.createGoal({

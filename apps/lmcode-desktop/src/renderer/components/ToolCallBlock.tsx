@@ -4,7 +4,7 @@ import type { ToolCallInfo } from '@/types'
 import { artifactIdForToolCall, useArtifactsStore } from '@/stores/artifacts-store'
 import { pruneToolOutput, formatCharCount } from '@/lib/tool-pruner'
 import { toolFamily, summarizeToolArgs, summarizeToolResult, toolFilePath } from '@/lib/tool-summary'
-import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
+import { useFileContextMenu, openFileWithSystem, FileOutputCard } from '@/components/FileActionMenu'
 import { resolveOpenTarget } from '@/lib/open-target'
 import {
   Loader2,
@@ -223,6 +223,12 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: 
           )}
         </div>
       </button>
+
+      {(meta.variant === 'write' || meta.variant === 'edit') && isCompleted && fileTarget !== null && (
+        <div className="px-2 pb-1.5">
+          <FileOutputCard target={fileTarget} label={fileLabel} />
+        </div>
+      )}
 
       {/* Expanded Details Pane */}
       {expanded && (

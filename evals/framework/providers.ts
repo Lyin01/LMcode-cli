@@ -14,7 +14,7 @@
  *                         lmcode | google-genai. Default: `lmcode`.
  *   LMCODE_EVAL_API_KEY   API key for the provider. REQUIRED to run (never hardcoded).
  *   LMCODE_EVAL_BASE_URL  optional base URL override (e.g. self-hosted gateway).
- *   LMCODE_EVAL_MAX_CONTEXT  optional max context size; default 262144.
+ *   LMCODE_EVAL_MAX_CONTEXT  required model context window. Unset → skip.
  */
 
 import type { LmcodeConfigPatch } from '@lmcode-cli/lmcode-sdk';
@@ -87,7 +87,14 @@ export function resolveRealModel(env: NodeJS.ProcessEnv = process.env): RealMode
 
   const baseUrl = env['LMCODE_EVAL_BASE_URL']?.trim();
   const maxContextRaw = env['LMCODE_EVAL_MAX_CONTEXT']?.trim();
-  const maxContextSize = maxContextRaw ? Number(maxContextRaw) : 262144;
+  if (!maxContextRaw) {
+    return {
+      skipReason:
+        'LMCODE_EVAL_MAX_CONTEXT is required — set it to the model context window ' +
+        '(see evals/README.md). A wrong window silently breaks compaction/overflow.',
+    };
+  }
+  const maxContextSize = Number(maxContextRaw);
   if (!Number.isInteger(maxContextSize) || maxContextSize <= 0) {
     return { skipReason: `invalid LMCODE_EVAL_MAX_CONTEXT "${maxContextRaw}"` };
   }

@@ -579,7 +579,7 @@ describe('ToolCallDeduplicator', () => {
         'Read',
         args,
         okResult(
-          `${'x'.repeat(40_000)}\n` +
+          `${'x'.repeat(MAX_TOOL_RESULT_TOKENS * 4 + 4_000)}\n` +
             '<system>10 lines read from file starting from line 1. Total lines in file: 20.</system>',
         ),
       );

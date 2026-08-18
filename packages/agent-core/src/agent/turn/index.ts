@@ -89,22 +89,15 @@ const GOAL_CHANGED_TOOL_RESULT: ExecutableToolResult = {
   stopTurn: true,
 };
 
-const SPEC_CRITIC_MAX_REQUEST_CHARS = 6_000;
-const SPEC_CRITIC_MAX_RESPONSE_CHARS = 4_000;
-const SPEC_CRITIC_MAX_VALIDATION_CHARS = 4_000;
-const SPEC_CRITIC_MAX_FILES = 30;
-const SPEC_CRITIC_MAX_COMPLETION_TOKENS = 4_096;
-const SPEC_CRITIC_INCONCLUSIVE_FINDING =
-  'The automated specification review returned no valid verdict. Re-check every explicit requirement against the changed artifacts and available validation evidence before completing.';
+const SPEC_CRITIC_MAX_REQUEST_CHARS = 32_000;
+const SPEC_CRITIC_MAX_RESPONSE_CHARS = 16_000;
+const SPEC_CRITIC_MAX_VALIDATION_CHARS = 8_000;
+const SPEC_CRITIC_MAX_FILES = 80;
+const SPEC_CRITIC_MAX_COMPLETION_TOKENS = 8_192;
 const DIRECT_ANSWER_REVIEW_MIN_LENGTH = 20;
 const DIRECT_ANSWER_FIDELITY_MAX_CONTINUATIONS = 3;
 const DEFAULT_MAX_POST_WRITE_REVIEWS_PER_TURN = 2;
 const POST_WRITE_STAGE_TIMEOUT_MS = 30_000;
-const DIRECT_ANSWER_REVIEW_PATTERNS: readonly RegExp[] = [
-  /可分辨|手感|能看到|看得见|可观察|可检测|可选择|能选择|可控制|提前决定/u,
-  /最少|最多|保证|必然|一定|无论|至少|至多/u,
-  /必须|不要|不能|不得|输出格式|严格|完整/u,
-];
 
 async function withPostWriteStageDeadline<T>(
   sourceSignal: AbortSignal,
@@ -131,8 +124,6 @@ const DIRECT_ANSWER_OBSERVABLE_OR_CONTROL_PATTERN =
   /(?:\u53ef\u5206\u8fa8|\u624b\u611f|\u80fd\u6478\u51fa|\u53ef\u6478\u51fa|\u80fd\u770b\u5230|\u770b\u5f97\u89c1|\u53ef\u89c2\u5bdf|\u53ef\u68c0\u6d4b|\u53ef\u9009\u62e9|\u80fd\u9009\u62e9|\u53ef\u63a7\u5236|\u63d0\u524d\u51b3\u5b9a)/u;
 const DIRECT_ANSWER_GUARANTEE_PATTERN =
   /(?:\u6700\u5c11|\u6700\u591a|\u4fdd\u8bc1|\u5fc5\u7136|\u4e00\u5b9a|\u65e0\u8bba|\u81f3\u5c11|\u81f3\u591a)/u;
-const DIRECT_ANSWER_STRICT_REQUIREMENT_PATTERN =
-  /(?:\u5fc5\u987b|\u4e0d\u8981|\u4e0d\u80fd|\u4e0d\u5f97|\u8f93\u51fa\u683c\u5f0f|\u4e25\u683c|\u5b8c\u6574|output format|strict|must not|do not)/iu;
 const DIRECT_ANSWER_DRAWING_OR_SAMPLING_PATTERN =
   /(?:\u6478\u51fa|\u53d6\u51fa|\u62bd\u53d6|\u62ff\u51fa|\u7cd6\u679c|\u888b\u5b50|draw|pick|sample)/iu;
 const DIRECT_ANSWER_ATTRIBUTE_DECISION_PATTERN =
@@ -777,11 +768,14 @@ export class TurnFlow {
           .trim();
         if (missing.length > 0) return missing;
       }
-      return verdict === 'SPEC_OK' ? undefined : SPEC_CRITIC_INCONCLUSIVE_FINDING;
+      // SPEC_OK, empty, or any non-protocol verdict: do not invent a
+      // self-check loop. An inconclusive utility-model reply is not evidence
+      // of a missed requirement.
+      return undefined;
     } catch (error) {
       if (isAbortError(error)) throw error;
-      this.agent.log.warn('spec critic failed; requesting one main-model self-check', { error });
-      return SPEC_CRITIC_INCONCLUSIVE_FINDING;
+      this.agent.log.warn('spec critic failed; leaving the turn complete', { error });
+      return undefined;
     }
   }
 
@@ -1878,13 +1872,10 @@ function contentPartsText(content: readonly ContentPart[]): string {
 }
 
 function shouldReviewDirectAnswerForRequirementFidelity(input: readonly ContentPart[]): boolean {
-  const text = contentPartsText(input).trim();
-  if (text.length < DIRECT_ANSWER_REVIEW_MIN_LENGTH) return false;
-  return (
-    hasDirectAnswerRequirementFidelityTrigger(text) ||
-    DIRECT_ANSWER_STRICT_REQUIREMENT_PATTERN.test(text) ||
-    DIRECT_ANSWER_REVIEW_PATTERNS.some((pattern) => pattern.test(text))
-  );
+  // Only the observable+guarantee pair is a real Q&A fidelity problem.
+  // "do not" / "必须" alone is common in coding prompts and must not start
+  // a spec-critic or action-model loop on a turn that never mutated files.
+  return hasDirectAnswerRequirementFidelityTrigger(contentPartsText(input));
 }
 
 function directAnswerRequirementReminder(

@@ -8,11 +8,9 @@
  * from "implemented to the spec" — the hidden pass-rate is the generalization
  * signal.
  *
- * Scoring (partial credit):
+ * Scoring:
  *   score  = (visiblePass + hiddenPass) / (visibleTotal + hiddenTotal)
- *   passed = all VISIBLE cases pass (the acceptance tests the agent was shown).
- * So a model that nails the shown tests but misses a spec edge case reports
- * PASS with a sub-1.0 score — green in CI, but the tracked number shows the gap.
+ *   passed = every visible AND hidden case (editing test/ is a hard fail).
  *
  * Skipped automatically unless a real model is configured (see providers.ts).
  */
@@ -22,6 +20,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { fixtureTamperDetails } from '../framework/fixture-guard';
 import type { Task } from '../framework';
 
 const SPEC_MD = `# Task: implement a dependency-free \`.env\` parser + validator
@@ -308,6 +307,14 @@ export const envParserTask: Task = {
   ].join(' '),
 
   async score(workdir: string) {
+    const tampered = await fixtureTamperDetails(workdir, {
+      'test/cases.mjs': CASES_MJS,
+      'test/run.mjs': RUN_MJS,
+    });
+    if (tampered !== undefined) {
+      return { passed: false, score: 0, details: tampered };
+    }
+
     let mod: EnvModule;
     try {
       mod = (await import(pathToFileURL(join(workdir, 'src', 'env.mjs')).href)) as EnvModule;
@@ -336,7 +343,7 @@ export const envParserTask: Task = {
     const pass = visible.pass + hidden.pass;
     const total = visible.total + hidden.total;
     const score = total === 0 ? 0 : pass / total;
-    const passed = visible.total > 0 && visible.pass === visible.total;
+    const passed = total > 0 && pass === total;
 
     const missed = hidden.failures.length > 0 ? ` | hidden misses: ${hidden.failures.join('; ')}` : '';
     return {

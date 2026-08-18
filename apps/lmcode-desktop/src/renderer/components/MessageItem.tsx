@@ -4,7 +4,7 @@ import { AlertTriangle, Check, Copy, FileText, RotateCcw, Sparkles } from 'lucid
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallList } from '@/components/ToolCallList'
 import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
-import { resolveOpenTarget, fileUrlToLocalPath } from '@/lib/open-target'
+import { resolveOpenTarget, resolveHrefOpenTarget } from '@/lib/open-target'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -93,7 +93,7 @@ const FileChip = memo(function FileChip({ target, children }: { target: string; 
       {fileMenu.menu}
       <button
         type="button"
-        title={`打开 ${target}`}
+        title={`单击打开，右键资源管理器：${target}`}
         aria-label={`打开文件 ${target}`}
         onClick={() => void openFileWithSystem(target)}
         onContextMenu={fileMenu.openFromEvent(target)}
@@ -115,16 +115,33 @@ function MarkdownCode({ className, children }: { className?: string; children?: 
   return <code>{children}</code>
 }
 
-/** 对话里的链接：file:// 交给系统默认程序，https 交给系统浏览器，其余保持默认。 */
+/** 对话里的链接：本地文件单击打开、右键资源管理器；https 交给系统浏览器。 */
 function MarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
+  const workDir = useContext(OpenTargetBaseDirContext)
+  const fileMenu = useFileContextMenu()
+  const localTarget = href === undefined ? null : resolveHrefOpenTarget(href, workDir)
+
+  if (localTarget !== null) {
+    return (
+      <>
+        {fileMenu.menu}
+        <a
+          href={href}
+          title={`单击打开，右键更多：${localTarget}`}
+          onClick={(event) => {
+            event.preventDefault()
+            void openFileWithSystem(localTarget)
+          }}
+          onContextMenu={fileMenu.openFromEvent(localTarget)}
+        >
+          {children}
+        </a>
+      </>
+    )
+  }
+
   const handle = href === undefined ? undefined : (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (href.startsWith('file://')) {
-      event.preventDefault()
-      const path = fileUrlToLocalPath(href)
-      if (path !== null) void window.lmcodeAPI.openPath(path)
-      return
-    }
-    if (href.startsWith('https://')) {
+    if (href.startsWith('https://') || href.startsWith('http://')) {
       event.preventDefault()
       void window.lmcodeAPI.openExternal(href)
     }

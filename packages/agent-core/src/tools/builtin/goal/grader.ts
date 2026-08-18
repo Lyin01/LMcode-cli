@@ -127,6 +127,15 @@ export function createGoalGrader(agent: Agent): GoalGraderFn {
     const verdictInterruption = goalVerificationInterruption(agent, goalId);
     if (verdictInterruption !== undefined) return { pass: false, reason: verdictInterruption };
     const result = parseGraderResponse(extractResponseText(response));
+    // An unparseable utility-model reply is not evidence the work is incomplete.
+    // Blocking UpdateGoal(complete) here used to trap long tasks in a retry loop.
+    if (result.reason === INVALID_GRADER_RESPONSE) {
+      return {
+        pass: true,
+        reason:
+          'Goal verification returned no valid structured verdict; completion is accepted as unverified.',
+      };
+    }
     return {
       pass: result.pass,
       reason: result.summary.length > 0 ? `${result.reason}\n${result.summary}` : result.reason,

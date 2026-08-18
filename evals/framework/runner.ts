@@ -8,8 +8,12 @@
  *   3. Configure the chosen provider/model on the harness.
  *   4. Create a session in `yolo` permission mode (auto-approve tool calls so
  *      the agent can write files without an interactive approver).
- *   5. `session.prompt(task.prompt)`, wait for `turn.ended`.
- *   6. Pull usage, then `task.score(workdir)`.
+ *   5. `session.prompt(task.prompt)`, wait until the session is idle
+ *      (in-flight turns drop to zero). Goal mode can emit an extra `turn.ended`
+ *      for the standalone turn and then immediately start `driveGoal` — scoring
+ *      on the first `turn.ended` would freeze a half-finished workdir.
+ *   6. If the last turn `failed` or was `cancelled`, treat that as a harness
+ *      error (do not score). Otherwise pull usage and `task.score(workdir)`.
  *
  * Everything is wrapped so a thrown error becomes a failed `RunResult` rather
  * than crashing the whole suite.
@@ -21,8 +25,9 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { LmcodeHarness } from '@lmcode-cli/lmcode-sdk';
-import type { Event, LmcodeConfigPatch, SessionUsage } from '@lmcode-cli/lmcode-sdk';
+import type { LmcodeConfigPatch, SessionUsage } from '@lmcode-cli/lmcode-sdk';
 
+import { abnormalTurnMessage, waitForSessionIdle } from './session-idle';
 import type { RunResult, RunTokens, Task } from './types';
 
 const TEST_IDENTITY = {
@@ -41,11 +46,30 @@ export interface ProviderSetup {
 export interface RunTaskOptions {
   readonly task: Task;
   readonly provider: ProviderSetup;
-  /** Hard ceiling on a single turn before we give up (ms). */
+  /** Hard ceiling on the prompt-to-idle window before we give up (ms). */
   readonly turnTimeoutMs?: number;
 }
 
-const DEFAULT_TURN_TIMEOUT_MS = 120_000;
+const DEFAULT_TURN_TIMEOUT_MS = 300_000;
+
+/** Tools that can change eval scoring time or freeze a half-finished workdir. */
+const EVAL_TOOLS = [
+  'Read',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'Grep',
+  'Glob',
+  'Bash',
+  'TodoList',
+] as const;
+
+const EVAL_SESSION_PROMPT = [
+  'This is a single-turn evaluation in an isolated workdir.',
+  'Do not create goals, spawn sub-agents, enter plan mode, or use WolfPack.',
+  'Do not edit files the prompt asked you to leave alone (for example test/ or check scripts).',
+  'Finish by writing the required files and running the stated checks.',
+].join(' ');
 
 function sumUsage(usage: SessionUsage | undefined): RunTokens | undefined {
   const total = usage?.total;
@@ -72,31 +96,6 @@ async function removeTempDir(dir: string): Promise<void> {
   }
 }
 
-function waitForTurnEnd(
-  session: { onEvent(listener: (event: Event) => void): () => void },
-  timeoutMs: number,
-): Promise<Event> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      unsubscribe();
-      reject(new Error(`Timed out after ${timeoutMs}ms waiting for turn.ended`));
-    }, timeoutMs);
-    const unsubscribe = session.onEvent((event) => {
-      if (event.type === 'error') {
-        clearTimeout(timer);
-        unsubscribe();
-        const message = 'message' in event ? String(event.message) : 'session error';
-        reject(new Error(`Session error event: ${message}`));
-        return;
-      }
-      if (event.type !== 'turn.ended') return;
-      clearTimeout(timer);
-      unsubscribe();
-      resolve(event);
-    });
-  });
-}
-
 /**
  * Run a single task and return its result row. Never throws — failures are
  * captured in the returned `RunResult`.
@@ -121,25 +120,44 @@ export async function runTask(options: RunTaskOptions): Promise<RunResult> {
     await task.setup(workDir);
 
     harness = new LmcodeHarness({ identity: TEST_IDENTITY, homeDir });
-    await harness.setConfig(provider.config);
+    await harness.setConfig({
+      ...provider.config,
+      enableSelfHealing: false,
+      enableSpecCritic: true,
+      anchoredBootstrap: { enabled: false },
+      defaultPlanMode: false,
+      defaultFileSandbox: 'workspace-write',
+      loopControl: {
+        maxStepsPerTurn: 80,
+        maxRetriesPerStep: 2,
+        maxPostWriteReviewsPerTurn: 0,
+      },
+    });
 
     const session = await harness.createSession({
       workDir,
       model: provider.model,
-      // Auto-approve tool calls so the agent can write/run without a human.
       permission: 'yolo',
+      planMode: false,
+      additionalSystemPrompt: EVAL_SESSION_PROMPT,
     });
+    await session.setActiveTools(EVAL_TOOLS);
 
-    const turnEnded = waitForTurnEnd(session, timeoutMs);
-    await session.prompt(task.prompt);
-    const endEvent = await turnEnded;
+    const abort = new AbortController();
+    const idle = waitForSessionIdle(session, timeoutMs, abort.signal);
+    let endEvent;
+    try {
+      await session.prompt(task.prompt);
+      endEvent = await idle;
+    } catch (error) {
+      abort.abort();
+      await idle.catch(() => undefined);
+      throw error;
+    }
 
-    if (endEvent.type === 'turn.ended' && endEvent.reason === 'error') {
-      const reason =
-        endEvent.error && 'message' in endEvent.error
-          ? String((endEvent.error as { message?: unknown }).message)
-          : 'turn ended with error';
-      throw new Error(reason);
+    const abnormal = abnormalTurnMessage(endEvent);
+    if (abnormal !== undefined) {
+      throw new Error(abnormal);
     }
 
     let tokens: RunTokens | undefined;

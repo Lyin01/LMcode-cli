@@ -78,6 +78,24 @@ export function fileUrlToLocalPath(url: string): string | null {
   }
 }
 
+/** 从绝对路径取出文件名，供产物卡片展示。 */
+export function fileBasename(path: string): string {
+  const segments = path.split(/[\\/]/).filter((segment) => segment.length > 0)
+  return segments.at(-1) ?? path
+}
+
+/**
+ * Markdown / HTML href：本地文件（含相对路径、file://）解析成可打开路径；
+ * http(s)、mailto、锚点交给原来的链接逻辑。
+ */
+export function resolveHrefOpenTarget(href: string, baseDir?: string): string | null {
+  const trimmed = href.trim()
+  if (trimmed.length === 0) return null
+  if (trimmed.startsWith('#') || trimmed.startsWith('mailto:')) return null
+  if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(trimmed) && !trimmed.startsWith('file:')) return null
+  return resolveOpenTarget(trimmed, baseDir)
+}
+
 /** 命中则返回可交给 Electron 打开的绝对本地路径，否则 null。 */
 export function resolveOpenTarget(raw: string, baseDir?: string): string | null {
   const trimmed = raw.trim()

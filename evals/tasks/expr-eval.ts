@@ -8,8 +8,8 @@
  * left-associative `%`/`/`). These are exactly where a weaker model slips, so
  * this task discriminates between models that the parser/debug tasks max out.
  *
- * Scoring mirrors env-parser: partial credit, `passed` gated on the visible
- * cases, hidden pass-rate is the reasoning signal. Skipped without a real model.
+ * Scoring: `score = (visible + hidden) / total`; `passed` requires every
+ * case. Hidden misses used to stay CI-green. Skipped without a real model.
  */
 
 import assert from 'node:assert/strict';
@@ -17,6 +17,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { fixtureTamperDetails } from '../framework/fixture-guard';
 import type { Task } from '../framework';
 
 const SPEC_MD = `# Task: implement an arithmetic expression evaluator
@@ -196,6 +197,14 @@ export const exprEvalTask: Task = {
   ].join(' '),
 
   async score(workdir: string) {
+    const tampered = await fixtureTamperDetails(workdir, {
+      'test/cases.mjs': CASES_MJS,
+      'test/run.mjs': RUN_MJS,
+    });
+    if (tampered !== undefined) {
+      return { passed: false, score: 0, details: tampered };
+    }
+
     let mod: ExprModule;
     try {
       mod = (await import(pathToFileURL(join(workdir, 'src', 'expr.mjs')).href)) as ExprModule;
@@ -222,7 +231,7 @@ export const exprEvalTask: Task = {
     const pass = visible.pass + hidden.pass;
     const total = visible.total + hidden.total;
     const score = total === 0 ? 0 : pass / total;
-    const passed = visible.total > 0 && visible.pass === visible.total;
+    const passed = total > 0 && pass === total;
 
     const missed = hidden.failures.length > 0 ? ` | hidden misses: ${hidden.failures.join('; ')}` : '';
     return {

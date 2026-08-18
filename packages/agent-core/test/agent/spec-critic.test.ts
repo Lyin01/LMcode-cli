@@ -9,7 +9,7 @@ import { createCommandJian, testAgent } from './harness/agent';
  * high-constraint direct-answer request, stops naturally, one utility-model
  * pass reviews the original request against the final response. SPEC_MISSING
  * answers continue the turn once; everything else (SPEC_OK, disabled, low-risk
- * no-mutation answers, failures) completes it untouched.
+ * no-mutation answers, non-protocol / failed verdicts) completes it untouched.
  */
 describe('Spec-consistency critic', () => {
   it('continues the turn once when the critic reports missing requirements', async () => {
@@ -81,7 +81,7 @@ describe('Spec-consistency critic', () => {
     expect(followupTexts.some((text) => text.includes('README was not updated'))).toBe(true);
   });
 
-  it('continues once when the critic returns a non-protocol verdict', async () => {
+  it('completes without continuation when the critic returns a non-protocol verdict', async () => {
     const ctx = testAgent({ jian: createCommandJian('') });
     ctx.configure({ tools: ['Write'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -89,7 +89,6 @@ describe('Spec-consistency critic', () => {
     ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
     ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
     ctx.mockNextResponse({ type: 'text', text: 'Everything looks good overall.' });
-    ctx.mockNextResponse({ type: 'text', text: 'Rechecked the requirements and finished.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt and update README' }] });
     await ctx.untilTurnEnd();
@@ -98,10 +97,11 @@ describe('Spec-consistency critic', () => {
       call.systemPrompt.includes('specification-compliance reviewer'),
     );
     expect(specCriticCalls).toHaveLength(1);
-    const followupTexts = ctx.llmCalls[3]?.history.map(messageText) ?? [];
+    expect(ctx.llmCalls).toHaveLength(3);
+    const historyTexts = ctx.agent.context.history.map(messageText);
     expect(
-      followupTexts.some((text) => text.includes('returned no valid verdict')),
-    ).toBe(true);
+      historyTexts.some((text) => text.includes('returned no valid verdict')),
+    ).toBe(false);
   });
 
   it('completes the turn without continuation when the critic approves', async () => {
@@ -148,7 +148,7 @@ describe('Spec-consistency critic', () => {
     expect(
       (criticProvider as ChatProvider & { modelParameters: Record<string, unknown> })
         .modelParameters['max_completion_tokens'],
-    ).toBe(4_096);
+    ).toBe(8_192);
   });
 
   it('charges critic usage to the active goal before a later terminal update', async () => {
@@ -263,6 +263,20 @@ describe('Spec-consistency critic', () => {
     expect(ctx.llmCalls).toHaveLength(1);
   });
 
+  it('does not treat a coding "do not edit" prompt as a direct-answer review', async () => {
+    const ctx = testAgent();
+    ctx.configure();
+
+    ctx.mockNextResponse({ type: 'text', text: 'I will only change src/sum.mjs.' });
+
+    await ctx.rpc.prompt({
+      input: [{ type: 'text', text: 'Fix the bug. Do not edit check.mjs or anything under test/.' }],
+    });
+    await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls).toHaveLength(1);
+  });
+
   it('injects and enforces an action model for observable guarantee answers', async () => {
     const ctx = testAgent({
       initialConfig: { providers: {}, enableSpecCritic: false },
@@ -354,7 +368,7 @@ describe('Spec-consistency critic', () => {
     ).toBe(true);
   });
 
-  it('requests one main-model self-check when the critic call itself fails', async () => {
+  it('completes the turn when the critic call itself fails', async () => {
     const ctx = testAgent({ jian: createCommandJian('') });
     ctx.configure({ tools: ['Write'] });
     await ctx.rpc.setPermission({ mode: 'yolo' });
@@ -368,16 +382,11 @@ describe('Spec-consistency critic', () => {
 
     ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
     ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
-    // The critic throws before consuming this response, so it is used by the
-    // one allowed main-model self-check.
-    ctx.mockNextResponse({ type: 'text', text: 'Rechecked all explicit requirements.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
     const events = await ctx.untilTurnEnd();
 
-    expect(ctx.llmCalls).toHaveLength(3);
-    const followupTexts = ctx.llmCalls[2]?.history.map(messageText) ?? [];
-    expect(followupTexts.some((text) => text.includes('returned no valid verdict'))).toBe(true);
+    expect(ctx.llmCalls).toHaveLength(2);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',

@@ -46,9 +46,9 @@ export interface Task {
   /** The instruction handed to the agent verbatim. */
   readonly prompt: string;
   /**
-   * Optional hard ceiling on the single turn (ms). Falls back to the runner
-   * default when omitted. Larger tasks (implement-from-spec, multi-file debug)
-   * set this above the 2-minute default so a slower model isn't cut off.
+   * Optional hard ceiling on the whole prompt-to-idle window (ms), including
+   * spec-critic / self-healing continuations and any goal-drive follow-up
+   * turns. Falls back to the runner default when omitted.
    */
   readonly turnTimeoutMs?: number;
   /**

@@ -21,7 +21,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   blockRatio: 0.85, // 10% proactive window between trigger and block
   reservedContextSize: 50_000,
   maxCompactionPerTurn: 3,
-  maxRecentMessages: 4,
+  maxRecentMessages: 16,
   maxRecentUserMessages: Infinity,
   maxRecentSizeRatio: 0.2,
   minOverflowReductionRatio: 0.05,

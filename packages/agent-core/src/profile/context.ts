@@ -5,7 +5,7 @@ import type { Jian } from '@lmcode-cli/jian';
 import { listDirectory } from '../tools/support/list-directory';
 import type { SystemPromptContext } from './types';
 
-const AGENTS_MD_MAX_BYTES = 32 * 1024;
+const AGENTS_MD_MAX_BYTES = 128 * 1024;
 const LEGACY_CC_CONNECT_INJECTION =
   /【重要】你可以通过以下命令向用户发送图片或文件：[\s\S]*?Replies are delivered as plain text to Weixin\. Avoid markdown tables; use short paragraphs\.\s*/g;
 const S_IFMT = 0o170000;

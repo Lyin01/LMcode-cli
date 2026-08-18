@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { fixtureTamperDetails } from '../framework/fixture-guard';
 import type { Task } from '../framework';
 
 const BUGGY_SUM = `// A deliberately buggy implementation. It should ADD its two arguments.
@@ -56,9 +57,11 @@ function runNode(workdir: string, script: string): Promise<{ code: number; outpu
 }
 
 export const fixFailingFnTask: Task = {
+  // Spec critic + a retry can blow past the 2-minute runner default.
   id: 'fix-failing-fn',
   description: 'Agent fixes a buggy function so the project check passes (real model)',
   kind: 'real',
+  turnTimeoutMs: 180_000,
 
   async setup(workdir: string): Promise<void> {
     await mkdir(join(workdir, 'src'), { recursive: true });
@@ -74,6 +77,11 @@ export const fixFailingFnTask: Task = {
   ].join(' '),
 
   async score(workdir: string) {
+    const tampered = await fixtureTamperDetails(workdir, { 'check.mjs': CHECK_SCRIPT });
+    if (tampered !== undefined) {
+      return { passed: false, score: 0, details: tampered };
+    }
+
     const { code, output } = await runNode(workdir, 'check.mjs');
     if (code === 0) {
       return { passed: true, score: 1, details: `check.mjs passed: ${output}` };
