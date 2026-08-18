@@ -86,7 +86,6 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
-  const streamStatus = useSessionStore((s) => s.streamStatus)
   const addMessageToSession = useSessionStore((s) => s.addMessageToSession)
   const setMessagesForSession = useSessionStore((s) => s.setMessagesForSession)
   const queuedMessages = useSessionStore((s) =>
@@ -765,12 +764,6 @@ export function Composer({
           <ProjectPicker display="name" />
           <ModelSwitcher open={modelMenuOpen} onOpenChange={setModelMenuOpen} />
           <ThinkingSwitcher />
-
-          {streamStatus && (
-            <span className="lm-pulse ml-1 truncate text-[11px] text-[var(--lm-text-muted)]">
-              {streamStatus}
-            </span>
-          )}
 
           <div className="flex-1" />
 

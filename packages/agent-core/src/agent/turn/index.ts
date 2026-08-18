@@ -98,6 +98,7 @@ const SPEC_CRITIC_INCONCLUSIVE_FINDING =
   'The automated specification review returned no valid verdict. Re-check every explicit requirement against the changed artifacts and available validation evidence before completing.';
 const DIRECT_ANSWER_REVIEW_MIN_LENGTH = 20;
 const DIRECT_ANSWER_FIDELITY_MAX_CONTINUATIONS = 3;
+const DEFAULT_MAX_POST_WRITE_REVIEWS_PER_TURN = 2;
 const POST_WRITE_STAGE_TIMEOUT_MS = 30_000;
 const DIRECT_ANSWER_REVIEW_PATTERNS: readonly RegExp[] = [
   /可分辨|手感|能看到|看得见|可观察|可检测|可选择|能选择|可控制|提前决定/u,
@@ -809,6 +810,12 @@ export class TurnFlow {
     // cannot loop the turn forever.
     let specCriticUsed = false;
     let directAnswerFidelityContinuationCount = 0;
+    let postWriteReviewsUsed = 0;
+    let postWriteReviewLimitNotified = false;
+    let stopAfterPostWriteReviewLimit = false;
+    const maxPostWriteReviews =
+      this.agent.lmcodeConfig?.loopControl?.maxPostWriteReviewsPerTurn ??
+      DEFAULT_MAX_POST_WRITE_REVIEWS_PER_TURN;
     const specMutatedPaths = new Set<string>();
     const validationLimitations = new Map<string, string>();
     const deduper = new ToolCallDeduplicator(
@@ -1147,21 +1154,37 @@ export class TurnFlow {
                 }
               }
 
-              // ── Post-write self-healing validation ──
-              if (
+              const postWritePath =
                 !sameStepDuplicate &&
                 finalResult.isError !== true &&
                 this.agent.lmcodeConfig?.enableSelfHealing !== false &&
                 (ctx.toolCall.name === 'Write' ||
                   ctx.toolCall.name === 'Edit' ||
                   ctx.toolCall.name === 'MultiEdit')
-              ) {
-                const path = pathArgFromToolArgs(ctx.args);
-                if (path !== undefined) {
-                  const validationNotices: string[] = [];
-                  let validationPath = path;
-                  let validationPathKey = path;
-                  try {
+                  ? pathArgFromToolArgs(ctx.args)
+                  : undefined;
+              let postWriteReviewNumber: number | undefined;
+              if (postWritePath !== undefined && postWriteReviewsUsed < maxPostWriteReviews) {
+                postWriteReviewsUsed += 1;
+                postWriteReviewNumber = postWriteReviewsUsed;
+              }
+
+              // ── Post-write self-healing validation ──
+              if (postWritePath !== undefined && postWriteReviewNumber !== undefined) {
+                const path = postWritePath;
+                this.agent.emitEvent({
+                  type: 'tool.progress',
+                  turnId,
+                  toolCallId: ctx.toolCall.id,
+                  update: {
+                    kind: 'status',
+                    text: `Automatic review ${postWriteReviewNumber}/${maxPostWriteReviews}: checking syntax and runtime`,
+                  },
+                });
+                const validationNotices: string[] = [];
+                let validationPath = path;
+                let validationPathKey = path;
+                try {
                     const workspace = {
                       workspaceDir: this.agent.config.cwd,
                       additionalDirs: [],
@@ -1282,6 +1305,15 @@ export class TurnFlow {
                           );
                         } else {
                           try {
+                            this.agent.emitEvent({
+                              type: 'tool.progress',
+                              turnId,
+                              toolCallId: ctx.toolCall.id,
+                              update: {
+                                kind: 'status',
+                                text: `Automatic review ${postWriteReviewNumber}/${maxPostWriteReviews}: inspecting rendered keyframes`,
+                              },
+                            });
                             // Label each frame by its capture time; the last one
                             // is the terminal/end state where uncleared-buffer
                             // ghosts and never-ending particle fields surface.
@@ -1364,7 +1396,7 @@ export class TurnFlow {
                                 'visual',
                                 `Automatic visual review rejected the rendered output: ${summarizeValidationFailure(rejection)}`,
                               );
-                            } else if (visualText === 'VISUAL_APPROVE') {
+                            } else if (visualText.startsWith('VISUAL_APPROVE')) {
                               clearValidationLimitation(
                                 validationLimitations,
                                 validationPathKey,
@@ -1420,6 +1452,15 @@ export class TurnFlow {
                       } else {
                         // Run a source review independently of runtime and visual evidence.
                         try {
+                          this.agent.emitEvent({
+                            type: 'tool.progress',
+                            turnId,
+                            toolCallId: ctx.toolCall.id,
+                            update: {
+                              kind: 'status',
+                              text: `Automatic review ${postWriteReviewNumber}/${maxPostWriteReviews}: reviewing source`,
+                            },
+                          });
                           const prompt = `File Path: ${resolvedPath}
 
 Please review the current content of this file:
@@ -1427,7 +1468,7 @@ Please review the current content of this file:
 ${content}
 \`\`\`
 
-Evaluate if this file meets high-quality software engineering standards and the original requirements. Reply with APPROVE or REJECT.`;
+Reject only concrete blocking defects that make the file incorrect, broken, unsafe, or materially incomplete for the original request. Treat optional polish and subjective improvements as non-blocking. Reply with APPROVE or REJECT.`;
 
                           const { project } = await import('../context/projector');
                           const history = [...project(this.agent.context.history)];
@@ -1478,7 +1519,7 @@ Evaluate if this file meets high-quality software engineering standards and the 
                               'source',
                               `Automatic source review rejected the file: ${summarizeValidationFailure(rejection)}`,
                             );
-                          } else if (criticText === 'APPROVE') {
+                          } else if (criticText.startsWith('APPROVE')) {
                             clearValidationLimitation(
                               validationLimitations,
                               validationPathKey,
@@ -1530,10 +1571,32 @@ Evaluate if this file meets high-quality software engineering standards and the 
                       'Automatic post-write validation did not complete, so its overall result is inconclusive. ' +
                         'Do not claim syntax, runtime, or visual verification based on this check.',
                     );
-                  }
-                  for (const notice of validationNotices) {
-                    finalResult = appendToolResultNotice(finalResult, notice);
-                  }
+                }
+                for (const notice of validationNotices) {
+                  finalResult = appendToolResultNotice(finalResult, notice);
+                }
+              } else if (postWritePath !== undefined) {
+                const wasAlreadyNotified = postWriteReviewLimitNotified;
+                const notice =
+                  `File ${JSON.stringify(postWritePath)}: Automatic post-write review was skipped because ` +
+                  `this turn reached its ${maxPostWriteReviews}-review limit. The write remains successful. ` +
+                  'Do not rewrite the file solely to trigger another automatic review; use a targeted build or test if more evidence is required.';
+                validationLimitations.set(`${postWritePath}\0overall`, notice);
+                finalResult = appendToolResultNotice(finalResult, notice);
+                // Give the model one chance to produce a final summary after
+                // the first skipped review. A second skipped write ends the
+                // turn so a stubborn retry cannot keep the loop alive.
+                if (wasAlreadyNotified) stopAfterPostWriteReviewLimit = true;
+                if (!postWriteReviewLimitNotified) {
+                  postWriteReviewLimitNotified = true;
+                  this.agent.emitEvent({
+                    type: 'warning',
+                    code: 'post_write_review_limit_reached',
+                    message:
+                      `Automatic post-write review stopped after ${maxPostWriteReviews} complete ` +
+                      `${maxPostWriteReviews === 1 ? 'pass' : 'passes'} in this turn. ` +
+                      'The latest write was kept and will not trigger another automatic review.',
+                  });
                 }
               }
 
@@ -1541,6 +1604,9 @@ Evaluate if this file meets high-quality software engineering standards and the 
                 finalResult = { ...finalResult, stopTurn: true };
               }
               if (!stepGoalStillActive()) {
+                finalResult = { ...finalResult, stopTurn: true };
+              }
+              if (stopAfterPostWriteReviewLimit) {
                 finalResult = { ...finalResult, stopTurn: true };
               }
 

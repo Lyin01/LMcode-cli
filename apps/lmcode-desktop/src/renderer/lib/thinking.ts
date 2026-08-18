@@ -48,3 +48,14 @@ export function setStoredThinking(effort: ThinkingEffort): void {
 export function thinkingLabel(effort: ThinkingEffort): string {
   return THINKING_OPTIONS.find((o) => o.value === effort)?.label ?? effort
 }
+
+export function thinkingShortLabel(effort: ThinkingEffort): string {
+  switch (effort) {
+    case 'off': return '关闭'
+    case 'low': return '低'
+    case 'medium': return '中'
+    case 'high': return '高'
+    case 'xhigh': return '极高'
+    case 'max': return '最大'
+  }
+}

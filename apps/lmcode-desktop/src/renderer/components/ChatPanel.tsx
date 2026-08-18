@@ -1,7 +1,7 @@
 import { useSessionStore } from '@/stores/session-store'
 import { MessageList } from '@/components/MessageList'
 import { Composer } from '@/components/Composer'
-import { StallIndicator } from '@/components/StallIndicator'
+import { RunActivity } from '@/components/RunActivity'
 import { AgentWelcome } from '@/components/AgentWelcome'
 import type {
   CommandPaletteRequest,
@@ -40,7 +40,6 @@ export function ChatPanel({
       <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
         <div className="w-full max-w-[720px] pb-10">
           <AgentWelcome />
-          <StallIndicator />
           <Composer
             key={currentSessionId}
             autoFocus
@@ -61,7 +60,7 @@ export function ChatPanel({
       <MessageList findRequest={findRequest} />
       <div className="shrink-0 px-4 pb-4">
         <div className="mx-auto max-w-3xl">
-          <StallIndicator />
+          <RunActivity />
           <Composer
             key={currentSessionId}
             onOpenSettings={onOpenSettings}

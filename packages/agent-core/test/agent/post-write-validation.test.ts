@@ -72,6 +72,87 @@ describe('post-write validation evidence', () => {
     expect(finalStepText).not.toContain("file's syntax passed");
   });
 
+  it('caps complete post-write reviews and keeps later writes successful', async () => {
+    const validate = vi
+      .spyOn(selfHealing, 'validateFileSyntaxWithScreenshots')
+      .mockResolvedValue({
+        error: null,
+        syntax: { status: 'passed' },
+        runtime: { status: 'passed' },
+        screenshots: undefined,
+        keyframeTimesMs: undefined,
+      });
+    const ctx = await validationAgent(false, false, 1);
+
+    ctx.mockNextResponse(writeCall('call_write_1', 'page.html'));
+    ctx.mockNextResponse({ type: 'text', text: 'REJECT: the first pass has a blocking bug' });
+    ctx.mockNextResponse(writeCall('call_write_2', 'page.html'));
+    ctx.mockNextResponse({ type: 'text', text: 'The corrected page is complete.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
+    await ctx.untilTurnEnd();
+
+    expect(validate).toHaveBeenCalledOnce();
+    expect(
+      ctx.llmCalls.filter((call) => call.systemPrompt.startsWith('You are a critical code reviewer')),
+    ).toHaveLength(1);
+
+    const toolResults = ctx.allEvents.filter(
+      (event) => event.type === '[rpc]' && event.event === 'tool.result',
+    );
+    expect(toolResults).toHaveLength(2);
+    expect(toolResults[0]?.args).toMatchObject({ isError: true });
+    expect(toolResults[1]?.args).toMatchObject({
+      output: expect.stringContaining('reached its 1-review limit'),
+    });
+    expect((toolResults[1]!.args as { isError?: boolean }).isError).not.toBe(true);
+
+    const limitWarnings = ctx.allEvents.filter(
+      (event) =>
+        event.type === '[rpc]' &&
+        event.event === 'warning' &&
+        (event.args as { code?: string }).code === 'post_write_review_limit_reached',
+    );
+    expect(limitWarnings).toHaveLength(1);
+  });
+
+  it('ends the turn after a second skipped write instead of looping forever', async () => {
+    const validate = vi
+      .spyOn(selfHealing, 'validateFileSyntaxWithScreenshots')
+      .mockResolvedValue({
+        error: null,
+        syntax: { status: 'passed' },
+        runtime: { status: 'passed' },
+        screenshots: undefined,
+        keyframeTimesMs: undefined,
+      });
+    const ctx = await validationAgent(false, false, 1);
+
+    ctx.mockNextResponse(writeCall('call_write_1', 'page.html'));
+    ctx.mockNextResponse({ type: 'text', text: 'REJECT: the first pass has a blocking bug' });
+    ctx.mockNextResponse(writeCall('call_write_2', 'page.html'));
+    ctx.mockNextResponse(writeCall('call_write_3', 'page-final.html'));
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
+    await ctx.untilTurnEnd();
+
+    expect(validate).toHaveBeenCalledOnce();
+    // The third write is the final allowed escape hatch. A fourth model call
+    // would prove that the turn kept looping after the second skipped review.
+    expect(ctx.llmCalls).toHaveLength(4);
+    const toolResults = ctx.allEvents.filter(
+      (event) => event.type === '[rpc]' && event.event === 'tool.result',
+    );
+    expect(toolResults).toHaveLength(3);
+    expect(ctx.allEvents).toContainEqual(
+      expect.objectContaining({
+        type: '[rpc]',
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'completed' }),
+      }),
+    );
+  });
+
   it('skips local parsing and source review for an oversized written file', async () => {
     const validate = vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots');
     const ctx = await validationAgent();
@@ -803,14 +884,25 @@ describe('post-write validation evidence', () => {
   });
 });
 
-async function validationAgent(enableSpecCritic = false, imageInput = false) {
+async function validationAgent(
+  enableSpecCritic = false,
+  imageInput = false,
+  maxPostWriteReviewsPerTurn?: number,
+) {
   const jian = createCommandJian('');
   vi.spyOn(jian, 'readText').mockResolvedValue(
     '<!doctype html><html><body><canvas></canvas></body></html>',
   );
   const ctx = testAgent({
     jian,
-    initialConfig: { providers: {}, enableSpecCritic },
+    initialConfig: {
+      providers: {},
+      enableSpecCritic,
+      loopControl:
+        maxPostWriteReviewsPerTurn === undefined
+          ? undefined
+          : { maxPostWriteReviewsPerTurn },
+    },
   });
   ctx.configure({
     tools: ['Write'],

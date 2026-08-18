@@ -92,6 +92,7 @@ reason = "read src"
 [loop_control]
 max_steps_per_run = 42
 max_retries_per_step = 3
+max_post_write_reviews_per_turn = 2
 reserved_context_size = 50000
 compaction_trigger_ratio = 0.85
 
@@ -170,6 +171,7 @@ describe('harness config TOML loader', () => {
     expect(config.loopControl).toMatchObject({
       maxStepsPerTurn: 42,
       maxRetriesPerStep: 3,
+      maxPostWriteReviewsPerTurn: 2,
       reservedContextSize: 50000,
       compactionTriggerRatio: 0.85,
     });
@@ -209,6 +211,7 @@ describe('harness config TOML loader', () => {
       loopControl: {
         ...loopControl!,
         maxStepsPerTurn: 7,
+        maxPostWriteReviewsPerTurn: 1,
       },
     });
 
@@ -222,6 +225,7 @@ describe('harness config TOML loader', () => {
     expect(text).toContain('pattern = "Read(src/**)"');
     expect(text).not.toContain('[[permission.allow]]');
     expect(text).toContain('max_steps_per_turn = 7');
+    expect(text).toContain('max_post_write_reviews_per_turn = 1');
     expect(text).toContain('GOOGLE_CLOUD_PROJECT = "project-1"');
     expect(text).toContain('theme = "dark"');
     expect(text).toContain('claim_stale_after_ms = 15000');
@@ -231,6 +235,7 @@ describe('harness config TOML loader', () => {
 
     const reloaded = readConfigFile(configPath);
     expect(reloaded.loopControl?.maxStepsPerTurn).toBe(7);
+    expect(reloaded.loopControl?.maxPostWriteReviewsPerTurn).toBe(1);
     expect(reloaded.hooks?.[0]?.event).toBe('PreToolUse');
     expect(reloaded.raw?.['theme']).toBe('dark');
   });

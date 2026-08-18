@@ -105,6 +105,9 @@ export const LoopControlSchema = z.object({
   maxStepsPerTurn: z.number().int().min(0).optional(),
   maxRetriesPerStep: z.number().int().min(0).optional(),
   maxRalphIterations: z.number().int().min(-1).optional(),
+  /** Maximum number of complete post-write validation passes in one turn.
+   *  A pass can include browser keyframes plus visual and source-model review. */
+  maxPostWriteReviewsPerTurn: z.number().int().min(0).optional(),
   reservedContextSize: z.number().int().min(0).optional(),
   compactionTriggerRatio: z.number().min(0.5).max(0.99).optional(),
   /** Overrides the dynamic blocked-compaction timeout (base 60s, scaled

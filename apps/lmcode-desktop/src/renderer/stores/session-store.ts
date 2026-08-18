@@ -368,6 +368,10 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
 
     case 'warning': {
       const ev = event as WarningEvent
+      const message =
+        ev.code === 'post_write_review_limit_reached'
+          ? '本轮自动审查已达到上限，已保留最新修改，不会继续循环重审。'
+          : `提示：${ev.message}`
       return {
         ...slice,
         messages: [
@@ -376,7 +380,7 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
             id: nextMsgId(),
             role: 'system',
             variant: 'notice',
-            content: `提示：${ev.message}`,
+            content: message,
             timestamp: Date.now(),
           },
         ],

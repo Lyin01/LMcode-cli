@@ -6,6 +6,7 @@ import { useSessionStore } from '@/stores/session-store'
 import {
   THINKING_OPTIONS,
   thinkingLabel,
+  thinkingShortLabel,
   type ThinkingEffort,
 } from '@/lib/thinking'
 
@@ -53,10 +54,11 @@ export function ThinkingSwitcher() {
       <DropdownMenu.Trigger asChild>
         <button
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
-          title="思考强度（越高越慢越深入）"
+          title="思考模式（越高越慢越深入）"
+          aria-label={`思考模式：${thinkingLabel(effort)}`}
         >
           <Brain size={14} className="text-[var(--lm-text-muted)]" />
-          <span>思考 · {thinkingLabel(effort)}</span>
+          <span>思考 · {thinkingShortLabel(effort)}</span>
           <ChevronDown
             size={13}
             className={cn('text-[var(--lm-text-muted)] transition-transform', open && 'rotate-180')}
@@ -72,7 +74,7 @@ export function ThinkingSwitcher() {
           className="z-50 min-w-[220px] overflow-hidden rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] shadow-[var(--lm-shadow-pop)]"
         >
           <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
-            思考强度
+            思考模式
           </div>
           <div className="p-1">
             {THINKING_OPTIONS.map((opt) => (

@@ -17,10 +17,22 @@ Check for:
    - an unexpectedly empty frame when remnants/residue were requested.
 4. Mechanical vs. organic appearance where realism was requested (e.g. perfectly straight or circular edges where irregular/natural ones were asked for).
 
-If you find ANY visual defect, reply starting with:
+Reject only a BLOCKING visual defect, such as a blank/broken render, a central requested
+subject or behavior being absent, a materially wrong animation timeline, a terminal frame
+that contradicts the request, or an obviously mechanical shape where an irregular organic
+shape was an explicit core requirement.
+
+Do not reject for minor polish, small aesthetic differences, optional enhancements, or a
+subjective preference when the requested experience is already clearly present. Those are
+non-blocking notes and must not force another implementation loop.
+
+For a blocking defect, reply starting with:
 
 VISUAL_REJECT: <specific bugs, naming the screenshot/timestamp>
 
-If the output faithfully matches the request with no artifacts, reply with:
+Otherwise reply starting with:
 
 VISUAL_APPROVE
+
+You may add one short `NOTES:` line after VISUAL_APPROVE for non-blocking polish. Never put a
+non-blocking suggestion in VISUAL_REJECT.
