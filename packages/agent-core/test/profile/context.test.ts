@@ -10,6 +10,15 @@ import { testJian } from '../fixtures/test-jian';
 let homeDir: string;
 let workDir: string;
 
+const legacyCcConnectBlock = `【重要】你可以通过以下命令向用户发送图片或文件：
+  cc-connect send --file /absolute/path/to/file.pdf
+
+You are running inside cc-connect, a bridge that connects you to messaging platforms.
+
+## Formatting
+Replies are delivered as plain text to Weixin. Avoid markdown tables; use short paragraphs.
+`;
+
 beforeEach(async () => {
   homeDir = await mkdtemp(join(tmpdir(), 'lmcode-agents-home-'));
   workDir = await mkdtemp(join(tmpdir(), 'lmcode-agents-work-'));
@@ -71,6 +80,45 @@ describe('loadAgentsMd user-level discovery', () => {
 
     expect(result.content.split('home branded').length - 1).toBe(1);
     expect(result.paths.length).toBe(1);
+  });
+
+  it('filters duplicated legacy cc-connect injections while preserving project instructions', async () => {
+    await mkdir(join(workDir, '.lmcode'), { recursive: true });
+    const projectFile = join(workDir, '.lmcode', 'AGENTS.md');
+    await writeFile(
+      projectFile,
+      `${legacyCcConnectBlock}\n${legacyCcConnectBlock}\nKeep this real project rule.`,
+      'utf-8',
+    );
+
+    const result = await loadAgentsMd(testJian);
+
+    expect(result.content).toContain('Keep this real project rule.');
+    expect(result.content).not.toContain('You are running inside cc-connect');
+    expect(result.paths).toEqual([projectFile]);
+  });
+
+  it('ignores an AGENTS.md file containing only stranded cc-connect injections', async () => {
+    await mkdir(join(workDir, '.lmcode'), { recursive: true });
+    await writeFile(
+      join(workDir, '.lmcode', 'AGENTS.md'),
+      `${legacyCcConnectBlock}\n${legacyCcConnectBlock}`,
+      'utf-8',
+    );
+
+    const result = await loadAgentsMd(testJian);
+
+    expect(result.content).toBe('');
+    expect(result.paths).toEqual([]);
+  });
+
+  it('does not strip the same text from a non-.lmcode project AGENTS.md file', async () => {
+    await writeFile(join(workDir, 'AGENTS.md'), legacyCcConnectBlock, 'utf-8');
+
+    const result = await loadAgentsMd(testJian);
+
+    expect(result.content).toContain('You are running inside cc-connect');
+    expect(result.paths).toEqual([join(workDir, 'AGENTS.md')]);
   });
 });
 

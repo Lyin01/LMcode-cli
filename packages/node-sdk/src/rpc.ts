@@ -193,7 +193,10 @@ export class SDKRpcClient {
 
   async resumeSession(input: ResumeSessionInput): Promise<ResumedSessionSummary> {
     const rpc = await this.getRpc();
-    return rpc.resumeSession({ sessionId: input.id });
+    return rpc.resumeSession({
+      sessionId: input.id,
+      additionalSystemPrompt: input.additionalSystemPrompt,
+    });
   }
 
   async forkSession(input: ForkSessionInput): Promise<SessionSummary> {

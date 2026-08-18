@@ -498,6 +498,9 @@ export class LocalJian implements Jian {
     const child = spawn(command, restArgs, {
       cwd: this._cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // Console processes spawned by the Electron desktop app must not flash
+      // a transient terminal window for every Bash tool call on Windows.
+      windowsHide: true,
       // POSIX `detached:true` makes the child a process-group leader so
       // `LocalProcess.kill()` can signal the entire tree. No-op on Windows
       // (`taskkill /T` handles the tree there). We do not call `child.unref()`
@@ -522,6 +525,7 @@ export class LocalJian implements Jian {
     const child = spawn(command, restArgs, {
       cwd: this._cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
       detached: !isWindows,
       // See shouldUseVerbatimArgs: only enabled for cmd.exe on Windows so a
       // `cmd.exe /c "<command line>"` invocation reaches the shell intact.

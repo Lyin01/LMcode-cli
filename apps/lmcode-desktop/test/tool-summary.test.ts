@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toolFamily, summarizeToolArgs, summarizeToolResult } from '../src/renderer/lib/tool-summary'
+import { toolFamily, summarizeToolArgs, summarizeToolResult, toolFilePath } from '../src/renderer/lib/tool-summary'
 
 describe('tool-summary', () => {
   it('classifies the DeepSeek anchor str_replace_editor by its command argument', () => {
@@ -37,5 +37,11 @@ describe('tool-summary', () => {
     )
     expect(summarizeToolResult('Read', JSON.stringify({ path: 'src/a.ts' }), undefined, false)).toBeUndefined()
     expect(summarizeToolArgs('Read', JSON.stringify({ path: 'E:/repo/src/a.ts' }))).toBe('src/a.ts')
+  })
+
+  it('preserves relative output paths for workspace-based file actions', () => {
+    expect(toolFilePath('Write', JSON.stringify({ path: 'output/profile.html' }))).toBe('output/profile.html')
+    expect(toolFilePath('Edit', JSON.stringify({ file_path: '/c/Users/me/profile.html' }))).toBe('/c/Users/me/profile.html')
+    expect(toolFilePath('Bash', JSON.stringify({ path: 'output/profile.html' }))).toBeUndefined()
   })
 })

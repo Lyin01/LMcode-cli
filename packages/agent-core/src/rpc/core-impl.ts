@@ -234,6 +234,7 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
         skills: this.resolveSessionSkillConfig(config),
         mcpConfig,
         pluginSessionStarts,
+        additionalSystemPrompt: options.additionalSystemPrompt,
       });
       session.metadata = {
         ...session.metadata,
@@ -342,6 +343,7 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
       mcpConfig,
       initializeMainAgent: false,
       pluginSessionStarts,
+      additionalSystemPrompt: input.additionalSystemPrompt,
     });
     let warning: string | undefined;
     try {

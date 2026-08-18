@@ -812,7 +812,6 @@ export class TurnFlow {
     let directAnswerFidelityContinuationCount = 0;
     let postWriteReviewsUsed = 0;
     let postWriteReviewLimitNotified = false;
-    let stopAfterPostWriteReviewLimit = false;
     const maxPostWriteReviews =
       this.agent.lmcodeConfig?.loopControl?.maxPostWriteReviewsPerTurn ??
       DEFAULT_MAX_POST_WRITE_REVIEWS_PER_TURN;
@@ -1576,26 +1575,24 @@ Reject only concrete blocking defects that make the file incorrect, broken, unsa
                   finalResult = appendToolResultNotice(finalResult, notice);
                 }
               } else if (postWritePath !== undefined) {
-                const wasAlreadyNotified = postWriteReviewLimitNotified;
                 const notice =
                   `File ${JSON.stringify(postWritePath)}: Automatic post-write review was skipped because ` +
                   `this turn reached its ${maxPostWriteReviews}-review limit. The write remains successful. ` +
                   'Do not rewrite the file solely to trigger another automatic review; use a targeted build or test if more evidence is required.';
                 validationLimitations.set(`${postWritePath}\0overall`, notice);
-                finalResult = appendToolResultNotice(finalResult, notice);
-                // Give the model one chance to produce a final summary after
-                // the first skipped review. A second skipped write ends the
-                // turn so a stubborn retry cannot keep the loop alive.
-                if (wasAlreadyNotified) stopAfterPostWriteReviewLimit = true;
                 if (!postWriteReviewLimitNotified) {
                   postWriteReviewLimitNotified = true;
+                  // One notice is enough to stop review-driven rewrites. Later
+                  // writes remain fully available for legitimate multi-file
+                  // work and are merely recorded as unreviewed evidence.
+                  finalResult = appendToolResultNotice(finalResult, notice);
                   this.agent.emitEvent({
                     type: 'warning',
                     code: 'post_write_review_limit_reached',
                     message:
                       `Automatic post-write review stopped after ${maxPostWriteReviews} complete ` +
                       `${maxPostWriteReviews === 1 ? 'pass' : 'passes'} in this turn. ` +
-                      'The latest write was kept and will not trigger another automatic review.',
+                      'Later writes remain available but will not trigger another automatic review.',
                   });
                 }
               }
@@ -1606,10 +1603,6 @@ Reject only concrete blocking defects that make the file incorrect, broken, unsa
               if (!stepGoalStillActive()) {
                 finalResult = { ...finalResult, stopTurn: true };
               }
-              if (stopAfterPostWriteReviewLimit) {
-                finalResult = { ...finalResult, stopTurn: true };
-              }
-
               deduper.recordFinalResult(ctx.toolCall.id, finalResult);
               const { isError, output } = finalResult;
 

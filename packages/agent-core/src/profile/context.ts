@@ -6,6 +6,8 @@ import { listDirectory } from '../tools/support/list-directory';
 import type { SystemPromptContext } from './types';
 
 const AGENTS_MD_MAX_BYTES = 32 * 1024;
+const LEGACY_CC_CONNECT_INJECTION =
+  /【重要】你可以通过以下命令向用户发送图片或文件：[\s\S]*?Replies are delivered as plain text to Weixin\. Avoid markdown tables; use short paragraphs\.\s*/g;
 const S_IFMT = 0o170000;
 const S_IFREG = 0o100000;
 
@@ -110,7 +112,11 @@ interface AgentFile {
 
 async function readAgentFile(jian: Jian, path: string): Promise<AgentFile | undefined> {
   if (!(await isFile(jian, path))) return undefined;
-  const content = (await jian.readText(path, { errors: 'ignore' })).trim();
+  // Older stream-json hosts temporarily prepended cc-connect instructions to
+  // this file. A forced shutdown could strand and repeatedly duplicate them.
+  const raw = await jian.readText(path, { errors: 'ignore' });
+  const isLmcodeInstructionsFile = /[\\/]\.lmcode[\\/]AGENTS\.md$/i.test(path);
+  const content = (isLmcodeInstructionsFile ? raw.replace(LEGACY_CC_CONNECT_INJECTION, '') : raw).trim();
   if (content.length === 0) return undefined;
   return { path, content };
 }
@@ -181,5 +187,3 @@ function byteLength(text: string): number {
 function annotationFor(path: string): string {
   return `<!-- From: ${path} -->\n`;
 }
-
-

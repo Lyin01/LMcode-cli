@@ -116,7 +116,7 @@ describe('post-write validation evidence', () => {
     expect(limitWarnings).toHaveLength(1);
   });
 
-  it('ends the turn after a second skipped write instead of looping forever', async () => {
+  it('keeps legitimate multi-file work running after the review budget is exhausted', async () => {
     const validate = vi
       .spyOn(selfHealing, 'validateFileSyntaxWithScreenshots')
       .mockResolvedValue({
@@ -132,18 +132,23 @@ describe('post-write validation evidence', () => {
     ctx.mockNextResponse({ type: 'text', text: 'REJECT: the first pass has a blocking bug' });
     ctx.mockNextResponse(writeCall('call_write_2', 'page.html'));
     ctx.mockNextResponse(writeCall('call_write_3', 'page-final.html'));
+    ctx.mockNextResponse({ type: 'text', text: 'Both requested files are complete.' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
     await ctx.untilTurnEnd();
 
     expect(validate).toHaveBeenCalledOnce();
-    // The third write is the final allowed escape hatch. A fourth model call
-    // would prove that the turn kept looping after the second skipped review.
-    expect(ctx.llmCalls).toHaveLength(4);
+    // The review budget caps utility work, not the main model's ability to
+    // create additional requested files and provide a final answer.
+    expect(ctx.llmCalls).toHaveLength(5);
     const toolResults = ctx.allEvents.filter(
       (event) => event.type === '[rpc]' && event.event === 'tool.result',
     );
     expect(toolResults).toHaveLength(3);
+    expect((toolResults[2]!.args as { isError?: boolean }).isError).not.toBe(true);
+    expect(ctx.agent.context.history.map(messageText).join('\n')).toContain(
+      'Both requested files are complete.',
+    );
     expect(ctx.allEvents).toContainEqual(
       expect.objectContaining({
         type: '[rpc]',

@@ -124,11 +124,17 @@ export class LmcodeHarness {
     const pending = this.pendingSessionsById.get(id);
     if (pending !== undefined) return pending;
 
-    return this.trackSessionStart(this.resumeSessionInternal(id), id);
+    return this.trackSessionStart(
+      this.resumeSessionInternal({
+        id,
+        additionalSystemPrompt: input.additionalSystemPrompt,
+      }),
+      id,
+    );
   }
 
-  private async resumeSessionInternal(id: string): Promise<Session> {
-    const summary = await this.rpc.resumeSession({ id });
+  private async resumeSessionInternal(input: ResumeSessionInput): Promise<Session> {
+    const summary = await this.rpc.resumeSession(input);
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,

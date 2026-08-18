@@ -61,6 +61,48 @@ max_context_size = 1000
 
 describe('LmcodeHarness.createSession transport link', () => {
 
+  it('scopes an additional system prompt to fresh and resumed host sessions', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeWorkDir();
+    const harness = new LmcodeHarness({
+      identity: TEST_IDENTITY,
+      homeDir,
+    });
+
+    try {
+      const session = await harness.createSession({
+        id: 'ses_additional_system_prompt',
+        workDir,
+        additionalSystemPrompt: 'fresh bridge prompt marker',
+      });
+      const freshConfig = await waitForAgentWireEvent(
+        homeDir,
+        session.id,
+        'config.update',
+        (event) => String(event['systemPrompt']).includes('fresh bridge prompt marker'),
+      );
+      expect(freshConfig['systemPrompt']).toContain('fresh bridge prompt marker');
+      expect(existsSync(join(workDir, '.lmcode', 'AGENTS.md'))).toBe(false);
+
+      await session.close({ extractMemories: false });
+      const resumed = await harness.resumeSession({
+        id: session.id,
+        additionalSystemPrompt: 'resumed bridge prompt marker',
+      });
+      const resumedConfig = await waitForAgentWireEvent(
+        homeDir,
+        resumed.id,
+        'config.update',
+        (event) => String(event['systemPrompt']).includes('resumed bridge prompt marker'),
+      );
+      expect(resumedConfig['systemPrompt']).toContain('resumed bridge prompt marker');
+      expect(existsSync(join(workDir, '.lmcode', 'AGENTS.md'))).toBe(false);
+      await resumed.close({ extractMemories: false });
+    } finally {
+      await harness.close({ extractMemories: false });
+    }
+  });
+
   it('creates, lists, and deletes persisted cron jobs through the Session API', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeWorkDir();

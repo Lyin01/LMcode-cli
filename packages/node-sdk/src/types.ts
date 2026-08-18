@@ -87,6 +87,7 @@ export interface CreateSessionOptions {
   readonly permission?: PermissionMode | undefined;
   readonly planMode?: boolean;
   readonly metadata?: JsonObject | undefined;
+  readonly additionalSystemPrompt?: string | undefined;
 }
 
 export interface RenameSessionInput {
@@ -96,6 +97,7 @@ export interface RenameSessionInput {
 
 export interface ResumeSessionInput {
   readonly id: string;
+  readonly additionalSystemPrompt?: string | undefined;
 }
 
 export interface ForkSessionInput {

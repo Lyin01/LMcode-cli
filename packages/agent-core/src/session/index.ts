@@ -25,6 +25,7 @@ import {
   DEFAULT_INIT_PROMPT,
   loadAgentsMd,
   prepareSystemPromptContext,
+  type PreparedSystemPromptContext,
   type ResolvedAgentProfile,
 } from '../profile';
 import type { ProviderManager } from './provider-manager';
@@ -55,6 +56,7 @@ export interface SessionOptions {
   readonly skills?: SessionSkillConfig;
   readonly mcpConfig?: SessionMcpConfig;
   readonly pluginSessionStarts?: readonly EnabledPluginSessionStart[];
+  readonly additionalSystemPrompt?: string | undefined;
 }
 
 export interface SessionSkillConfig {
@@ -163,9 +165,21 @@ export class Session {
     this.assertOpen();
     this.agents.clear();
     let warning: string | undefined;
+    const contextByCwd = new Map<string, Promise<PreparedSystemPromptContext>>();
+    const prepareAgentContext = (agent: Agent) => {
+      const cwd = agent.config.cwd;
+      let prepared = contextByCwd.get(cwd);
+      if (prepared === undefined) {
+        prepared = prepareSystemPromptContext(agent.jian.withCwd(cwd));
+        contextByCwd.set(cwd, prepared);
+      }
+      return prepared;
+    };
     const resumeTasks = Object.keys(agents).map(async (id) => {
       const agent = this.ensureResumeAgentInstantiated(id, agents);
-      const result = await agent.resume();
+      const result = await agent.resume(async () =>
+        agent.renderSessionContext(await prepareAgentContext(agent)),
+      );
       if (result.warning !== undefined && warning === undefined) {
         warning = result.warning;
       }
@@ -182,7 +196,7 @@ export class Session {
     // Reload AGENTS.md on every resume so edits take effect
     // without requiring session deletion / recreation.
     if (main !== undefined && profile !== undefined) {
-      await this.bootstrapAgentProfile(main, profile);
+      await this.bootstrapAgentProfile(main, profile, await prepareAgentContext(main));
     }
     if (main !== undefined && this.metadata.custom?.['recap']) {
       main.context.appendSystemReminder(this.metadata.custom['recap'] as string, {
@@ -341,9 +355,12 @@ export class Session {
   private async bootstrapAgentProfile(
     agent: Agent,
     profile: ResolvedAgentProfile,
+    preparedContext?: PreparedSystemPromptContext,
   ): Promise<void> {
-    const context = await prepareSystemPromptContext(agent.jian);
-    agent.useProfile(profile, context);
+    const context =
+      preparedContext ?? await prepareSystemPromptContext(agent.jian.withCwd(agent.config.cwd));
+    const additionalSystemPrompt = agent.type === 'main' ? this.options.additionalSystemPrompt : undefined;
+    agent.useProfile(profile, context, additionalSystemPrompt);
   }
 
   async generateAgentsMd(): Promise<void> {

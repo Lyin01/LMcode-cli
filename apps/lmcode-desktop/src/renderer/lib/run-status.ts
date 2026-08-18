@@ -55,12 +55,6 @@ function latestRunningTool(message: Message | undefined): ToolCallInfo | undefin
   return undefined
 }
 
-function hasReviewLimitNotice(message: Message | undefined): boolean {
-  return message?.toolCalls?.some((call) =>
-    call.result?.includes('Automatic post-write review was skipped because'),
-  ) ?? false
-}
-
 function elapsedFrom(message: Message | undefined, now: number): number {
   if (message === undefined || !Number.isFinite(message.timestamp)) return 0
   return Math.max(0, now - message.timestamp)
@@ -129,15 +123,6 @@ export function deriveRunStatus(input: {
     return {
       phase: 'tool',
       label: toolLabel(runningTool),
-      elapsedMs,
-    }
-  }
-
-  if (hasReviewLimitNotice(assistant)) {
-    return {
-      phase: 'finishing',
-      label: '自动审查已达上限，正在收尾',
-      detail: '已保留最新修改，不再触发本轮自动重审',
       elapsedMs,
     }
   }

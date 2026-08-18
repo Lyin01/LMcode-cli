@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ToolCallInfo } from '@/types'
 import { ToolCallBlock } from '@/components/ToolCallBlock'
 import { toolFamily, summarizeToolArgs } from '@/lib/tool-summary'
@@ -48,17 +48,11 @@ function splitRuns(calls: ToolCallInfo[]): Run[] {
   return runs
 }
 
-function ToolCallGroup({ calls, title }: { calls: ToolCallInfo[]; title: string }) {
+function ToolCallGroup({ calls, title, workDir }: { calls: ToolCallInfo[]; title: string; workDir?: string }) {
   const [expanded, setExpanded] = useState(false)
-  const [userOverride, setUserOverride] = useState(false)
 
   const hasActive = calls.some((c) => c.status === 'running' || c.status === 'pending')
   const hasFailed = calls.some((c) => c.status === 'failed')
-
-  // 进行中自动展开让进度可见；全部结束自动收起。用户手动切换后尊重用户选择。
-  useEffect(() => {
-    if (!userOverride) setExpanded(hasActive)
-  }, [hasActive, userOverride])
 
   const lastSummary = useMemo(() => {
     const last = calls.at(-1)
@@ -78,10 +72,7 @@ function ToolCallGroup({ calls, title }: { calls: ToolCallInfo[]; title: string 
   return (
     <div>
       <button
-        onClick={() => {
-          setUserOverride(true)
-          setExpanded(!expanded)
-        }}
+        onClick={() => setExpanded((current) => !current)}
         className="flex w-full items-center gap-2 rounded-lg px-2 py-[5px] text-left text-[12.5px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)]"
       >
         {expanded ? (
@@ -122,7 +113,7 @@ function ToolCallGroup({ calls, title }: { calls: ToolCallInfo[]; title: string 
       {expanded && (
         <div className="ml-3 border-l border-[var(--lm-border)] pl-1">
           {calls.map((call) => (
-            <ToolCallBlock key={call.id} toolCall={call} />
+            <ToolCallBlock key={call.id} toolCall={call} workDir={workDir} />
           ))}
         </div>
       )}
@@ -130,7 +121,7 @@ function ToolCallGroup({ calls, title }: { calls: ToolCallInfo[]; title: string 
   )
 }
 
-export function ToolCallList({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
+export function ToolCallList({ toolCalls, workDir }: { toolCalls: ToolCallInfo[]; workDir?: string }) {
   const runs = useMemo(() => splitRuns(toolCalls), [toolCalls])
   return (
     <>
@@ -138,9 +129,9 @@ export function ToolCallList({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
         const first = run.calls[0]
         if (first === undefined) return null
         return run.calls.length >= GROUP_THRESHOLD ? (
-          <ToolCallGroup key={first.id} calls={run.calls} title={run.title} />
+          <ToolCallGroup key={first.id} calls={run.calls} title={run.title} workDir={workDir} />
         ) : (
-          run.calls.map((call) => <ToolCallBlock key={call.id} toolCall={call} />)
+          run.calls.map((call) => <ToolCallBlock key={call.id} toolCall={call} workDir={workDir} />)
         )
       })}
     </>

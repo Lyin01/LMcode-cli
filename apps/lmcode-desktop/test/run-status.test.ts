@@ -47,7 +47,7 @@ describe('run status projection', () => {
     })
   })
 
-  it('shows the review limit as a finishing state instead of another retry', () => {
+  it('does not mislabel ongoing work as finishing after the review limit is reached', () => {
     const status = deriveRunStatus({
       ...baseInput,
       messages: [
@@ -68,8 +68,8 @@ describe('run status projection', () => {
     })
 
     expect(status).toMatchObject({
-      phase: 'finishing',
-      label: '自动审查已达上限，正在收尾',
+      phase: 'responding',
+      label: '正在整理回答',
     })
   })
 

@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react'
+import { memo, useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import type { ToolCallInfo } from '@/types'
 import { artifactIdForToolCall, useArtifactsStore } from '@/stores/artifacts-store'
 import { pruneToolOutput, formatCharCount } from '@/lib/tool-pruner'
 import { toolFamily, summarizeToolArgs, summarizeToolResult, toolFilePath } from '@/lib/tool-summary'
 import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
+import { resolveOpenTarget } from '@/lib/open-target'
 import {
   Loader2,
   CheckCircle2,
@@ -29,6 +30,7 @@ import {
 
 interface ToolCallBlockProps {
   toolCall: ToolCallInfo
+  workDir?: string
 }
 
 const FAMILY_ICONS = {
@@ -66,7 +68,7 @@ function classifyTool(toolName: string, argsRaw?: string): ToolMeta {
   return { variant: family, icon: FAMILY_ICONS[family], title }
 }
 
-export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
+export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false)
   const [showFullOutput, setShowFullOutput] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -74,6 +76,14 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
   const filePath = useMemo(
     () => toolFilePath(toolCall.toolName, toolCall.args),
     [toolCall.toolName, toolCall.args],
+  )
+  const fileTarget = useMemo(
+    () => (filePath === undefined ? null : resolveOpenTarget(filePath, workDir)),
+    [filePath, workDir],
+  )
+  const fileLabel = useMemo(
+    () => (filePath === undefined ? undefined : summarizeToolArgs(toolCall.toolName, toolCall.args) ?? filePath),
+    [filePath, toolCall.toolName, toolCall.args],
   )
 
   const meta = useMemo(() => classifyTool(toolCall.toolName, toolCall.args), [toolCall.toolName, toolCall.args])
@@ -125,11 +135,11 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
           ? 'border border-[var(--lm-border)] bg-[var(--lm-bg-surface)]'
           : 'border border-transparent hover:border-[var(--lm-border)] hover:bg-[var(--lm-bg-surface)]/60',
       )}
-      onContextMenu={filePath === undefined ? undefined : fileMenu.openFromEvent(filePath)}
+      onContextMenu={fileTarget === null ? undefined : fileMenu.openFromEvent(fileTarget)}
     >
       {fileMenu.menu}
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setExpanded((current) => !current)}
         className="flex w-full items-center gap-2 px-2 py-[5px] text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
       >
         {expanded ? (
@@ -141,33 +151,45 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <ToolIcon size={13} className="text-[var(--lm-text-muted)] shrink-0" />
           <span className="shrink-0 font-medium text-[var(--lm-text-secondary)]">{meta.title}</span>
-          {summary && (
+          {filePath !== undefined && fileLabel !== undefined ? (
             <>
               <span className="shrink-0 text-[var(--lm-text-muted)]/60">·</span>
-              {filePath !== undefined ? (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  title={`点击用系统默认程序打开：${filePath}`}
-                  onClick={(event) => {
+              <span
+                role={fileTarget === null ? undefined : 'button'}
+                tabIndex={fileTarget === null ? undefined : 0}
+                title={fileTarget === null ? filePath : `点击打开：${fileTarget}`}
+                onClick={fileTarget === null ? undefined : (event) => {
+                  event.stopPropagation()
+                  void openFileWithSystem(fileTarget)
+                }}
+                onKeyDown={fileTarget === null ? undefined : (event) => {
+                  if (event.key === 'Enter') {
                     event.stopPropagation()
-                    void openFileWithSystem(filePath)
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.stopPropagation()
-                      void openFileWithSystem(filePath)
-                    }
-                  }}
-                  className="cursor-pointer truncate font-mono text-[11.5px] text-[var(--lm-text-muted)] underline decoration-dotted decoration-[var(--lm-text-muted)]/40 underline-offset-2 hover:text-[var(--lm-accent-text)] hover:decoration-[var(--lm-accent-text)]"
-                >
-                  {summary}
-                </span>
-              ) : (
-                <span className="truncate font-mono text-[11.5px] text-[var(--lm-text-muted)]">{summary}</span>
+                    void openFileWithSystem(fileTarget)
+                  }
+                }}
+                className={cn(
+                  'truncate font-mono text-[11.5px]',
+                  fileTarget === null
+                    ? 'text-[var(--lm-text-muted)]'
+                    : 'cursor-pointer text-[var(--lm-accent-text)] underline decoration-dotted decoration-[var(--lm-accent-text)]/45 underline-offset-2 hover:decoration-[var(--lm-accent-text)]',
+                )}
+              >
+                {fileLabel}
+              </span>
+              {summary !== undefined && summary !== fileLabel && (
+                <>
+                  <span className="shrink-0 text-[var(--lm-text-muted)]/60">·</span>
+                  <span className="truncate font-mono text-[11.5px] text-[var(--lm-text-muted)]">{summary}</span>
+                </>
               )}
             </>
-          )}
+          ) : summary ? (
+            <>
+              <span className="shrink-0 text-[var(--lm-text-muted)]/60">·</span>
+              <span className="truncate font-mono text-[11.5px] text-[var(--lm-text-muted)]">{summary}</span>
+            </>
+          ) : null}
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -238,7 +260,7 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        setShowFullOutput(!showFullOutput)
+                        setShowFullOutput((current) => !current)
                       }}
                       className="flex items-center gap-1 text-[11px] text-[var(--lm-accent-text)] hover:underline"
                     >
@@ -287,4 +309,4 @@ export function ToolCallBlock({ toolCall }: ToolCallBlockProps) {
       )}
     </div>
   )
-}
+})

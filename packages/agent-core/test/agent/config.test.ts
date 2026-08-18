@@ -83,6 +83,25 @@ describe('Agent config', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('adds a host prompt to the profile without changing the session-context message', async () => {
+    const ctx = testAgent();
+    ctx.configure();
+    const profile: ResolvedAgentProfile = {
+      name: 'bridge-profile',
+      systemPrompt: () => 'Profile system prompt.',
+      tools: ['Bash'],
+    };
+
+    ctx.agent.useProfile(profile, undefined, 'Bridge-only instructions.');
+
+    await expect(ctx.rpc.getConfig({})).resolves.toMatchObject({
+      systemPrompt: 'Profile system prompt.\n\nBridge-only instructions.',
+    });
+    const context = await ctx.rpc.getContext({});
+    expect(JSON.stringify(context.history)).not.toContain('Bridge-only instructions.');
+    await ctx.expectResumeMatches();
+  });
+
   it('config.update with cwd initializes builtin tools', async () => {
     const ctx = testAgent();
     ctx.configure();

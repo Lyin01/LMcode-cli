@@ -17,6 +17,9 @@ interface MessageListProps {
 export function MessageList({ findRequest }: MessageListProps) {
   const messages = useSessionStore((s) => s.messages)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
+  const currentWorkDir = useSessionStore((s) =>
+    s.sessions.find((session) => session.id === s.currentSessionId)?.workDir,
+  )
   const isStreaming = useSessionStore((s) => s.isStreaming)
   const setMessagesForSession = useSessionStore((s) => s.setMessagesForSession)
   const enqueueMessage = useSessionStore((s) => s.enqueueMessage)
@@ -249,6 +252,7 @@ export function MessageList({ findRequest }: MessageListProps) {
             >
               <MessageItem
                 message={msg}
+                workDir={currentWorkDir}
                 isStreaming={isStreaming && msg.id === lastAssistantId}
                 onRegenerate={
                   msg.id === lastAssistantId && !isStreaming && lastUserText.trim()

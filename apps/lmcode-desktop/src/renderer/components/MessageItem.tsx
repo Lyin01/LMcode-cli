@@ -1,5 +1,5 @@
 import type { Message } from '@/types'
-import { memo, useCallback, useState, type ReactNode } from 'react'
+import { createContext, memo, useCallback, useContext, useState, type ReactNode } from 'react'
 import { AlertTriangle, Check, Copy, FileText, RotateCcw, Sparkles } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallList } from '@/components/ToolCallList'
@@ -14,6 +14,7 @@ import rehypeHighlight from 'rehype-highlight'
 // comparison on every render.
 const REMARK_PLUGINS = [remarkGfm]
 const REHYPE_PLUGINS = [rehypeHighlight]
+const OpenTargetBaseDirContext = createContext<string | undefined>(undefined)
 
 /** Recursively extract the plain text out of a rendered code element. */
 function extractCodeText(node: ReactNode): string {
@@ -106,9 +107,10 @@ const FileChip = memo(function FileChip({ target, children }: { target: string; 
 })
 
 function MarkdownCode({ className, children }: { className?: string; children?: ReactNode }) {
+  const workDir = useContext(OpenTargetBaseDirContext)
   const text = extractCodeText(children)
   if (className !== undefined || text.endsWith('\n')) return <code className={className}>{children}</code>
-  const target = resolveOpenTarget(text)
+  const target = resolveOpenTarget(text, workDir)
   if (target !== null) return <FileChip target={target}>{children}</FileChip>
   return <code>{children}</code>
 }
@@ -136,6 +138,7 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
 
 interface MessageItemProps {
   message: Message
+  workDir?: string
   /** 该消息正在流式增长（仅最后一条 assistant 消息为 true）。流式期间用纯文本渲染，结束后再解析 Markdown。 */
   isStreaming?: boolean
   /** 仅最后一条 assistant 消息提供：点击撤销上一轮并重发其前一条用户消息。 */
@@ -147,6 +150,7 @@ interface MessageItemProps {
 // expensive markdown + highlight.js re-render.
 export const MessageItem = memo(function MessageItem({
   message,
+  workDir,
   isStreaming = false,
   onRegenerate,
 }: MessageItemProps) {
@@ -221,7 +225,7 @@ export const MessageItem = memo(function MessageItem({
 
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="mb-2 space-y-0.5">
-            <ToolCallList toolCalls={message.toolCalls} />
+            <ToolCallList toolCalls={message.toolCalls} workDir={workDir} />
           </div>
         )}
 
@@ -236,15 +240,17 @@ export const MessageItem = memo(function MessageItem({
                 <span className="lm-cursor-blink ml-0.5 inline-block text-[var(--lm-accent-text)]">▍</span>
               </div>
             ) : (
-              <div className="lm-markdown">
-                <Markdown
-                  remarkPlugins={REMARK_PLUGINS}
-                  rehypePlugins={REHYPE_PLUGINS}
-                  components={MARKDOWN_COMPONENTS}
-                >
-                  {message.content}
-                </Markdown>
-              </div>
+              <OpenTargetBaseDirContext.Provider value={workDir}>
+                <div className="lm-markdown">
+                  <Markdown
+                    remarkPlugins={REMARK_PLUGINS}
+                    rehypePlugins={REHYPE_PLUGINS}
+                    components={MARKDOWN_COMPONENTS}
+                  >
+                    {message.content}
+                  </Markdown>
+                </div>
+              </OpenTargetBaseDirContext.Provider>
             )
           ) : message.thinkingState === 'streaming' && !message.thinking ? (
             <div className="flex items-center gap-1.5 py-1 text-[12.5px] text-[var(--lm-accent-text)] font-medium">

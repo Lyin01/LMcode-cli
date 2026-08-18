@@ -176,6 +176,102 @@ describe('Agent resume', () => {
     expect(toolCall?.function).toBeUndefined();
   });
 
+  it('refreshes persisted session context before a resumed prompt can use it', async () => {
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: '<system-reminder>\nlegacy duplicated bridge instructions\n</system-reminder>',
+            },
+          ],
+          toolCalls: [],
+          origin: { kind: 'injection', variant: 'session_context' },
+        },
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Keep this historical prompt.' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume(async () => 'fresh project instructions');
+
+    const contextText = JSON.stringify(ctx.agent.context.history);
+    expect(contextText).toContain('fresh project instructions');
+    expect(contextText).toContain('Keep this historical prompt.');
+    expect(contextText).not.toContain('legacy duplicated bridge instructions');
+    expect(JSON.stringify(persistence.rewritten)).toContain('fresh project instructions');
+    expect(JSON.stringify(persistence.rewritten)).not.toContain(
+      'legacy duplicated bridge instructions',
+    );
+  });
+
+  it('rebuilds compacted session context once without shifting compaction boundaries', async () => {
+    const persistence = new RecordingAgentPersistence([
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: '<system-reminder>\nold context\n</system-reminder>' }],
+          toolCalls: [],
+          origin: { kind: 'injection', variant: 'session_context' },
+        },
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Message retained after compaction.' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'context.apply_compaction',
+        summary: 'Historical compacted summary.',
+        compactedCount: 1,
+        tokensBefore: 20,
+        tokensAfter: 10,
+      },
+    ]);
+    const first = testAgent({ persistence });
+
+    await first.agent.resume(async () => 'refreshed context');
+
+    expect(first.agent.context.history.map((message) => message.origin?.kind)).toEqual([
+      'compaction_summary',
+      'user',
+      'injection',
+    ]);
+    expect(JSON.stringify(first.agent.context.history)).toContain(
+      'Message retained after compaction.',
+    );
+
+    const second = testAgent({ persistence });
+    await second.agent.resume(async () => 'refreshed context');
+
+    expect(
+      second.agent.context.history.filter(
+        (message) =>
+          message.origin?.kind === 'injection' &&
+          message.origin.variant === 'session_context',
+      ),
+    ).toHaveLength(1);
+    expect(JSON.stringify(second.agent.context.history)).toContain(
+      'Message retained after compaction.',
+    );
+  });
+
   it('keeps delivered background notifications indexed after compaction replay', async () => {
     const origin = {
       kind: 'background_task',

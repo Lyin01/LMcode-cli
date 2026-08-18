@@ -370,7 +370,7 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
       const ev = event as WarningEvent
       const message =
         ev.code === 'post_write_review_limit_reached'
-          ? '本轮自动审查已达到上限，已保留最新修改，不会继续循环重审。'
+          ? '本轮自动审查已达到上限；后续文件操作可继续，仅跳过额外自动审查。'
           : `提示：${ev.message}`
       return {
         ...slice,

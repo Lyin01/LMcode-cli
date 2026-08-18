@@ -376,16 +376,17 @@ export class Agent {
     });
   }
 
-  useProfile(profile: ResolvedAgentProfile, context?: PreparedSystemPromptContext): void {
-    const promptContext: SystemPromptContext = {
-      osEnv: this.jian.osEnv,
-      cwd: this.config.cwd,
-      skills: this.skills?.registry,
-      cwdListing: context?.cwdListing,
-      agentsMd: context?.agentsMd,
-      agentsMdPaths: context?.agentsMdPaths,
-    };
-    const systemPrompt = profile.systemPrompt(promptContext);
+  useProfile(
+    profile: ResolvedAgentProfile,
+    context?: PreparedSystemPromptContext,
+    additionalSystemPrompt?: string,
+  ): void {
+    const promptContext = this.systemPromptContext(context);
+    const profileSystemPrompt = profile.systemPrompt(promptContext);
+    const trimmedAdditionalPrompt = additionalSystemPrompt?.trim();
+    const systemPrompt = trimmedAdditionalPrompt
+      ? `${profileSystemPrompt.trimEnd()}\n\n${trimmedAdditionalPrompt}`
+      : profileSystemPrompt;
     this.config.update({ profileName: profile.name, systemPrompt });
     this.tools.setActiveTools(profile.tools);
 
@@ -395,17 +396,31 @@ export class Agent {
     // instead of the system prompt, so the system prompt prefix stays
     // cacheable across sessions.
     if (this.context.history.length === 0) {
-      const vars = buildTemplateVars(promptContext, {});
-      const sessionContext = renderPrompt(SESSION_CONTEXT_TEMPLATE, vars);
-      this.context.appendSystemReminder(sessionContext, {
+      this.context.appendSystemReminder(this.renderSessionContext(context), {
         kind: 'injection',
         variant: 'session_context',
       });
     }
   }
 
-  async resume(): Promise<{ warning?: string }> {
-    const result = await this.records.replay();
+  renderSessionContext(context?: PreparedSystemPromptContext): string {
+    const vars = buildTemplateVars(this.systemPromptContext(context), {});
+    return renderPrompt(SESSION_CONTEXT_TEMPLATE, vars);
+  }
+
+  private systemPromptContext(context?: PreparedSystemPromptContext): SystemPromptContext {
+    return {
+      osEnv: this.jian.osEnv,
+      cwd: this.config.cwd,
+      skills: this.skills?.registry,
+      cwdListing: context?.cwdListing,
+      agentsMd: context?.agentsMd,
+      agentsMdPaths: context?.agentsMdPaths,
+    };
+  }
+
+  async resume(resolveSessionContext?: () => Promise<string>): Promise<{ warning?: string }> {
+    const result = await this.records.replay(resolveSessionContext);
     this.goal.normalizeAfterReplay();
     await this.background.loadFromDisk();
     await this.background.reconcile();

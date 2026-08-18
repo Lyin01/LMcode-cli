@@ -7,6 +7,7 @@ import {
   type WireMigration,
   type WireMigrationRecord,
 } from './migration';
+import { createSystemReminderMessage } from '../context';
 import type { AgentRecord, AgentRecordPersistence } from './types';
 
 export * from './types';
@@ -157,10 +158,11 @@ export class AgentRecords {
     }
   }
 
-  async replay(): Promise<{ warning?: string }> {
+  async replay(resolveSessionContext?: () => Promise<string>): Promise<{ warning?: string }> {
     if (!this.persistence) throw new Error('No persistence provided for AgentRecords');
     let migrations: readonly WireMigration[] = [];
     let hasMetadata = false;
+    let canRewrite = true;
     let shouldRewrite = false;
     let warning: string | undefined;
     const replayedRecords: AgentRecord[] = [];
@@ -174,6 +176,7 @@ export class AgentRecords {
         const readVersion = record.protocol_version;
         if (isNewerWireVersion(readVersion)) {
           warning = `Session wire protocol version ${readVersion} is newer than the current version ${AGENT_WIRE_PROTOCOL_VERSION}. Records will be replayed without migration.`;
+          canRewrite = false;
           shouldRewrite = false;
         } else {
           migrations = resolveWireMigrations(readVersion);
@@ -193,7 +196,41 @@ export class AgentRecords {
       replayedRecords.push(migratedRecord);
       this.restore(migratedRecord);
     }
-    if (shouldRewrite) {
+
+    if (hasMetadata && resolveSessionContext !== undefined) {
+      const content = await resolveSessionContext();
+      const refreshed = createSystemReminderMessage(content, {
+        kind: 'injection',
+        variant: 'session_context',
+      });
+      let activeSessionContextFound = false;
+
+      for (const record of replayedRecords) {
+        if (!isSessionContextRecord(record)) continue;
+        if (this.agent.context.history.includes(record.message)) {
+          activeSessionContextFound = true;
+        }
+        if (this.agent.context.replaceReplayedMessageContent(record.message, refreshed.content)) {
+          shouldRewrite = true;
+        }
+      }
+
+      // Compaction may already have consumed the original session-context
+      // message. Add the refreshed context after the replayed records so its
+      // ordering cannot change historical compaction counts.
+      if (!activeSessionContextFound) {
+        const record: AgentRecord = {
+          type: 'context.append_message',
+          message: refreshed,
+          time: Date.now(),
+        };
+        replayedRecords.push(record);
+        this.restore(record);
+        shouldRewrite = true;
+      }
+    }
+
+    if (shouldRewrite && canRewrite) {
       this.persistence.rewrite(replayedRecords);
       await this.persistence.flush();
     }
@@ -208,4 +245,14 @@ export class AgentRecords {
   async flush(): Promise<void> {
     await this.persistence?.flush();
   }
+}
+
+function isSessionContextRecord(
+  record: AgentRecord,
+): record is Extract<AgentRecord, { readonly type: 'context.append_message' }> {
+  return (
+    record.type === 'context.append_message' &&
+    record.message.origin?.kind === 'injection' &&
+    record.message.origin.variant === 'session_context'
+  );
 }

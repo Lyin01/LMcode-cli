@@ -42,6 +42,7 @@ export interface CreateSessionPayload {
   readonly thinking?: string | undefined;
   readonly permission?: PermissionMode | undefined;
   readonly metadata?: JsonObject | undefined;
+  readonly additionalSystemPrompt?: string | undefined;
 }
 
 export interface CloseSessionPayload {
@@ -54,6 +55,7 @@ export interface DeleteSessionPayload {
 
 export interface ResumeSessionPayload {
   readonly sessionId: string;
+  readonly additionalSystemPrompt?: string | undefined;
 }
 
 export interface ForkSessionPayload {

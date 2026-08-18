@@ -31,6 +31,18 @@ export interface ContextMemorySnapshot {
   readonly revision: number;
 }
 
+export function createSystemReminderMessage(
+  content: string,
+  origin: PromptOrigin,
+): ContextMessage {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text: `<system-reminder>\n${content}\n</system-reminder>` }],
+    toolCalls: [],
+    origin,
+  };
+}
+
 export class ContextMemory {
   private _history: ContextMessage[] = [];
   private _tokenCount = 0;
@@ -77,13 +89,38 @@ export class ContextMemory {
   }
 
   appendSystemReminder(content: string, origin: PromptOrigin): void {
-    const text = `<system-reminder>\n${content}\n</system-reminder>`;
-    this.appendMessage({
-      role: 'user',
-      content: [{ type: 'text', text }],
-      toolCalls: [],
-      origin,
-    });
+    this.appendMessage(createSystemReminderMessage(content, origin));
+  }
+
+  /**
+   * Refresh a message object created during wire replay without adding a new
+   * record. AgentRecords rewrites the replayed wire after this mutation, so
+   * compaction record counts and message ordering remain unchanged.
+   */
+  replaceReplayedMessageContent(
+    message: ContextMessage,
+    content: readonly ContentPart[],
+  ): boolean {
+    if (sameContent(message.content, content)) return false;
+
+    const historyIndex = this._history.indexOf(message);
+    const previousTokens =
+      historyIndex >= 0 && historyIndex < this.tokenCountCoveredMessageCount
+        ? estimateTokensForMessages([message])
+        : 0;
+
+    message.content.splice(0, message.content.length, ...content);
+
+    if (historyIndex >= 0) {
+      if (historyIndex < this.tokenCountCoveredMessageCount) {
+        this._tokenCount = Math.max(
+          0,
+          this._tokenCount - previousTokens + estimateTokensForMessages([message]),
+        );
+      }
+      this._revision += 1;
+    }
+    return true;
   }
 
   clear(): void {
@@ -335,6 +372,14 @@ export class ContextMemory {
       });
     }
   }
+}
+
+function sameContent(
+  current: readonly ContentPart[],
+  next: readonly ContentPart[],
+): boolean {
+  if (current.length !== next.length) return false;
+  return current.every((part, index) => JSON.stringify(part) === JSON.stringify(next[index]));
 }
 
 function toolResultOutputForModel(result: ExecutableToolResult): string | ContentPart[] {
