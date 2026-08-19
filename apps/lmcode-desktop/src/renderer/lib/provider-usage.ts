@@ -14,6 +14,23 @@ export interface ProviderUsageDisplay {
   readonly subscriptionHasIssues: boolean
 }
 
+export interface OpenCodeQuotaMeter {
+  readonly label: string
+  readonly remainingPercent: number | null
+  readonly remaining: number
+  readonly limit: number
+  readonly resetAt?: string
+}
+
+export interface OpenCodeUsageDisplay {
+  readonly providerId: string
+  readonly meters: readonly OpenCodeQuotaMeter[]
+  readonly issue: string | null
+}
+
+const OPENCODE_PROVIDER_PATTERN = /open[\s_-]?code/i
+const OPENCODE_WINDOW_LABELS = new Set(['滚动', '每周', '每月'])
+
 export function remainingQuotaPercent(row: SubscriptionQuotaRow): number | null {
   if (row.limit <= 0) return null
   const remaining = Math.max(0, row.limit - row.used)
@@ -87,6 +104,48 @@ export function buildProviderUsageDisplay(
   }
 }
 
+export function buildOpenCodeUsageDisplay(
+  snapshot: ProviderUsageSnapshot,
+): OpenCodeUsageDisplay | null {
+  const issue = snapshot.issues.find(
+    (candidate) =>
+      candidate.kind === 'opencode-go' || OPENCODE_PROVIDER_PATTERN.test(candidate.providerId),
+  )
+  const subscription = snapshot.subscriptions.find((candidate) =>
+    OPENCODE_PROVIDER_PATTERN.test(candidate.providerId),
+  ) ?? snapshot.subscriptions.find((candidate) => {
+    const rows = candidate.summary === null
+      ? candidate.limits
+      : [candidate.summary, ...candidate.limits]
+    return rows.some((row) => row.name !== undefined && OPENCODE_WINDOW_LABELS.has(row.name))
+  })
+
+  if (subscription === undefined) {
+    return issue === undefined
+      ? null
+      : { providerId: issue.providerId, meters: [], issue: issue.message }
+  }
+
+  const rows = subscription.summary === null
+    ? subscription.limits
+    : [subscription.summary, ...subscription.limits]
+  const meters = rows
+    .map((row): OpenCodeQuotaMeter => ({
+      label: row.name?.trim() || quotaWindowLabel(row.window, undefined).trim(),
+      remainingPercent: remainingQuotaPercent(row),
+      remaining: Math.max(0, row.limit - row.used),
+      limit: row.limit,
+      resetAt: row.resetAt,
+    }))
+    .toSorted((left, right) => openCodeWindowOrder(left.label) - openCodeWindowOrder(right.label))
+
+  return {
+    providerId: subscription.providerId,
+    meters,
+    issue: issue?.message ?? null,
+  }
+}
+
 function statusText(
   label: string,
   values: readonly string[],
@@ -104,8 +163,21 @@ function formatQuotaRow(row: SubscriptionQuotaRow): string {
 
 function formatQuotaDetail(providerId: string, row: SubscriptionQuotaRow): string {
   const remaining = Math.max(0, row.limit - row.used)
-  const reset = row.resetAt === undefined ? '' : `，重置于 ${formatResetTime(row.resetAt)}`
+  const reset = row.resetAt === undefined ? '' : `，重置于 ${formatQuotaResetTime(row.resetAt)}`
   return `${providerId} ${quotaWindowLabel(row.window, row.name)}：剩余 ${String(remaining)} / ${String(row.limit)}${reset}`
+}
+
+function openCodeWindowOrder(label: string): number {
+  switch (label) {
+    case '滚动':
+      return 0
+    case '每周':
+      return 1
+    case '每月':
+      return 2
+    default:
+      return 3
+  }
 }
 
 function quotaWindowLabel(
@@ -127,7 +199,7 @@ function formatCents(cents: number, currency: string): string {
   return formatMoney({ currency, available: cents / 100 })
 }
 
-function formatResetTime(value: string): string {
+export function formatQuotaResetTime(value: string): string {
   const timestamp = Date.parse(value)
   if (!Number.isFinite(timestamp)) return value
   return new Date(timestamp).toLocaleString('zh-CN', {

@@ -219,7 +219,7 @@ importers:
         specifier: ^8.21.3
         version: 8.21.3
       zod:
-        specifier: 'catalog:'
+        specifier: ^4.3.6
         version: 4.4.3
       zustand:
         specifier: ^5.0.0

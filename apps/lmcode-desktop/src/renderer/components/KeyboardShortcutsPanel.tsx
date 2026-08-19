@@ -75,7 +75,7 @@ export function KeyboardShortcutsPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]"
+      className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()

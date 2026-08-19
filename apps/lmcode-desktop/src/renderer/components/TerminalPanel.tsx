@@ -269,7 +269,7 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
   if (!open) return null
 
   return (
-    <section className="fixed bottom-0 right-0 z-40 flex h-[45vh] w-[min(1000px,calc(100vw-48px))] flex-col overflow-hidden rounded-tl-2xl border-l border-t border-[var(--lm-border)] bg-[var(--lm-bg-code)] shadow-[var(--lm-shadow-pop)]">
+    <section className="fixed bottom-[var(--lm-global-usage-height)] right-0 z-40 flex h-[45vh] w-[min(1000px,calc(100vw-48px))] flex-col overflow-hidden rounded-tl-2xl border-l border-t border-[var(--lm-border)] bg-[var(--lm-bg-code)] shadow-[var(--lm-shadow-pop)]">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] px-3">
         <SquareTerminal size={15} className="text-[var(--lm-accent-text)]" />
         <span className="text-[12px] font-semibold text-[var(--lm-text-primary)]">项目终端</span>

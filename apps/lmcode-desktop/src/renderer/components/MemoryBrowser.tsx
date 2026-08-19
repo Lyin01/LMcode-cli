@@ -87,7 +87,7 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-40 flex">
+    <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
       <div
         aria-hidden="true"
         className="absolute inset-0 bg-black/30 backdrop-blur-sm"

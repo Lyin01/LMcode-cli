@@ -173,7 +173,7 @@ export function TasksPanel({ open, onClose }: TasksPanelProps) {
     <div
       ref={panelRef}
       tabIndex={-1}
-      className="fixed bottom-4 left-1/2 z-30 max-h-[60vh] w-full max-w-xl -translate-x-1/2 overflow-hidden rounded-2xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] shadow-[var(--lm-shadow-pop)]"
+      className="fixed bottom-[calc(var(--lm-global-usage-height)+1rem)] left-1/2 z-30 max-h-[60vh] w-full max-w-xl -translate-x-1/2 overflow-hidden rounded-2xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] shadow-[var(--lm-shadow-pop)]"
     >
       <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3">
         <div className="flex items-center gap-2">
