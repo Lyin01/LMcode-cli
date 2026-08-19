@@ -575,7 +575,6 @@ export class MemoryMemoStore {
     const selectRow = this.db.prepare('SELECT rowid FROM memos WHERE id = ?');
     const update = this.db.prepare(
       `UPDATE memos SET
-        rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM memos),
         source_session_id = ?,
         source_session_title = ?,
         user_need = ?,
@@ -621,7 +620,7 @@ export class MemoryMemoStore {
       }
       this.deleteFtsEntry(oldRow.rowid, existing);
       updateFts.run(
-        row.rowid,
+        oldRow.rowid,
         toFtsText(updated.userNeed),
         toFtsText(updated.approach),
         toFtsText(updated.whatFailed),

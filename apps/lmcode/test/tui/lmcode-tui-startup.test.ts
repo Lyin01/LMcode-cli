@@ -180,11 +180,11 @@ describe("LmcodeTUI startup", () => {
     expect(driver.state.appState.sessionId).toBe("ses-latest");
   });
 
-  it("falls back to manual permission in the initial app state (no misleading YES badge)", () => {
+  it("defaults the initial app state to auto permission", () => {
     const harness = makeHarness();
     const driver = makeDriver(harness, makeStartupInput());
 
-    expect(driver.state.appState.permissionMode).toBe("manual");
+    expect(driver.state.appState.permissionMode).toBe("auto");
 
     const yoloDriver = makeDriver(makeHarness(), makeStartupInput({ yolo: true }));
     expect(yoloDriver.state.appState.permissionMode).toBe("yolo");
@@ -237,7 +237,7 @@ describe("LmcodeTUI startup", () => {
     expect(harness.createSession).toHaveBeenCalledWith({
       workDir: "/tmp/proj-a",
       model: "lmcode/k2.5",
-      permission: undefined,
+      permission: "auto",
       planMode: undefined,
     });
   });

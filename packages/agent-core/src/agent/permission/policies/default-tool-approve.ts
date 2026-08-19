@@ -15,7 +15,6 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'Agent',
   'AskUserQuestion',
   'Skill',
-  'WolfPack',
   'CreateGoal',
   'UpdateGoal',
   'GetGoal',

@@ -239,7 +239,7 @@ export class TurnFlow {
       text:
         `[用户粘贴了 ${savedPaths.length} 张图片。当前模型无视觉能力，图片未随消息发送，已保存到：\n` +
         savedPaths.map((p) => `- ${p}`).join('\n') +
-        `\n如需查看图片内容，请调用 visual-mcp 的 analyze_image 工具，传入上述文件路径（每张图一次调用）。]`,
+        `\n如需查看图片内容，请调用 ReadMediaFile（模型支持视觉时）或当前已配置的视觉工具，传入上述文件路径（每张图一次调用）。]`,
     };
     kept.push(note);
     return kept;

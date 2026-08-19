@@ -53,23 +53,28 @@ describe('estimateTokensForContentPart', () => {
     expect(estimateTokensForContentPart(part)).toBe(estimateTokens('let me think about this'));
   });
 
-  // Media parts are deliberately estimated as 0: their token cost cannot be
-  // derived from a URL without fetching, and the transient estimate is
-  // superseded by the provider's real count on the next round-trip. If media
-  // estimation is ever added, update these expectations consciously.
-  it('estimates image parts as 0 tokens', () => {
+  it('estimates remote image parts with a conservative floor', () => {
     const part: ContentPart = { type: 'image_url', imageUrl: { url: 'https://x/y.png' } };
-    expect(estimateTokensForContentPart(part)).toBe(0);
+    expect(estimateTokensForContentPart(part)).toBe(765);
   });
 
-  it('estimates audio parts as 0 tokens', () => {
+  it('estimates audio parts with a conservative floor', () => {
     const part: ContentPart = { type: 'audio_url', audioUrl: { url: 'https://x/y.mp3' } };
-    expect(estimateTokensForContentPart(part)).toBe(0);
+    expect(estimateTokensForContentPart(part)).toBe(765);
   });
 
-  it('estimates video parts as 0 tokens', () => {
+  it('estimates video parts with a conservative floor', () => {
     const part: ContentPart = { type: 'video_url', videoUrl: { url: 'https://x/y.mp4' } };
-    expect(estimateTokensForContentPart(part)).toBe(0);
+    expect(estimateTokensForContentPart(part)).toBe(765);
+  });
+
+  it('scales inline data-URL media by decoded size', () => {
+    const payload = 'A'.repeat(120_000);
+    const part: ContentPart = {
+      type: 'image_url',
+      imageUrl: { url: `data:image/png;base64,${payload}` },
+    };
+    expect(estimateTokensForContentPart(part)).toBeGreaterThan(765);
   });
 });
 
@@ -114,7 +119,7 @@ describe('estimateTokensForMessage', () => {
     );
   });
 
-  it('ignores media parts when summing a mixed-content message', () => {
+  it('includes media parts when summing a mixed-content message', () => {
     const message: Message = {
       role: 'user',
       content: [
@@ -124,7 +129,7 @@ describe('estimateTokensForMessage', () => {
       toolCalls: [],
     };
     expect(estimateTokensForMessage(message)).toBe(
-      estimateTokens('user') + estimateTokens('look at this'),
+      estimateTokens('user') + estimateTokens('look at this') + 765,
     );
   });
 });

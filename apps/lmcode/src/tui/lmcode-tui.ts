@@ -87,14 +87,7 @@ export interface LmcodeTUIStartupInput {
 }
 
 function createInitialAppState(input: LmcodeTUIStartupInput): AppState {
-  // Default to 'manual' (no footer badge) rather than 'yolo' (which paints a
-  // misleading YES badge on the picker startup path). The real permission is
-  // synced from the session via syncRuntimeState right after creation.
-  const startupPermission: PermissionMode = input.cliOptions.auto
-    ? 'auto'
-    : input.cliOptions.yolo
-      ? 'yolo'
-      : 'manual';
+  const startupPermission: PermissionMode = input.cliOptions.yolo ? 'yolo' : 'auto';
   return {
     model: '',
     workDir: input.workDir,

@@ -110,6 +110,8 @@ export class TranscriptController {
       this.committedComponent.appendEntry(entry, state.theme.colors);
       container.removeChild(component);
       this.liveComponentToEntry.delete(component);
+      const disposable = component as { dispose?: () => void };
+      disposable.dispose?.();
     }
 
     this.committedComponent.setCount(this.committedComponent.getCount() + toCommit.length);

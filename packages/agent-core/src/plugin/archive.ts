@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { type Entry, fromBuffer as yauzlFromBuffer } from 'yauzl';
 
 const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_PLUGIN_ZIP_BYTES = 50 * 1024 * 1024;
 
 export async function downloadZip(url: string, signal?: AbortSignal): Promise<Buffer> {
   // Combine rather than substitute: the old `signal ?? timeout` form silently
@@ -17,7 +18,15 @@ export async function downloadZip(url: string, signal?: AbortSignal): Promise<Bu
   if (!resp.ok) {
     throw new Error(`Failed to download zip: HTTP ${resp.status} ${resp.statusText}`);
   }
-  return Buffer.from(await resp.arrayBuffer());
+  const declared = Number(resp.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_PLUGIN_ZIP_BYTES) {
+    throw new Error(`Plugin archive exceeds ${String(MAX_PLUGIN_ZIP_BYTES)} byte limit`);
+  }
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  if (buffer.length > MAX_PLUGIN_ZIP_BYTES) {
+    throw new Error(`Plugin archive exceeds ${String(MAX_PLUGIN_ZIP_BYTES)} byte limit`);
+  }
+  return buffer;
 }
 
 export async function extractZip(buffer: Buffer, destDir: string): Promise<string> {

@@ -242,7 +242,7 @@ describe('desktop handler lifecycle', () => {
 
     // Without `noProject`, an empty workDir is still rejected.
     await expect(invoke('lmcode:createSession', { workDir: '   ' })).rejects.toThrow(
-      'project directory is required',
+      'Invalid IPC arguments',
     )
 
     await expect(invoke('lmcode:getNoProjectWorkDir')).resolves.toBe(

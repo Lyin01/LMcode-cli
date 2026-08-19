@@ -222,7 +222,7 @@ export class FooterComponent implements Component {
     if (this.shimmerTimer) return;
     this.shimmerTimer = setInterval(() => {
       this.ui.requestRender();
-    }, 1000 / 30);
+    }, 200);
   }
 
   #stopShimmer(): void {

@@ -9,6 +9,9 @@ import type { ConversationFindRequest } from '@/lib/menu-command'
 
 /** Distance from the bottom (px) within which the view is considered "stuck". */
 const STICK_THRESHOLD_PX = 80
+const VIRTUALIZE_AFTER = 60
+const ESTIMATED_ROW_PX = 180
+const OVERSCAN = 6
 
 interface MessageListProps {
   findRequest: ConversationFindRequest | null
@@ -29,6 +32,7 @@ export function MessageList({ findRequest }: MessageListProps) {
   // triggers a re-render.
   const stickToBottomRef = useRef(true)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [windowRange, setWindowRange] = useState({ start: 0, end: VIRTUALIZE_AFTER })
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
@@ -42,13 +46,26 @@ export function MessageList({ findRequest }: MessageListProps) {
   )
   const activeMatchId = matchingMessageIds[activeMatchIndex] ?? null
 
+  const updateWindow = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const start = Math.max(0, Math.floor(el.scrollTop / ESTIMATED_ROW_PX) - OVERSCAN)
+    const visible = Math.ceil(el.clientHeight / ESTIMATED_ROW_PX) + OVERSCAN * 2
+    setWindowRange((current) => {
+      const next = { start, end: start + visible }
+      if (current.start === next.start && current.end === next.end) return current
+      return next
+    })
+  }, [])
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX
     stickToBottomRef.current = atBottom
     if (atBottom) setShowJumpToBottom(false)
-  }, [])
+    updateWindow()
+  }, [updateWindow])
 
   const jumpToBottom = useCallback(() => {
     const el = scrollRef.current
@@ -142,6 +159,13 @@ export function MessageList({ findRequest }: MessageListProps) {
   }, [findQuery, findRequest, moveMatch])
 
   // ── Regenerate ────────────────────────────────────────────────────
+  const virtualize = !findOpen && messages.length > VIRTUALIZE_AFTER
+  const visibleStart = virtualize ? Math.min(windowRange.start, Math.max(0, messages.length - 1)) : 0
+  const visibleEnd = virtualize ? Math.min(messages.length, windowRange.end) : messages.length
+  const visibleMessages = virtualize ? messages.slice(visibleStart, visibleEnd) : messages
+  const topSpacer = virtualize ? visibleStart * ESTIMATED_ROW_PX : 0
+  const bottomSpacer = virtualize ? Math.max(0, messages.length - visibleEnd) * ESTIMATED_ROW_PX : 0
+
   const lastAssistantId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
@@ -232,7 +256,8 @@ export function MessageList({ findRequest }: MessageListProps) {
       )}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-7 px-5 py-7">
-          {messages.map((msg) => (
+          {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
+          {visibleMessages.map((msg) => (
             <div
               key={msg.id}
               ref={(node) => {
@@ -258,6 +283,7 @@ export function MessageList({ findRequest }: MessageListProps) {
               />
             </div>
           ))}
+          {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden />}
         </div>
       </div>
       {showJumpToBottom && (

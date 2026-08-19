@@ -14,6 +14,11 @@ describe('IPC argument schemas (wire boundary contract)', () => {
     expect(parseIpcArgs(createSessionArgsSchema, args, 'lmcode:createSession')).toEqual(args)
   })
 
+  it('accepts a no-project createSession payload', () => {
+    const args = [{ noProject: true }]
+    expect(parseIpcArgs(createSessionArgsSchema, args, 'lmcode:createSession')).toEqual(args)
+  })
+
   it('rejects a createSession payload whose workDir is blank', () => {
     expect(() =>
       parseIpcArgs(createSessionArgsSchema, [{ workDir: '   ' }], 'lmcode:createSession'),

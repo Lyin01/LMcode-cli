@@ -14,6 +14,7 @@ import type {
   PermissionPolicyResult,
   PermissionRule
 } from './types';
+import { DEFAULT_PERMISSION_MODE } from './types';
 
 export * from './types';
 
@@ -114,7 +115,7 @@ export class PermissionManager {
   }
 
   get mode(): PermissionMode {
-    return this.modeOverride ?? this.parent?.mode ?? 'yolo';
+    return this.modeOverride ?? this.parent?.mode ?? DEFAULT_PERMISSION_MODE;
   }
 
   set mode(mode: PermissionMode) {

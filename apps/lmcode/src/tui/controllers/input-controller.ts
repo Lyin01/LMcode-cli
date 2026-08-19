@@ -30,7 +30,7 @@ import chalk from 'chalk';
 // ── Idle breathing gradient for the input box border ──────────────────
 
 const BREATHE_FRAMES = 120;
-const BREATHE_INTERVAL_MS = 40;
+const BREATHE_INTERVAL_MS = 100;
 
 function hexToRgb(hex: string): [number, number, number] {
   const v = parseInt(hex.slice(1), 16);

@@ -87,7 +87,7 @@ Long-running and parallel work:
 | `lm -S [id]` | Pick or directly resume a session |
 | `lm --plan` | Start in plan mode |
 | `lm --auto` | Auto-approve routine operations, keep sensitive-path guards |
-| `lm --yolo` | Explicit yolo permission mode (also the current startup default) |
+| `lm --yolo` | Explicit yolo permission mode (bypasses sensitive-path and out-of-cwd write prompts) |
 | `/config` | Configure model providers |
 | `/model` | Switch model and reasoning effort |
 | `/permission` | Switch permission mode |
@@ -108,7 +108,7 @@ LMcode is not an offline tool — know where your data goes:
 - Config, sessions, memory, and most run records stay on your machine under `~/.lmcode` (override with `LMCODE_HOME`).
 - Prompts, necessary file contents, and tool results are sent to the model provider you configured.
 - Web search, URL fetching, MCP, and cc-connect send related data to their respective external services.
-- File-boundary checks cover the built-in file tools that declare file access (Read/Write/Edit/MultiEdit…). `Bash`, MCP tools, and user-defined tools do not declare file access — constrain them with `manual` mode or deny rules.
+- File-boundary checks cover built-in file tools and Bash (plan mode and the read-only sandbox now treat Bash as an unrestricted write). MCP tools and user-defined tools still do not declare file access — constrain them with `manual` mode or deny rules. Startup default is `auto`; use `--yolo` only when you want to skip sensitive-path and out-of-cwd prompts.
 
 ## Roadmap
 

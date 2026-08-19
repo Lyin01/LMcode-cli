@@ -67,7 +67,7 @@ describe('FooterComponent — thinking shimmer timer', () => {
     footer.setState(state);
     footer.setState(state);
     footer.setState(state);
-    vi.advanceTimersByTime(1000 / 30 + 5);
+    vi.advanceTimersByTime(205);
     expect(ui.requestRender).toHaveBeenCalledTimes(1);
 
     footer.dispose();

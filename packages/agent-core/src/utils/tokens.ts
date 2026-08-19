@@ -53,11 +53,47 @@ export function estimateTokensForMessage(message: Message): number {
   return total;
 }
 
+/** Conservative floor for a remote/unknown multimodal part. */
+const MIN_MEDIA_TOKENS = 765;
+/** ~100 decoded bytes per estimated token for inline data URLs. */
+const BYTES_PER_MEDIA_TOKEN = 100;
+
 export function estimateTokensForContentPart(part: ContentPart): number {
   if (part.type === 'text') {
     return estimateTokens(part.text);
   } else if (part.type === 'think') {
     return estimateTokens(part.think);
+  } else if (part.type === 'image_url') {
+    return estimateMediaUrlTokens(part.imageUrl.url);
+  } else if (part.type === 'audio_url') {
+    return estimateMediaUrlTokens(part.audioUrl.url);
+  } else if (part.type === 'video_url') {
+    return estimateMediaUrlTokens(part.videoUrl.url);
   }
   return 0;
+}
+
+export function estimateMediaUrlTokens(url: string): number {
+  const comma = url.indexOf(',');
+  if (url.startsWith('data:') && comma !== -1) {
+    const payload = url.slice(comma + 1);
+    const bytes = Math.floor((payload.length * 3) / 4);
+    return Math.max(MIN_MEDIA_TOKENS, Math.ceil(bytes / BYTES_PER_MEDIA_TOKEN));
+  }
+  return MIN_MEDIA_TOKENS;
+}
+
+/** Keep a prefix of `text` whose estimated tokens stay within `budget`. */
+export function sliceTextToTokenBudget(text: string, budget: number): string {
+  if (budget <= 0) return '';
+  if (estimateTokens(text) <= budget) return text;
+  let tokens = 0;
+  let end = 0;
+  for (const ch of text) {
+    const chTokens = ch.codePointAt(0)! <= 127 ? 1 / 4 : 1;
+    if (tokens + chTokens > budget) break;
+    tokens += chTokens;
+    end += ch.length;
+  }
+  return text.slice(0, end);
 }

@@ -4,7 +4,7 @@ Thank you for your interest in contributing!
 
 ## Getting Started
 
-- Node.js >= 22.0.0
+- Node.js >= 22.19.0
 - pnpm 11.7.0
 
 ```bash

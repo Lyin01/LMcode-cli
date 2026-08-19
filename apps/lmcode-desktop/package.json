@@ -1,6 +1,6 @@
 {
   "name": "@liumir/lmcode-desktop",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "LMCODE Desktop - AI Agent 桌面客户端",
   "license": "MIT",
@@ -74,6 +74,6 @@
     "vite": "^6.0.0"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0"
   }
 }

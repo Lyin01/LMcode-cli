@@ -29,6 +29,9 @@ export type PermissionRuleScope = 'turn-override' | 'session-runtime' | 'project
  */
 export type PermissionMode = 'manual' | 'yolo' | 'auto';
 
+/** Fail-closed product default when no session or config override is set. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = 'auto';
+
 /**
  * File sandbox tier — a hard, mode-independent boundary orthogonal to
  * {@link PermissionMode}. Mirrors the deepseek-harness file-policy tiers:

@@ -3,6 +3,7 @@ import * as win32Path from 'node:path/win32';
 
 import type { Agent } from '../..';
 import type { ToolFileAccess } from '../../../loop/tool-access';
+import type { ToolResourceAccessAll } from '../../../loop/tool-access';
 import { isWithinDirectory, type PathClass } from '../../../tools/policies/path-access';
 import { isSensitiveFile } from '../../../tools/policies/sensitive';
 import {
@@ -109,6 +110,15 @@ function fileAccesses(context: PermissionPolicyContext): ToolFileAccess[] {
   return (
     context.execution.accesses?.filter((access): access is ToolFileAccess => access.kind === 'file') ??
     []
+  );
+}
+
+/** True when the tool declared opaque/unrestricted side effects (`kind: 'all'`). */
+export function hasUnrestrictedAccess(context: PermissionPolicyContext): boolean {
+  return (
+    context.execution.accesses?.some(
+      (access): access is ToolResourceAccessAll => access.kind === 'all',
+    ) === true
   );
 }
 

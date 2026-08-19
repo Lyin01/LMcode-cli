@@ -2,7 +2,7 @@ import { createToolMessage, type ContentPart, type Message } from '@lmcode-cli/l
 
 import type { Agent } from '..';
 import type { ExecutableToolResult, LoopRecordedEvent } from '../../loop';
-import { estimateTokens, estimateTokensForMessages } from '../../utils/tokens';
+import { estimateTokens, estimateTokensForMessages, sliceTextToTokenBudget } from '../../utils/tokens';
 import type { CompactionResult } from '../compaction';
 import { project } from './projector';
 import { MAX_TOOL_RESULT_TOKENS, TOOL_TRUNCATION_NOTICE } from './tool-output-limits';
@@ -371,17 +371,7 @@ function truncateToolOutput(text: string): string {
   const noticeTokens = estimateTokens(TOOL_TRUNCATION_NOTICE);
   const budget = MAX_TOOL_RESULT_TOKENS - noticeTokens;
   if (budget <= 0) return TOOL_TRUNCATION_NOTICE.trim();
-
-  // Character-level truncation: preserve the first ~budget tokens' worth of text.
-  let kept = '';
-  let tokens = 0;
-  for (const ch of text) {
-    const chTokens = ch.codePointAt(0)! <= 127 ? 1 / 4 : 1;
-    if (tokens + chTokens > budget) break;
-    kept += ch;
-    tokens += chTokens;
-  }
-  return kept + TOOL_TRUNCATION_NOTICE;
+  return sliceTextToTokenBudget(text, budget) + TOOL_TRUNCATION_NOTICE;
 }
 
 /** Truncate oversized text parts in a ContentPart array. */
@@ -408,16 +398,7 @@ function truncateContentParts(parts: readonly ContentPart[]): ContentPart[] {
       result.push(p);
       used += partTokens;
     } else {
-      // Partial truncation of this text part.
-      const remaining = budget - used;
-      let kept = '';
-      let t = 0;
-      for (const ch of p.text) {
-        const chTokens = ch.codePointAt(0)! <= 127 ? 1 / 4 : 1;
-        if (t + chTokens > remaining) break;
-        kept += ch;
-        t += chTokens;
-      }
+      const kept = sliceTextToTokenBudget(p.text, budget - used);
       if (kept.length > 0) result.push({ type: 'text', text: kept });
       break;
     }

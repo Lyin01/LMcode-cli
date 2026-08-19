@@ -73,7 +73,7 @@ export class SessionManager {
     const createSessionOptions: CreateSessionOptions = {
       workDir,
       model: startup.model,
-      permission: startup.auto ? 'auto' : startup.yolo ? 'yolo' : undefined,
+      permission: startup.yolo ? 'yolo' : 'auto',
       planMode: startup.plan ? true : undefined,
     };
 

@@ -49,12 +49,19 @@ export const desktopPromptRequestSchema = z.object({
   attachments: z.array(promptAttachmentInputSchema),
 })
 
-export const createSessionOptionsSchema = z.object({
-  workDir: z.string().trim().min(1),
-  model: z.string().optional(),
-  thinking: z.string().optional(),
-  permission: permissionModeSchema.optional(),
-})
+export const createSessionOptionsSchema = z
+  .object({
+    workDir: z.string().trim().min(1).optional(),
+    noProject: z.boolean().optional(),
+    model: z.string().optional(),
+    thinking: z.string().optional(),
+    permission: permissionModeSchema.optional(),
+  })
+  .refine(
+    (value) =>
+      value.noProject === true || (value.workDir !== undefined && value.workDir.length > 0),
+    { message: 'workDir is required unless noProject is true' },
+  )
 
 export const createCronJobInputSchema = z.object({
   cron: z.string().trim().min(1),

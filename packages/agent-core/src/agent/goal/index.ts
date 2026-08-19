@@ -47,6 +47,13 @@ export interface GoalBudgetLimits {
   readonly wallClockBudgetMs?: number;
 }
 
+/** Conservative defaults so a stuck model cannot run unbounded goal turns. */
+export const DEFAULT_GOAL_BUDGET_LIMITS: GoalBudgetLimits = {
+  turnBudget: 32,
+  tokenBudget: 2_000_000,
+  wallClockBudgetMs: 45 * 60 * 1000,
+};
+
 interface GoalState {
   goalId: string;
   objective: string;
@@ -173,7 +180,7 @@ export class GoalMode {
       turnsUsed: 0,
       tokensUsed: 0,
       wallClockMs: 0,
-      budgetLimits: {},
+      budgetLimits: { ...DEFAULT_GOAL_BUDGET_LIMITS },
       notes: [],
       evidenceStartIndex: this.agent.context.history.length,
     };
@@ -319,7 +326,7 @@ export class GoalMode {
       tokensUsed: 0,
       wallClockMs: 0,
       wallClockResumedAt: Date.now(),
-      budgetLimits: {},
+      budgetLimits: { ...DEFAULT_GOAL_BUDGET_LIMITS },
       notes: [],
       evidenceStartIndex: this.agent.context.history.length,
     };

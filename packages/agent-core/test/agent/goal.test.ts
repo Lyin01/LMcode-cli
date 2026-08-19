@@ -14,6 +14,17 @@ afterEach(() => {
 });
 
 describe('goal state contracts', () => {
+  it('applies a conservative default budget when creating a goal', async () => {
+    const ctx = testAgent();
+    const snapshot = await ctx.agent.goal.createGoal({ objective: 'Stay bounded' });
+    expect(snapshot.budget).toMatchObject({
+      turnBudget: 32,
+      tokenBudget: 2_000_000,
+      wallClockBudgetMs: 45 * 60 * 1000,
+      remainingTurns: 32,
+    });
+  });
+
   it('does not expose mutable working-note state through goal snapshots', async () => {
     const ctx = testAgent();
     await ctx.agent.goal.createGoal({ objective: 'Keep snapshots isolated' });
@@ -349,8 +360,8 @@ describe('goal state contracts', () => {
       });
       expect(ctx.agent.goal.getGoal().goal?.budget).toMatchObject({
         tokenBudget: 100,
-        turnBudget: null,
-        wallClockBudgetMs: null,
+        turnBudget: 32,
+        wallClockBudgetMs: 45 * 60 * 1000,
       });
     }
   });

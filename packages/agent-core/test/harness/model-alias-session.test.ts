@@ -202,7 +202,7 @@ reason = "no rm"
     const created = await rpc.createSession({ workDir });
 
     await expect(rpc.getPermission({ sessionId: created.id, agentId: 'main' })).resolves.toEqual({
-      mode: 'yolo',
+      mode: 'auto',
       rules: [
         {
           decision: 'deny',
@@ -218,7 +218,7 @@ reason = "no rm"
     await expect(
       freshRpc.getPermission({ sessionId: created.id, agentId: 'main' }),
     ).resolves.toEqual({
-      mode: 'yolo',
+      mode: 'auto',
       rules: [
         {
           decision: 'deny',
