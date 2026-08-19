@@ -208,12 +208,12 @@ describe('Plan mode permission policy', () => {
   });
 
   it.each(['manual', 'yolo', 'auto'] as const)(
-    'defers Bash to ordinary %s permission handling while plan mode is active',
+    'blocks Bash while plan mode is active in %s mode',
     async (mode) => {
       const { agent } = await activePlanAgent();
 
-      expect(evaluatePlanPolicy(agent, 'Bash', { command: 'rm foo.txt' }, mode)).toBeUndefined();
-      expect(evaluatePlanPolicy(agent, 'Bash', { command: 'ls -la' }, mode)).toBeUndefined();
+      const deny = expectDeny(evaluatePlanPolicy(agent, 'Bash', { command: 'rm foo.txt' }, mode));
+      expect(deny.message ?? '').toContain('Plan mode is active');
     },
   );
 
@@ -275,6 +275,7 @@ describe('Plan mode permission policy', () => {
 });
 
 function toolAccesses(toolName: string, args: unknown) {
+  if (toolName === 'Bash' || toolName === 'WolfPack') return ToolAccesses.all();
   const path = args !== null && typeof args === 'object' ? (args as { path?: unknown }).path : undefined;
   if (typeof path !== 'string') return ToolAccesses.none();
   if (toolName === 'Write') return ToolAccesses.writeFile(path);

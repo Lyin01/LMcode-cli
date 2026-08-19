@@ -18,6 +18,7 @@ import { toInputJsonSchema } from '../../support/input-schema';
 import WOLFPACK_DESCRIPTION from './wolfpack.md';
 
 const MAX_ITEMS = 20;
+const MAX_CONCURRENT = 8;
 export const WOLFPACK_MAX_ITEM_RESULT_CHARS = 8_000;
 export const WOLFPACK_MAX_AGGREGATE_OUTPUT_CHARS = 32_000;
 const MAX_ITEM_LABEL_CHARS = 200;
@@ -96,7 +97,7 @@ export class WolfPackTool implements BuiltinTool<WolfPackToolInput> {
   resolveExecution(args: WolfPackToolInput): ToolExecution {
     return {
       description: `WolfPack: ${args.description} (${args.items.length} agents)`,
-      accesses: ToolAccesses.none(),
+      accesses: ToolAccesses.all(),
       display: {
         kind: 'generic',
         summary: `WolfPack: ${args.description}`,
@@ -130,70 +131,60 @@ export class WolfPackTool implements BuiltinTool<WolfPackToolInput> {
     const profileName = args.subagent_type ?? 'coder';
     const template = args.prompt_template;
 
-    // Spawn all subagents in parallel
-    const handlePromises = args.items.map(
-      async (item): Promise<{ item: string; handle: SubagentHandle }> => {
-        ctx.signal.throwIfAborted();
-        // Replacer function (not a string replacement) so `$&`, `$1`, `$'`
-        // etc. inside an item stay literal instead of being interpreted as
-        // replacement patterns.
-        const prompt = template.replace(/\{\{item\}\}/g, () => item);
-        const handle = await this.subagentHost.spawn(profileName, {
-          parentToolCallId: ctx.toolCallId,
-          prompt,
-          description: `${args.description}: ${item}`,
-          runInBackground: false,
-          signal: ctx.signal,
-        });
-        return { item, handle };
-      },
-    );
-
-    const handleResults = await Promise.allSettled(handlePromises);
-
-    // Wait for all completions
-    const completionPromises = handleResults.map(
-      async (settled, index): Promise<{ item: string; result: string; success: boolean; agentId?: string }> => {
-        if (settled.status === 'rejected') {
-          const msg = settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
-          return { item: args.items[index]!, result: `Spawn failed: ${msg}`, success: false };
-        }
-
-        const { item, handle } = settled.value;
-        try {
-          const completion = await handle.completion;
-          return {
-            item,
-            result: completion.result,
-            success: true,
-            agentId: handle.agentId,
-          };
-        } catch (error) {
-          let message: string;
-          if (isAbortError(error)) {
-            message = 'The subagent was stopped before it finished.';
-          } else {
-            message = error instanceof Error ? error.message : String(error);
+    const completions: PromiseSettledResult<{
+      item: string;
+      result: string;
+      success: boolean;
+      agentId?: string;
+    }>[] = [];
+    for (let offset = 0; offset < args.items.length; offset += MAX_CONCURRENT) {
+      ctx.signal.throwIfAborted();
+      const batch = args.items.slice(offset, offset + MAX_CONCURRENT);
+      const batchSettled = await Promise.allSettled(
+        batch.map(async (item) => {
+          const prompt = template.replace(/\{\{item\}\}/g, () => item);
+          let handle: SubagentHandle;
+          try {
+            handle = await this.subagentHost.spawn(profileName, {
+              parentToolCallId: ctx.toolCallId,
+              prompt,
+              description: `${args.description}: ${item}`,
+              runInBackground: false,
+              signal: ctx.signal,
+            });
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            return { item, result: `Spawn failed: ${msg}`, success: false };
           }
-          return { item, result: message, success: false, agentId: handle.agentId };
-        }
-      },
-    );
-
-    const completions = await Promise.allSettled(completionPromises);
+          try {
+            const completion = await handle.completion;
+            return {
+              item,
+              result: completion.result,
+              success: true,
+              agentId: handle.agentId,
+            };
+          } catch (error) {
+            const message = isAbortError(error)
+              ? 'The subagent was stopped before it finished.'
+              : error instanceof Error
+                ? error.message
+                : String(error);
+            return { item, result: message, success: false, agentId: handle.agentId };
+          }
+        }),
+      );
+      completions.push(...batchSettled);
+    }
 
     const aggregateItems = completions.map((settled, index): WolfPackAggregateItem => {
       if (settled.status === 'fulfilled') return settled.value;
-      const handleResult = handleResults[index];
-      const agentId =
-        handleResult?.status === 'fulfilled' ? handleResult.value.handle.agentId : undefined;
       const message =
         settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
       return {
         item: args.items[index]!,
         result: `Completion failed: ${message}`,
         success: false,
-        agentId,
       };
     });
 

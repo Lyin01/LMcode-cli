@@ -49,7 +49,11 @@ describe('Session.cancel', () => {
     const harness = new LmcodeHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
-      const session = await harness.createSession({ id: 'ses_cancel_active_turn', workDir });
+      const session = await harness.createSession({
+        id: 'ses_cancel_active_turn',
+        workDir,
+        permission: 'yolo',
+      });
       const events: Event[] = [];
       const unsubscribe = session.onEvent((event) => {
         events.push(event);

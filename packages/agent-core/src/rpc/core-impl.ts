@@ -195,7 +195,7 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
       throw new LmcodeError(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${id}" already exists`);
     }
     const thinkingLevel = resolveThinkingLevel(options.thinking, config);
-    const permissionMode = options.permission ?? config.defaultPermissionMode;
+    const permissionMode = options.permission ?? config.defaultPermissionMode ?? 'auto';
     const baseMcpConfig = await resolveSessionMcpConfig({
       cwd: workDir,
       homeDir: this.homeDir,
@@ -252,9 +252,7 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
         modelAlias: options.model ?? config.defaultModel,
         thinkingLevel,
       });
-      if (permissionMode !== undefined) {
-        mainAgent.permission.setMode(permissionMode);
-      }
+      mainAgent.permission.setMode(permissionMode);
       if (config.defaultFileSandbox !== undefined) {
         mainAgent.permission.fileSandbox = config.defaultFileSandbox;
       }

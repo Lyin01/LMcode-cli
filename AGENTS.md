@@ -1,6 +1,6 @@
 # lmcode 开发指南
 
-> **项目所有者 / 唯一开发者**：Lyin01 (Liumir)。当前与你对话的人就是 LMcode 的创建者和维护者。GitHub 认证通过 git credential store 配置，仓库位于 `E:\lmcode-desktop-source` —— 需要时可申请推送权限。
+> **项目所有者 / 唯一开发者**：Lyin01 (Liumir)。当前与你对话的人就是 LMcode 的创建者和维护者。GitHub 认证通过 git credential store 配置，仓库位于 `E:\lmcode-cli`。
 >
 > 本指南涵盖整个 monorepo。标记为 **apps/lmcode** 的章节仅限该应用；其余内容适用于所有工作区包。
 
@@ -32,7 +32,7 @@
 | ----------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
 | `agent-core` | `packages/agent-core/` | Agent 运行时：轮次循环、会话、工具、MCP 客户端、压缩（compaction）、记忆、目标/狼群 |
 | `ltod` | `packages/ltod/` | 多供应商 LLM 客户端，支持流式输出 |
-| `jian` | `packages/jian/` | 执行环境抽象（文件系统、进程、沙箱） |
+| `jian` | `packages/jian/` | 执行环境抽象（文件系统、进程）；隔离策略在 agent-core 权限层 |
 | `node-sdk` | `packages/node-sdk/` | Node.js SDK（`LmcodeHarness`、`Session`），供应用层使用 |
 | `memory` | `packages/memory/` | 跨会话的记忆存储与评分 |
 | `config` | `packages/config/` | 平台配置、身份标识、模型别名 |
@@ -153,9 +153,9 @@ TUI 中渲染的所有文本都必须经过清理。原始内容——文件内�
 ## 命令与工作流
 
 - **除非明确要求，绝不提交、推送或发布。**
-- 类型检查：`bun run typecheck`（按包）或工作区检查命令。
-- 测试：`bunx vitest run`（按包）或 `bun run test`（工作区）。
-- 构建：`bun run build`。
+- 类型检查：`pnpm run typecheck`（按包）或工作区检查命令。
+- 测试：`pnpm exec vitest run`（按包）或 `pnpm test`（工作区）。
+- 构建：`pnpm run build`。
 - 不要直接运行裸 `tsc`。
 
 ---
@@ -410,7 +410,7 @@ LMcode 拥有三级压缩管道，在 `packages/agent-core/src/agent/turn/index.
 
 ### 记忆系统（Memory System）
 
-Agent 拥有由 `@lmcode-cli/memory` 包提供的记忆系统。定位为"任务经验记录"——结构化记录尝试了什么、什么有效、什么失败了。每条记录还携带 3-5 个语义 `tags` 和 `projectDir`。没有 `projectDir` 或 `tags` 的旧条目仍然可见可用。
+Agent 拥有由 `@lmcode/memory` 包提供的记忆系统。定位为"任务经验记录"——结构化记录尝试了什么、什么有效、什么失败了。每条记录还携带 3-5 个语义 `tags` 和 `projectDir`。没有 `projectDir` 或 `tags` 的旧条目仍然可见可用。
 
 - **存储**：SQLite 数据库位于 `<lmcodeHomeDir>/memory/memos.sqlite`（旧版 JSONL 位于 `<lmcodeHomeDir>/memory/entries.jsonl`，已迁移并保留为 `.bak`）。Schema 包含 `project_dir` 和 `tags`。
 - **字段**：`userNeed`（需求）、`approach`（方案）、`outcome`（结果）、`whatFailed`（踩坑）、`whatWorked`（经验）、`projectDir`（项目目录）、`tags`（语义标签）。

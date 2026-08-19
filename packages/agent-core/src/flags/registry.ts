@@ -1,7 +1,7 @@
 import type { FlagDefinitionInput } from './types';
 
 /**
- * Experimental feature flags. Empty by default — there are no experimental features yet.
+ * Experimental feature flags. Defaults below match the shipped product surface.
  *
  * To add one, append an entry and gate the feature with `flags.enabled('my-feature')`:
  *   { id: 'my-feature', env: 'LMCODE_EXPERIMENTAL_MY_FEATURE', default: false, surface: 'both' }
@@ -14,13 +14,13 @@ export const FLAG_DEFINITIONS = [
   {
     id: 'micro-compaction',
     env: 'LMCODE_EXPERIMENTAL_MICRO_COMPACTION',
-    default: false,
+    default: true,
     surface: 'both',
   },
   {
     id: 'wolfpack',
     env: 'LMCODE_EXPERIMENTAL_WOLFPACK',
-    default: false,
+    default: true,
     surface: 'both',
   },
 ] as const satisfies readonly FlagDefinitionInput[];

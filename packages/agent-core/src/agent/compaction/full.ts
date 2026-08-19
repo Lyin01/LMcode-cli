@@ -239,10 +239,13 @@ export class FullCompaction {
   }
 
   async handleOverflowError(signal: AbortSignal, error: unknown) {
+    const completionsBefore = this._compactedHistory.length;
     const didStartCompaction = this.beginAutoCompaction();
     if (!didStartCompaction && !this.compacting) throw error;
-    // Always block on overflow errors
     await this.block(signal);
+    if (this._compactedHistory.length === completionsBefore) {
+      throw error;
+    }
   }
 
   async beforeStep(signal: AbortSignal): Promise<void> {
@@ -311,7 +314,7 @@ export class FullCompaction {
 
   private checkAutoCompaction(throwOnLimit: boolean = true): boolean {
     if (this.compacting) return true;
-    if (!this.strategy.shouldCompact(this.tokenCountWithPending)) return false;
+    if (!this.strategy.shouldCompact(this.effectiveTokenCount)) return false;
 
     return this.beginAutoCompaction(throwOnLimit);
   }

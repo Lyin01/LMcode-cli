@@ -21,7 +21,7 @@ import type { AppState, RecentSession } from '#/tui/types';
 const HUE_STOPS = 24;
 const SUB_STEPS = 5;
 const BREATHE_STEPS = HUE_STOPS * SUB_STEPS; // 120
-const BREATHE_INTERVAL_MS = 40;
+const BREATHE_INTERVAL_MS = 80;
 
 const WELCOME_TIPS: readonly string[] = [
   '/config  配置模型',

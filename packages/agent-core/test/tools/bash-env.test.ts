@@ -3,7 +3,7 @@ import { Readable, type Writable } from 'node:stream';
 import type { Environment, JianProcess } from '@lmcode-cli/jian';
 import { describe, expect, it, vi } from 'vitest';
 
-import { BashTool } from '../../src/tools/builtin/shell/bash';
+import { BashTool, sanitizeInheritedShellEnv } from '../../src/tools/builtin/shell/bash';
 import { executeTool } from './fixtures/execute-tool';
 import { createFakeJian } from './fixtures/fake-jian';
 
@@ -52,6 +52,29 @@ describe('BashTool noninteractive env semantics', () => {
       if (previous === undefined) delete process.env['GIT_TERMINAL_PROMPT'];
       else process.env['GIT_TERMINAL_PROMPT'] = previous;
     }
+  });
+
+  it('strips host API keys and tokens from the inherited shell env', async () => {
+    const previous = process.env['OPENAI_API_KEY'];
+    process.env['OPENAI_API_KEY'] = 'sk-test-secret';
+    try {
+      const env = await captureSpawnEnv();
+      expect(env['OPENAI_API_KEY']).toBeUndefined();
+      expect(env['PATH']).toBeDefined();
+    } finally {
+      if (previous === undefined) delete process.env['OPENAI_API_KEY'];
+      else process.env['OPENAI_API_KEY'] = previous;
+    }
+  });
+
+  it('keeps PATH while dropping SECRET-named keys', () => {
+    const sanitized = sanitizeInheritedShellEnv({
+      PATH: '/usr/bin',
+      ANTHROPIC_API_KEY: 'secret',
+      GH_TOKEN: 'token',
+      HOME: '/home/me',
+    });
+    expect(sanitized).toEqual({ PATH: '/usr/bin', HOME: '/home/me' });
   });
 
   it('defaults GIT_TERMINAL_PROMPT to "0" when the ambient env does not set it', async () => {

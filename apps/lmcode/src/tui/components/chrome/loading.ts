@@ -131,6 +131,8 @@ export function runLoadingAnimation(theme: ResolvedTheme = 'dark'): Promise<void
     let isReversing = false
     let shimmerPulse = 0
     let phase: 'loading' | 'ready' = 'loading'
+    let timer: ReturnType<typeof setInterval> | undefined
+    let readyTimer: ReturnType<typeof setTimeout> | undefined
 
     function render() {
       const { cols, rows } = getTerminalSize()
@@ -174,20 +176,28 @@ export function runLoadingAnimation(theme: ResolvedTheme = 'dark'): Promise<void
       render()
     }
 
+    let settled = false
+    function finish(): void {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve()
+    }
+
     function onData(data: Buffer) {
       const key = data.toString()
       if (key === '\x03') {
         interrupt()
         return
       }
-      if ((key === '\r' || key === '\n') && phase === 'ready') {
-        cleanup()
-        resolve()
+      if (key === '\r' || key === '\n') {
+        finish()
       }
     }
 
     function cleanup() {
-      clearInterval(timer)
+      if (timer !== undefined) clearInterval(timer)
+      if (readyTimer !== undefined) clearTimeout(readyTimer)
       stdin.off('data', onData)
       process.off('SIGINT', interrupt)
       process.off('SIGTERM', interrupt)
@@ -226,11 +236,12 @@ export function runLoadingAnimation(theme: ResolvedTheme = 'dark'): Promise<void
     stdin.on('data', onData)
 
     render()
-    const timer = setInterval(tick, SHEEN_INTERVAL_MS)
+    timer = setInterval(tick, SHEEN_INTERVAL_MS)
 
-    setTimeout(() => {
+    readyTimer = setTimeout(() => {
       phase = 'ready'
       render()
+      finish()
     }, LOADING_DURATION_MS)
   })
 }

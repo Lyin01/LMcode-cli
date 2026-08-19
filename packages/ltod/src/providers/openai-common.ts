@@ -275,9 +275,9 @@ export function extractUsage(usage: unknown): TokenUsage | null {
   }
 
   return {
-    inputOther: promptTokens - cached,
+    inputOther: Math.max(0, promptTokens - cached),
     output: completionTokens,
-    inputCacheRead: cached,
+    inputCacheRead: Math.max(0, cached),
     inputCacheCreation: 0,
   };
 }

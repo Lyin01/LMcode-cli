@@ -1,6 +1,6 @@
 import type { Agent } from '../..';
 import type { PermissionPolicy, PermissionPolicyContext, PermissionPolicyResult } from '../types';
-import { writeFileAccesses } from './file-access-ask';
+import { hasUnrestrictedAccess, writeFileAccesses } from './file-access-ask';
 
 export class PlanModeGuardDenyPermissionPolicy implements PermissionPolicy {
   readonly name = 'plan-mode-guard-deny';
@@ -15,6 +15,12 @@ export class PlanModeGuardDenyPermissionPolicy implements PermissionPolicy {
     // Gate on declared file write accesses instead of a tool-name list so
     // MultiEdit (and any future write tool) cannot slip past the guard.
     const writeAccesses = writeFileAccesses(context);
+    if (hasUnrestrictedAccess(context)) {
+      return {
+        kind: 'deny',
+        message: planModeWriteDeniedMessage(this.agent.planMode.planFilePath),
+      };
+    }
     if (writeAccesses.length > 0) {
       const planFilePath = this.agent.planMode.planFilePath;
       if (planFilePath !== null && writeAccesses.every((access) => access.path === planFilePath)) {

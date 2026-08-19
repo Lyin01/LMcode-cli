@@ -1,6 +1,6 @@
 {
   "name": "@liumir/lmcode",
-  "version": "0.9.22",
+  "version": "0.9.23",
   "description": "A terminal-native AI agent for builders",
   "license": "MIT",
   "author": "liumir",
@@ -45,7 +45,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:cli-only": "node scripts/dev.mjs",
     "dev:prod": "node scripts/dev.mjs --built",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"import('node:fs').then((fs) => fs.rmSync('dist', { recursive: true, force: true }))\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm -w run build:packages && vitest run",
     "e2e": "pnpm -w run build:packages && vitest run test/e2e",

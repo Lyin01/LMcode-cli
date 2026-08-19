@@ -365,7 +365,7 @@ describe('Permission auto mode', () => {
     
   });
 
-  it('tracks plan-mode Bash bypass in auto mode through auto-mode-approve', async () => {
+  it('denies Bash in plan mode even when auto mode would otherwise approve', async () => {
     const { manager, requestApproval } = makePermissionManager(
       async () => ({
         decision: 'approved',
@@ -374,10 +374,12 @@ describe('Permission auto mode', () => {
     );
     manager.setMode('auto');
 
-    await expect(manager.beforeToolCall(hookContext({ id: 'call_plan_bash' }))).resolves.toBeUndefined();
+    await expect(manager.beforeToolCall(hookContext({ id: 'call_plan_bash' }))).resolves.toMatchObject({
+      block: true,
+      reason: expect.stringContaining('Plan mode is active'),
+    });
 
     expect(requestApproval).not.toHaveBeenCalled();
-    
   });
 
   it.each(['auto', 'yolo'] as const)(
@@ -1572,75 +1574,12 @@ describe('Plan mode tool approve policy', () => {
 });
 
 describe('Plan mode Bash permission policy', () => {
-  it('uses ordinary Bash approval in manual plan mode', async () => {
-    const { manager, requestApproval } = makePlanPermissionManager({
-      mode: 'manual',
-      approval: { decision: 'approved' },
-    });
-
-    await expect(
-      manager.beforeToolCall(
-        hookContext({
-          id: 'call_plan_bash',
-          toolName: 'Bash',
-          args: { command: 'ls -la', timeout: 60 },
-        }),
-      ),
-    ).resolves.toBeUndefined();
-
-    expect(requestApproval).toHaveBeenCalledWith(
-      {
-        turnId: 0,
-        toolCallId: 'call_plan_bash',
-        toolName: 'Bash',
-        action: 'run command',
-        display: {
-          kind: 'command',
-          command: 'ls -la',
-        },
-      },
-      { signal: expect.any(AbortSignal) },
-    );
-  });
-
-  it('reuses ordinary Bash approve-for-session in plan mode', async () => {
-    const { manager, requestApproval } = makePlanPermissionManager({
-      mode: 'manual',
-    });
-    manager.recordApprovalResult({
-      turnId: 0,
-      toolCallId: 'call_ordinary_bash',
-      toolName: 'Bash',
-      action: 'run command',
-      sessionApprovalRule: 'Bash(ls -la)',
-      result: {
-        decision: 'approved',
-        scope: 'session',
-        selectedLabel: 'Approve for this session',
-      },
-    });
-
-    await expect(
-      manager.beforeToolCall(
-        hookContext({
-          id: 'call_plan_bash',
-          toolName: 'Bash',
-          args: { command: 'ls -la', timeout: 60 },
-        }),
-      ),
-    ).resolves.toBeUndefined();
-
-    expect(requestApproval).not.toHaveBeenCalled();
-    expect(manager.data().rules).toEqual([]);
-    expect(manager.sessionApprovalRulePatterns).toContain('Bash(ls -la)');
-  });
-
-  it.each(['yolo', 'auto'] as const)(
-    'defers Bash to ordinary %s permission behavior in plan mode',
+  it.each(['manual', 'auto', 'yolo'] as const)(
+    'denies Bash in plan mode under %s because the command can mutate the tree',
     async (mode) => {
       const { manager, requestApproval } = makePlanPermissionManager({
         mode,
-        approval: { decision: 'rejected' },
+        approval: { decision: 'approved' },
       });
 
       await expect(
@@ -1648,10 +1587,13 @@ describe('Plan mode Bash permission policy', () => {
           hookContext({
             id: 'call_plan_bash',
             toolName: 'Bash',
-            args: { command: 'rm generated.txt', timeout: 60 },
+            args: { command: 'ls -la', timeout: 60 },
           }),
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toMatchObject({
+        block: true,
+        reason: expect.stringContaining('Plan mode is active'),
+      });
 
       expect(requestApproval).not.toHaveBeenCalled();
     },
@@ -3579,6 +3521,28 @@ function bashCall(): ToolCall {
 }
 
 describe('File sandbox policy', () => {
+  it('denies unrestricted Bash in read-only mode, even in yolo', async () => {
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { mode: 'yolo' },
+    );
+    manager.fileSandbox = 'read-only';
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_bash_readonly',
+        toolName: 'Bash',
+        args: { command: 'echo secret > /tmp/x', timeout: 60 },
+      }),
+    );
+
+    expect(result).toEqual({
+      block: true,
+      reason: expect.stringContaining('read-only file sandbox'),
+    });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
   it('denies file writes in read-only mode, even in yolo', async () => {
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
@@ -3757,12 +3721,12 @@ function makePermissionManager(
   } as unknown as Agent;
   manager = new PermissionManager(agent, options);
   Object.assign(agent, { permission: manager });
-  // The product default permission mode is now yolo. These policy unit tests
-  // were written when the default was manual, so a top-level manager (no
-  // parent) defaults to manual here unless the test asks otherwise. Child
-  // managers are left untouched so parent-mode derivation still works. The
-  // plain setter is used (not setMode) to avoid emitting records/status events
-  // that would perturb assertions on the record/replay mocks.
+  // Policy unit tests pin an explicit mode. A top-level manager (no parent)
+  // defaults to manual here unless the test asks otherwise so assertions stay
+  // independent of the product default (`auto`). Child managers are left
+  // untouched so parent-mode derivation still works. The plain setter is used
+  // (not setMode) to avoid emitting records/status events that would perturb
+  // assertions on the record/replay mocks.
   if (options.mode !== undefined) {
     manager.mode = options.mode;
   } else if (options.parent === undefined) {
@@ -4004,6 +3968,7 @@ function testAccesses(toolName: string, args: Record<string, unknown>) {
   if ((toolName === 'Grep' || toolName === 'Glob') && path !== undefined) {
     return ToolAccesses.searchTree(path);
   }
+  if (toolName === 'Bash' || toolName === 'WolfPack') return ToolAccesses.all();
   return ToolAccesses.none();
 }
 

@@ -30,6 +30,7 @@ import type { Jian, JianProcess } from '@lmcode-cli/jian';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';
+import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { renderPrompt } from '../../../utils/render-prompt';
 import type { BackgroundProcessManager } from '../../background/manager';
@@ -115,6 +116,25 @@ function timeoutCapS(isBackground: boolean): number {
 
 function isValidTimeoutValue(timeout: number, isBackground: boolean): boolean {
   return timeout <= timeoutCapS(isBackground);
+}
+
+const SECRET_ENV_KEY =
+  /(?:^|_)((API[_-]?KEY)|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE[_-]?KEY|ACCESS[_-]?KEY|CREDENTIAL|AUTHORIZATION)S?$/i;
+
+/**
+ * Drop host secrets from the inherited shell environment. PATH and other
+ * process plumbing stay intact so `git` / `node` / package managers work.
+ */
+export function sanitizeInheritedShellEnv(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined || value.length === 0) continue;
+    if (SECRET_ENV_KEY.test(key)) continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 function normalizeTimeoutMs(timeout: number | undefined, isBackground: boolean): number {
@@ -324,6 +344,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       description: args.run_in_background
         ? `Starting background: ${preview}`
         : `Running: ${preview}`,
+      accesses: ToolAccesses.all(),
       display: {
         kind: 'command',
         command: args.command,
@@ -361,7 +382,7 @@ export class BashTool implements BuiltinTool<BashInput> {
     // Merge ambient env + noninteractive knobs so tools like git / node
     // don't open a pager and paints don't colour the stream.
     const mergedEnv: Record<string, string> = {
-      ...(process.env as Record<string, string>),
+      ...sanitizeInheritedShellEnv(process.env),
       ...noninteractiveEnv,
     };
     return this.jian.execWithEnv(shellArgs, mergedEnv);

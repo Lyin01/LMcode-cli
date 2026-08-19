@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import type { Socket } from 'node:net'
 import { WebSocket, WebSocketServer } from 'ws'
@@ -80,6 +81,10 @@ export class RemoteServer {
         socket.close(1013, 'server busy')
         return
       }
+      if (this.isAuthRateLimited()) {
+        socket.close(4008, 'too many auth failures')
+        return
+      }
       this.sockets.add(socket)
       this.options.logger?.info('remote client connected', {
         clientCount: this.sockets.size,
@@ -100,14 +105,16 @@ export class RemoteServer {
           }
         },
       }
-      this.connections.set(socket, connection)
-      this.options.bridge.attachConnection(connection)
 
       socket.on('message', (data: Buffer) => {
         this.handleMessage(socket, data, {
           isAuthenticated: () => authenticated,
           markAuthenticated: (): void => {
             authenticated = true
+            if (!this.connections.has(socket)) {
+              this.connections.set(socket, connection)
+              this.options.bridge.attachConnection(connection)
+            }
           },
         })
       })
@@ -270,7 +277,11 @@ export class RemoteServer {
   }
 
   private async authenticate(socket: WebSocket, token: string): Promise<boolean> {
-    if (token.length === 0 || token !== this.options.getToken()) {
+    if (this.isAuthRateLimited()) {
+      socket.close(4008, 'too many auth failures')
+      return false
+    }
+    if (!tokensEqual(token, this.options.getToken())) {
       this.recordFailedAuth()
       socket.close(4001, 'invalid token')
       return false
@@ -284,12 +295,21 @@ export class RemoteServer {
     return true
   }
 
-  private recordFailedAuth(): void {
-    const now = Date.now()
-    this.failedAuthTimes.push(now)
+  private pruneFailedAuth(now: number = Date.now()): void {
     this.failedAuthTimes = this.failedAuthTimes.filter(
       (t) => now - t < FAILED_AUTH_WINDOW_MS,
     )
+  }
+
+  private isAuthRateLimited(): boolean {
+    this.pruneFailedAuth()
+    return this.failedAuthTimes.length > FAILED_AUTH_LIMIT
+  }
+
+  private recordFailedAuth(): void {
+    const now = Date.now()
+    this.failedAuthTimes.push(now)
+    this.pruneFailedAuth(now)
     if (this.failedAuthTimes.length > FAILED_AUTH_LIMIT) {
       this.options.logger?.warn('remote auth failures exceed rate limit', {
         count: this.failedAuthTimes.length,
@@ -313,4 +333,12 @@ export class RemoteServer {
       )
     }
   }
+}
+
+function tokensEqual(provided: string, expected: string): boolean {
+  if (provided.length === 0 || expected.length === 0) return false
+  const left = Buffer.from(provided)
+  const right = Buffer.from(expected)
+  if (left.length !== right.length) return false
+  return timingSafeEqual(left, right)
 }

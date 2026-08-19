@@ -1,6 +1,6 @@
 {
   "name": "@liumir/lmcode-desktop",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "LMCODE Desktop - AI Agent 桌面客户端",
   "license": "MIT",
@@ -43,7 +43,7 @@
     "electron-updater": "^6.8.9",
     "lucide-react": "^0.500.0",
     "qrcode": "^1.5.4",
-    "zod": "^3.24.2",
+    "zod": "catalog:",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.0.0",
@@ -74,6 +74,6 @@
     "vite": "^6.0.0"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0"
   }
 }

@@ -194,7 +194,10 @@ export class RemoteManager {
 
   private async persist(): Promise<void> {
     await mkdir(dirname(this.configPath), { recursive: true })
-    await writeFile(this.configPath, JSON.stringify(this.config, null, 2), 'utf8')
+    await writeFile(this.configPath, JSON.stringify(this.config, null, 2), {
+      encoding: 'utf8',
+      mode: 0o600,
+    })
   }
 
   private emitStateChange(): void {

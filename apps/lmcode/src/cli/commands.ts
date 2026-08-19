@@ -60,8 +60,8 @@ export function createProgram(
         .argParser(optionalIdArgParser),
     )
     .option('-C, --continue', '继续当前工作目录的上一个会话。', false)
-    .option('-y, --yolo', '自动批准所有操作。', false)
-    .option('--auto', '以自动权限模式启动。', false)
+    .option('-y, --yolo', '自动批准所有操作，包括敏感路径与工作区外写入（默认是 auto）。', false)
+    .option('--auto', '以自动权限模式启动（默认）。敏感路径、Git 控制路径和工作区外写入仍会询问。', false)
     .addOption(
       new Option(
         '-m, --model <model>',

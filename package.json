@@ -1,6 +1,6 @@
 {
   "name": "@lmcode-cli/monorepo",
-  "version": "0.9.6",
+  "version": "0.9.23",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -41,7 +41,9 @@
     "typescript": "6.0.2",
     "vitest": "4.1.4"
   },
-  "simple-git-hooks": {},
+  "simple-git-hooks": {
+    "pre-commit": "pnpm exec lint-staged"
+  },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
       "oxlint --fix --quiet",
@@ -49,7 +51,7 @@
     ]
   },
   "engines": {
-    "node": ">=22.0.0",
+    "node": ">=22.19.0",
     "pnpm": ">=11.7.0 <12"
   },
   "packageManager": "pnpm@11.7.0"

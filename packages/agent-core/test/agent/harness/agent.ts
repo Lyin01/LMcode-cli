@@ -192,6 +192,11 @@ export class AgentTestContext {
       log: options.log,
     });
     this.rpc = this.createPromiseAgentApi(this.agent);
+    // Unit tests pin yolo so auto-mode injections do not pollute history
+    // snapshots. Production createSession still defaults to auto.
+    if (options.permission === undefined) {
+      this.agent.permission.mode = 'yolo';
+    }
     // The Agent constructor now eagerly binds a SIGUSR1 listener via
     // CronManager.start(). Without per-test cleanup, every Agent built
     // by this harness leaks one listener — Node prints a

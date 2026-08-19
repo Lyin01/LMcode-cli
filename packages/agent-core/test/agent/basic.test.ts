@@ -80,11 +80,11 @@ it('runs an agent turn through builtin tool approval and execution', async () =>
     name: 'Bash',
     arguments: '{"command":"printf lookup-result","timeout":60}',
   };
-  // The default permission mode is now yolo (auto-approve), under which Bash
-  // would run without emitting requestApproval. This test exercises the manual
-  // approval flow, so switch to manual before configure() — configure() resets
-  // the event cursor, keeping this setup out of the asserted snapshots, while
-  // the recorded mode change still replays correctly in expectResumeMatches.
+  // The default permission mode is auto, under which Bash would run without
+  // emitting requestApproval. This test exercises the manual approval flow,
+  // so switch to manual before configure() — configure() resets the event
+  // cursor, keeping this setup out of the asserted snapshots, while the
+  // recorded mode change still replays correctly in expectResumeMatches.
   const ctx = testAgent({ jian: createCommandJian('lookup-result') });
   await ctx.rpc.setPermission({ mode: 'manual' });
   ctx.configure({ tools: ['Bash'] });

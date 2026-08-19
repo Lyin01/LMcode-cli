@@ -57,7 +57,7 @@ describe('image degradation for non-vision models', () => {
       .filter((p) => p.type === 'text')
       .map((p) => p.text)
       .join('\n');
-    expect(texts).toContain('visual-mcp');
+    expect(texts).toContain('ReadMediaFile');
     expect(texts).toContain('attachments');
 
     // 图片已落盘

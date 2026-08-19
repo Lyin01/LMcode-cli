@@ -176,6 +176,15 @@ afterEach(async () => {
 })
 
 describe('RemoteServer protocol', () => {
+  it('does not attach unauthenticated sockets to the event fan-out', async () => {
+    const opened = await openServer()
+    servers.push(opened)
+    const ws = await connect(opened.url)
+    expect(opened.server.clientCount).toBe(0)
+    opened.server.broadcastState()
+    await expect(nextMessage(ws, 'server-state')).rejects.toThrow(/message timeout/)
+  })
+
   it('rejects a socket that does not authenticate first', async () => {
     const opened = await openServer()
     servers.push(opened)
