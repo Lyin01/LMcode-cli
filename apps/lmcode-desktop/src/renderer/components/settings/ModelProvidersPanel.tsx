@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Eye, EyeOff, ChevronRight, Check } from 'lucide-react'
+import { Plus, Trash2, Eye, EyeOff, ChevronRight, Check, Pencil, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores/config-store'
 import type { LmcodeConfig } from '@lmcode-cli/lmcode-sdk'
@@ -7,17 +7,24 @@ import { REDACTED_SECRET_VALUE } from '../../../shared/security'
 
 type ProviderType = LmcodeConfig['providers'][string]['type']
 
-const PROVIDER_TYPES: { value: ProviderType; label: string }[] = [
-  { value: 'anthropic', label: 'Anthropic Messages' },
-  { value: 'openai', label: 'OpenAI Chat Completions' },
-  { value: 'openai_responses', label: 'OpenAI Responses' },
-  { value: 'google-genai', label: 'Google GenAI' },
-  { value: 'lmcode', label: 'LMcode' },
-  { value: 'vertexai', label: 'Vertex AI' },
+/**
+ * API 格式选项，按 ZCode「模型设置」的风格展示：
+ * 每个格式附带其默认接口路径，供用户对照填写 Base URL。
+ */
+const PROVIDER_TYPES: { value: ProviderType; label: string; endpointPath: string }[] = [
+  { value: 'anthropic', label: 'Anthropic Messages', endpointPath: '/v1/messages' },
+  { value: 'openai', label: 'Chat Completions', endpointPath: '/v1/chat/completions' },
+  { value: 'openai_responses', label: 'Responses', endpointPath: '/v1/responses' },
+  { value: 'google-genai', label: 'Google GenAI', endpointPath: '/v1beta/models' },
+  { value: 'lmcode', label: 'LMcode', endpointPath: '/v1/chat/completions' },
+  { value: 'vertexai', label: 'Vertex AI', endpointPath: '/v1/projects/…' },
 ]
 
 const providerTypeLabel = (type: ProviderType) =>
   PROVIDER_TYPES.find((t) => t.value === type)?.label ?? type
+
+const providerEndpointPath = (type: ProviderType) =>
+  PROVIDER_TYPES.find((t) => t.value === type)?.endpointPath ?? ''
 
 const inputClass =
   'w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[13px] text-[var(--lm-text-primary)] outline-none transition-colors focus:border-[var(--lm-accent)] disabled:cursor-not-allowed disabled:opacity-50'
@@ -263,9 +270,14 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
           className={inputClass}
         >
           {PROVIDER_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>{t.label}</option>
+            <option key={t.value} value={t.value}>
+              {t.label} ({t.endpointPath})
+            </option>
           ))}
         </select>
+        <p className="mt-1 text-[11px] text-[var(--lm-text-muted)]">
+          接口路径：{providerEndpointPath(type)}
+        </p>
       </section>
 
       <section>
@@ -288,7 +300,7 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
               setApiKey(e.target.value)
               setPreserveStoredApiKey(false)
             }}
-            placeholder={preserveStoredApiKey ? '已安全保存；输入新密钥可替换' : 'sk-...'}
+            placeholder={preserveStoredApiKey ? '已安全保存；输入新密钥可替换' : '输入 API Key'}
             className={cn(inputClass, 'pr-9')}
           />
           <button
@@ -299,6 +311,9 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
             {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
           </button>
         </div>
+        <p className="mt-1 text-[11px] text-[var(--lm-text-muted)]">
+          {apiKey.trim() || preserveStoredApiKey ? '设置 API Key 后即可启用。' : '未设置 API Key。'}
+        </p>
         {preserveStoredApiKey && (
           <button
             type="button"
@@ -332,9 +347,9 @@ function ProviderModels({ providerId }: { providerId: string }) {
   const removeModel = useConfigStore((s) => s.removeModel)
 
   const [adding, setAdding] = useState(false)
-  const [alias, setAlias] = useState('')
-  const [modelName, setModelName] = useState('')
+  const [bulkModels, setBulkModels] = useState('')
   const [contextSize, setContextSize] = useState('200000')
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
@@ -344,31 +359,41 @@ function ProviderModels({ providerId }: { providerId: string }) {
       .sort(([a], [b]) => a.localeCompare(b))
   }, [config, providerId])
 
-  const aliasTrimmed = alias.trim()
-  const aliasConflict = Boolean(config?.models?.[aliasTrimmed])
   const parsedContext = Number.parseInt(contextSize, 10)
+  const bulkIds = useMemo(
+    () => bulkModels.split('\n').map((line) => line.trim()).filter(Boolean),
+    [bulkModels],
+  )
+  const conflictIds = useMemo(
+    () => bulkIds.filter((alias) => Boolean(config?.models?.[alias])),
+    [bulkIds, config],
+  )
   const canAdd =
-    aliasTrimmed.length > 0 && !aliasConflict && Number.isInteger(parsedContext) && parsedContext > 0
+    bulkIds.length > 0 &&
+    conflictIds.length === 0 &&
+    Number.isInteger(parsedContext) &&
+    parsedContext > 0
 
   const handleAdd = async () => {
     if (!canAdd) return
     setError('')
     try {
+      const modelsPatch: NonNullable<LmcodeConfig['models']> = {}
+      for (const alias of bulkIds) {
+        modelsPatch[alias] = {
+          provider: providerId,
+          model: alias,
+          maxContextSize: parsedContext,
+        }
+      }
       await updateConfig({
-        models: {
-          [aliasTrimmed]: {
-            provider: providerId,
-            model: modelName.trim() || aliasTrimmed,
-            maxContextSize: parsedContext,
-          },
-        },
+        models: modelsPatch,
         // The desktop has no separate "default model" setting, so the first
         // model added becomes the default; otherwise new sessions created
         // before any manual model pick start with no model and fail.
-        ...(config?.defaultModel?.trim() ? {} : { defaultModel: aliasTrimmed }),
+        ...(config?.defaultModel?.trim() ? {} : { defaultModel: bulkIds[0] }),
       })
-      setAlias('')
-      setModelName('')
+      setBulkModels('')
       setContextSize('200000')
       setAdding(false)
     } catch (err) {
@@ -388,59 +413,83 @@ function ProviderModels({ providerId }: { providerId: string }) {
 
   return (
     <section className="border-t border-[var(--lm-border)] pt-3">
-      <label className={labelClass}>模型列表</label>
+      <div className="mb-2 flex items-baseline justify-between">
+        <label className={labelClass}>模型列表</label>
+        {models.length > 0 && (
+          <span className="text-[11px] text-[var(--lm-text-muted)]">{models.length} 个模型</span>
+        )}
+      </div>
       <div className="space-y-1.5">
         {models.length === 0 && !adding && (
           <p className="py-1 text-[11px] text-[var(--lm-text-muted)]">
             还没有模型，添加后即可在聊天中选择。
           </p>
         )}
-        {models.map(([modelId, m]) => (
-          <div
-            key={modelId}
-            className="flex items-center gap-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1.5"
-          >
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
-                {m.displayName ?? modelId}
-              </span>
-              {m.model !== modelId && (
-                <span className="truncate text-[10px] text-[var(--lm-text-muted)]">{m.model}</span>
-              )}
-            </div>
-            <span className="shrink-0 rounded bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
-              {formatContextSize(m.maxContextSize)}
-            </span>
-            <button
-              onClick={() => handleDelete(modelId)}
-              className={cn(
-                'shrink-0 rounded p-1 transition-colors',
-                confirmDeleteId === modelId
-                  ? 'bg-red-500/15 text-red-500'
-                  : 'text-[var(--lm-text-muted)] hover:text-red-500',
-              )}
-              title={confirmDeleteId === modelId ? '再次点击确认删除' : '删除模型'}
+        {models.map(([modelId, m]) =>
+          editingId === modelId ? (
+            <ModelRowEditor
+              key={modelId}
+              modelId={modelId}
+              model={m}
+              onDone={(patch) => {
+                void updateConfig({ models: { [modelId]: patch } })
+                setEditingId(null)
+              }}
+              onCancel={() => setEditingId(null)}
+            />
+          ) : (
+            <div
+              key={modelId}
+              className="flex items-center gap-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1.5"
             >
-              <Trash2 size={12} />
-            </button>
-          </div>
-        ))}
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
+                  {m.displayName ?? modelId}
+                </span>
+                {m.model !== modelId && (
+                  <span className="truncate text-[10px] text-[var(--lm-text-muted)]">{m.model}</span>
+                )}
+              </div>
+              <span className="shrink-0 rounded bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--lm-text-muted)]">
+                {formatContextSize(m.maxContextSize)}
+              </span>
+              <button
+                onClick={() => setEditingId(modelId)}
+                className="shrink-0 rounded p-1 text-[var(--lm-text-muted)] transition-colors hover:text-[var(--lm-text-primary)]"
+                title="编辑模型配置"
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                onClick={() => handleDelete(modelId)}
+                className={cn(
+                  'shrink-0 rounded p-1 transition-colors',
+                  confirmDeleteId === modelId
+                    ? 'bg-red-500/15 text-red-500'
+                    : 'text-[var(--lm-text-muted)] hover:text-red-500',
+                )}
+                title={confirmDeleteId === modelId ? '再次点击确认删除' : '删除模型'}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ),
+        )}
 
         {adding ? (
           <div className="space-y-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-2.5">
-            <input
-              value={alias}
-              onChange={(e) => setAlias(e.target.value)}
-              placeholder="模型 ID（选择器中的名字），如 k3"
-              className={inputClass}
+            <textarea
+              value={bulkModels}
+              onChange={(e) => setBulkModels(e.target.value)}
+              placeholder={'每行一个模型名称\n如：k3\nk3-turbo'}
+              rows={3}
+              className={cn(inputClass, 'resize-none font-mono')}
             />
-            {aliasConflict && <p className="text-[11px] text-red-500">该模型 ID 已存在</p>}
-            <input
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="上游模型名（可选，默认同 ID）"
-              className={inputClass}
-            />
+            {conflictIds.length > 0 && (
+              <p className="text-[11px] text-red-500">
+                以下模型 ID 已存在：{conflictIds.join('、')}
+              </p>
+            )}
             <input
               value={contextSize}
               onChange={(e) => setContextSize(e.target.value)}
@@ -458,7 +507,11 @@ function ProviderModels({ providerId }: { providerId: string }) {
                 添加
               </button>
               <button
-                onClick={() => setAdding(false)}
+                onClick={() => {
+                  setAdding(false)
+                  setBulkModels('')
+                  setError('')
+                }}
                 className="rounded-lg px-3 py-1.5 text-[12px] text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)]"
               >
                 取消
@@ -476,5 +529,73 @@ function ProviderModels({ providerId }: { providerId: string }) {
         )}
       </div>
     </section>
+  )
+}
+
+interface ModelRowEditorProps {
+  modelId: string
+  model: LmcodeConfig['models'][string]
+  onDone: (patch: Partial<LmcodeConfig['models'][string]>) => void
+  onCancel: () => void
+}
+
+/** 编辑单个模型的显示名 / 上游模型名 / 上下文窗口（对齐 ZCode 的「编辑模型配置」）。 */
+function ModelRowEditor({ modelId, model, onDone, onCancel }: ModelRowEditorProps) {
+  const [displayName, setDisplayName] = useState(model.displayName ?? '')
+  const [modelName, setModelName] = useState(model.model === modelId ? '' : model.model)
+  const [contextSize, setContextSize] = useState(String(model.maxContextSize))
+
+  const parsedContext = Number.parseInt(contextSize, 10)
+  const canSave = Number.isInteger(parsedContext) && parsedContext > 0
+
+  const handleSave = () => {
+    if (!canSave) return
+    onDone({
+      displayName: displayName.trim() || undefined,
+      model: modelName.trim() || modelId,
+      maxContextSize: parsedContext,
+    })
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-[var(--lm-text-secondary)]">{modelId}</span>
+        <button
+          onClick={onCancel}
+          className="rounded p-0.5 text-[var(--lm-text-muted)] transition-colors hover:text-[var(--lm-text-primary)]"
+          title="取消"
+        >
+          <X size={12} />
+        </button>
+      </div>
+      <input
+        value={displayName}
+        onChange={(e) => setDisplayName(e.target.value)}
+        placeholder="显示名称（可选）"
+        className={inputClass}
+      />
+      <input
+        value={modelName}
+        onChange={(e) => setModelName(e.target.value)}
+        placeholder="上游模型名（默认同 ID）"
+        className={inputClass}
+      />
+      <input
+        value={contextSize}
+        onChange={(e) => setContextSize(e.target.value)}
+        placeholder="上下文长度，如 200000"
+        inputMode="numeric"
+        className={inputClass}
+      />
+      <button
+        onClick={handleSave}
+        disabled={!canSave}
+        className="flex w-full items-center justify-center gap-1 rounded-lg bg-[var(--lm-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Check size={12} />
+        保存
+      </button>
+    </div>
   )
 }

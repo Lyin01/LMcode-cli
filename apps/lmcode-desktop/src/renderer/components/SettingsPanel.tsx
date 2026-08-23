@@ -26,6 +26,7 @@ import { useConfigStore } from '@/stores/config-store'
 import type { ThemePref } from '@/lib/theme'
 import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 import type { PermissionMode } from '@lmcode-cli/lmcode-sdk'
+import { ModelProvidersPanel } from '@/components/settings/ModelProvidersPanel'
 
 interface SettingsPanelProps {
   open: boolean
@@ -48,7 +49,7 @@ interface SettingsNavTab {
 
 const SETTINGS_TABS: readonly SettingsNavTab[] = [
   { id: 'general', label: '通用设置', icon: Settings2 },
-  { id: 'models', label: '模型与 API', icon: Cpu },
+  { id: 'models', label: '模型设置', icon: Cpu },
   { id: 'plugins', label: '扩展', icon: Boxes },
   { id: 'memory', label: '长期记忆库', icon: Brain },
   { id: 'remote', label: '局域网远程', icon: Wifi },
@@ -498,42 +499,10 @@ export function SettingsPanel({
               </div>
             )}
 
-            {/* 2. Models & API Tab */}
+            {/* 2. Models Tab（ZCode 风格模型设置） */}
             {activeTab === 'models' && (
               <div className="space-y-5 max-w-xl">
-                <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-3">
-                  <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">默认推理模型</h4>
-                  <p className="text-[11.5px] text-[var(--lm-text-muted)]">
-                    LMCODE 默认采用深度适配的 DeepSeek V4 Flash / R1 推理架构，您也可以在输入框左下角随时自由切换。
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div className="rounded-lg border border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] p-2.5">
-                      <div className="text-[12px] font-semibold text-[var(--lm-accent-text)]">DeepSeek V4 Flash</div>
-                      <div className="text-[10px] text-[var(--lm-text-muted)]">官方高吞吐流式模型 · 推荐</div>
-                    </div>
-                    <div className="rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-2.5">
-                      <div className="text-[12px] font-medium text-[var(--lm-text-primary)]">DeepSeek R1 / V3</div>
-                      <div className="text-[10px] text-[var(--lm-text-muted)]">深度推理与全栈代码生成</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-3">
-                  <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">API 密钥与连接凭证</h4>
-                  <p className="text-[11.5px] text-[var(--lm-text-muted)]">
-                    密钥已在系统本地安全加密保存，可通过环境变量或配置文件直接热加载。
-                  </p>
-                  <div className="space-y-2">
-                    <label className="text-[11.5px] text-[var(--lm-text-secondary)]">DEEPSEEK_API_KEY</label>
-                    <input
-                      type="password"
-                      placeholder="sk-••••••••••••••••••••••••"
-                      defaultValue="stored-locally"
-                      disabled
-                      className="w-full rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[12.5px] font-mono text-[var(--lm-text-primary)]"
-                    />
-                  </div>
-                </div>
+                <ModelProvidersPanel />
               </div>
             )}
 
