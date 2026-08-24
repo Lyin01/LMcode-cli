@@ -25,6 +25,26 @@ describe('desktop session error events', () => {
     })
   })
 
+  it('reuses an empty streaming assistant instead of appending a ghost bubble', () => {
+    const store = useSessionStore.getState()
+    store.handleEvent('session-a', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+    store.handleEvent('session-a', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+
+    expect(useSessionStore.getState().messages.filter((message) => message.role === 'assistant')).toHaveLength(1)
+  })
+
   it('renders one error card when a failed turn is followed by its matching error event', () => {
     const failure = {
       code: 'internal' as const,

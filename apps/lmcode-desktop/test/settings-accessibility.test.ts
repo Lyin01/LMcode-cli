@@ -77,7 +77,7 @@ describe('desktop settings workspace accessibility contract', () => {
 
     expect(html).toContain('id="settings-thinking-level"')
     expect(html).toContain('中（推荐）')
-    expect(html).toContain('已连接')
+    expect(html).toContain('当前会话')
     expect(html).toContain('设置变更会立即同步到当前打开的任务')
   })
 

@@ -159,6 +159,33 @@ export const openExternalArgsSchema = z.tuple([z.string()])
 
 export const sessionIdArgsSchema = z.tuple([sessionIdSchema])
 
+export const setModelArgsSchema = z.tuple([sessionIdSchema, z.string().trim().min(1)])
+
+export const setThinkingArgsSchema = z.tuple([sessionIdSchema, z.string().trim().min(1)])
+
+export const undoHistoryArgsSchema = z.tuple([
+  sessionIdSchema,
+  z.number().int().positive(),
+])
+
+export const compactSessionArgsSchema = z.preprocess(
+  (value) =>
+    Array.isArray(value) ? value.filter((entry) => entry !== undefined) : value,
+  z.union([z.tuple([sessionIdSchema]), z.tuple([sessionIdSchema, z.string()])]),
+)
+
+export const setConfigArgsSchema = z.tuple([z.record(z.string(), z.unknown())])
+
+export const idArgsSchema = z.tuple([z.string().trim().min(1)])
+
+export const renameSessionArgsSchema = z.tuple([sessionIdSchema, z.string().trim().min(1)])
+
+export const setAllGitFilesStagedArgsSchema = z.tuple([sessionIdSchema, z.boolean()])
+
+export const commitGitChangesArgsSchema = z.tuple([sessionIdSchema, z.string().trim().min(1)])
+
+export const writeTerminalArgsSchema = z.tuple([sessionIdSchema, z.string()])
+
 /**
  * Validate an IPC argument list against a tuple schema. Returns the parsed
  * arguments, or throws a descriptive error naming the offending channel.

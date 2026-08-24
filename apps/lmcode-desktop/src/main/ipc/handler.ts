@@ -84,19 +84,29 @@ import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types.js
 import {
   addMcpServerArgsSchema,
   applyGitHunkActionArgsSchema,
+  compactSessionArgsSchema,
+  commitGitChangesArgsSchema,
   createCronJobArgsSchema,
   createGoalArgsSchema,
   createSessionArgsSchema,
   discardGitFileChangesArgsSchema,
+  idArgsSchema,
   parseIpcArgs,
   promptArgsSchema,
+  renameSessionArgsSchema,
   respondApprovalArgsSchema,
   respondQuestionArgsSchema,
+  setAllGitFilesStagedArgsSchema,
+  setConfigArgsSchema,
   setGitFileStagedArgsSchema,
+  setModelArgsSchema,
   setPermissionArgsSchema,
   setPlanModeArgsSchema,
+  setThinkingArgsSchema,
+  undoHistoryArgsSchema,
   updateGoalStatusArgsSchema,
   worktreeHandoffArgsSchema,
+  writeTerminalArgsSchema,
   openExternalArgsSchema,
   openPathArgsSchema,
   sessionIdArgsSchema,
@@ -456,7 +466,7 @@ export function registerAllHandlers(
       summary: session.summary,
       resumeState: session.getResumeState(),
     }
-  })
+  }, sessionIdArgsSchema)
 
   secureInvoke('lmcode:deleteSession', async (_event, id: string): Promise<void> => {
     await teardownSession(id, async () => {
@@ -481,7 +491,7 @@ export function registerAllHandlers(
   secureInvoke('lmcode:exportSession', async (_event, id: string): Promise<string> => {
     const result = await harness.exportSession({ id, version: app.getVersion() })
     return result.zipPath
-  })
+  }, sessionIdArgsSchema)
 
   secureInvoke(
     'lmcode:saveTextFile',
@@ -505,7 +515,7 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:renameSession', async (_event, id: string, title: string): Promise<void> => {
     await harness.renameSession({ id, title })
-  })
+  }, renameSessionArgsSchema)
 
   // ── Chat ────────────────────────────────────────────────────────
 
@@ -552,7 +562,7 @@ export function registerAllHandlers(
     const entry = await ensureActiveSession(sessionId)
     const ctx = await entry.session.getContext()
     return ctx.history
-  })
+  }, sessionIdArgsSchema)
 
   secureInvoke(
     'lmcode:getSessionStatus',
@@ -560,6 +570,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.getStatus()
     },
+    sessionIdArgsSchema,
   )
 
   // ── Session control ─────────────────────────────────────────────
@@ -567,12 +578,12 @@ export function registerAllHandlers(
   secureInvoke('lmcode:setModel', async (_event, sessionId: string, model: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.setModel(model)
-  })
+  }, setModelArgsSchema)
 
   secureInvoke('lmcode:setThinking', async (_event, sessionId: string, level: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.setThinking(level)
-  })
+  }, setThinkingArgsSchema)
 
   secureInvoke(
     'lmcode:setPermission',
@@ -642,6 +653,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.compact({ instruction })
     },
+    compactSessionArgsSchema,
   )
 
   secureInvoke(
@@ -650,6 +662,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.undoHistory(count)
     },
+    undoHistoryArgsSchema,
   )
 
   secureInvoke('lmcode:closeSession', async (_event, sessionId: string): Promise<void> => {
@@ -776,7 +789,7 @@ export function registerAllHandlers(
       operation: 'provider-config.update',
     })
     return sanitizeConfigForRenderer(config)
-  })
+  }, setConfigArgsSchema)
 
   secureInvoke('lmcode:removeProvider', async (_event, providerId: string): Promise<LmcodeConfig> => {
     const config = await harness.removeProvider(providerId)
@@ -785,13 +798,13 @@ export function registerAllHandlers(
       operation: 'provider-config.remove',
     })
     return sanitizeConfigForRenderer(config)
-  })
+  }, idArgsSchema)
 
   secureInvoke('lmcode:removeModel', async (_event, modelId: string): Promise<LmcodeConfig> => {
     const config = await harness.removeModel(modelId)
     providerUsage.invalidate()
     return sanitizeConfigForRenderer(config)
-  })
+  }, idArgsSchema)
 
   // ── File operations ─────────────────────────────────────────────
 
@@ -847,6 +860,7 @@ export function registerAllHandlers(
     async (_event, sessionId: string, staged: boolean): Promise<void> => {
       await setAllGitFilesStaged(await getSessionWorkDir(sessionId), staged)
     },
+    setAllGitFilesStagedArgsSchema,
   )
 
   secureInvoke(
@@ -889,6 +903,7 @@ export function registerAllHandlers(
         operation: 'git.discard-all',
       })
     },
+    sessionIdArgsSchema,
   )
 
   secureInvoke(
@@ -900,6 +915,7 @@ export function registerAllHandlers(
       })
       return result
     },
+    commitGitChangesArgsSchema,
   )
 
   // ── Git worktrees ───────────────────────────────────────────────
@@ -951,6 +967,7 @@ export function registerAllHandlers(
     async (_event, sessionId: string): Promise<ProjectTerminalInfo> => {
       return terminalManager.start(sessionId, await getSessionWorkDir(sessionId))
     },
+    sessionIdArgsSchema,
   )
 
   secureInvoke(
@@ -958,6 +975,7 @@ export function registerAllHandlers(
     (_event, sessionId: string, input: string): void => {
       terminalManager.write(sessionId, input)
     },
+    writeTerminalArgsSchema,
   )
 
   secureInvoke(
@@ -965,6 +983,7 @@ export function registerAllHandlers(
     async (_event, sessionId: string): Promise<void> => {
       await terminalManager.stop(sessionId)
     },
+    sessionIdArgsSchema,
   )
 
   // ── Version ─────────────────────────────────────────────────────
@@ -1125,7 +1144,7 @@ export function registerAllHandlers(
     auditLog?.info('desktop critical operation completed', {
       operation: 'memory.delete',
     })
-  })
+  }, idArgsSchema)
 
   // ── Background task operations ─────────────────────────────────
 

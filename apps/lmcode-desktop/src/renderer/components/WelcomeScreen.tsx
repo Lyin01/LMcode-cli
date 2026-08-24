@@ -24,6 +24,7 @@ import { fileToDataUrl } from '@/lib/file-to-data-url'
 import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
 import type { UserAttachment } from '@/types'
 import { isImeConfirmKey } from '@/lib/ime'
+import { filesFromClipboardData, shouldCaptureClipboardFiles } from '@/lib/clipboard-files'
 
 const NO_PROJECT_LABEL = '不关联项目'
 const targetMenuItemClass =
@@ -125,16 +126,9 @@ export function WelcomeScreen() {
   }
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
-    let files = Array.from(event.clipboardData.files)
-    if (files.length === 0) {
-      // Some clipboard sources expose image data only through items.
-      files = Array.from(event.clipboardData.items)
-        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null)
-    }
+    const files = filesFromClipboardData(event.clipboardData)
     if (files.length === 0) return
-    if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+    if (shouldCaptureClipboardFiles(event.clipboardData)) event.preventDefault()
     void (async () => {
       for (const file of files.slice(0, MAX_PROMPT_ATTACHMENTS)) {
         await attachPastedFile(file)

@@ -120,6 +120,10 @@ export function SettingsPanel({
   // MCP & Skills state
   const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([])
   const [skills, setSkills] = useState<SkillSummary[]>([])
+  const [pluginsError, setPluginsError] = useState<string | null>(null)
+  const [memoryError, setMemoryError] = useState<string | null>(null)
+  const memoryLoadSeq = useRef(0)
+  const pluginsLoadSeq = useRef(0)
 
   // Maintenance state
   const [compacting, setCompacting] = useState(false)
@@ -145,17 +149,42 @@ export function SettingsPanel({
   useEffect(() => {
     if (!open) return
     if (activeTab === 'memory') {
+      const sequence = memoryLoadSeq.current + 1
+      memoryLoadSeq.current = sequence
       setLoadingMemories(true)
-      void window.lmcodeAPI?.listMemories?.().then((res) => {
-        setMemories((res as typeof memories) || [])
-      }).catch(() => {}).finally(() => setLoadingMemories(false))
+      setMemoryError(null)
+      void window.lmcodeAPI?.listMemories?.()
+        .then((res) => {
+          if (memoryLoadSeq.current !== sequence) return
+          setMemories((res as typeof memories) || [])
+        })
+        .catch((reason: unknown) => {
+          if (memoryLoadSeq.current !== sequence) return
+          setMemories([])
+          setMemoryError(reason instanceof Error ? reason.message : '无法读取记忆库')
+        })
+        .finally(() => {
+          if (memoryLoadSeq.current === sequence) setLoadingMemories(false)
+        })
     } else if (activeTab === 'plugins' && currentSessionId) {
-      void window.lmcodeAPI?.listMcpServers?.(currentSessionId).then((res) => {
-        setMcpServers(res ?? [])
-      }).catch(() => {})
-      void window.lmcodeAPI?.listSkills?.(currentSessionId).then((res) => {
-        setSkills(res ?? [])
-      }).catch(() => {})
+      const sequence = pluginsLoadSeq.current + 1
+      pluginsLoadSeq.current = sequence
+      setPluginsError(null)
+      void Promise.all([
+        window.lmcodeAPI?.listMcpServers?.(currentSessionId),
+        window.lmcodeAPI?.listSkills?.(currentSessionId),
+      ])
+        .then(([mcp, listedSkills]) => {
+          if (pluginsLoadSeq.current !== sequence) return
+          setMcpServers(mcp ?? [])
+          setSkills(listedSkills ?? [])
+        })
+        .catch((reason: unknown) => {
+          if (pluginsLoadSeq.current !== sequence) return
+          setMcpServers([])
+          setSkills([])
+          setPluginsError(reason instanceof Error ? reason.message : '无法读取扩展状态')
+        })
     }
   }, [open, activeTab, currentSessionId])
 
@@ -178,10 +207,13 @@ export function SettingsPanel({
   }
 
   const handlePermissionChange = async (value: PermissionMode) => {
+    const previous = permission
     setPermission(value)
     setSaving('permission')
     try {
       await setPermissionPreference(value)
+    } catch {
+      setPermission(previous)
     } finally {
       setSaving(null)
     }
@@ -354,9 +386,8 @@ export function SettingsPanel({
                 {SETTINGS_TABS.find((t) => t.id === activeTab)?.label}
               </h3>
               {currentSessionId && (
-                <span className="flex items-center gap-1.5 rounded-full bg-[var(--lm-success)]/10 px-2 py-0.5 text-[10.5px] font-medium text-[var(--lm-success)]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--lm-success)]" />
-                  已连接
+                <span className="flex items-center gap-1.5 rounded-full bg-[var(--lm-accent-soft)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--lm-accent-text)]">
+                  当前会话
                 </span>
               )}
             </div>
@@ -542,6 +573,10 @@ export function SettingsPanel({
                   <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-6 text-center text-[12px] text-[var(--lm-text-muted)]">
                     请先创建或选择一个会话，再管理 MCP 与技能。
                   </div>
+                ) : pluginsError ? (
+                  <div className="rounded-xl border border-dashed border-[var(--lm-error)]/40 p-6 text-center text-[12px] text-[var(--lm-error)]">
+                    {pluginsError}
+                  </div>
                 ) : (
                   <>
                     <section className="space-y-2">
@@ -642,7 +677,11 @@ export function SettingsPanel({
                     ))
                   ) : (
                     <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-8 text-center text-[12px] text-[var(--lm-text-muted)]">
-                      {loadingMemories ? '正在读取本地向量记忆...' : '暂无沉淀的记忆记录'}
+                      {loadingMemories
+                        ? '正在读取本地向量记忆...'
+                        : memoryError
+                          ? memoryError
+                          : '暂无沉淀的记忆记录'}
                     </div>
                   )}
                 </div>

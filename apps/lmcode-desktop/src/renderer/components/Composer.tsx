@@ -30,6 +30,7 @@ import type { QueuedUserMessage, UserAttachment } from '@/types'
 import type { CommandPaletteRequest, ComposerDraftRequest } from '@/lib/menu-command'
 import { mergeComposerDraft } from '@/lib/composer-draft'
 import { isImeConfirmKey } from '@/lib/ime'
+import { filesFromClipboardData, shouldCaptureClipboardFiles } from '@/lib/clipboard-files'
 import {
   clearComposerDraft,
   getComposerDraft,
@@ -325,16 +326,9 @@ export function Composer({
 
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      let files = Array.from(event.clipboardData.files)
-      if (files.length === 0) {
-        // Some clipboard sources expose image data only through items.
-        files = Array.from(event.clipboardData.items)
-          .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
-          .map((item) => item.getAsFile())
-          .filter((file): file is File => file !== null)
-      }
+      const files = filesFromClipboardData(event.clipboardData)
       if (files.length === 0) return
-      if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+      if (shouldCaptureClipboardFiles(event.clipboardData)) event.preventDefault()
       void (async () => {
         for (const file of files.slice(0, MAX_PROMPT_ATTACHMENTS)) {
           await attachFile(file)

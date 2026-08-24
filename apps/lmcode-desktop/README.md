@@ -2,6 +2,10 @@
 
 LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 Agent，会话、目标、审批、MCP、记忆和后台任务与 CLI/TUI 使用同一套核心能力。
 
+## 0.7.12
+
+第四轮运行时自迭代：给剩余写操作 IPC 补上 schema（整库暂存的布尔、undo 计数、setConfig、终端写入等）。Git 审查把「找不到 Git」和 diff 失败从干净/非仓库空态里拆出来。设置里 MCP/记忆加载失败不再画成「暂无」。资源管理器复制文件不再把路径再贴进输入框。连续 `turn.started` 不再堆空气泡。项目终端去掉 `powershell -Command -`。
+
 ## 0.7.11
 
 第三轮运行时自迭代：斜杠面板确认拼音不再误跑命令；审批/提问只跟当前会话；停止/删除/关闭期间禁止再 resume，未激活会话的停止是空操作。Composer 和排队发送共用一把锁。空 API key 不再覆盖已存密钥。带 cron 的会话启动会重试，未知会话事件先停在后台。Windows 设置 AUMID，没有托盘图标时不再空托盘驻留。

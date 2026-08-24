@@ -24,6 +24,7 @@ import {
 } from '@/components/GitDiffView'
 import { formatGitReviewComments } from '@/lib/git-review-comments'
 import { isImeConfirmKey } from '@/lib/ime'
+import { gitSnapshotView } from '@/lib/git-snapshot-view'
 import type {
   GitChangeKind,
   GitDiscardScope,
@@ -199,6 +200,7 @@ export function GitReviewPanel({
   const [pendingDestructive, setPendingDestructive] =
     useState<PendingDestructiveAction | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [diffError, setDiffError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const refreshSequence = useRef(0)
 
@@ -234,6 +236,10 @@ export function GitReviewPanel({
     setCommitMessage('')
     setNotice(null)
     setSnapshot(null)
+    setDiff(null)
+    setError(null)
+    setDiffError(null)
+    setLoading(Boolean(sessionId))
   }, [sessionId])
 
   const scopedChanges = useMemo(
@@ -251,11 +257,12 @@ export function GitReviewPanel({
   useEffect(() => {
     if (!open || !sessionId || !selectedPath) {
       setDiff(null)
+      setDiffError(null)
       return
     }
     let cancelled = false
     setDiffLoading(true)
-    setError(null)
+    setDiffError(null)
     void window.lmcodeAPI.getGitFileDiff(sessionId, selectedPath)
       .then((next) => {
         if (!cancelled) setDiff(next)
@@ -263,7 +270,7 @@ export function GitReviewPanel({
       .catch((reason: unknown) => {
         if (!cancelled) {
           setDiff(null)
-          setError(errorMessage(reason))
+          setDiffError(errorMessage(reason))
         }
       })
       .finally(() => {
@@ -434,6 +441,7 @@ export function GitReviewPanel({
   const discardScope: GitDiscardScope =
     scope === 'unstaged' && selectedChange?.kind !== 'untracked' ? 'unstaged' : 'all'
   const pendingCopy = pendingDestructive ? destructiveCopy(pendingDestructive) : null
+  const snapshotView = gitSnapshotView(snapshot)
 
   return (
     <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
@@ -443,7 +451,12 @@ export function GitReviewPanel({
         onClick={onClose}
         aria-label="关闭 Git 变更审阅"
       />
-      <aside className="relative z-10 ml-auto flex h-full w-[min(1040px,calc(100vw-32px))] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]">
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label="代码审查"
+        className="relative z-10 ml-auto flex h-full w-[min(1040px,calc(100vw-32px))] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]"
+      >
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--lm-border)] px-4">
           <GitBranch size={17} className="text-[var(--lm-accent-text)]" />
           <div className="min-w-0 flex-1">
@@ -633,7 +646,15 @@ export function GitReviewPanel({
             <Loader2 size={16} className="lm-spin" />
             正在读取 Git 状态…
           </div>
-        ) : snapshot && !snapshot.isRepository ? (
+        ) : snapshotView.kind === 'error' ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <AlertTriangle size={28} className="text-[var(--lm-error)]" />
+            <div>
+              <p className="text-[14px] font-medium text-[var(--lm-text-primary)]">无法读取 Git 状态</p>
+              <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">{snapshotView.message}</p>
+            </div>
+          </div>
+        ) : snapshotView.kind === 'not-repo' ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <GitBranch size={28} className="text-[var(--lm-text-muted)]" />
             <div>
@@ -641,15 +662,7 @@ export function GitReviewPanel({
               <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">初始化仓库后刷新，即可在这里审阅代码变更。</p>
             </div>
           </div>
-        ) : snapshot?.error ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-            <AlertTriangle size={28} className="text-[var(--lm-error)]" />
-            <div>
-              <p className="text-[14px] font-medium text-[var(--lm-text-primary)]">无法读取 Git 状态</p>
-              <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">{snapshot.error}</p>
-            </div>
-          </div>
-        ) : snapshot && snapshot.changes.length === 0 ? (
+        ) : snapshotView.kind === 'clean' ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <CheckCircle2 size={28} className="text-[var(--lm-success)]" />
             <div>
@@ -699,6 +712,11 @@ export function GitReviewPanel({
                       onHunkAction={(input) => void applyHunkAction(input)}
                     />
                   ))}
+                </div>
+              ) : diffError ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[12px] text-[var(--lm-error)]">
+                  <AlertTriangle size={22} />
+                  {diffError}
                 </div>
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-[12px] text-[var(--lm-text-muted)]">

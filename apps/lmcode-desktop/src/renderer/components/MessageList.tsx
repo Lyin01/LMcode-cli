@@ -163,7 +163,7 @@ export function MessageList({ findRequest }: MessageListProps) {
   }, [messages])
 
   const handleRegenerate = useCallback(async () => {
-    if (!currentSessionId) return
+    if (!currentSessionId || isStreaming) return
     const text = lastUserText
     if (!text.trim()) return
     try {
@@ -177,7 +177,7 @@ export function MessageList({ findRequest }: MessageListProps) {
     } catch (err) {
       console.error('Failed to regenerate:', err)
     }
-  }, [currentSessionId, enqueueMessage, lastUserText, setMessagesForSession])
+  }, [currentSessionId, enqueueMessage, isStreaming, lastUserText, setMessagesForSession])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">

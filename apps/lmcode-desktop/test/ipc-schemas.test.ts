@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest'
 import {
   createCronJobArgsSchema,
   createSessionArgsSchema,
+  compactSessionArgsSchema,
   openExternalArgsSchema,
   openPathArgsSchema,
   parseIpcArgs,
   promptArgsSchema,
+  setAllGitFilesStagedArgsSchema,
   setPermissionArgsSchema,
+  undoHistoryArgsSchema,
 } from '../src/shared/ipc-schemas'
 
 describe('IPC argument schemas (wire boundary contract)', () => {
@@ -66,6 +69,34 @@ describe('IPC argument schemas (wire boundary contract)', () => {
   it('rejects a channel invoked with the wrong arity', () => {
     expect(() =>
       parseIpcArgs(createSessionArgsSchema, [], 'lmcode:createSession'),
+    ).toThrow(/Invalid IPC arguments/)
+  })
+
+  it('rejects a stringy boolean for staging every git file', () => {
+    expect(
+      parseIpcArgs(setAllGitFilesStagedArgsSchema, ['session-1', true], 'lmcode:setAllGitFilesStaged'),
+    ).toEqual(['session-1', true])
+    expect(() =>
+      parseIpcArgs(
+        setAllGitFilesStagedArgsSchema,
+        ['session-1', 'false'],
+        'lmcode:setAllGitFilesStaged',
+      ),
+    ).toThrow(/Invalid IPC arguments/)
+  })
+
+  it('accepts compactSession with or without an instruction', () => {
+    expect(parseIpcArgs(compactSessionArgsSchema, ['session-1'], 'lmcode:compactSession')).toEqual([
+      'session-1',
+    ])
+    expect(
+      parseIpcArgs(compactSessionArgsSchema, ['session-1', 'keep decisions'], 'lmcode:compactSession'),
+    ).toEqual(['session-1', 'keep decisions'])
+  })
+
+  it('rejects a non-positive undo count', () => {
+    expect(() =>
+      parseIpcArgs(undoHistoryArgsSchema, ['session-1', 0], 'lmcode:undoHistory'),
     ).toThrow(/Invalid IPC arguments/)
   })
 

@@ -146,7 +146,7 @@ function resolveShell(): ShellCommand {
         : 'powershell.exe'
     return {
       command,
-      args: ['-NoLogo', '-NoProfile', '-Command', '-'],
+      args: ['-NoLogo', '-NoProfile'],
       label: 'PowerShell',
     }
   }

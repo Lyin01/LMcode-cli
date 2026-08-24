@@ -170,6 +170,15 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
 
   switch (event.type) {
     case 'turn.started': {
+      const last = msgs.at(-1)
+      if (
+        last?.role === 'assistant' &&
+        last.thinkingState === 'streaming' &&
+        !last.content.trim() &&
+        (last.toolCalls?.length ?? 0) === 0
+      ) {
+        return { ...slice, isStreaming: true, streamStatus: null }
+      }
       const msg: Message = {
         id: nextMsgId(),
         role: 'assistant',

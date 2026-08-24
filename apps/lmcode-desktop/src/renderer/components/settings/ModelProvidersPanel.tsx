@@ -47,6 +47,7 @@ export function ModelProvidersPanel() {
   const updateConfig = useConfigStore((s) => s.updateConfig)
   const removeProvider = useConfigStore((s) => s.removeProvider)
   const [view, setView] = useState<View>({ kind: 'list' })
+  const togglingIds = useRef(new Set<string>())
 
   const providers = useMemo(() => {
     if (!config?.providers) return []
@@ -127,7 +128,11 @@ export function ModelProvidersPanel() {
             <button
               type="button"
               onClick={() => {
-                void updateConfig({ providers: { [id]: { enabled: !enabled } } })
+                if (togglingIds.current.has(id)) return
+                togglingIds.current.add(id)
+                void updateConfig({ providers: { [id]: { enabled: !enabled } } }).finally(() => {
+                  togglingIds.current.delete(id)
+                })
               }}
               className={cn(
                 'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors',
@@ -192,9 +197,11 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
     isNew ? Boolean(s.config?.providers?.[id.trim()]) : false,
   )
   const canSave = id.trim().length > 0 && !idConflict && !saving
+  const savingRef = useRef(false)
 
   const handleSave = async () => {
-    if (!canSave) return
+    if (!canSave || savingRef.current) return
+    savingRef.current = true
     setSaving(true)
     setError('')
     try {
@@ -221,6 +228,7 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败')
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
