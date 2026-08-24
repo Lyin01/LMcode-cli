@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { MessageSquarePlus, Minus, Plus, Trash2, Undo2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { parseGitDiff, type ParsedDiffLine } from '@/lib/git-diff'
+import { isImeConfirmKey } from '@/lib/ime'
 import type {
   GitDiffSection,
   GitHunkActionInput,
@@ -286,7 +287,11 @@ export function GitDiffView({
                         value={commentDraft}
                         onChange={(event) => setCommentDraft(event.target.value)}
                         onKeyDown={(event) => {
-                          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                          if (
+                            event.key === 'Enter' &&
+                            (event.ctrlKey || event.metaKey) &&
+                            !isImeConfirmKey(event)
+                          ) {
                             event.preventDefault()
                             saveComment()
                           }

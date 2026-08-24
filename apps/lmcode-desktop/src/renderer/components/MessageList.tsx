@@ -6,6 +6,7 @@ import { findConversationMessageIds } from '@/lib/conversation-search'
 import { historyToMessages } from '@/lib/history'
 import { cn } from '@/lib/utils'
 import type { ConversationFindRequest } from '@/lib/menu-command'
+import { isImeConfirmKey } from '@/lib/ime'
 
 /** Distance from the bottom (px) within which the view is considered "stuck". */
 const STICK_THRESHOLD_PX = 80
@@ -192,6 +193,7 @@ export function MessageList({ findRequest }: MessageListProps) {
                 event.preventDefault()
                 closeFind()
               } else if (event.key === 'Enter') {
+                if (isImeConfirmKey(event)) return
                 event.preventDefault()
                 moveMatch(event.shiftKey ? -1 : 1)
               }

@@ -4,6 +4,7 @@ import {
   filterSlashCommands,
   parseDesktopSlashCommand,
   shouldHandleSlashKeys,
+  slashCommandBlockedWhileStreaming,
 } from '../src/renderer/lib/slash-command'
 
 describe('desktop slash command parsing', () => {
@@ -75,6 +76,23 @@ describe('slash command filtering for the composer dialog', () => {
 
   it('returns zero matches for an unknown command', () => {
     expect(filterSlashCommands(commands, 'zzz')).toHaveLength(0)
+  })
+})
+
+describe('slash commands while a turn is streaming', () => {
+  it('blocks compact, revoke, and new-turn commands until generation stops', () => {
+    expect(slashCommandBlockedWhileStreaming('compact')).toBe(true)
+    expect(slashCommandBlockedWhileStreaming('revoke')).toBe(true)
+    expect(slashCommandBlockedWhileStreaming('goal-create')).toBe(true)
+    expect(slashCommandBlockedWhileStreaming('review-run')).toBe(true)
+    expect(slashCommandBlockedWhileStreaming('clear')).toBe(true)
+  })
+
+  it('still allows help, status, and panel-opening commands', () => {
+    expect(slashCommandBlockedWhileStreaming('help')).toBe(false)
+    expect(slashCommandBlockedWhileStreaming('goal-status')).toBe(false)
+    expect(slashCommandBlockedWhileStreaming('review-open')).toBe(false)
+    expect(slashCommandBlockedWhileStreaming('export')).toBe(false)
   })
 })
 

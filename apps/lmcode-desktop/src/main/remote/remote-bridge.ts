@@ -9,6 +9,12 @@ import type { MemoryMemoStore } from '@lmcode/memory'
 import type { Event } from '@lmcode-cli/lmcode-sdk'
 import { restoreRedactedConfigPatch, sanitizeConfigForRenderer } from '../config-security.js'
 import { isPermissionMode } from '../../shared/permission-mode.js'
+import {
+  assertRemoteSafeConfigPatch,
+  assertRemoteSafeMcpConfig,
+  assertRemoteSafePermissionMode,
+  isAllowedRemoteWorkDir,
+} from './remote-guards.js'
 import type {
   RemoteMethod,
   RemoteMethodResult,
@@ -296,6 +302,7 @@ export class RemoteBridge implements InteractionSurface {
         const session = await this.ensureSession(requireString(params, 'sessionId', method))
         const mode = requireString(params, 'mode', method)
         if (!isPermissionMode(mode)) throw new Error('Invalid permission mode')
+        assertRemoteSafePermissionMode(mode)
         await session.setPermission(mode)
         return undefined as RemoteMethodResult<M>
       }
@@ -394,9 +401,11 @@ export class RemoteBridge implements InteractionSurface {
       }
       case 'mcp.add': {
         const session = await this.ensureSession(requireString(params, 'sessionId', method))
+        const config = requireObject(params, 'config', method)
+        assertRemoteSafeMcpConfig(config)
         await session.addMcpServer(
           requireString(params, 'name', method),
-          requireObject(params, 'config', method),
+          config,
         )
         return undefined as RemoteMethodResult<M>
       }
@@ -415,9 +424,12 @@ export class RemoteBridge implements InteractionSurface {
       case 'config.get':
         return sanitizeConfigForRenderer(await this.harness.getConfig()) as RemoteMethodResult<M>
       case 'config.set': {
-        const patch = requireObject(params, 'patch', method) as never
+        const patch = requireObject(params, 'patch', method)
+        assertRemoteSafeConfigPatch(patch)
         const current = await this.harness.getConfig()
-        const config = await this.harness.setConfig(restoreRedactedConfigPatch(patch, current))
+        const config = await this.harness.setConfig(
+          restoreRedactedConfigPatch(patch as never, current),
+        )
         return sanitizeConfigForRenderer(config) as RemoteMethodResult<M>
       }
 
@@ -480,12 +492,25 @@ export class RemoteBridge implements InteractionSurface {
       params['noProject'] === true
         ? await this.harness.createSession({ workDir: this.noProjectWorkDir })
         : await this.harness.createSession({
-            workDir: requireString(params, 'workDir', 'sessions.create'),
+            workDir: await this.requireExistingProjectWorkDir(params),
           })
     if (!session.summary) {
       throw new Error('Remote session created without a summary')
     }
     return session.summary
+  }
+
+  private async requireExistingProjectWorkDir(
+    params: Record<string, unknown>,
+  ): Promise<string> {
+    const workDir = requireString(params, 'workDir', 'sessions.create')
+    const allowed = await this.listProjects()
+    if (!isAllowedRemoteWorkDir(workDir, allowed)) {
+      throw new Error(
+        'Remote sessions.create: workDir must be an existing desktop project directory',
+      )
+    }
+    return workDir
   }
 
   private async resumeSession(id: string): Promise<{

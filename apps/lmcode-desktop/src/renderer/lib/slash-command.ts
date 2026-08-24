@@ -166,3 +166,21 @@ export function filterSlashCommands<T extends SlashCommandLike>(
 export function shouldHandleSlashKeys(showSlash: boolean, matchCount: number): boolean {
   return showSlash && matchCount > 0
 }
+
+const STREAMING_BLOCKED_SLASH = new Set<ParsedDesktopSlashCommand['kind']>([
+  'goal-create',
+  'goal-resume',
+  'plan',
+  'compact',
+  'revoke',
+  'clear',
+  'dream',
+  'review-run',
+])
+
+/** Compact / revoke / new turns must not run on top of an in-flight generation. */
+export function slashCommandBlockedWhileStreaming(
+  kind: ParsedDesktopSlashCommand['kind'],
+): boolean {
+  return STREAMING_BLOCKED_SLASH.has(kind)
+}

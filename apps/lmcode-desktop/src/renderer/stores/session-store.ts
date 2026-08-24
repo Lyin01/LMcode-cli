@@ -22,6 +22,7 @@ import {
 import { buildModelEntries } from '@/lib/models'
 import { createDesktopPromptRequest } from '@/lib/prompt-request'
 import { clearComposerDraft } from '@/lib/composer-drafts'
+import { mergeHydratedHistory } from '@/lib/history'
 import { useConfigStore } from '@/stores/config-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
@@ -549,6 +550,21 @@ function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): 
 const queueDrainInFlight = new Set<string>()
 
 /**
+ * After the user hits stop, queued follow-ups must stay parked until they
+ * enqueue or send again. Otherwise `turn.ended` (cancelled) looks idle and
+ * the drain immediately starts the next turn.
+ */
+const pausedQueueSessions = new Set<string>()
+
+export function pauseQueuedDrain(sessionId: string): void {
+  pausedQueueSessions.add(sessionId)
+}
+
+export function resumeQueuedDrain(sessionId: string): void {
+  pausedQueueSessions.delete(sessionId)
+}
+
+/**
  * Single-flight latch for `startSessionWithMessage`. Module-level (like
  * `queueDrainInFlight`) so it takes effect synchronously, before any React
  * commit or IPC await can interleave a second call.
@@ -583,6 +599,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   setNoProjectWorkDir: (workDir) => set({ noProjectWorkDir: workDir }),
 
   removeDeletedSession: (deletedId, remaining) => {
+    pausedQueueSessions.delete(deletedId)
     set((state) => {
       const bg = { ...state.bg }
       const messageQueue = { ...state.messageQueue }
@@ -907,6 +924,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return
     }
 
+    if (event.type === 'turn.ended' && (event as TurnEndedEvent).reason === 'cancelled') {
+      pausedQueueSessions.add(sessionId)
+    }
+
     // Activity drives sidebar ordering. Keep it live instead of waiting for a
     // full listSessions refresh, which may not happen again until restart.
     if (event.type === 'turn.started' || event.type === 'turn.ended') {
@@ -1049,6 +1070,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })),
 
   enqueueMessage: (sessionId, text, attachments = []) => {
+    pausedQueueSessions.delete(sessionId)
     queuedMessageCounter += 1
     const id = `queued_${Date.now()}_${queuedMessageCounter}`
     const message: QueuedUserMessage = {
@@ -1116,6 +1138,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   drainMessageQueue: (sessionId) => {
     const state = get()
     if (queueDrainInFlight.has(sessionId)) return
+    if (pausedQueueSessions.has(sessionId)) return
     if (!state.sessions.some((session) => session.id === sessionId)) return
     if (state.isSessionStreaming(sessionId)) return
     if ((state.messageQueue[sessionId]?.length ?? 0) === 0) return
@@ -1149,17 +1172,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (state.hydratedSessions[sessionId]) return state
       const hydratedSessions = { ...state.hydratedSessions, [sessionId]: true }
       if (history.length === 0) return { hydratedSessions }
-      // Prepend: anything already in the slice arrived live (typed or
-      // streamed) after the history snapshot was taken on disk.
+      // Prepend history, dropping any suffix that already landed live (the
+      // prompt may have persisted before getSessionHistory resolved).
       if (state.currentSessionId === sessionId) {
-        return { hydratedSessions, messages: [...history, ...state.messages] }
+        return {
+          hydratedSessions,
+          messages: mergeHydratedHistory(history, state.messages),
+        }
       }
       const previous = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
       return {
         hydratedSessions,
         bg: {
           ...state.bg,
-          [sessionId]: { ...previous, messages: [...history, ...previous.messages] },
+          [sessionId]: {
+            ...previous,
+            messages: mergeHydratedHistory(history, previous.messages),
+          },
         },
       }
     }),

@@ -96,6 +96,7 @@ export function SettingsPanel({
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialSection)
   const [tabSearch, setTabSearch] = useState('')
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
+  const isStreaming = useSessionStore((s) => s.isStreaming)
   const sessionThinkingLevel = useSessionStore((s) => s.thinkingLevel)
   const sessionPermission = useSessionStore((s) => s.permission)
   const permissionPreference = useSessionStore((s) => s.permissionPreference)
@@ -205,7 +206,7 @@ export function SettingsPanel({
   }
 
   const handleCompact = async () => {
-    if (!currentSessionId || compacting) return
+    if (!currentSessionId || compacting || useSessionStore.getState().isStreaming) return
     setCompacting(true)
     try {
       await window.lmcodeAPI?.compactSession(currentSessionId)
@@ -663,7 +664,7 @@ export function SettingsPanel({
                   <div className="space-y-2">
                     <button
                       onClick={handleCompact}
-                      disabled={!currentSessionId || compacting}
+                      disabled={!currentSessionId || compacting || isStreaming}
                       className="flex w-full items-center justify-between rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-3.5 py-2.5 text-[13px] text-[var(--lm-text-primary)] hover:bg-[var(--lm-bg-hover)] disabled:opacity-50"
                     >
                       <span className="flex items-center gap-2">

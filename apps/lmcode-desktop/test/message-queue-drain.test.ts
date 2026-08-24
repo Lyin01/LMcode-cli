@@ -157,6 +157,59 @@ describe('desktop message queue drain', () => {
     expect(useSessionStore.getState().bg['session-b']?.unread).toBe(true)
   })
 
+  it('does not auto-send the queue after the user stops generation', async () => {
+    const store = useSessionStore.getState()
+    store.handleEvent('session-a', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+    store.enqueueMessage('session-a', 'queued follow-up')
+    await flushDrain()
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    useSessionStore.getState().handleEvent('session-a', {
+      type: 'turn.ended',
+      turnId: 1,
+      reason: 'cancelled',
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+    await flushDrain()
+
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().messageQueue['session-a']).toHaveLength(1)
+  })
+
+  it('resumes draining when the user enqueues again after a stop', async () => {
+    const store = useSessionStore.getState()
+    store.handleEvent('session-a', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+    store.enqueueMessage('session-a', 'held')
+    useSessionStore.getState().handleEvent('session-a', {
+      type: 'turn.ended',
+      turnId: 1,
+      reason: 'cancelled',
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+    await flushDrain()
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    useSessionStore.getState().enqueueMessage('session-a', 'send now')
+    await flushDrain()
+
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMessage.mock.calls[0]?.[1]).toMatchObject({ text: 'held' })
+  })
+
   it('never drains sessions that are not in the session list', async () => {
     useSessionStore.getState().enqueueMessage('ghost-session', 'never sent')
     await flushDrain()

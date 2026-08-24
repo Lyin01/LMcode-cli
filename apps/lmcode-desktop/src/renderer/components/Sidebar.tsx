@@ -37,6 +37,7 @@ import { useProjectSwitcher } from '@/hooks/useProjectSwitcher'
 import { ProjectPicker } from '@/components/ProjectPicker'
 import type { SessionInfo } from '@/types'
 import type { RenameConversationRequest } from '@/lib/menu-command'
+import { isImeConfirmKey } from '@/lib/ime'
 import {
   requestSessionDeletion,
   type PendingSessionDeletion,
@@ -265,7 +266,7 @@ const SessionListItem = memo(function SessionListItem({
             value={editValue}
             onChange={(event) => setEditValue(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+              if (event.key === 'Enter' && !isImeConfirmKey(event)) {
                 event.preventDefault()
                 void confirmRename()
               } else if (event.key === 'Escape') {
@@ -721,7 +722,7 @@ export function Sidebar({
             <div className="min-w-0 leading-tight">
               <div className="truncate text-[13px] font-bold tracking-tight">LMCODE</div>
               <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--lm-text-muted)]">
-                Enterprise Agent
+                Desktop
               </div>
             </div>
           </div>

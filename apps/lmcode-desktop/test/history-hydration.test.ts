@@ -116,6 +116,24 @@ describe('desktop session history hydration', () => {
     expect(state.messages).toEqual([])
   })
 
+  it('does not duplicate a live turn already present in the history snapshot', () => {
+    useSessionStore.getState().addMessageToSession('session-a', {
+      id: 'live-1',
+      role: 'user',
+      content: 'hello from composer',
+      timestamp: 2,
+    })
+    useSessionStore.getState().hydrateSessionHistory('session-a', [
+      historyMessage('h1', 'older'),
+      { id: 'hist-user', role: 'user', content: 'hello from composer', timestamp: 0 },
+    ])
+
+    expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual([
+      'h1',
+      'live-1',
+    ])
+  })
+
   it('clears the hydration marker when the session is deleted', () => {
     const store = useSessionStore.getState()
     store.hydrateSessionHistory('session-a', [historyMessage('h1', 'old reply')])

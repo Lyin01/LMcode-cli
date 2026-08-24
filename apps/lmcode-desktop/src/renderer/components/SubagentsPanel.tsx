@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session-store'
 import { useSubagentStore, type SubagentEntry } from '@/stores/subagent-store'
 import { useTaskStore } from '@/stores/task-store'
+import { isImeConfirmKey } from '@/lib/ime'
 
 interface SubagentsPanelProps {
   readonly open: boolean
@@ -213,7 +214,9 @@ export function SubagentsPanel({ open, onClose }: SubagentsPanelProps) {
                               [agent.subagentId]: event.target.value,
                             }))}
                             onKeyDown={(event) => {
-                              if (event.key === 'Enter') void steerAgent(agent)
+                              if (event.key === 'Enter' && !isImeConfirmKey(event)) {
+                                void steerAgent(agent)
+                              }
                             }}
                             placeholder="补充方向，通知主 Agent 调整…"
                             className="min-w-0 flex-1 rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2 py-1.5 text-[10px] text-[var(--lm-text-primary)]"

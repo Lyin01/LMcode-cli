@@ -1,5 +1,10 @@
 import { useCallback } from 'react'
-import { toDisplayAttachment, useSessionStore } from '@/stores/session-store'
+import {
+  pauseQueuedDrain,
+  resumeQueuedDrain,
+  toDisplayAttachment,
+  useSessionStore,
+} from '@/stores/session-store'
 import { cancelResponseSafely } from '@/lib/cancel-response'
 import { createDesktopPromptRequest } from '@/lib/prompt-request'
 import type { UserAttachment } from '@/types'
@@ -20,6 +25,7 @@ export function useSession() {
     async (text: string, attachments: readonly UserAttachment[] = EMPTY_ATTACHMENTS) => {
       const normalized = text.trim()
       if (!currentSessionId || (!normalized && attachments.length === 0) || isStreaming) return
+      resumeQueuedDrain(currentSessionId)
 
       // Add user message
       addMessageToSession(currentSessionId, {
@@ -61,7 +67,8 @@ export function useSession() {
     // waits for it, and a failed one leaves the still-running session marked
     // as streaming. Only the failure is surfaced here — as a visible error
     // message, after which the stop button can be retried.
-    await cancelResponseSafely(currentSessionId, {
+    pauseQueuedDrain(currentSessionId)
+    const result = await cancelResponseSafely(currentSessionId, {
       cancelResponse: (sessionId) => window.lmcodeAPI.cancelResponse(sessionId),
       onError: (message) =>
         addMessageToSession(currentSessionId, {
@@ -73,6 +80,7 @@ export function useSession() {
         }),
       logError: (err) => console.error('Failed to cancel:', err),
     })
+    if (result.status === 'failed') resumeQueuedDrain(currentSessionId)
   }, [currentSessionId, addMessageToSession])
 
   const steerMessage = useCallback(async (

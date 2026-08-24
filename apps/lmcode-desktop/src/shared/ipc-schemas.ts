@@ -153,6 +153,10 @@ export const respondQuestionArgsSchema = z.tuple([questionResponsePayloadSchema]
 
 export const worktreeHandoffArgsSchema = z.tuple([sessionIdSchema, z.string().trim().min(1)])
 
+export const openPathArgsSchema = z.tuple([z.string()])
+
+export const openExternalArgsSchema = z.tuple([z.string()])
+
 /**
  * Validate an IPC argument list against a tuple schema. Returns the parsed
  * arguments, or throws a descriptive error naming the offending channel.

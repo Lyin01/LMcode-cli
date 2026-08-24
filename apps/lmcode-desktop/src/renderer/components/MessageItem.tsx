@@ -4,7 +4,7 @@ import { AlertTriangle, Check, Copy, FileText, RotateCcw, Sparkles } from 'lucid
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallList } from '@/components/ToolCallList'
 import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
-import { resolveOpenTarget, resolveHrefOpenTarget } from '@/lib/open-target'
+import { resolveOpenTarget, resolveHrefOpenTarget, isSafeExternalHref } from '@/lib/open-target'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -141,8 +141,8 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
   }
 
   const handle = href === undefined ? undefined : (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (href.startsWith('https://') || href.startsWith('http://')) {
-      event.preventDefault()
+    event.preventDefault()
+    if (isSafeExternalHref(href)) {
       void window.lmcodeAPI.openExternal(href)
     }
   }

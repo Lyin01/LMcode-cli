@@ -16,6 +16,7 @@ import { createLatestRequestGate } from '@/lib/latest-request'
 import { launchTerminal } from '@/lib/terminal-session'
 import { AnsiStateParser, type AnsiSegment } from '@/lib/ansi'
 import { useSessionStore } from '@/stores/session-store'
+import { isImeConfirmKey } from '@/lib/ime'
 import type {
   ProjectTerminalInfo,
   TerminalOutputPayload,
@@ -393,6 +394,7 @@ export function TerminalPanel({ open, onClose }: TerminalPanelProps) {
           onChange={(event) => setCommand(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
+              if (isImeConfirmKey(event)) return
               event.preventDefault()
               void sendCommand()
             } else if (event.key === 'ArrowUp' && history.length > 0) {

@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session-store'
 import type { GitWorktreeInfo } from '../../shared/worktree-types'
+import { isImeConfirmKey } from '@/lib/ime'
 
 interface WorktreesPanelProps {
   readonly open: boolean
@@ -188,7 +189,7 @@ export function WorktreesPanel({ open, onClose }: WorktreesPanelProps) {
                 value={branchName}
                 onChange={(event) => setBranchName(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') void createAndHandoff()
+                  if (event.key === 'Enter' && !isImeConfirmKey(event)) void createAndHandoff()
                 }}
                 disabled={creating || isStreaming}
                 className="min-w-0 flex-1 rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--lm-text-primary)] focus:border-[var(--lm-accent)] disabled:opacity-50"

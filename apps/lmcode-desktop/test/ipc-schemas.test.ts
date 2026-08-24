@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   createCronJobArgsSchema,
   createSessionArgsSchema,
+  openExternalArgsSchema,
+  openPathArgsSchema,
   parseIpcArgs,
   promptArgsSchema,
   setPermissionArgsSchema,
@@ -65,5 +67,17 @@ describe('IPC argument schemas (wire boundary contract)', () => {
     expect(() =>
       parseIpcArgs(createSessionArgsSchema, [], 'lmcode:createSession'),
     ).toThrow(/Invalid IPC arguments/)
+  })
+
+  it('requires openPath and openExternal to receive a string', () => {
+    expect(parseIpcArgs(openPathArgsSchema, ['C:/repo/out.html'], 'lmcode:openPath')).toEqual([
+      'C:/repo/out.html',
+    ])
+    expect(() => parseIpcArgs(openPathArgsSchema, [null], 'lmcode:openPath')).toThrow(
+      /Invalid IPC arguments/,
+    )
+    expect(parseIpcArgs(openExternalArgsSchema, ['https://example.com'], 'lmcode:openExternal')).toEqual([
+      'https://example.com',
+    ])
   })
 })

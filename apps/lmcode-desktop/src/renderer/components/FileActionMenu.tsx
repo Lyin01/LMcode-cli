@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderOpen, ExternalLink, Code2, Copy, Check, FileCode, Globe } from 'lucide-react'
 import { fileBasename } from '@/lib/open-target'
+import { useSessionStore } from '@/stores/session-store'
 
 interface MenuState {
   readonly x: number
@@ -59,7 +60,7 @@ export function FileActionMenu({ state, onClose }: FileActionMenuProps) {
       try {
         switch (action) {
           case 'open':
-            await window.lmcodeAPI.openPath(path)
+            await openFileWithSystem(path)
             break
           case 'reveal':
             await window.lmcodeAPI.showItemInFolder(path)
@@ -127,12 +128,29 @@ export function useFileContextMenu() {
   return { openFromEvent, menu }
 }
 
+function reportFileActionError(message: string): void {
+  const sessionId = useSessionStore.getState().currentSessionId
+  if (sessionId === null) return
+  useSessionStore.getState().addMessageToSession(sessionId, {
+    id: `file_err_${globalThis.crypto.randomUUID()}`,
+    role: 'system',
+    variant: 'error',
+    content: message,
+    timestamp: Date.now(),
+  })
+}
+
 /** 点击输出文件：系统默认程序打开（HTML 走浏览器、图片走查看器）。 */
 export async function openFileWithSystem(path: string): Promise<void> {
   try {
     const error = await window.lmcodeAPI.openPath(path)
-    if (error !== undefined && error.length > 0) console.error('openPath failed:', error)
+    if (error !== undefined && error.length > 0) {
+      reportFileActionError(error)
+      console.error('openPath failed:', error)
+    }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    reportFileActionError(`打开文件失败：${message}`)
     console.error('openPath failed:', error)
   }
 }

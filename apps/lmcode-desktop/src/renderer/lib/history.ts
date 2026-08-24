@@ -103,3 +103,42 @@ export function historyToMessages(history: unknown[]): Message[] {
 
   return out
 }
+
+function messageOverlapKey(message: Message): string {
+  return `${message.role}\n${message.content}`
+}
+
+/**
+ * Merge on-disk history in front of live messages that arrived while the
+ * backfill was in flight. If the snapshot already contains the live prefix
+ * (the prompt persisted before `getSessionHistory` resolved), drop the
+ * overlapping suffix so the same turn is not rendered twice.
+ */
+export function mergeHydratedHistory(
+  history: readonly Message[],
+  live: readonly Message[],
+): Message[] {
+  if (live.length === 0) return [...history]
+  if (history.length === 0) return [...live]
+
+  let overlap = Math.min(history.length, live.length)
+  while (overlap > 0) {
+    let matches = true
+    for (let index = 0; index < overlap; index += 1) {
+      const historic = history[history.length - overlap + index]
+      const current = live[index]
+      if (
+        historic === undefined ||
+        current === undefined ||
+        messageOverlapKey(historic) !== messageOverlapKey(current)
+      ) {
+        matches = false
+        break
+      }
+    }
+    if (matches) break
+    overlap -= 1
+  }
+
+  return [...history.slice(0, history.length - overlap), ...live]
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   fileBasename,
   fileUrlToLocalPath,
+  isSafeExternalHref,
   resolveHrefOpenTarget,
   resolveOpenTarget,
 } from '../src/renderer/lib/open-target'
@@ -31,6 +32,10 @@ describe('output file open targets', () => {
   it('does not turn arbitrary inline code into a file action', () => {
     expect(resolveOpenTarget('npm test', 'E:\\workspace')).toBeNull()
     expect(resolveOpenTarget('profile.html')).toBeNull()
+    expect(resolveOpenTarget('e.g.', 'E:\\workspace')).toBeNull()
+    expect(resolveOpenTarget('i.e.', 'E:\\workspace')).toBeNull()
+    expect(resolveOpenTarget('etc.', 'E:\\workspace')).toBeNull()
+    expect(resolveOpenTarget('v1.0', 'E:\\workspace')).toBeNull()
   })
 
   it('resolves markdown hrefs to local HTML and ignores web links', () => {
@@ -44,5 +49,13 @@ describe('output file open targets', () => {
     expect(resolveHrefOpenTarget('https://example.com/a.html', 'E:\\workspace')).toBeNull()
     expect(resolveHrefOpenTarget('#section', 'E:\\workspace')).toBeNull()
     expect(fileBasename('E:\\workspace\\burning-letter.html')).toBe('burning-letter.html')
+  })
+
+  it('only treats http(s) URLs as external browser targets', () => {
+    expect(isSafeExternalHref('https://example.com/a')).toBe(true)
+    expect(isSafeExternalHref('http://192.168.1.8:37991')).toBe(true)
+    expect(isSafeExternalHref('javascript:alert(1)')).toBe(false)
+    expect(isSafeExternalHref('file:///C:/secret.txt')).toBe(false)
+    expect(isSafeExternalHref('data:text/html,hi')).toBe(false)
   })
 })

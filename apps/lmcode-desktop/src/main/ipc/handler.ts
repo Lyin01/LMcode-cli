@@ -25,6 +25,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isUnsafeShellOpenPath } from '../../shared/open-path-guard.js'
 import type { RemoteState } from '../../shared/remote-types.js'
 import type {
   DesktopCreateSessionOptions,
@@ -96,6 +97,8 @@ import {
   setPlanModeArgsSchema,
   updateGoalStatusArgsSchema,
   worktreeHandoffArgsSchema,
+  openExternalArgsSchema,
+  openPathArgsSchema,
 } from '../../shared/ipc-schemas.js'
 
 interface SessionEntry {
@@ -951,8 +954,11 @@ export function registerAllHandlers(
     if (target === null) {
       return typeof input !== 'string' || input.trim().length === 0 ? '路径为空' : '仅支持打开绝对路径'
     }
+    if (isUnsafeShellOpenPath(target)) {
+      return '不支持直接打开可执行或脚本文件，请用「在资源管理器中显示」'
+    }
     return (await shell.openPath(target)) || ''
-  })
+  }, openPathArgsSchema)
 
   secureInvoke('lmcode:openExternal', async (_event, url: string): Promise<void> => {
     if (typeof url !== 'string' || url.length === 0) return
@@ -962,9 +968,14 @@ export function registerAllHandlers(
     } catch {
       return
     }
-    if (parsed.protocol !== 'https:' || parsed.hostname.length === 0) return
+    if (
+      (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+      parsed.hostname.length === 0
+    ) {
+      return
+    }
     await shell.openExternal(parsed.href)
-  })
+  }, openExternalArgsSchema)
 
   secureInvoke('lmcode:showItemInFolder', async (_event, input: string): Promise<string> => {
     const target = normalizeOpenPathTarget(input)

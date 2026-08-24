@@ -17,12 +17,36 @@ function isAbsoluteLocalPath(value: string): boolean {
   return isWindowsBasePath(value) || value.startsWith('/')
 }
 
+const LATIN_ABBREVIATIONS = new Set([
+  'e.g',
+  'e.g.',
+  'i.e',
+  'i.e.',
+  'etc',
+  'etc.',
+  'vs',
+  'vs.',
+  'cf',
+  'cf.',
+  'fig',
+  'fig.',
+  'eq',
+  'eq.',
+  'nb',
+  'nb.',
+  'aka',
+  'wrt',
+])
+
 function looksLikeRelativeFilePath(value: string): boolean {
   if (value.includes('\0') || /[\r\n]/.test(value) || /^[A-Za-z][A-Za-z\d+.-]*:\/\//.test(value)) {
     return false
   }
+  if (value.endsWith('.')) return false
+  const lowered = value.toLowerCase()
+  if (LATIN_ABBREVIATIONS.has(lowered)) return false
   if (/^\.\.?[\\/]/.test(value) || /[\\/]/.test(value)) return true
-  return /^[^\s\\/]+\.[A-Za-z\d][A-Za-z\d._-]{0,15}$/.test(value)
+  return /^[^\s\\/]+\.[A-Za-z][A-Za-z\d._-]{0,15}$/.test(value)
 }
 
 function resolveRelativePath(baseDir: string, relativePath: string): string | null {
@@ -94,6 +118,19 @@ export function resolveHrefOpenTarget(href: string, baseDir?: string): string | 
   if (trimmed.startsWith('#') || trimmed.startsWith('mailto:')) return null
   if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(trimmed) && !trimmed.startsWith('file:')) return null
   return resolveOpenTarget(trimmed, baseDir)
+}
+
+/** http(s) only — javascript:/data:/file: never go through openExternal. */
+export function isSafeExternalHref(href: string): boolean {
+  try {
+    const parsed = new URL(href)
+    return (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      parsed.hostname.length > 0
+    )
+  } catch {
+    return false
+  }
 }
 
 /** 命中则返回可交给 Electron 打开的绝对本地路径，否则 null。 */

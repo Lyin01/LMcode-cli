@@ -22,6 +22,7 @@ import {
   filterSlashCommands,
   parseDesktopSlashCommand,
   shouldHandleSlashKeys,
+  slashCommandBlockedWhileStreaming,
 } from '@/lib/slash-command'
 import type { GoalSnapshotData } from '@lmcode-cli/lmcode-sdk'
 import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
@@ -386,6 +387,10 @@ export function Composer({
       const command = parseDesktopSlashCommand(input)
       if (command === null) return false
       if (!currentSessionId) return true
+      if (isStreaming && slashCommandBlockedWhileStreaming(command.kind)) {
+        showNotice('请先停止当前生成再执行该命令。', 'error')
+        return true
+      }
 
       try {
         switch (command.kind) {
@@ -496,6 +501,7 @@ export function Composer({
     [
       createSession,
       currentSessionId,
+      isStreaming,
       onOpenGitReview,
       onOpenSettings,
       sendMessage,
