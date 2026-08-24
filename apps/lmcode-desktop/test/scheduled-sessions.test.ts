@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { SessionSummary } from '@lmcode-cli/lmcode-sdk'
 import { afterEach, describe, expect, it } from 'vitest'
-import { scheduledSessionIds } from '../src/main/scheduled-sessions'
+import { resumeScheduledSessions, scheduledSessionIds } from '../src/main/scheduled-sessions'
 
 const temporaryDirectories: string[] = []
 
@@ -55,5 +55,26 @@ describe('desktop scheduled-session activation', () => {
     }
 
     await expect(scheduledSessionIds([broken, scheduled])).resolves.toEqual(['scheduled'])
+  })
+
+  it('retries scheduled discovery after a listSessions failure', async () => {
+    let attempts = 0
+    const resumed: string[] = []
+    await resumeScheduledSessions({
+      listIds: async () => {
+        attempts += 1
+        if (attempts === 1) throw new Error('store locked')
+        return ['cron-a']
+      },
+      resume: async (id) => {
+        resumed.push(id)
+      },
+      isClosing: () => false,
+      retryDelaysMs: [0, 0],
+      sleep: async () => undefined,
+    })
+
+    expect(attempts).toBe(2)
+    expect(resumed).toEqual(['cron-a'])
   })
 })

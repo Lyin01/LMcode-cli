@@ -157,6 +157,8 @@ export const openPathArgsSchema = z.tuple([z.string()])
 
 export const openExternalArgsSchema = z.tuple([z.string()])
 
+export const sessionIdArgsSchema = z.tuple([sessionIdSchema])
+
 /**
  * Validate an IPC argument list against a tuple schema. Returns the parsed
  * arguments, or throws a descriptive error naming the offending channel.

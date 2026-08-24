@@ -74,24 +74,43 @@ describe('desktop background session results', () => {
     expect(useSessionStore.getState().bg['session-b']).toBeUndefined()
   })
 
-  it('drops streaming events for sessions that are not in the session list', () => {
+  it('parks streaming events for a session not yet in the session list', () => {
     const store = useSessionStore.getState()
-    store.handleEvent('ghost-session', {
+    store.handleEvent('cron-session', {
       type: 'turn.started',
       turnId: 1,
       origin: { kind: 'user' },
       agentId: 'main',
-      sessionId: 'ghost-session',
+      sessionId: 'cron-session',
     })
-    store.handleEvent('ghost-session', {
+    store.handleEvent('cron-session', {
       type: 'assistant.delta',
       turnId: 1,
-      delta: 'late output from a deleted session',
+      delta: 'Scheduled result',
       agentId: 'main',
-      sessionId: 'ghost-session',
+      sessionId: 'cron-session',
     })
 
-    expect(useSessionStore.getState().bg['ghost-session']).toBeUndefined()
+    expect(useSessionStore.getState().bg['cron-session']).toMatchObject({
+      unread: true,
+      messages: [expect.objectContaining({ role: 'assistant', content: 'Scheduled result' })],
+    })
+  })
+
+  it('drops streaming events for a session that was deleted', () => {
+    const store = useSessionStore.getState()
+    store.removeDeletedSession('session-b', [
+      useSessionStore.getState().sessions.find((session) => session.id === 'session-a')!,
+    ])
+    store.handleEvent('session-b', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-b',
+    })
+
+    expect(useSessionStore.getState().bg['session-b']).toBeUndefined()
   })
 
   it('keeps delayed user-facing errors with the session that produced them', () => {

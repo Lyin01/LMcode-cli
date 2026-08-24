@@ -661,4 +661,57 @@ describe('desktop handler lifecycle', () => {
 
     await registration.close()
   })
+
+  it('treats cancel of a session that is not live as a no-op', async () => {
+    const registration = registerAllHandlers(
+      { configPath: 'C:/Users/test/.lmcode/config.toml', listSessions: vi.fn(async () => []) } as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+
+    await expect(invoke('lmcode:cancelResponse', 'missing-session')).resolves.toBeUndefined()
+    await registration.close()
+  })
+
+  it('rejects a new resume while delete is still tearing the session down', async () => {
+    const session = {
+      id: 'session-teardown',
+      summary: { id: 'session-teardown', workDir: 'C:/work' },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+      getResumeState: vi.fn(() => undefined),
+      getContext: vi.fn(async () => ({ history: [] })),
+      getStatus: vi.fn(async () => ({ permission: 'manual' })),
+    }
+    const resume = Promise.withResolvers<typeof session>()
+    const deleted = Promise.withResolvers<void>()
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      listSessions: vi.fn(async () => []),
+      resumeSession: vi.fn(() => resume.promise),
+      deleteSession: vi.fn(() => deleted.promise),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+
+    const history = invoke('lmcode:getSessionHistory', 'session-teardown')
+    await vi.waitFor(() => {
+      expect(harness.resumeSession).toHaveBeenCalledTimes(1)
+    })
+    const deleting = invoke('lmcode:deleteSession', 'session-teardown')
+    resume.resolve(session)
+    await vi.waitFor(() => {
+      expect(harness.deleteSession).toHaveBeenCalledTimes(1)
+    })
+
+    await expect(invoke('lmcode:getSessionStatus', 'session-teardown')).rejects.toThrow(/closing/)
+    deleted.resolve()
+    await expect(deleting).resolves.toBeUndefined()
+    await history
+    await registration.close()
+  })
 })

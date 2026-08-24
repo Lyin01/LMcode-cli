@@ -130,19 +130,30 @@ function maskSecret(value: string | undefined): string | undefined {
   return value === undefined || value.length === 0 ? value : REDACTED_SECRET_VALUE
 }
 
+function isPreservedSecret(value: string | undefined): boolean {
+  return value === REDACTED_SECRET_VALUE || (typeof value === 'string' && value.trim() === '')
+}
+
 function restoreSecret(
   value: string | undefined,
   current: string | undefined,
 ): string | undefined {
-  if (value !== REDACTED_SECRET_VALUE) return value
-  if (current === undefined) {
-    throw new Error('Cannot restore a redacted secret without a stored value')
+  if (value === undefined) return undefined
+  if (isPreservedSecret(value)) {
+    if (value === REDACTED_SECRET_VALUE && current === undefined) {
+      throw new Error('Cannot restore a redacted secret without a stored value')
+    }
+    return current
   }
-  return current
+  return value
 }
 
-function restoreRequiredSecret(value: string, current: string | undefined): string {
-  return restoreSecret(value, current) ?? ''
+function restoreRequiredSecret(
+  value: string | undefined,
+  current: string | undefined,
+): string {
+  if (value === undefined || isPreservedSecret(value)) return current ?? ''
+  return value
 }
 
 function maskHeaderValues(

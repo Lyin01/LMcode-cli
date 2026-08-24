@@ -57,6 +57,9 @@ const runtimeEnvironment = resolveDesktopRuntimeEnvironment({
 if (runtimeEnvironment.userDataDir !== defaultUserDataDir) {
   app.setPath('userData', runtimeEnvironment.userDataDir)
 }
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.lmcode.desktop')
+}
 if (!runtimeEnvironment.isDevelopment) {
   process.env['NODE_ENV'] = 'production'
   delete process.env['ELECTRON_RENDERER_URL']
@@ -129,16 +132,41 @@ function createTrayIcon(): Electron.NativeImage {
   return img.resize({ width: 16, height: 16 })
 }
 
+function showMainWindow(): void {
+  if (mainWindow === null || mainWindow.isDestroyed()) {
+    const loadRenderer = createWindow()
+    void loadRendererAfterReady(
+      attachHandlersToCurrentWindow(),
+      loadRenderer,
+      () => isQuitting,
+    ).catch((error: unknown) => {
+      log.error('desktop handler attach after tray restore failed', error)
+    })
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
 function createTray(): void {
-  tray = new Tray(createTrayIcon())
+  const icon = createTrayIcon()
+  if (icon.isEmpty()) {
+    log.warn('desktop tray skipped: icon unavailable')
+    return
+  }
+  if (tray !== null) {
+    tray.destroy()
+    tray = null
+  }
+  tray = new Tray(icon)
   tray.setToolTip('LMCODE')
 
   const contextMenu = Menu.buildFromTemplate([
     {
       label: '显示 LMCODE',
       click: () => {
-        mainWindow?.show()
-        mainWindow?.focus()
+        showMainWindow()
       },
     },
     {
@@ -167,11 +195,10 @@ function createTray(): void {
 
   // Click tray icon → toggle window visibility
   tray.on('click', () => {
-    if (mainWindow?.isVisible()) {
+    if (mainWindow !== null && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
       mainWindow.hide()
     } else {
-      mainWindow?.show()
-      mainWindow?.focus()
+      showMainWindow()
     }
   })
 }
@@ -508,9 +535,10 @@ function createWindow(): () => Promise<void> {
     mainWindow?.show()
   })
 
-  // Close to tray instead of quitting (unless isQuitting flag is set)
+  // Close to tray instead of quitting (unless isQuitting flag is set).
+  // Without a tray icon there is nothing to restore from, so allow the close.
   mainWindow.on('close', (event) => {
-    if (!isQuitting) {
+    if (!isQuitting && tray !== null) {
       event.preventDefault()
       mainWindow?.hide()
     }
@@ -577,6 +605,7 @@ async function initHarness(): Promise<void> {
     noProjectWorkDir: runtimeEnvironment.noProjectWorkDir,
     logger: log,
     onStateChange: pushRemoteStateToRenderer,
+    onConfigChanged: () => handlerRegistration?.invalidateProviderUsage(),
   })
   await remoteManager.init()
 
@@ -707,11 +736,7 @@ if (!gotSingleInstanceLock) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      if (!mainWindow.isVisible()) mainWindow.show()
-      mainWindow.focus()
-    }
+    showMainWindow()
   })
 
   void app.whenReady().then(async () => {
@@ -742,8 +767,10 @@ app.on('window-all-closed', () => {
   void closeHandlerRegistration().catch((error: unknown) => {
     log.error('desktop window resource cleanup failed', error)
   })
-  // Don't quit — the app keeps running in the tray
-  // Only quit explicitly via tray menu or app.quit()
+  if (tray === null && process.platform !== 'darwin') {
+    isQuitting = true
+    app.quit()
+  }
 })
 
 app.on('activate', () => {

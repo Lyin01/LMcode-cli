@@ -362,8 +362,10 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
             timestamp: Date.now(),
           },
         ],
-        isStreaming: false,
-        streamStatus: null,
+        // Keep the turn marked live until turn.ended. Clearing streaming here
+        // lets the queue drain into a session that may still be busy.
+        isStreaming: slice.isStreaming,
+        streamStatus: ev.retryable ? `出错了：${ev.message}` : slice.streamStatus,
       }
     }
 
@@ -547,7 +549,19 @@ function createNewSession(sessionId: string, overrides?: Partial<SessionInfo>): 
  * state: it guards against reentrant drains within the same tick, so it must
  * not wait for a React commit (or a second hook instance) to take effect.
  */
-const queueDrainInFlight = new Set<string>()
+const sessionSendInFlight = new Set<string>()
+const forgottenSessions = new Set<string>()
+
+/** True when composer send or queue drain already owns this session's outbound turn. */
+export function tryBeginSessionSend(sessionId: string): boolean {
+  if (sessionSendInFlight.has(sessionId)) return false
+  sessionSendInFlight.add(sessionId)
+  return true
+}
+
+export function endSessionSend(sessionId: string): void {
+  sessionSendInFlight.delete(sessionId)
+}
 
 /**
  * After the user hits stop, queued follow-ups must stay parked until they
@@ -566,7 +580,7 @@ export function resumeQueuedDrain(sessionId: string): void {
 
 /**
  * Single-flight latch for `startSessionWithMessage`. Module-level (like
- * `queueDrainInFlight`) so it takes effect synchronously, before any React
+ * `sessionSendInFlight`) so it takes effect synchronously, before any React
  * commit or IPC await can interleave a second call.
  */
 let startSessionInFlight = false
@@ -594,12 +608,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   messageQueue: {},
   hydratedSessions: {},
 
-  setSessions: (sessions) => set({ sessions }),
+  setSessions: (sessions) => {
+    for (const session of sessions) forgottenSessions.delete(session.id)
+    set({ sessions })
+  },
 
   setNoProjectWorkDir: (workDir) => set({ noProjectWorkDir: workDir }),
 
   removeDeletedSession: (deletedId, remaining) => {
     pausedQueueSessions.delete(deletedId)
+    sessionSendInFlight.delete(deletedId)
+    forgottenSessions.add(deletedId)
     set((state) => {
       const bg = { ...state.bg }
       const messageQueue = { ...state.messageQueue }
@@ -789,6 +808,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   adoptSession: (summary) => {
+    forgottenSessions.delete(summary.id)
     const state = get()
     const newSession = createNewSession(summary.id, {
       title: summary.title,
@@ -979,9 +999,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       )
       set({ messages: next.messages, isStreaming: next.isStreaming, streamStatus: next.streamStatus })
     } else {
-      // Tail events of a deleted (or otherwise unknown) session must not
-      // resurrect it as an invisible background buffer.
-      if (!state.sessions.some((session) => session.id === sessionId)) return
+      const listed = state.sessions.some((session) => session.id === sessionId)
+      // Deleted ids stay dropped. Unknown ids (cron resume before the session
+      // list hydrates) park in the background slice instead of vanishing.
+      if (!listed && forgottenSessions.has(sessionId)) return
       const prev = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
       const next = reduceMessageEvent(prev, event)
       if (next !== prev) {
@@ -1057,10 +1078,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }),
 
   completePendingInteraction: (requestId) =>
-    set((state) => {
-      if (state.pendingInteractions[0]?.payload.requestId !== requestId) return state
-      return { pendingInteractions: state.pendingInteractions.slice(1) }
-    }),
+    set((state) => ({
+      pendingInteractions: state.pendingInteractions.filter(
+        (interaction) => interaction.payload.requestId !== requestId,
+      ),
+    })),
 
   discardPendingInteraction: (requestId) =>
     set((state) => ({
@@ -1137,24 +1159,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   drainMessageQueue: (sessionId) => {
     const state = get()
-    if (queueDrainInFlight.has(sessionId)) return
     if (pausedQueueSessions.has(sessionId)) return
     if (!state.sessions.some((session) => session.id === sessionId)) return
     if (state.isSessionStreaming(sessionId)) return
     if ((state.messageQueue[sessionId]?.length ?? 0) === 0) return
+    if (!tryBeginSessionSend(sessionId)) return
 
-    queueDrainInFlight.add(sessionId)
     // Skip entries that carry no content at all.
     let next = get().shiftQueuedMessage(sessionId)
     while (next && !next.text.trim() && next.attachments.length === 0) {
       next = get().shiftQueuedMessage(sessionId)
     }
     if (!next) {
-      queueDrainInFlight.delete(sessionId)
+      endSessionSend(sessionId)
       return
     }
     void deliverQueuedMessage(sessionId, next.text, next.attachments).finally(() => {
-      queueDrainInFlight.delete(sessionId)
+      endSessionSend(sessionId)
       // The turn this send kicked off ends later (turn.ended flips
       // isStreaming, which re-triggers the drain via the subscription
       // below). Kick once more here in case it ended before we unparked.

@@ -73,7 +73,7 @@ import type {
   FileAttachmentPreview,
   TextAttachment,
 } from '../../shared/file-types.js'
-import { scheduledSessionIds } from '../scheduled-sessions.js'
+import { resumeScheduledSessions, scheduledSessionIds } from '../scheduled-sessions.js'
 import {
   restoreRedactedConfigPatch,
   sanitizeConfigForRenderer,
@@ -99,6 +99,7 @@ import {
   worktreeHandoffArgsSchema,
   openExternalArgsSchema,
   openPathArgsSchema,
+  sessionIdArgsSchema,
 } from '../../shared/ipc-schemas.js'
 
 interface SessionEntry {
@@ -108,6 +109,7 @@ interface SessionEntry {
 
 export interface DesktopHandlerRegistration {
   close(): Promise<void>
+  invalidateProviderUsage(): void
 }
 
 /**
@@ -125,7 +127,13 @@ export interface RemoteController {
 /**
  * Send a desktop notification (approval request, task completed, etc.)
  */
-function sendNotification(title: string, body: string): void {
+function sendNotification(title: string, body: string, mainWindow?: BrowserWindow): void {
+  const focused =
+    mainWindow !== undefined &&
+    !mainWindow.isDestroyed() &&
+    typeof mainWindow.isFocused === 'function' &&
+    mainWindow.isFocused()
+  if (focused) return
   if (Notification.isSupported()) {
     const notification = new Notification({ title, body })
     notification.on('click', () => {
@@ -254,6 +262,7 @@ export function registerAllHandlers(
       sendNotification(
         'LMCODE - 审批请求',
         `需要审批：${request.action || '执行操作'}`,
+        mainWindow,
       )
 
       return hub.requestApproval(session.id, request)
@@ -316,8 +325,13 @@ export function registerAllHandlers(
   // streamed reply renders with every token duplicated. Dedupe in-flight resumes
   // by caching the promise.
   const resumingSessions = new Map<string, Promise<SessionEntry>>()
+  const tearingDownSessions = new Map<string, Promise<void>>()
+
   async function ensureActiveSession(sessionId: string): Promise<SessionEntry> {
     if (closing) throw new Error('Desktop IPC registration is closed')
+    if (tearingDownSessions.has(sessionId)) {
+      throw new Error(`Session "${sessionId}" is closing`)
+    }
     const existing = activeSessions.get(sessionId)
     if (existing) return existing
 
@@ -326,6 +340,7 @@ export function registerAllHandlers(
 
     const pending = (async (): Promise<SessionEntry> => {
       const session = await harness.resumeSession({ id: sessionId })
+      if (closing) throw new Error('Desktop IPC registration is closed')
       setupSessionListeners(session)
       const entry = activeSessions.get(sessionId)
       if (!entry) throw new Error(`Session "${sessionId}" not found`)
@@ -336,6 +351,25 @@ export function registerAllHandlers(
       return await pending
     } finally {
       resumingSessions.delete(sessionId)
+    }
+  }
+
+  async function teardownSession(sessionId: string, work: () => Promise<void>): Promise<void> {
+    const existing = tearingDownSessions.get(sessionId)
+    if (existing !== undefined) {
+      await existing
+      return
+    }
+    const run = (async () => {
+      const inflightResume = resumingSessions.get(sessionId)
+      if (inflightResume) await inflightResume.catch(() => undefined)
+      await work()
+    })()
+    tearingDownSessions.set(sessionId, run)
+    try {
+      await run
+    } finally {
+      tearingDownSessions.delete(sessionId)
     }
   }
 
@@ -425,28 +459,24 @@ export function registerAllHandlers(
   })
 
   secureInvoke('lmcode:deleteSession', async (_event, id: string): Promise<void> => {
-    await terminalManager.stop(id)
-    // A resume still in flight for this session would re-attach it to
-    // activeSessions after the delete (the SDK reads the store once at the
-    // start of resumeSession, so it cannot observe a mid-flight deletion).
-    // Let it settle first so the delete below unregisters the session.
-    const inflightResume = resumingSessions.get(id)
-    if (inflightResume) await inflightResume.catch(() => {})
-    const entry = activeSessions.get(id)
-    if (entry) {
-      entry.unsubscribeEvent()
-      activeSessions.delete(id)
-    }
-    hub.settleSession(id)
-    try {
-      await harness.deleteSession(id)
-      auditLog?.info('desktop critical operation completed', {
-        operation: 'session.delete',
-      })
-    } finally {
+    await teardownSession(id, async () => {
+      await terminalManager.stop(id)
+      const entry = activeSessions.get(id)
+      if (entry) {
+        entry.unsubscribeEvent()
+        activeSessions.delete(id)
+      }
       hub.settleSession(id)
-    }
-  })
+      try {
+        await harness.deleteSession(id)
+        auditLog?.info('desktop critical operation completed', {
+          operation: 'session.delete',
+        })
+      } finally {
+        hub.settleSession(id)
+      }
+    })
+  }, sessionIdArgsSchema)
 
   secureInvoke('lmcode:exportSession', async (_event, id: string): Promise<string> => {
     const result = await harness.exportSession({ id, version: app.getVersion() })
@@ -499,18 +529,22 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:cancelResponse', async (_event, sessionId: string): Promise<void> => {
     hub.settleSession(sessionId)
+    const teardown = tearingDownSessions.get(sessionId)
+    if (teardown !== undefined) {
+      await teardown.catch(() => undefined)
+      return
+    }
     const inflightResume = resumingSessions.get(sessionId)
-    if (inflightResume) await inflightResume.catch(() => {})
+    if (inflightResume) await inflightResume.catch(() => undefined)
+    if (tearingDownSessions.has(sessionId)) return
     const entry = activeSessions.get(sessionId)
-    if (!entry) throw new Error(`Session "${sessionId}" not found`)
+    if (!entry) return
     try {
       await entry.session.cancel()
     } finally {
-      // Cancellation can itself race a new reverse-RPC request. Sweep again
-      // after the SDK has finished unwinding the active turn.
       hub.settleSession(sessionId)
     }
-  })
+  }, sessionIdArgsSchema)
 
   // Return the persisted conversation history so the UI can re-render a session's
   // messages after a restart or when switching back to it.
@@ -619,21 +653,21 @@ export function registerAllHandlers(
   )
 
   secureInvoke('lmcode:closeSession', async (_event, sessionId: string): Promise<void> => {
-    const inflightResume = resumingSessions.get(sessionId)
-    if (inflightResume) await inflightResume.catch(() => {})
-    await terminalManager.stop(sessionId)
-    const entry = activeSessions.get(sessionId)
-    if (entry) {
-      entry.unsubscribeEvent()
-      activeSessions.delete(sessionId)
-    }
-    hub.settleSession(sessionId)
-    try {
-      await harness.closeSession(sessionId)
-    } finally {
+    await teardownSession(sessionId, async () => {
+      await terminalManager.stop(sessionId)
+      const entry = activeSessions.get(sessionId)
+      if (entry) {
+        entry.unsubscribeEvent()
+        activeSessions.delete(sessionId)
+      }
       hub.settleSession(sessionId)
-    }
-  })
+      try {
+        await harness.closeSession(sessionId)
+      } finally {
+        hub.settleSession(sessionId)
+      }
+    })
+  }, sessionIdArgsSchema)
 
   // ── Scheduled automations ──────────────────────────────────────
 
@@ -1114,18 +1148,15 @@ export function registerAllHandlers(
   // Cron managers are session-owned. Resume every session that has persisted
   // jobs so its automations continue firing while the desktop app is open,
   // even when that conversation is not the selected tab.
-  const scheduledSessionsActivation = (async (): Promise<void> => {
-    const ids = await scheduledSessionIds(await harness.listSessions())
-    for (const id of ids) {
-      if (closing) return
-      try {
-        await ensureActiveSession(id)
-      } catch {
-        // One damaged session must not prevent other automations from loading.
-      }
-    }
-  })().catch(() => {
-    // Session discovery is best-effort during startup; opening the panel retries.
+  const scheduledSessionsActivation = resumeScheduledSessions({
+    listIds: async () => scheduledSessionIds(await harness.listSessions()),
+    resume: async (id) => {
+      await ensureActiveSession(id)
+    },
+    isClosing: () => closing,
+    logWarn: (message, error) => {
+      auditLog?.warn(message, { errorKind: error instanceof Error ? error.message : typeof error })
+    },
   })
 
   // ── Cleanup on window close ─────────────────────────────────────
@@ -1210,7 +1241,12 @@ export function registerAllHandlers(
   mainWindow.webContents.on('render-process-gone', handleRenderProcessGone)
   mainWindow.on('closed', handleWindowClosed)
 
-  return { close }
+  return {
+    close,
+    invalidateProviderUsage: () => {
+      providerUsage.invalidate()
+    },
+  }
 }
 
 /** 校验并归一化可打开的本地路径：去除空白、转换 file:// 链接、拒绝非绝对路径。 */

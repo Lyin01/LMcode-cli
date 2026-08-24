@@ -1,12 +1,15 @@
 import { useCallback, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useSessionStore } from '@/stores/session-store'
+import { visiblePendingInteraction } from '@/lib/pending-interaction'
 import { X, Terminal } from 'lucide-react'
 import type { ApprovalResponse } from '@lmcode-cli/lmcode-sdk'
 import type { ApprovalRequestPayload } from '@/types'
 
 export function ApprovalDialog() {
-  const activeInteraction = useSessionStore((state) => state.pendingInteractions[0])
+  const activeInteraction = useSessionStore((state) =>
+    visiblePendingInteraction(state.pendingInteractions, state.currentSessionId),
+  )
   if (activeInteraction?.kind !== 'approval') return null
 
   return (

@@ -40,10 +40,10 @@ describe('desktop interaction queue', () => {
     expect(useSessionStore.getState().pendingInteractions).toEqual([approval, question])
 
     store.completePendingInteraction('question-1')
-    expect(useSessionStore.getState().pendingInteractions).toEqual([approval, question])
+    expect(useSessionStore.getState().pendingInteractions).toEqual([approval])
 
     store.completePendingInteraction('approval-1')
-    expect(useSessionStore.getState().pendingInteractions).toEqual([question])
+    expect(useSessionStore.getState().pendingInteractions).toEqual([])
   })
 
   it('deduplicates replayed renderer events by request id', () => {

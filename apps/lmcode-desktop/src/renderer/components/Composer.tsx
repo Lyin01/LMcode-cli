@@ -564,6 +564,7 @@ export function Composer({
             return
           }
           if (e.key === 'Enter' && !e.shiftKey) {
+            if (isImeConfirmKey(e)) return
             e.preventDefault()
             return
           }
@@ -744,6 +745,7 @@ export function Composer({
         )}
         <textarea
           ref={textareaRef}
+          data-lm-composer="true"
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}

@@ -110,6 +110,7 @@ export class RemoteBridge implements InteractionSurface {
     private readonly hub: InteractionHub,
     private readonly noProjectWorkDir: string,
     memoryStore: MemoryMemoStore,
+    private readonly onConfigChanged?: () => void,
   ) {
     this.memoryStore = memoryStore
     hub.attachSurface(this)
@@ -430,6 +431,7 @@ export class RemoteBridge implements InteractionSurface {
         const config = await this.harness.setConfig(
           restoreRedactedConfigPatch(patch as never, current),
         )
+        this.onConfigChanged?.()
         return sanitizeConfigForRenderer(config) as RemoteMethodResult<M>
       }
 
@@ -488,6 +490,12 @@ export class RemoteBridge implements InteractionSurface {
   private async createSession(
     params: Record<string, unknown>,
   ): Promise<SessionSummary> {
+    if (params['noProject'] === true) {
+      const requested = params['workDir']
+      if (typeof requested === 'string' && requested.trim().length > 0) {
+        throw new Error('A no-project session cannot also specify a project directory')
+      }
+    }
     const session =
       params['noProject'] === true
         ? await this.harness.createSession({ workDir: this.noProjectWorkDir })

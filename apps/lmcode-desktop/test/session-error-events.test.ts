@@ -69,6 +69,37 @@ describe('desktop session error events', () => {
     })
   })
 
+  it('does not unlock the composer on a mid-turn error before turn.ended', () => {
+    const store = useSessionStore.getState()
+    store.handleEvent('session-a', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+    store.handleEvent('session-a', {
+      type: 'error',
+      code: 'internal',
+      message: 'Session is busy',
+      name: 'LmcodeError',
+      retryable: true,
+      details: {},
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+
+    expect(useSessionStore.getState().isStreaming).toBe(true)
+    expect(useSessionStore.getState().messages).toEqual([
+      expect.objectContaining({ role: 'assistant' }),
+      expect.objectContaining({
+        role: 'system',
+        variant: 'error',
+        content: '出错了：Session is busy（可重试）',
+      }),
+    ])
+  })
+
   it('keeps standalone error events visible', () => {
     useSessionStore.getState().handleEvent('session-a', {
       type: 'error',

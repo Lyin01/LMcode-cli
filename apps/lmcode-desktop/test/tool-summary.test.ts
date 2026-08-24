@@ -11,6 +11,9 @@ describe('tool-summary', () => {
     expect(toolFamily('Task', JSON.stringify({ description: 'scan' }))).toBe('agent')
     expect(toolFamily('TaskOutput', undefined)).toBe('agent')
     expect(toolFamily('TodoWrite', undefined)).toBe('todo')
+    expect(toolFamily('WebSearch', undefined)).toBe('web')
+    expect(toolFamily('MultiEdit', undefined)).toBe('edit')
+    expect(toolFamily('WriteGoalNote', undefined)).toBe('other')
   })
 
   it('summarizes bash args by the last meaningful segment, skipping cd prefixes', () => {

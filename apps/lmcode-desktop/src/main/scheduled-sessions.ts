@@ -36,3 +36,41 @@ export async function scheduledSessionIds(
   )
   return checks.filter((check) => check.scheduled).map((check) => check.id)
 }
+
+export async function resumeScheduledSessions(input: {
+  readonly listIds: () => Promise<readonly string[]>
+  readonly resume: (id: string) => Promise<void>
+  readonly isClosing: () => boolean
+  readonly retryDelaysMs?: readonly number[]
+  readonly sleep?: (ms: number) => Promise<void>
+  readonly logWarn?: (message: string, error: unknown) => void
+}): Promise<void> {
+  const delays = input.retryDelaysMs ?? [0, 1_000, 4_000]
+  const sleep = input.sleep ?? ((ms: number) => new Promise<void>((resolve) => {
+    setTimeout(resolve, ms)
+  }))
+  let lastError: unknown
+  for (const delay of delays) {
+    if (input.isClosing()) return
+    if (delay > 0) await sleep(delay)
+    if (input.isClosing()) return
+    try {
+      const ids = await input.listIds()
+      for (const id of ids) {
+        if (input.isClosing()) return
+        try {
+          await input.resume(id)
+        } catch (error) {
+          input.logWarn?.(`cannot resume scheduled session ${id}`, error)
+        }
+      }
+      return
+    } catch (error) {
+      lastError = error
+      input.logWarn?.('scheduled session discovery failed, will retry', error)
+    }
+  }
+  if (lastError !== undefined) {
+    input.logWarn?.('scheduled session discovery gave up', lastError)
+  }
+}

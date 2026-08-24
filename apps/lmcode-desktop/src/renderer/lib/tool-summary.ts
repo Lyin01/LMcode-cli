@@ -107,8 +107,16 @@ export function toolFamily(toolName: string, argsRaw?: string): ToolFamily {
     return 'bash'
   }
   if (name.includes('view_file') || name.includes('read_file') || name.includes('read_url') || name.startsWith('read')) return 'read'
-  if (name.includes('write_to_file') || name.includes('write_file') || name.startsWith('write') || name.includes('create_file')) return 'write'
-  if (name.includes('multi_replace') || name.includes('edit_file') || name.startsWith('edit')) return 'edit'
+  if (name === 'write' || name.includes('write_to_file') || name.includes('write_file') || name.includes('create_file')) return 'write'
+  if (
+    name.includes('multi_replace') ||
+    name.includes('multiedit') ||
+    name.includes('edit_file') ||
+    name.startsWith('edit')
+  ) {
+    return 'edit'
+  }
+  if (name.includes('websearch') || name.includes('web_search')) return 'web'
   if (name.includes('search') || name.includes('grep') || name.includes('list_dir') || name.includes('glob') || name.includes('find')) return 'search'
   if (name.includes('subagent') || name.includes('agent') || name.includes('wolfpack')) return 'agent'
   if (name === 'task' || name.includes('taskoutput') || name.includes('task_output')) return 'agent'

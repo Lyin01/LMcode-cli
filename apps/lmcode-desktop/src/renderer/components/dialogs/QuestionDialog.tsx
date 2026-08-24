@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { Check, HelpCircle, X } from 'lucide-react'
 import type { QuestionItem, QuestionResult } from '@lmcode-cli/lmcode-sdk'
 import { useSessionStore } from '@/stores/session-store'
+import { visiblePendingInteraction } from '@/lib/pending-interaction'
 import type { QuestionRequestPayload } from '@/types'
 import {
   areAllQuestionsAnswered,
@@ -12,7 +13,9 @@ import {
 } from './question-answer'
 
 export function QuestionDialog() {
-  const activeInteraction = useSessionStore((state) => state.pendingInteractions[0])
+  const activeInteraction = useSessionStore((state) =>
+    visiblePendingInteraction(state.pendingInteractions, state.currentSessionId),
+  )
   if (activeInteraction?.kind !== 'question') return null
 
   return (

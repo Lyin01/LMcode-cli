@@ -68,6 +68,10 @@ describe('RemoteBridge host-execution guards', () => {
 
     const created = await bridge.invoke('sessions.create', { workDir: 'E:\\projects\\app' })
     expect(created).toMatchObject({ id: 'session-new', workDir: 'E:\\projects\\app' })
+
+    await expect(
+      bridge.invoke('sessions.create', { noProject: true, workDir: 'C:\\elsewhere' }),
+    ).rejects.toThrow(/no-project/)
   })
 
   it('rejects stdio MCP add and yolo permission from a remote client', async () => {

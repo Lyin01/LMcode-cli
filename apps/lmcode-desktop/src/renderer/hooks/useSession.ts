@@ -1,8 +1,10 @@
 import { useCallback } from 'react'
 import {
+  endSessionSend,
   pauseQueuedDrain,
   resumeQueuedDrain,
   toDisplayAttachment,
+  tryBeginSessionSend,
   useSessionStore,
 } from '@/stores/session-store'
 import { cancelResponseSafely } from '@/lib/cancel-response'
@@ -25,6 +27,10 @@ export function useSession() {
     async (text: string, attachments: readonly UserAttachment[] = EMPTY_ATTACHMENTS) => {
       const normalized = text.trim()
       if (!currentSessionId || (!normalized && attachments.length === 0) || isStreaming) return
+      if (!tryBeginSessionSend(currentSessionId)) {
+        enqueueMessage(currentSessionId, normalized, attachments)
+        return
+      }
       resumeQueuedDrain(currentSessionId)
 
       // Add user message
@@ -56,9 +62,11 @@ export function useSession() {
           timestamp: Date.now(),
         })
         setSessionStreaming(currentSessionId, false)
+      } finally {
+        endSessionSend(currentSessionId)
       }
     },
-    [currentSessionId, isStreaming, addMessageToSession, setSessionStreaming],
+    [currentSessionId, enqueueMessage, isStreaming, addMessageToSession, setSessionStreaming],
   )
 
   const cancel = useCallback(async () => {

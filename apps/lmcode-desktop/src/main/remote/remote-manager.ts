@@ -25,6 +25,8 @@ export interface RemoteManagerOptions {
   readonly logger?: Logger | undefined
   /** Notified on every state change (used to push updates to the renderer). */
   readonly onStateChange?: ((state: RemoteState) => void) | undefined
+  /** Fired after a remote client persists config (usage cache, etc.). */
+  readonly onConfigChanged?: (() => void) | undefined
 }
 
 function defaultToken(): string {
@@ -164,6 +166,7 @@ export class RemoteManager {
       this.options.hub,
       this.options.noProjectWorkDir,
       this.options.memoryStore,
+      this.options.onConfigChanged,
     )
     const server = new RemoteServer({
       bridge,

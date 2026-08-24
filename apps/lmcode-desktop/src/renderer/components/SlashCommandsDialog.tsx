@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { filterSlashCommands } from '@/lib/slash-command'
+import { isImeConfirmKey } from '@/lib/ime'
 import {
   Target,
   Cpu,
@@ -153,6 +154,7 @@ export function SlashCommandsDialog({
           setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length)
           break
         case 'Enter':
+          if (isImeConfirmKey(e)) return
           e.preventDefault()
           if (filtered[selectedIndex]) {
             onSelect(filtered[selectedIndex]!)

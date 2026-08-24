@@ -11,12 +11,24 @@ export interface PermissionShortcutEvent {
 
 type PermissionShortcutTarget = Pick<Window, 'addEventListener' | 'removeEventListener'>
 
-function isInsideModalTarget(target: EventTarget | null | undefined): boolean {
+function queryClosest(target: EventTarget | null | undefined, selector: string): boolean {
   if (target === null || target === undefined || typeof target !== 'object') return false
   if (!('closest' in target)) return false
   const closest = (target as { closest?: (selector: string) => unknown }).closest
   if (typeof closest !== 'function') return false
-  return closest.call(target, '[role="dialog"], [aria-modal="true"]') != null
+  return closest.call(target, selector) != null
+}
+
+function isInsideModalTarget(target: EventTarget | null | undefined): boolean {
+  return queryClosest(target, '[role="dialog"], [aria-modal="true"]')
+}
+
+function isPermissionShortcutPassthrough(target: EventTarget | null | undefined): boolean {
+  if (queryClosest(target, '[data-lm-composer="true"]')) return false
+  return queryClosest(
+    target,
+    'input, textarea, select, [contenteditable="true"], [role="listbox"], [role="menu"], [role="textbox"]',
+  )
 }
 
 const CAPTURE_OPTIONS = { capture: true } as const
@@ -36,7 +48,7 @@ export function handlePermissionModeShortcut(
     return false
   }
 
-  if (isInsideModalTarget(target)) {
+  if (isInsideModalTarget(target) || isPermissionShortcutPassthrough(target)) {
     return false
   }
 

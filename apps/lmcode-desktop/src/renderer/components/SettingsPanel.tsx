@@ -687,7 +687,7 @@ export function SettingsPanel({
                     >
                       <span className="flex items-center gap-2">
                         <Download size={15} className="text-[var(--lm-text-muted)]" />
-                        <span>导出当前会话为 Markdown / ZIP</span>
+                        <span>导出当前会话为 ZIP</span>
                       </span>
                       {exportSuccess && (
                         <span className="text-[11px] text-[var(--lm-success)] flex items-center gap-1">

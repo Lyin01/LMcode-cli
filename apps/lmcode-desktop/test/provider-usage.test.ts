@@ -127,6 +127,10 @@ describe('desktop provider usage', () => {
     await service.get()
     expect(loadConfig).toHaveBeenCalledTimes(2)
     expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    await service.get(true)
+    expect(loadConfig).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('normalizes Kimi quota windows and parses Moonshot balances', () => {

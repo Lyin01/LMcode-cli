@@ -90,4 +90,37 @@ describe('desktop config secret boundary', () => {
     })
     expect(patch.services?.lmcodeCliSearch?.apiKey).toBe('test-service')
   })
+
+  it('preserves stored secrets when a patch sends empty strings or omits oauth.key', () => {
+    const patch = restoreRedactedConfigPatch(
+      {
+        providers: {
+          private: {
+            apiKey: '',
+            customHeaders: { Authorization: '   ' },
+            oauth: { storage: 'keyring', key: '' },
+            env: {
+              ANTHROPIC_API_KEY: '',
+            },
+          },
+        },
+        services: {
+          lmcodeCliSearch: {
+            apiKey: '',
+          },
+        },
+      },
+      storedConfig,
+    )
+
+    expect(patch.providers?.private?.apiKey).toBe('test-key')
+    expect(patch.providers?.private?.customHeaders).toEqual({
+      Authorization: 'Bearer provider-token',
+    })
+    expect(patch.providers?.private?.oauth?.key).toBe('provider-oauth-record')
+    expect(patch.providers?.private?.env).toEqual({
+      ANTHROPIC_API_KEY: 'sk-env-secret',
+    })
+    expect(patch.services?.lmcodeCliSearch?.apiKey).toBe('test-service')
+  })
 })

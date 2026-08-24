@@ -30,6 +30,33 @@ describe('desktop permission shortcut contract', () => {
     expect(cyclePermission).toHaveBeenCalledOnce()
   })
 
+  it('does not steal Shift+Tab from text fields, menus, or listboxes', () => {
+    const cyclePermission = vi.fn()
+    const textarea = {
+      closest: (selector: string) => (selector.includes('textarea') ? {} : null),
+    }
+    const composer = {
+      closest: (selector: string) => (selector.includes('[data-lm-composer="true"]') ? {} : null),
+    }
+
+    expect(
+      handlePermissionModeShortcut(
+        shortcutEvent(),
+        cyclePermission,
+        textarea as unknown as EventTarget,
+      ),
+    ).toBe(false)
+    expect(cyclePermission).not.toHaveBeenCalled()
+    expect(
+      handlePermissionModeShortcut(
+        shortcutEvent(),
+        cyclePermission,
+        composer as unknown as EventTarget,
+      ),
+    ).toBe(true)
+    expect(cyclePermission).toHaveBeenCalledOnce()
+  })
+
   it('does not steal Shift+Tab from an open dialog', () => {
     const cyclePermission = vi.fn()
     const dialogTarget = {

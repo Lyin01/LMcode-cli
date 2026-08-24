@@ -88,6 +88,7 @@ export class ProviderUsageService {
   }
 
   async get(force = false): Promise<ProviderUsageSnapshot> {
+    if (force) this.invalidate()
     const now = this.now()
     if (!force && this.cached !== null && now < this.cacheExpiresAt) return this.cached
     if (this.inFlight !== null) return this.inFlight
