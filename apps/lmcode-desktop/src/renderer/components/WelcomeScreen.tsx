@@ -23,6 +23,7 @@ import { defaultPastedImageName } from '@/lib/pasted-image-name'
 import { fileToDataUrl } from '@/lib/file-to-data-url'
 import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
 import type { UserAttachment } from '@/types'
+import { isImeConfirmKey } from '@/lib/ime'
 
 const NO_PROJECT_LABEL = '不关联项目'
 const targetMenuItemClass =
@@ -168,6 +169,7 @@ export function WelcomeScreen() {
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
+                if (isImeConfirmKey(event)) return
                 event.preventDefault()
                 handleSubmit()
               }

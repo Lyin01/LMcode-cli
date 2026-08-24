@@ -89,9 +89,9 @@ export function RemotePanel() {
     const unsubscribe = window.lmcodeAPI.onRemoteStateChanged((remoteState) => {
       setState(remoteState)
       // Do not clobber an in-progress port edit: only sync the draft when the
-      // port actually changed and the user is not focused on the input.
+      // user is not focused on the input.
       const focused = document.activeElement === portInputRef.current
-      if (!focused && remoteState.port !== state?.port) {
+      if (!focused) {
         setPortDraft(String(remoteState.port))
       }
     })
@@ -99,7 +99,7 @@ export function RemotePanel() {
       disposed = true
       unsubscribe()
     }
-  }, [state?.port])
+  }, [])
 
   useEffect(() => {
     if (!state?.enabled || state.lanUrls.length === 0) {

@@ -176,6 +176,22 @@ afterEach(async () => {
 })
 
 describe('RemoteServer protocol', () => {
+  it('does not count or fan out to an unauthenticated socket', async () => {
+    const opened = await openServer('secret')
+    servers.push(opened)
+    await connect(opened.url)
+    expect(opened.server.clientCount).toBe(0)
+
+    opened.bridge['broadcastEvent']('session-a', {
+      type: 'session.meta.updated',
+      sessionId: 'session-a',
+      agentId: 'main',
+      title: 'renamed',
+      patch: { title: 'renamed' },
+    } as never)
+    expect(opened.server.clientCount).toBe(0)
+  })
+
   it('rejects a socket that does not authenticate first', async () => {
     const opened = await openServer()
     servers.push(opened)

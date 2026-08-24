@@ -49,12 +49,34 @@ export const desktopPromptRequestSchema = z.object({
   attachments: z.array(promptAttachmentInputSchema),
 })
 
-export const createSessionOptionsSchema = z.object({
-  workDir: z.string().trim().min(1),
-  model: z.string().optional(),
-  thinking: z.string().optional(),
-  permission: permissionModeSchema.optional(),
-})
+export const createSessionOptionsSchema = z
+  .object({
+    workDir: z.string().trim().optional(),
+    noProject: z.boolean().optional(),
+    model: z.string().optional(),
+    thinking: z.string().optional(),
+    permission: permissionModeSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    const workDir = value.workDir ?? ''
+    if (value.noProject === true) {
+      if (workDir.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'A no-project session cannot also specify a project directory',
+          path: ['workDir'],
+        })
+      }
+      return
+    }
+    if (workDir.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A project directory is required to create a desktop session',
+        path: ['workDir'],
+      })
+    }
+  })
 
 export const createCronJobInputSchema = z.object({
   cron: z.string().trim().min(1),

@@ -607,4 +607,58 @@ describe('desktop handler lifecycle', () => {
     )
     await registration.close()
   })
+
+  it('waits for an in-flight resume before cancelling a session', async () => {
+    const session = {
+      id: 'session-cancel-race',
+      summary: { id: 'session-cancel-race', workDir: 'C:/work' },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+      getResumeState: vi.fn(() => undefined),
+      getContext: vi.fn(async () => ({ history: [] })),
+      cancel: vi.fn(async () => undefined),
+    }
+    const resume = Promise.withResolvers<typeof session>()
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      listSessions: vi.fn(async () => []),
+      resumeSession: vi.fn(() => resume.promise),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+
+    const history = invoke('lmcode:getSessionHistory', 'session-cancel-race')
+    const cancelled = invoke('lmcode:cancelResponse', 'session-cancel-race')
+    await vi.waitFor(() => {
+      expect(harness.resumeSession).toHaveBeenCalledTimes(1)
+    })
+
+    resume.resolve(session)
+    await expect(cancelled).resolves.toBeUndefined()
+    expect(session.cancel).toHaveBeenCalledOnce()
+    await history
+
+    await registration.close()
+  })
+
+  it('rejects malformed prompt payloads at the IPC schema boundary', async () => {
+    const registration = registerAllHandlers(
+      { configPath: 'C:/Users/test/.lmcode/config.toml' } as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+
+    await expect(
+      invoke('lmcode:sendMessage', 'session-1', {
+        text: 'hi',
+        attachments: [{ source: 'path', kind: 'text' }],
+      }),
+    ).rejects.toThrow(/Invalid IPC arguments on "lmcode:sendMessage"/)
+
+    await registration.close()
+  })
 })

@@ -29,6 +29,7 @@ describe('desktop settings workspace accessibility contract', () => {
       model: 'k3',
       thinkingLevel: 'medium',
       permission: 'manual',
+      permissionPreference: 'manual',
     }
     configState = {
       ...configStoreModule.useConfigStore.getState(),
@@ -86,5 +87,38 @@ describe('desktop settings workspace accessibility contract', () => {
     )
 
     expect(html).toBe('')
+  })
+
+  it('mounts the real remote pairing panel instead of a placeholder address', () => {
+    const html = renderToStaticMarkup(
+      createElement(SettingsPanel, { ...settingsProps, initialSection: 'remote' }),
+    )
+
+    expect(html).toContain('正在读取远程连接状态')
+    expect(html).not.toContain('192.168.1.100')
+    expect(html).not.toContain(':3000')
+  })
+
+  it('does not advertise a stale desktop version or leftover branding', () => {
+    const general = renderToStaticMarkup(createElement(SettingsPanel, settingsProps))
+    const about = renderToStaticMarkup(
+      createElement(SettingsPanel, { ...settingsProps, initialSection: 'about' }),
+    )
+
+    expect(general).not.toContain('v0.6.13')
+    expect(general).not.toContain('LMCODE Enterprise')
+    expect(about).not.toContain('v0.6.13')
+    expect(about).not.toContain('deepseek-harness')
+    expect(about).toContain('LMCODE Desktop')
+  })
+
+  it('offers the real extensions manager from the plugins tab', () => {
+    const html = renderToStaticMarkup(
+      createElement(SettingsPanel, { ...settingsProps, initialSection: 'plugins' }),
+    )
+
+    expect(html).toContain('打开扩展管理')
+    expect(html).toContain('MCP 服务器')
+    expect(html).toContain('技能')
   })
 })

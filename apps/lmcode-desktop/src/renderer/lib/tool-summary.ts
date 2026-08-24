@@ -110,8 +110,9 @@ export function toolFamily(toolName: string, argsRaw?: string): ToolFamily {
   if (name.includes('write_to_file') || name.includes('write_file') || name.startsWith('write') || name.includes('create_file')) return 'write'
   if (name.includes('multi_replace') || name.includes('edit_file') || name.startsWith('edit')) return 'edit'
   if (name.includes('search') || name.includes('grep') || name.includes('list_dir') || name.includes('glob') || name.includes('find')) return 'search'
-  if (name.includes('todo') || name.includes('task')) return 'todo'
   if (name.includes('subagent') || name.includes('agent') || name.includes('wolfpack')) return 'agent'
+  if (name === 'task' || name.includes('taskoutput') || name.includes('task_output')) return 'agent'
+  if (name.includes('todo')) return 'todo'
   if (name.includes('web') || name.includes('fetch') || name.includes('url')) return 'web'
   return 'other'
 }

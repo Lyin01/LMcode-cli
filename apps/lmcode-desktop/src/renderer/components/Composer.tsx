@@ -28,6 +28,7 @@ import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared
 import type { QueuedUserMessage, UserAttachment } from '@/types'
 import type { CommandPaletteRequest, ComposerDraftRequest } from '@/lib/menu-command'
 import { mergeComposerDraft } from '@/lib/composer-draft'
+import { isImeConfirmKey } from '@/lib/ime'
 import {
   clearComposerDraft,
   getComposerDraft,
@@ -577,6 +578,7 @@ export function Composer({
         }
       }
       if (e.key === 'Enter' && !e.shiftKey) {
+        if (isImeConfirmKey(e)) return
         e.preventDefault()
         handleSend(isStreaming && (e.ctrlKey || e.metaKey) ? 'steer' : 'default')
       }

@@ -100,14 +100,16 @@ export class RemoteServer {
           }
         },
       }
-      this.connections.set(socket, connection)
-      this.options.bridge.attachConnection(connection)
 
       socket.on('message', (data: Buffer) => {
         this.handleMessage(socket, data, {
           isAuthenticated: () => authenticated,
           markAuthenticated: (): void => {
             authenticated = true
+            if (!this.connections.has(socket)) {
+              this.connections.set(socket, connection)
+              this.options.bridge.attachConnection(connection)
+            }
           },
         })
       })

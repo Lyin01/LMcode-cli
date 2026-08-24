@@ -11,7 +11,6 @@ import {
   Wifi,
   Info,
   Check,
-  Copy,
   Trash2,
   Search,
   ExternalLink,
@@ -27,6 +26,7 @@ import type { ThemePref } from '@/lib/theme'
 import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 import type { PermissionMode } from '@lmcode-cli/lmcode-sdk'
 import { ModelProvidersPanel } from '@/components/settings/ModelProvidersPanel'
+import { RemotePanel } from '@/components/settings/RemotePanel'
 
 interface SettingsPanelProps {
   open: boolean
@@ -56,6 +56,22 @@ const SETTINGS_TABS: readonly SettingsNavTab[] = [
   { id: 'about', label: '关于', icon: Info },
 ]
 
+const MCP_STATUS_DOT: Record<McpServerInfo['status'], string> = {
+  connected: 'bg-[var(--lm-success)]',
+  pending: 'bg-[var(--lm-warning)]',
+  failed: 'bg-[var(--lm-error)]',
+  disabled: 'bg-[var(--lm-text-muted)]',
+  'needs-auth': 'bg-[var(--lm-warning)]',
+}
+
+const MCP_STATUS_LABEL: Record<McpServerInfo['status'], string> = {
+  connected: '已连接',
+  pending: '连接中',
+  failed: '失败',
+  disabled: '已禁用',
+  'needs-auth': '需授权',
+}
+
 const PERMISSION_MODES: readonly { value: PermissionMode; label: string; hint: string }[] = [
   { value: 'manual', label: '手动审批', hint: '执行文件写入和危险命令前必须先经过人工确认。' },
   { value: 'auto', label: '自动允许', hint: '自动批准常规读写与安全命令，核心边界仍然拦截。' },
@@ -71,6 +87,7 @@ const THEME_OPTIONS: readonly { value: ThemePref; label: string; icon: typeof Su
 export function SettingsPanel({
   open,
   onClose,
+  onOpenExtensions,
   onOpenKeyboardShortcuts,
   theme,
   onThemeChange,
@@ -81,7 +98,9 @@ export function SettingsPanel({
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const sessionThinkingLevel = useSessionStore((s) => s.thinkingLevel)
   const sessionPermission = useSessionStore((s) => s.permission)
+  const permissionPreference = useSessionStore((s) => s.permissionPreference)
   const setThinkingPreference = useSessionStore((s) => s.setThinkingPreference)
+  const setPermissionPreference = useSessionStore((s) => s.setPermissionPreference)
   const config = useConfigStore((s) => s.config)
   const updateConfig = useConfigStore((s) => s.updateConfig)
   // The desktop runtime defaults Anchored Bootstrap to ON (one-time migration
@@ -91,7 +110,6 @@ export function SettingsPanel({
   const [permission, setPermission] = useState<PermissionMode>('manual')
   const [version, setVersion] = useState('')
   const [saving, setSaving] = useState<string | null>(null)
-  const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   // Memory state
   const [memories, setMemories] = useState<Array<{ id: string; userNeed?: string; outcome?: string; tags?: string[] }>>([])
@@ -99,11 +117,9 @@ export function SettingsPanel({
   const [loadingMemories, setLoadingMemories] = useState(false)
 
   // MCP & Skills state
-  const [mcpServers, setMcpServers] = useState<Array<{ name: string; status: string }>>([])
-  const [skills, setSkills] = useState<Array<{ name: string; description?: string }>>([])
+  const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([])
+  const [skills, setSkills] = useState<SkillSummary[]>([])
 
-  // Remote state
-  const [remoteLanEnabled, setRemoteLanEnabled] = useState(false)
   // Maintenance state
   const [compacting, setCompacting] = useState(false)
   const [compactSuccess, setCompactSuccess] = useState(false)
@@ -116,8 +132,8 @@ export function SettingsPanel({
   }, [initialSection])
 
   useEffect(() => {
-    if (sessionPermission) setPermission(sessionPermission as PermissionMode)
-  }, [sessionPermission])
+    setPermission(sessionPermission || permissionPreference)
+  }, [permissionPreference, sessionPermission])
 
   useEffect(() => {
     if (!open) return
@@ -134,10 +150,10 @@ export function SettingsPanel({
       }).catch(() => {}).finally(() => setLoadingMemories(false))
     } else if (activeTab === 'plugins' && currentSessionId) {
       void window.lmcodeAPI?.listMcpServers?.(currentSessionId).then((res) => {
-        setMcpServers((res as typeof mcpServers) || [])
+        setMcpServers(res ?? [])
       }).catch(() => {})
       void window.lmcodeAPI?.listSkills?.(currentSessionId).then((res) => {
-        setSkills((res as typeof skills) || [])
+        setSkills(res ?? [])
       }).catch(() => {})
     }
   }, [open, activeTab, currentSessionId])
@@ -150,12 +166,6 @@ export function SettingsPanel({
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, onClose])
-
-  const copyToClipboard = (text: string, key: string) => {
-    void navigator.clipboard.writeText(text)
-    setCopiedKey(key)
-    setTimeout(() => setCopiedKey(null), 1500)
-  }
 
   const handleThinkingChange = async (value: ThinkingEffort) => {
     setSaving('thinkingLevel')
@@ -170,9 +180,7 @@ export function SettingsPanel({
     setPermission(value)
     setSaving('permission')
     try {
-      if (currentSessionId) {
-        await window.lmcodeAPI?.setPermission(currentSessionId, value)
-      }
+      await setPermissionPreference(value)
     } finally {
       setSaving(null)
     }
@@ -186,7 +194,6 @@ export function SettingsPanel({
       await updateConfig({
         anchoredBootstrap: {
           ...(config?.anchoredBootstrap),
-          providers: ['deepseek'],
           enabled,
         },
       })
@@ -269,7 +276,7 @@ export function SettingsPanel({
               <h2 id="settings-title" className="text-[15px] font-semibold tracking-tight text-[var(--lm-text-primary)]">
                 设置与选项
               </h2>
-              <p className="text-[11px] text-[var(--lm-text-muted)]">LMCODE Enterprise</p>
+              <p className="text-[11px] text-[var(--lm-text-muted)]">桌面客户端</p>
             </div>
             <button
               onClick={onClose}
@@ -332,7 +339,7 @@ export function SettingsPanel({
 
             <div className="flex items-center justify-between px-2 text-[11px] text-[var(--lm-text-muted)]">
               <span>桌面版本</span>
-              <span className="font-mono">{version || 'v0.6.13'}</span>
+              <span className="font-mono">{version || '读取中…'}</span>
             </div>
           </div>
         </nav>
@@ -509,33 +516,80 @@ export function SettingsPanel({
             {/* 3. Plugins & MCP Tab */}
             {activeTab === 'plugins' && (
               <div className="space-y-5 max-w-xl">
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">已连接的 MCP 服务器与扩展</h4>
-                    <p className="text-[11.5px] text-[var(--lm-text-muted)]">扩展 Agent 的文件系统、浏览器和数据库能力</p>
+                    <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">MCP 服务器与技能</h4>
+                    <p className="text-[11.5px] text-[var(--lm-text-muted)]">
+                      查看当前会话已挂载的扩展。添加、启停和运行请打开扩展管理。
+                    </p>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  {mcpServers.length > 0 ? (
-                    mcpServers.map((srv) => (
-                      <div
-                        key={srv.name}
-                        className="flex items-center justify-between rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-3"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className="h-2 w-2 rounded-full bg-[var(--lm-success)]" />
-                          <span className="text-[13px] font-medium text-[var(--lm-text-primary)]">{srv.name}</span>
-                        </div>
-                        <span className="text-[11px] text-[var(--lm-text-muted)] font-mono">{srv.status}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-6 text-center text-[12px] text-[var(--lm-text-muted)]">
-                      当前会话未挂载外部 MCP 服务器（已启用内置全量 Tools 工具套件）
-                    </div>
+                  {onOpenExtensions && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose()
+                        onOpenExtensions()
+                      }}
+                      className="shrink-0 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+                    >
+                      打开扩展管理
+                    </button>
                   )}
                 </div>
+
+                {!currentSessionId ? (
+                  <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-6 text-center text-[12px] text-[var(--lm-text-muted)]">
+                    请先创建或选择一个会话，再管理 MCP 与技能。
+                  </div>
+                ) : (
+                  <>
+                    <section className="space-y-2">
+                      <h5 className="text-[12px] font-medium text-[var(--lm-text-secondary)]">MCP 服务器</h5>
+                      {mcpServers.length > 0 ? (
+                        mcpServers.map((srv) => (
+                          <div
+                            key={srv.name}
+                            className="flex items-center justify-between rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-3"
+                          >
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <span className={cn('h-2 w-2 shrink-0 rounded-full', MCP_STATUS_DOT[srv.status])} />
+                              <span className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">{srv.name}</span>
+                            </div>
+                            <span className="shrink-0 text-[11px] text-[var(--lm-text-muted)]">
+                              {MCP_STATUS_LABEL[srv.status]}
+                              {srv.toolCount > 0 ? ` · ${String(srv.toolCount)} 个工具` : ''}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-5 text-center text-[12px] text-[var(--lm-text-muted)]">
+                          当前会话未挂载外部 MCP 服务器
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="space-y-2">
+                      <h5 className="text-[12px] font-medium text-[var(--lm-text-secondary)]">技能</h5>
+                      {skills.length > 0 ? (
+                        skills.map((sk) => (
+                          <div
+                            key={`${sk.source}:${sk.name}`}
+                            className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] px-3 py-2.5"
+                          >
+                            <div className="text-[13px] font-medium text-[var(--lm-text-primary)]">/{sk.name}</div>
+                            {sk.description && (
+                              <p className="mt-0.5 line-clamp-2 text-[11.5px] text-[var(--lm-text-muted)]">{sk.description}</p>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-5 text-center text-[12px] text-[var(--lm-text-muted)]">
+                          当前会话没有可列出的技能
+                        </div>
+                      )}
+                    </section>
+                  </>
+                )}
               </div>
             )}
 
@@ -596,37 +650,8 @@ export function SettingsPanel({
 
             {/* 5. Remote LAN Tab */}
             {activeTab === 'remote' && (
-              <div className="space-y-5 max-w-xl">
-                <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">局域网远程连接 (LAN Control)</h4>
-                      <p className="text-[11.5px] text-[var(--lm-text-muted)]">允许同局域网内的手机或平板通过浏览器协同操作 Agent</p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={remoteLanEnabled}
-                      onChange={(e) => setRemoteLanEnabled(e.target.checked)}
-                      className="h-4 w-4 rounded accent-[var(--lm-accent)]"
-                    />
-                  </div>
-
-                  {remoteLanEnabled && (
-                    <div className="mt-3 space-y-2 border-t border-[var(--lm-border)] pt-3">
-                      <div className="text-[11.5px] text-[var(--lm-text-secondary)]">访问地址：</div>
-                      <div className="flex items-center justify-between rounded-lg bg-[var(--lm-bg-surface)] p-2 font-mono text-[12px]">
-                        <span>http://192.168.1.100:3000</span>
-                        <button
-                          onClick={() => copyToClipboard('http://192.168.1.100:3000', 'remote_url')}
-                          className="flex items-center gap-1 text-[11px] text-[var(--lm-accent-text)] hover:underline"
-                        >
-                          {copiedKey === 'remote_url' ? <Check size={12} /> : <Copy size={12} />}
-                          <span>{copiedKey === 'remote_url' ? '已复制' : '复制'}</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <div className="space-y-4">
+                <RemotePanel />
               </div>
             )}
 
@@ -675,10 +700,10 @@ export function SettingsPanel({
                 <div className="rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-4 space-y-2">
                   <div className="text-[13px] font-semibold text-[var(--lm-text-primary)]">LMCODE Desktop</div>
                   <p className="text-[11.5px] text-[var(--lm-text-secondary)] leading-relaxed">
-                    基于 deepseek-harness 模板体系构建的轻量级、高自主性 AI Agent 桌面工程工作台。
+                    LMcode 的桌面客户端。它复用同一套 Agent 核心，在项目里读代码、改文件、跑命令，并支持审批、Git 审查、远程连接和自动化。
                   </p>
                   <div className="pt-2 flex items-center gap-4 text-[12px] text-[var(--lm-text-muted)]">
-                    <span>版本: {version || 'v0.6.13'}</span>
+                    <span>版本: {version || '读取中…'}</span>
                     <a
                       href="https://github.com/Lyin01/LMcode-desktop"
                       target="_blank"

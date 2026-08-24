@@ -8,6 +8,9 @@ describe('tool-summary', () => {
     expect(toolFamily('str_replace_editor', JSON.stringify({ command: 'str_replace', path: 'a.ts' }))).toBe('edit')
     expect(toolFamily('Bash', JSON.stringify({ command: 'ls' }))).toBe('bash')
     expect(toolFamily('Grep', undefined)).toBe('search')
+    expect(toolFamily('Task', JSON.stringify({ description: 'scan' }))).toBe('agent')
+    expect(toolFamily('TaskOutput', undefined)).toBe('agent')
+    expect(toolFamily('TodoWrite', undefined)).toBe('todo')
   })
 
   it('summarizes bash args by the last meaningful segment, skipping cd prefixes', () => {

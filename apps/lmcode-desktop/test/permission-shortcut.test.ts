@@ -30,6 +30,18 @@ describe('desktop permission shortcut contract', () => {
     expect(cyclePermission).toHaveBeenCalledOnce()
   })
 
+  it('does not steal Shift+Tab from an open dialog', () => {
+    const cyclePermission = vi.fn()
+    const dialogTarget = {
+      closest: (selector: string) => (selector.includes('[role="dialog"]') ? {} : null),
+    }
+
+    expect(
+      handlePermissionModeShortcut(shortcutEvent(), cyclePermission, dialogTarget as unknown as EventTarget),
+    ).toBe(false)
+    expect(cyclePermission).not.toHaveBeenCalled()
+  })
+
   it('does not cycle on key repeat or modified Shift+Tab chords', () => {
     const cyclePermission = vi.fn()
 

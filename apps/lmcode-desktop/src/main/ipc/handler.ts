@@ -80,6 +80,23 @@ import {
 import { ProviderUsageService } from '../provider-usage.js'
 import { isPermissionMode } from '../../shared/permission-mode.js'
 import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types.js'
+import {
+  addMcpServerArgsSchema,
+  applyGitHunkActionArgsSchema,
+  createCronJobArgsSchema,
+  createGoalArgsSchema,
+  createSessionArgsSchema,
+  discardGitFileChangesArgsSchema,
+  parseIpcArgs,
+  promptArgsSchema,
+  respondApprovalArgsSchema,
+  respondQuestionArgsSchema,
+  setGitFileStagedArgsSchema,
+  setPermissionArgsSchema,
+  setPlanModeArgsSchema,
+  updateGoalStatusArgsSchema,
+  worktreeHandoffArgsSchema,
+} from '../../shared/ipc-schemas.js'
 
 interface SessionEntry {
   session: Session
@@ -250,14 +267,16 @@ export function registerAllHandlers(
   function secureInvoke<Args extends unknown[], Result>(
     channel: string,
     listener: (event: IpcMainInvokeEvent, ...args: Args) => Result | Promise<Result>,
+    schema?: Parameters<typeof parseIpcArgs>[0],
   ): void {
     ipcMain.handle(channel, async (event, ...args) => {
       if (closing) throw new Error(`Desktop IPC registration is closed on "${channel}"`)
       if (!isTrustedIpcSender(event, mainWindow.webContents, trustedRendererUrl)) {
         throw new Error(`Rejected IPC from an untrusted renderer on "${channel}"`)
       }
+      const parsed = (schema === undefined ? args : parseIpcArgs(schema, args, channel)) as Args
       try {
-        return await listener(event, ...(args as Args))
+        return await listener(event, ...parsed)
       } catch (error) {
         auditLog?.warn('desktop IPC operation failed', {
           channel,
@@ -373,7 +392,7 @@ export function registerAllHandlers(
       operation: 'session.create',
     })
     return session.summary
-  })
+  }, createSessionArgsSchema)
 
   secureInvoke(
     'lmcode:selectWorkDirectory',
@@ -463,6 +482,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.prompt(await buildDesktopPromptInput(request, credentialRoots))
     },
+    promptArgsSchema,
   )
 
   secureInvoke(
@@ -471,10 +491,13 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.steer(await buildDesktopPromptInput(request, credentialRoots))
     },
+    promptArgsSchema,
   )
 
   secureInvoke('lmcode:cancelResponse', async (_event, sessionId: string): Promise<void> => {
     hub.settleSession(sessionId)
+    const inflightResume = resumingSessions.get(sessionId)
+    if (inflightResume) await inflightResume.catch(() => {})
     const entry = activeSessions.get(sessionId)
     if (!entry) throw new Error(`Session "${sessionId}" not found`)
     try {
@@ -514,11 +537,15 @@ export function registerAllHandlers(
     await entry.session.setThinking(level)
   })
 
-  secureInvoke('lmcode:setPermission', async (_event, sessionId: string, mode: unknown): Promise<void> => {
-    if (!isPermissionMode(mode)) throw new Error('Invalid permission mode')
-    const entry = await ensureActiveSession(sessionId)
-    await entry.session.setPermission(mode)
-  })
+  secureInvoke(
+    'lmcode:setPermission',
+    async (_event, sessionId: string, mode: unknown): Promise<void> => {
+      if (!isPermissionMode(mode)) throw new Error('Invalid permission mode')
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.setPermission(mode)
+    },
+    setPermissionArgsSchema,
+  )
 
   secureInvoke(
     'lmcode:createGoal',
@@ -531,6 +558,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.createGoal(objective, { replace })
     },
+    createGoalArgsSchema,
   )
 
   secureInvoke(
@@ -551,6 +579,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.updateGoalStatus(status)
     },
+    updateGoalStatusArgsSchema,
   )
 
   secureInvoke(
@@ -567,6 +596,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.setPlanMode(enabled)
     },
+    setPlanModeArgsSchema,
   )
 
   secureInvoke(
@@ -586,6 +616,8 @@ export function registerAllHandlers(
   )
 
   secureInvoke('lmcode:closeSession', async (_event, sessionId: string): Promise<void> => {
+    const inflightResume = resumingSessions.get(sessionId)
+    if (inflightResume) await inflightResume.catch(() => {})
     await terminalManager.stop(sessionId)
     const entry = activeSessions.get(sessionId)
     if (entry) {
@@ -624,6 +656,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.createCronJob(input)
     },
+    createCronJobArgsSchema,
   )
 
   secureInvoke(
@@ -666,10 +699,14 @@ export function registerAllHandlers(
     await entry.session.reconnectMcpServer(name)
   })
 
-  secureInvoke('lmcode:addMcpServer', async (_event, sessionId: string, name: string, config: Record<string, unknown>): Promise<void> => {
-    const entry = await ensureActiveSession(sessionId)
-    await entry.session.addMcpServer(name, config)
-  })
+  secureInvoke(
+    'lmcode:addMcpServer',
+    async (_event, sessionId: string, name: string, config: Record<string, unknown>): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.addMcpServer(name, config)
+    },
+    addMcpServerArgsSchema,
+  )
 
   secureInvoke('lmcode:stopMcpServer', async (_event, sessionId: string, name: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
@@ -714,7 +751,9 @@ export function registerAllHandlers(
   })
 
   secureInvoke('lmcode:removeModel', async (_event, modelId: string): Promise<LmcodeConfig> => {
-    return sanitizeConfigForRenderer(await harness.removeModel(modelId))
+    const config = await harness.removeModel(modelId)
+    providerUsage.invalidate()
+    return sanitizeConfigForRenderer(config)
   })
 
   // ── File operations ─────────────────────────────────────────────
@@ -763,6 +802,7 @@ export function registerAllHandlers(
     ): Promise<void> => {
       await setGitFileStaged(await getSessionWorkDir(sessionId), filePath, staged)
     },
+    setGitFileStagedArgsSchema,
   )
 
   secureInvoke(
@@ -777,6 +817,7 @@ export function registerAllHandlers(
     async (_event, sessionId: string, input: GitHunkActionInput): Promise<void> => {
       await applyGitHunkAction(await getSessionWorkDir(sessionId), input)
     },
+    applyGitHunkActionArgsSchema,
   )
 
   secureInvoke(
@@ -797,6 +838,7 @@ export function registerAllHandlers(
         operation: 'git.discard-file',
       })
     },
+    discardGitFileChangesArgsSchema,
   )
 
   secureInvoke(
@@ -846,6 +888,7 @@ export function registerAllHandlers(
       )
       return { worktree, session: await forkSessionIntoWorktree(sessionId, worktree) }
     },
+    worktreeHandoffArgsSchema,
   )
 
   secureInvoke(
@@ -861,6 +904,7 @@ export function registerAllHandlers(
       )
       return { worktree, session: await forkSessionIntoWorktree(sessionId, worktree) }
     },
+    worktreeHandoffArgsSchema,
   )
 
   // ── Project terminal ────────────────────────────────────────────
@@ -955,7 +999,7 @@ export function registerAllHandlers(
     if (!hub.respondApproval(payload.requestId, payload.response)) {
       throw new Error(`Approval request "${payload.requestId}" is no longer pending`)
     }
-  })
+  }, respondApprovalArgsSchema)
 
   secureInvoke('lmcode:respondQuestion', (_event, payload: {
     requestId: string
@@ -964,7 +1008,7 @@ export function registerAllHandlers(
     if (!hub.respondQuestion(payload.requestId, payload.result)) {
       throw new Error(`Question request "${payload.requestId}" is no longer pending`)
     }
-  })
+  }, respondQuestionArgsSchema)
 
   // ── Remote service (settings panel control) ──────────────────────
 

@@ -23,6 +23,7 @@ import {
   type GitReviewCommentInput,
 } from '@/components/GitDiffView'
 import { formatGitReviewComments } from '@/lib/git-review-comments'
+import { isImeConfirmKey } from '@/lib/ime'
 import type {
   GitChangeKind,
   GitDiscardScope,
@@ -230,6 +231,9 @@ export function GitReviewPanel({
     setScope('unstaged')
     setComments([])
     setPendingDestructive(null)
+    setCommitMessage('')
+    setNotice(null)
+    setSnapshot(null)
   }, [sessionId])
 
   const scopedChanges = useMemo(
@@ -586,7 +590,10 @@ export function GitReviewPanel({
                 value={commitMessage}
                 onChange={(event) => setCommitMessage(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && hasStagedChanges) void commitStagedChanges()
+                  if (event.key === 'Enter' && !isImeConfirmKey(event) && hasStagedChanges) {
+                    event.preventDefault()
+                    void commitStagedChanges()
+                  }
                 }}
                 maxLength={500}
                 placeholder={hasStagedChanges ? '提交说明…' : '先暂存变更后提交'}
@@ -632,6 +639,14 @@ export function GitReviewPanel({
             <div>
               <p className="text-[14px] font-medium text-[var(--lm-text-primary)]">当前项目不是 Git 仓库</p>
               <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">初始化仓库后刷新，即可在这里审阅代码变更。</p>
+            </div>
+          </div>
+        ) : snapshot?.error ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <AlertTriangle size={28} className="text-[var(--lm-error)]" />
+            <div>
+              <p className="text-[14px] font-medium text-[var(--lm-text-primary)]">无法读取 Git 状态</p>
+              <p className="mt-1 text-[12px] text-[var(--lm-text-muted)]">{snapshot.error}</p>
             </div>
           </div>
         ) : snapshot && snapshot.changes.length === 0 ? (

@@ -17,7 +17,22 @@ describe('IPC argument schemas (wire boundary contract)', () => {
   it('rejects a createSession payload whose workDir is blank', () => {
     expect(() =>
       parseIpcArgs(createSessionArgsSchema, [{ workDir: '   ' }], 'lmcode:createSession'),
-    ).toThrow(/Invalid IPC arguments on "lmcode:createSession"/)
+    ).toThrow(/project directory is required/)
+  })
+
+  it('accepts a no-project createSession payload without a workDir', () => {
+    const args = [{ noProject: true }]
+    expect(parseIpcArgs(createSessionArgsSchema, args, 'lmcode:createSession')).toEqual(args)
+  })
+
+  it('rejects combining noProject with a renderer-supplied workDir', () => {
+    expect(() =>
+      parseIpcArgs(
+        createSessionArgsSchema,
+        [{ noProject: true, workDir: 'C:/elsewhere' }],
+        'lmcode:createSession',
+      ),
+    ).toThrow(/no-project/)
   })
 
   it('rejects an out-of-band permission mode', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2, Eye, EyeOff, ChevronRight, Check, Pencil, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores/config-store'
@@ -6,6 +6,7 @@ import type { LmcodeConfig } from '@lmcode-cli/lmcode-sdk'
 import { REDACTED_SECRET_VALUE } from '../../../shared/security'
 
 type ProviderType = LmcodeConfig['providers'][string]['type']
+type ModelAlias = NonNullable<LmcodeConfig['models']>[string]
 
 /**
  * API 格式选项，按 ZCode「模型设置」的风格展示：
@@ -177,6 +178,15 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
   const [saved, setSaved] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState('')
+  const savedTimer = useRef<number | null>(null)
+  const deleteTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current)
+      if (deleteTimer.current !== null) window.clearTimeout(deleteTimer.current)
+    }
+  }, [])
 
   const idConflict = useConfigStore((s) =>
     isNew ? Boolean(s.config?.providers?.[id.trim()]) : false,
@@ -205,7 +215,8 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
       setApiKey('')
       setPreserveStoredApiKey(nextApiKey.length > 0)
       setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current)
+      savedTimer.current = window.setTimeout(() => setSaved(false), 2000)
       onSaved(trimmedId)
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败')
@@ -217,7 +228,8 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
   const handleDelete = async () => {
     if (!confirmDelete) {
       setConfirmDelete(true)
-      setTimeout(() => setConfirmDelete(false), 3000)
+      if (deleteTimer.current !== null) window.clearTimeout(deleteTimer.current)
+      deleteTimer.current = window.setTimeout(() => setConfirmDelete(false), 3000)
       return
     }
     if (providerId !== null) await onDeleted(providerId)
@@ -276,7 +288,7 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
           ))}
         </select>
         <p className="mt-1 text-[11px] text-[var(--lm-text-muted)]">
-          接口路径：{providerEndpointPath(type)}
+          接口路径：{providerEndpointPath(type)}（写入 Base URL，不会自动拼接）
         </p>
       </section>
 
@@ -297,8 +309,11 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
             value={apiKey}
             type={showApiKey ? 'text' : 'password'}
             onChange={(e) => {
-              setApiKey(e.target.value)
-              setPreserveStoredApiKey(false)
+              const value = e.target.value
+              setApiKey(value)
+              setPreserveStoredApiKey(
+                provider?.apiKey === REDACTED_SECRET_VALUE && value.trim().length === 0,
+              )
             }}
             placeholder={preserveStoredApiKey ? '已安全保存；输入新密钥可替换' : '输入 API Key'}
             className={cn(inputClass, 'pr-9')}
@@ -317,7 +332,10 @@ function ProviderEditor({ providerId, provider, onBack, onSaved, onDeleted }: Pr
         {preserveStoredApiKey && (
           <button
             type="button"
-            onClick={() => setPreserveStoredApiKey(false)}
+            onClick={() => {
+              setPreserveStoredApiKey(false)
+              setApiKey('')
+            }}
             className="mt-1 text-[11px] text-[var(--lm-text-muted)] transition-colors hover:text-red-500"
           >
             清除已保存密钥
@@ -419,6 +437,7 @@ function ProviderModels({ providerId }: { providerId: string }) {
           <span className="text-[11px] text-[var(--lm-text-muted)]">{models.length} 个模型</span>
         )}
       </div>
+      {error && <p className="mb-2 text-[11px] text-red-500">{error}</p>}
       <div className="space-y-1.5">
         {models.length === 0 && !adding && (
           <p className="py-1 text-[11px] text-[var(--lm-text-muted)]">
@@ -431,9 +450,14 @@ function ProviderModels({ providerId }: { providerId: string }) {
               key={modelId}
               modelId={modelId}
               model={m}
-              onDone={(patch) => {
-                void updateConfig({ models: { [modelId]: patch } })
-                setEditingId(null)
+              onDone={async (patch) => {
+                setError('')
+                try {
+                  await updateConfig({ models: { [modelId]: patch } })
+                  setEditingId(null)
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : '保存失败')
+                }
               }}
               onCancel={() => setEditingId(null)}
             />
@@ -444,7 +468,7 @@ function ProviderModels({ providerId }: { providerId: string }) {
             >
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-[12px] font-medium text-[var(--lm-text-primary)]">
-                  {m.displayName ?? modelId}
+                  {m.displayName?.trim() || modelId}
                 </span>
                 {m.model !== modelId && (
                   <span className="truncate text-[10px] text-[var(--lm-text-muted)]">{m.model}</span>
@@ -534,8 +558,8 @@ function ProviderModels({ providerId }: { providerId: string }) {
 
 interface ModelRowEditorProps {
   modelId: string
-  model: LmcodeConfig['models'][string]
-  onDone: (patch: Partial<LmcodeConfig['models'][string]>) => void
+  model: ModelAlias
+  onDone: (patch: Partial<ModelAlias>) => void | Promise<void>
   onCancel: () => void
 }
 
@@ -551,7 +575,7 @@ function ModelRowEditor({ modelId, model, onDone, onCancel }: ModelRowEditorProp
   const handleSave = () => {
     if (!canSave) return
     onDone({
-      displayName: displayName.trim() || undefined,
+      displayName: displayName.trim(),
       model: modelName.trim() || modelId,
       maxContextSize: parsedContext,
     })

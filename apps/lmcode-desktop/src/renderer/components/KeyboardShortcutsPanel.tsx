@@ -32,6 +32,7 @@ const SHORTCUT_SECTIONS: readonly ShortcutSection[] = [
     shortcuts: [
       { label: '在对话中查找', keys: ['mod', 'F'] },
       { label: '查找下一个', keys: ['mod', 'G'] },
+      { label: '查找上一个', keys: ['Shift', 'F3'] },
       { label: '切换权限模式', keys: ['Shift', 'Tab'] },
       { label: '重命名对话', keys: ['F2'] },
       { label: '导出对话', keys: ['mod', 'Shift', 'E'] },
@@ -44,6 +45,8 @@ const SHORTCUT_SECTIONS: readonly ShortcutSection[] = [
       { label: '项目终端', keys: ['mod', 'J'] },
       { label: 'Git 变更', keys: ['mod', 'Shift', 'G'] },
       { label: '设置', keys: ['mod', ','] },
+      { label: '显示 / 聚焦窗口', keys: ['mod', 'Shift', 'L'] },
+      { label: '最小化窗口', keys: ['mod', 'Shift', 'M'] },
       { label: '全屏', keys: ['F11'] },
     ],
   },
