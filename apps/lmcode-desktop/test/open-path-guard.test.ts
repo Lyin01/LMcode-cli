@@ -39,7 +39,15 @@ describe('normalizeOpenPathTarget', () => {
 
   it('accepts a local absolute path and a localhost file URL', () => {
     expect(normalizeOpenPathTarget('C:\\repo\\notes.md')).toBe('C:\\repo\\notes.md')
-    const fromUrl = normalizeOpenPathTarget('file:///C:/repo/notes.md')
-    expect(fromUrl === 'C:\\repo\\notes.md' || fromUrl === 'C:/repo/notes.md').toBe(true)
+    expect(normalizeOpenPathTarget('file:///C:/repo/notes.md')).toBe('C:\\repo\\notes.md')
+    expect(normalizeOpenPathTarget('file://localhost/C:/repo/notes.md')).toBe('C:\\repo\\notes.md')
+    expect(normalizeOpenPathTarget('file:///C:/repo/my%20notes.md')).toBe('C:\\repo\\my notes.md')
+  })
+
+  it('rejects relative paths, remote file hosts, and null bytes', () => {
+    expect(normalizeOpenPathTarget('notes.md')).toBeNull()
+    expect(normalizeOpenPathTarget('./notes.md')).toBeNull()
+    expect(normalizeOpenPathTarget('file://evil.example/C:/repo/notes.md')).toBeNull()
+    expect(normalizeOpenPathTarget('C:\\repo\\notes.md\0.exe')).toBeNull()
   })
 })

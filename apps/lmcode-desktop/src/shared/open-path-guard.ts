@@ -1,6 +1,3 @@
-import { isAbsolute } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 /**
  * Windows ShellExecute / Electron `shell.openPath` will run associated
  * handlers for these extensions. Model-controlled tool output must not become
@@ -83,9 +80,39 @@ export function isUnsafeShellOpenPath(target: string): boolean {
   return UNSAFE_SHELL_OPEN_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())
 }
 
+function isAbsoluteOpenPath(target: string): boolean {
+  if (target.startsWith('/') || target.startsWith('\\')) return true
+  return /^[A-Za-z]:[\\/]/.test(target)
+}
+
+/**
+ * Browser-safe `file://` → local path. Drive-letter URLs become `C:\...`;
+ * POSIX URLs keep the decoded pathname. Remote hosts are rejected.
+ */
+function fileUrlToOpenPath(fileUrl: string): string | null {
+  try {
+    const url = new URL(fileUrl)
+    if (url.protocol !== 'file:') return null
+    const host = url.hostname.toLowerCase()
+    if (host !== '' && host !== 'localhost' && host !== '127.0.0.1') return null
+    const pathname = decodeURIComponent(url.pathname)
+    if (pathname.includes('\0')) return null
+    if (/^\/[A-Za-z][:|]/.test(pathname)) {
+      const rest = pathname.slice(3).replace(/\//g, '\\')
+      return `${pathname[1]}:${rest.startsWith('\\') ? rest : `\\${rest}`}`
+    }
+    return pathname
+  } catch {
+    return null
+  }
+}
+
 /**
  * Validate and normalize a local path the renderer wants to open: trim,
  * convert `file://`, reject UNC / remote hosts / relative paths.
+ *
+ * Implemented without Node builtins so the renderer bundle can import the
+ * UNC check from this same module.
  */
 export function normalizeOpenPathTarget(raw: unknown): string | null {
   if (typeof raw !== 'string') return null
@@ -94,17 +121,11 @@ export function normalizeOpenPathTarget(raw: unknown): string | null {
 
   let target = trimmed
   if (trimmed.startsWith('file:')) {
-    try {
-      const url = new URL(trimmed)
-      if (url.protocol !== 'file:') return null
-      const host = url.hostname.toLowerCase()
-      if (host !== '' && host !== 'localhost' && host !== '127.0.0.1') return null
-      target = fileURLToPath(trimmed)
-    } catch {
-      return null
-    }
+    const converted = fileUrlToOpenPath(trimmed)
+    if (converted === null) return null
+    target = converted
   }
 
   if (isUnsafeRemoteOrUncPath(target)) return null
-  return isAbsolute(target) ? target : null
+  return isAbsoluteOpenPath(target) ? target : null
 }
