@@ -2,6 +2,10 @@
 
 LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 Agent，会话、目标、审批、MCP、记忆和后台任务与 CLI/TUI 使用同一套核心能力。
 
+## 0.7.13
+
+审查修复 + 回合失败：对话里的 `.js` / `.url` / UNC 不再一键执行；外链只走无凭据的 HTTPS。远程换令牌会踢掉旧连接，新建会话强制手动权限，不能再改 providers。压缩或流式丢了 `step.begin` 时不再把整轮打成「Received content_part for unknown step_uuid」。扩展加载失败、历史加载失败、停止后队列和斜杠全局 Enter 也一起收了。
+
 ## 0.7.12
 
 第四轮运行时自迭代：给剩余写操作 IPC 补上 schema（整库暂存的布尔、undo 计数、setConfig、终端写入等）。Git 审查把「找不到 Git」和 diff 失败从干净/非仓库空态里拆出来。设置里 MCP/记忆加载失败不再画成「暂无」。资源管理器复制文件不再把路径再贴进输入框。连续 `turn.started` 不再堆空气泡。项目终端去掉 `powershell -Command -`。

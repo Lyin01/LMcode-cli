@@ -84,6 +84,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+function isCachedSessionLive(session: Session): boolean {
+  return (session as Session & { readonly isOpen?: boolean }).isOpen !== false
+}
+
 /**
  * Bridges remote client requests to the SDK. Owns:
  *
@@ -111,6 +115,7 @@ export class RemoteBridge implements InteractionSurface {
     private readonly noProjectWorkDir: string,
     memoryStore: MemoryMemoStore,
     private readonly onConfigChanged?: () => void,
+    private readonly releaseHostSession?: (sessionId: string) => Promise<void>,
   ) {
     this.memoryStore = memoryStore
     hub.attachSurface(this)
@@ -188,14 +193,21 @@ export class RemoteBridge implements InteractionSurface {
    * call concurrently: in-flight resumes are deduplicated by promise.
    */
   async ensureSession(sessionId: string): Promise<Session> {
+    if (this.closing) throw new Error('Remote bridge is closed')
     const existing = this.activeSessions.get(sessionId)
-    if (existing !== undefined) return existing.session
+    if (existing !== undefined && isCachedSessionLive(existing.session)) {
+      this.installInteractionHandlers(existing.session)
+      return existing.session
+    }
+    if (existing !== undefined) this.dropSession(sessionId)
 
     const inflight = this.resumingSessions.get(sessionId)
     if (inflight !== undefined) return (await inflight).session
 
     const pending = (async (): Promise<ActiveSessionEntry> => {
       const session = await this.harness.resumeSession({ id: sessionId })
+      if (this.closing) throw new Error('Remote bridge is closed')
+      this.installInteractionHandlers(session)
       const unsubscribeEvent = session.onEvent((event: Event) =>
         this.broadcastEvent(sessionId, event),
       )
@@ -211,15 +223,20 @@ export class RemoteBridge implements InteractionSurface {
     }
   }
 
-  async closeSession(sessionId: string): Promise<void> {
-    const inflight = this.resumingSessions.get(sessionId)
-    if (inflight !== undefined) await inflight.catch(() => undefined)
+  dropSession(sessionId: string): void {
     const entry = this.activeSessions.get(sessionId)
     if (entry !== undefined) {
       entry.unsubscribeEvent()
       this.activeSessions.delete(sessionId)
     }
     this.hub.settleSession(sessionId)
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    const inflight = this.resumingSessions.get(sessionId)
+    if (inflight !== undefined) await inflight.catch(() => undefined)
+    if (this.releaseHostSession !== undefined) await this.releaseHostSession(sessionId)
+    this.dropSession(sessionId)
     await this.harness.closeSession(sessionId)
   }
 
@@ -455,12 +472,21 @@ export class RemoteBridge implements InteractionSurface {
     this.closing = true
     this.hub.detachSurface(this.name)
     this.connections.clear()
+    for (const pending of this.resumingSessions.values()) {
+      await pending.catch(() => undefined)
+    }
+    this.resumingSessions.clear()
     for (const entry of this.activeSessions.values()) {
       entry.unsubscribeEvent()
     }
     this.activeSessions.clear()
     // The memory store is owned by the app lifecycle (shared with the desktop
     // IPC handlers); this bridge only borrows it and must not close it.
+  }
+
+  private installInteractionHandlers(session: Session): void {
+    session.setApprovalHandler((request) => this.hub.requestApproval(session.id, request))
+    session.setQuestionHandler((request) => this.hub.requestQuestion(session.id, request))
   }
 
   // ── Private helpers ────────────────────────────────────────────────
@@ -498,9 +524,13 @@ export class RemoteBridge implements InteractionSurface {
     }
     const session =
       params['noProject'] === true
-        ? await this.harness.createSession({ workDir: this.noProjectWorkDir })
+        ? await this.harness.createSession({
+            workDir: this.noProjectWorkDir,
+            permission: 'manual',
+          })
         : await this.harness.createSession({
             workDir: await this.requireExistingProjectWorkDir(params),
+            permission: 'manual',
           })
     if (!session.summary) {
       throw new Error('Remote session created without a summary')
@@ -538,12 +568,8 @@ export class RemoteBridge implements InteractionSurface {
   private async deleteSession(id: string): Promise<void> {
     const inflight = this.resumingSessions.get(id)
     if (inflight !== undefined) await inflight.catch(() => undefined)
-    const entry = this.activeSessions.get(id)
-    if (entry !== undefined) {
-      entry.unsubscribeEvent()
-      this.activeSessions.delete(id)
-    }
-    this.hub.settleSession(id)
+    if (this.releaseHostSession !== undefined) await this.releaseHostSession(id)
+    this.dropSession(id)
     await this.harness.deleteSession(id)
   }
 

@@ -17,8 +17,14 @@ export const TEXT_ATTACHMENT_LIMIT_BYTES = 256 * 1024
 export const IMAGE_ATTACHMENT_LIMIT_BYTES = 10 * 1024 * 1024
 
 /** Home-directory credential stores that must never enter a model prompt. */
-const SENSITIVE_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.azure', '.kube']
+const SENSITIVE_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker']
 const SENSITIVE_EXTENSIONS = new Set(['.pem', '.key', '.p12', '.pfx', '.kdbx'])
+const SENSITIVE_BASENAMES = new Set([
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  '.git-credentials',
+])
 
 function normalizeForCompare(p: string): string {
   const resolved = path.resolve(p)
@@ -182,6 +188,8 @@ export function isSensitiveAttachmentPath(
 
   // Env files anywhere in the tree (.env, .env.local, .env.production, …).
   if (base === '.env' || base.startsWith('.env.')) return true
+  if (SENSITIVE_BASENAMES.has(base)) return true
+  if (base === 'hosts.yml' && /(?:^|[\\/])\.config[\\/]gh[\\/]/.test(target)) return true
 
   if (SENSITIVE_EXTENSIONS.has(path.extname(base))) return true
   if (base.includes('cookie')) return true

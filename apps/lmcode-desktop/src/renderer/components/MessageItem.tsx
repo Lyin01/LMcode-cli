@@ -143,7 +143,9 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
   const handle = href === undefined ? undefined : (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault()
     if (isSafeExternalHref(href)) {
-      void window.lmcodeAPI.openExternal(href)
+      void window.lmcodeAPI.openExternal(href).catch((error: unknown) => {
+        console.error('openExternal failed:', error)
+      })
     }
   }
   return (

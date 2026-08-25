@@ -104,8 +104,16 @@ export function historyToMessages(history: unknown[]): Message[] {
   return out
 }
 
-function messageOverlapKey(message: Message): string {
-  return `${message.role}\n${message.content}`
+function messagesOverlap(historic: Message, live: Message): boolean {
+  if (historic.role !== live.role) return false
+  if (historic.content === live.content) return true
+  // Live may still be an empty/partial assistant bubble while disk already
+  // persisted the finished turn.
+  return (
+    historic.role === 'assistant' &&
+    live.content.length < historic.content.length &&
+    historic.content.startsWith(live.content)
+  )
 }
 
 /**
@@ -130,7 +138,7 @@ export function mergeHydratedHistory(
       if (
         historic === undefined ||
         current === undefined ||
-        messageOverlapKey(historic) !== messageOverlapKey(current)
+        !messagesOverlap(historic, current)
       ) {
         matches = false
         break
@@ -140,5 +148,20 @@ export function mergeHydratedHistory(
     overlap -= 1
   }
 
-  return [...history.slice(0, history.length - overlap), ...live]
+  return [
+    ...history.slice(0, history.length - overlap),
+    ...live.map((current, index) => {
+      const historic = history[history.length - overlap + index]
+      if (
+        historic !== undefined &&
+        historic.role === 'assistant' &&
+        current.role === 'assistant' &&
+        current.content.length < historic.content.length &&
+        historic.content.startsWith(current.content)
+      ) {
+        return { ...current, content: historic.content }
+      }
+      return current
+    }),
+  ]
 }

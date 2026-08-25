@@ -40,6 +40,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   // Latest-wins guard: a slow resolve from a superseded refresh (session or
   // tab switch, manual refresh) must not overwrite newer data.
@@ -63,8 +64,14 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
     // (sessionId -> null) the old ticket must still be invalidated so a
     // slow in-flight resolve cannot write the deleted session's data.
     const ticket = gate.begin()
-    if (!sessionId) return
+    if (!sessionId) {
+      setSkills([])
+      setServers([])
+      setLoadError(null)
+      return
+    }
     setLoading(true)
+    setLoadError(null)
     try {
       if (tab === 'skills') {
         const next = await window.lmcodeAPI.listSkills(sessionId)
@@ -78,6 +85,9 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
     } catch (err) {
       if (!gate.isCurrent(ticket)) return
       console.error('Failed to load extensions:', err)
+      setSkills([])
+      setServers([])
+      setLoadError(err instanceof Error ? err.message : '无法读取扩展状态')
     } finally {
       if (gate.isCurrent(ticket)) setLoading(false)
     }
@@ -209,7 +219,10 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
           {/* ── Skills ── */}
           {sessionId && tab === 'skills' && (
             <>
-              {!loading && skills.length === 0 && (
+              {!loading && loadError && (
+                <p className="px-2 py-8 text-center text-[13px] text-[var(--lm-error)]">{loadError}</p>
+              )}
+              {!loading && !loadError && skills.length === 0 && (
                 <p className="px-2 py-8 text-center text-[13px] text-[var(--lm-text-muted)]">暂无技能</p>
               )}
               <div className="space-y-1.5">
@@ -307,7 +320,10 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                 </button>
               )}
 
-              {!loading && servers.length === 0 && (
+              {!loading && loadError && (
+                <p className="px-2 py-6 text-center text-[13px] text-[var(--lm-error)]">{loadError}</p>
+              )}
+              {!loading && !loadError && servers.length === 0 && (
                 <p className="px-2 py-6 text-center text-[13px] text-[var(--lm-text-muted)]">
                   暂无 MCP 服务器
                 </p>

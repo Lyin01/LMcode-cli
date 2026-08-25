@@ -94,6 +94,15 @@ describe('mergeHydratedHistory', () => {
     ).toEqual(['h1', 'live'])
   })
 
+  it('keeps a persisted assistant turn when live still has an empty bubble', () => {
+    expect(
+      mergeHydratedHistory(
+        [msg('h1', 'user', 'hello'), msg('h2', 'assistant', 'full reply')],
+        [msg('l1', 'user', 'hello'), msg('l2', 'assistant', '')],
+      ).map((item) => item.content),
+    ).toEqual(['hello', 'full reply'])
+  })
+
   it('keeps live-only notices after a full overlapping transcript', () => {
     expect(
       mergeHydratedHistory(

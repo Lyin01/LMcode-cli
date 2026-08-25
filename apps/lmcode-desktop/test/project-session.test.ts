@@ -226,9 +226,11 @@ describe('desktop project session contract', () => {
   it('drops the welcome-screen message when session creation fails', async () => {
     createDesktopSession.mockRejectedValue(new Error('harness unavailable'))
 
-    await useSessionStore
-      .getState()
-      .startSessionWithMessage({ kind: 'project', workDir: 'C:/repo' }, '你好')
+    await expect(
+      useSessionStore
+        .getState()
+        .startSessionWithMessage({ kind: 'project', workDir: 'C:/repo' }, '你好'),
+    ).rejects.toThrow('无法创建会话')
 
     expect(useSessionStore.getState().currentSessionId).toBeNull()
     expect(useSessionStore.getState().messageQueue).toEqual({})

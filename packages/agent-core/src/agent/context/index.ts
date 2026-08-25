@@ -199,6 +199,7 @@ export class ContextMemory {
       type: 'context.apply_compaction',
       ...summary,
     });
+    const liveOpenSteps = [...this.openSteps.entries()];
     this._history = [
       {
         role: 'assistant',
@@ -209,6 +210,13 @@ export class ContextMemory {
       ...this._history.slice(summary.compactedCount),
     ];
     this.openSteps.clear();
+    // Compaction may finish while a step is still streaming. Keep those
+    // in-flight assistant placeholders so later content.part / tool.call
+    // events do not fail the turn with "unknown step_uuid".
+    for (const [uuid, message] of liveOpenSteps) {
+      if (!this._history.includes(message)) this._history.push(message);
+      this.openSteps.set(uuid, message);
+    }
     this.flushDeferredMessagesIfToolExchangeClosed();
     this._tokenCount = summary.tokensAfter;
     this.tokenCountCoveredMessageCount = this._history.length;
@@ -292,23 +300,13 @@ export class ContextMemory {
         return;
       }
       case 'content.part': {
-        const openStep = this.openSteps.get(event.stepUuid);
-        if (openStep === undefined) {
-          throw new Error(
-            `Received content_part for unknown step_uuid '${event.stepUuid}' (no open step_begin)`,
-          );
-        }
+        const openStep = this.ensureOpenStep(event.stepUuid);
         openStep.content.push(event.part);
         this._revision += 1;
         return;
       }
       case 'tool.call': {
-        const openStep = this.openSteps.get(event.stepUuid);
-        if (openStep === undefined) {
-          throw new Error(
-            `Received tool_call for unknown step_uuid '${event.stepUuid}' (no open step_begin)`,
-          );
-        }
+        const openStep = this.ensureOpenStep(event.stepUuid);
         openStep.toolCalls.push({
           type: 'function',
           id: event.toolCallId,
@@ -354,6 +352,29 @@ export class ContextMemory {
     }
     this.pushHistory(...this.deferredMessages);
     this.deferredMessages = [];
+  }
+
+  /**
+   * A content.part / tool.call must land on an assistant placeholder. If the
+   * matching step.begin was lost (compaction finishing mid-stream, WAL replay
+   * without the begin envelope, provider flush after step.end), open a new
+   * placeholder instead of failing the whole turn.
+   */
+  private ensureOpenStep(stepUuid: string): ContextMessage {
+    const existing = this.openSteps.get(stepUuid);
+    if (existing !== undefined) return existing;
+
+    this.agent.log.warn('context opened a missing step for streamed content', {
+      stepUuid,
+    });
+    const message: ContextMessage = {
+      role: 'assistant',
+      content: [],
+      toolCalls: [],
+    };
+    this.pushHistory(message);
+    this.openSteps.set(stepUuid, message);
+    return message;
   }
 
   private hasOpenToolExchange(): boolean {

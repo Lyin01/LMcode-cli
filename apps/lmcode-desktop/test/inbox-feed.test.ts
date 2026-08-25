@@ -23,11 +23,15 @@ function sessionFixture(id: string, title: string): SessionInfo {
   }
 }
 
-function turnEvent(type: 'turn.started' | 'turn.ended', sessionId: string): Event {
+function turnEvent(
+  type: 'turn.started' | 'turn.ended',
+  sessionId: string,
+  reason: 'completed' | 'cancelled' | 'failed' = 'completed',
+): Event {
   return {
     type,
     turnId: 1,
-    ...(type === 'turn.started' ? { origin: { kind: 'user' as const } } : { reason: 'completed' as const }),
+    ...(type === 'turn.started' ? { origin: { kind: 'user' as const } } : { reason }),
     agentId: 'main',
     sessionId,
   } as Event
@@ -109,6 +113,15 @@ describe('desktop inbox feed wiring', () => {
     expect(notifyTurnCompleted).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'turn-completed', sessionId: 'session-b', title: '后台任务' }),
     )
+  })
+
+  it('does not treat a cancelled background turn as a successful completion', () => {
+    const store = useSessionStore.getState()
+    store.handleEvent('session-b', turnEvent('turn.started', 'session-b'))
+    store.handleEvent('session-b', turnEvent('turn.ended', 'session-b', 'cancelled'))
+
+    expect(useInboxStore.getState().items).toHaveLength(0)
+    expect(notifyTurnCompleted).not.toHaveBeenCalled()
   })
 
   it('collapses consecutive completions of the same background session into one unread entry', () => {

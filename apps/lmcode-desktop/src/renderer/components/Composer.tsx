@@ -29,7 +29,7 @@ import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared
 import type { QueuedUserMessage, UserAttachment } from '@/types'
 import type { CommandPaletteRequest, ComposerDraftRequest } from '@/lib/menu-command'
 import { mergeComposerDraft } from '@/lib/composer-draft'
-import { isImeConfirmKey } from '@/lib/ime'
+import { isImeConfirmKey, noteCompositionEnd } from '@/lib/ime'
 import { filesFromClipboardData, shouldCaptureClipboardFiles } from '@/lib/clipboard-files'
 import {
   clearComposerDraft,
@@ -742,6 +742,7 @@ export function Composer({
           data-lm-composer="true"
           onInput={handleInput}
           onKeyDown={handleKeyDown}
+          onCompositionEnd={noteCompositionEnd}
           onPaste={handlePaste}
           placeholder={
             isStreaming

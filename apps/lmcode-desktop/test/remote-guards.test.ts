@@ -21,6 +21,9 @@ describe('assertRemoteSafeMcpConfig', () => {
   it('allows http(s) MCP urls and rejects stdio commands', () => {
     expect(() => assertRemoteSafeMcpConfig({ url: 'https://mcp.example/sse' })).not.toThrow()
     expect(() => assertRemoteSafeMcpConfig({ url: 'http://127.0.0.1:3100' })).not.toThrow()
+    expect(() => assertRemoteSafeMcpConfig({ url: 'http://169.254.169.254/' })).toThrow(
+      /metadata/,
+    )
     expect(() => assertRemoteSafeMcpConfig({ command: 'npx', args: ['-y', 'foo'] })).toThrow(
       /stdio command/,
     )
@@ -34,6 +37,9 @@ describe('assertRemoteSafeMcpConfig', () => {
 describe('assertRemoteSafeConfigPatch', () => {
   it('blocks hooks, yolo, and permission escalation fields', () => {
     expect(() => assertRemoteSafeConfigPatch({ defaultModel: 'kimi' })).not.toThrow()
+    expect(() =>
+      assertRemoteSafeConfigPatch({ providers: { x: { baseUrl: 'http://evil' } } }),
+    ).toThrow(/providers/)
     expect(() => assertRemoteSafeConfigPatch({ yolo: true })).toThrow(/yolo/)
     expect(() =>
       assertRemoteSafeConfigPatch({ hooks: [{ event: 'SessionStart', command: 'calc.exe' }] }),

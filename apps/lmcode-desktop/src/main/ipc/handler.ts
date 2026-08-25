@@ -23,9 +23,12 @@ import type {
 import { writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { isUnsafeShellOpenPath } from '../../shared/open-path-guard.js'
+import { dirname, join } from 'node:path'
+import {
+  isUnsafeShellOpenPath,
+  normalizeOpenPathTarget,
+} from '../../shared/open-path-guard.js'
+import { isSafeExternalHttpsUrl } from '../../shared/security.js'
 import type { RemoteState } from '../../shared/remote-types.js'
 import type {
   DesktopCreateSessionOptions,
@@ -132,6 +135,8 @@ export interface RemoteController {
   setEnabled(enabled: boolean): Promise<RemoteState>
   setPort(port: number): Promise<RemoteState>
   regenerateToken(): Promise<RemoteState>
+  dropSession(sessionId: string): void
+  setHostReleaseSession(handler: (sessionId: string) => Promise<void>): void
 }
 
 /**
@@ -343,7 +348,11 @@ export function registerAllHandlers(
       throw new Error(`Session "${sessionId}" is closing`)
     }
     const existing = activeSessions.get(sessionId)
-    if (existing) return existing
+    if (existing && isCachedSessionLive(existing.session)) return existing
+    if (existing) {
+      existing.unsubscribeEvent()
+      activeSessions.delete(sessionId)
+    }
 
     const inflight = resumingSessions.get(sessionId)
     if (inflight) return inflight
@@ -364,6 +373,22 @@ export function registerAllHandlers(
     }
   }
 
+  async function releaseLocalSession(sessionId: string): Promise<void> {
+    await terminalManager.stop(sessionId)
+    const entry = activeSessions.get(sessionId)
+    if (entry) {
+      entry.unsubscribeEvent()
+      activeSessions.delete(sessionId)
+      try {
+        entry.session.setApprovalHandler(undefined)
+        entry.session.setQuestionHandler(undefined)
+      } catch {
+        // Session may already be closed by a remote teardown.
+      }
+    }
+    hub.settleSession(sessionId)
+  }
+
   async function teardownSession(sessionId: string, work: () => Promise<void>): Promise<void> {
     const existing = tearingDownSessions.get(sessionId)
     if (existing !== undefined) {
@@ -373,7 +398,13 @@ export function registerAllHandlers(
     const run = (async () => {
       const inflightResume = resumingSessions.get(sessionId)
       if (inflightResume) await inflightResume.catch(() => undefined)
-      await work()
+      await releaseLocalSession(sessionId)
+      try {
+        await work()
+      } finally {
+        remote?.dropSession(sessionId)
+        hub.settleSession(sessionId)
+      }
     })()
     tearingDownSessions.set(sessionId, run)
     try {
@@ -470,21 +501,10 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:deleteSession', async (_event, id: string): Promise<void> => {
     await teardownSession(id, async () => {
-      await terminalManager.stop(id)
-      const entry = activeSessions.get(id)
-      if (entry) {
-        entry.unsubscribeEvent()
-        activeSessions.delete(id)
-      }
-      hub.settleSession(id)
-      try {
-        await harness.deleteSession(id)
-        auditLog?.info('desktop critical operation completed', {
-          operation: 'session.delete',
-        })
-      } finally {
-        hub.settleSession(id)
-      }
+      await harness.deleteSession(id)
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'session.delete',
+      })
     })
   }, sessionIdArgsSchema)
 
@@ -667,18 +687,7 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:closeSession', async (_event, sessionId: string): Promise<void> => {
     await teardownSession(sessionId, async () => {
-      await terminalManager.stop(sessionId)
-      const entry = activeSessions.get(sessionId)
-      if (entry) {
-        entry.unsubscribeEvent()
-        activeSessions.delete(sessionId)
-      }
-      hub.settleSession(sessionId)
-      try {
-        await harness.closeSession(sessionId)
-      } finally {
-        hub.settleSession(sessionId)
-      }
+      await harness.closeSession(sessionId)
     })
   }, sessionIdArgsSchema)
 
@@ -1005,7 +1014,7 @@ export function registerAllHandlers(
   secureInvoke('lmcode:openPath', async (_event, input: string): Promise<string> => {
     const target = normalizeOpenPathTarget(input)
     if (target === null) {
-      return typeof input !== 'string' || input.trim().length === 0 ? '路径为空' : '仅支持打开绝对路径'
+      return typeof input !== 'string' || input.trim().length === 0 ? '路径为空' : '仅支持打开本地绝对路径'
     }
     if (isUnsafeShellOpenPath(target)) {
       return '不支持直接打开可执行或脚本文件，请用「在资源管理器中显示」'
@@ -1014,32 +1023,20 @@ export function registerAllHandlers(
   }, openPathArgsSchema)
 
   secureInvoke('lmcode:openExternal', async (_event, url: string): Promise<void> => {
-    if (typeof url !== 'string' || url.length === 0) return
-    let parsed: URL
-    try {
-      parsed = new URL(url)
-    } catch {
-      return
-    }
-    if (
-      (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
-      parsed.hostname.length === 0
-    ) {
-      return
-    }
-    await shell.openExternal(parsed.href)
+    if (!isSafeExternalHttpsUrl(url)) return
+    await shell.openExternal(url.trim())
   }, openExternalArgsSchema)
 
   secureInvoke('lmcode:showItemInFolder', async (_event, input: string): Promise<string> => {
     const target = normalizeOpenPathTarget(input)
-    if (target === null) return '仅支持打开绝对路径'
+    if (target === null) return '仅支持打开本地绝对路径'
     shell.showItemInFolder(target)
     return ''
-  })
+  }, openPathArgsSchema)
 
   secureInvoke('lmcode:openInVscode', async (_event, input: string): Promise<string> => {
     const target = normalizeOpenPathTarget(input)
-    if (target === null) return '仅支持打开绝对路径'
+    if (target === null) return '仅支持打开本地绝对路径'
     const executable = resolveVscodeExecutable()
     if (executable === null) {
       return '未找到 VSCode（可用环境变量 LMCODE_VSCODE_PATH 指定 Code.exe 路径）'
@@ -1048,7 +1045,7 @@ export function registerAllHandlers(
     child.on('error', () => {})
     child.unref()
     return ''
-  })
+  }, openPathArgsSchema)
 
   secureInvoke('lmcode:getNoProjectWorkDir', (): string => {
     return resolveNoProjectWorkDir()
@@ -1077,6 +1074,12 @@ export function registerAllHandlers(
   // ── Remote service (settings panel control) ──────────────────────
 
   if (remote !== undefined) {
+    remote.setHostReleaseSession(async (sessionId) => {
+      await teardownSession(sessionId, async () => {
+        // Local desktop resources only; the remote caller owns harness close/delete.
+      })
+    })
+
     secureInvoke('lmcode:getRemoteState', async (): Promise<RemoteState> => {
       return remote.getState()
     })
@@ -1188,8 +1191,18 @@ export function registerAllHandlers(
   // every reverse-RPC request immediately so agent turns cannot hang forever.
   // In-page navigations (pushState/hash) keep the document and its dialogs
   // alive, so pending interactions must survive them.
+  // Skip the first document load: scheduled sessions may already have raised
+  // an approval before the renderer finishes mounting.
+  let rendererDocumentReady = false
   const handleNavigation = (_event: Electron.Event, _url: string, isInPlace: boolean, isMainFrame: boolean): void => {
-    if (isMainFrame && !isInPlace) cancelAllPendingInteractions()
+    if (isMainFrame && !isInPlace && rendererDocumentReady) cancelAllPendingInteractions()
+  }
+  const handleRendererFinishedLoad = (): void => {
+    if (!rendererDocumentReady) {
+      rendererDocumentReady = true
+      return
+    }
+    cancelAllPendingInteractions()
   }
   const handleRenderProcessGone = (): void => {
     cancelAllPendingInteractions()
@@ -1207,7 +1220,7 @@ export function registerAllHandlers(
 
     await scheduledSessionsActivation
     runStep(() => mainWindow.webContents.removeListener('did-start-navigation', handleNavigation))
-    runStep(() => mainWindow.webContents.removeListener('did-finish-load', cancelAllPendingInteractions))
+    runStep(() => mainWindow.webContents.removeListener('did-finish-load', handleRendererFinishedLoad))
     runStep(() => mainWindow.webContents.removeListener('render-process-gone', handleRenderProcessGone))
     runStep(() => mainWindow.removeListener('closed', handleWindowClosed))
 
@@ -1256,7 +1269,7 @@ export function registerAllHandlers(
   }
 
   mainWindow.webContents.on('did-start-navigation', handleNavigation)
-  mainWindow.webContents.on('did-finish-load', cancelAllPendingInteractions)
+  mainWindow.webContents.on('did-finish-load', handleRendererFinishedLoad)
   mainWindow.webContents.on('render-process-gone', handleRenderProcessGone)
   mainWindow.on('closed', handleWindowClosed)
 
@@ -1268,20 +1281,8 @@ export function registerAllHandlers(
   }
 }
 
-/** 校验并归一化可打开的本地路径：去除空白、转换 file:// 链接、拒绝非绝对路径。 */
-function normalizeOpenPathTarget(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null
-  const trimmed = raw.trim()
-  if (trimmed.length === 0 || trimmed.includes('\0')) return null
-  let target = trimmed
-  if (trimmed.startsWith('file://')) {
-    try {
-      target = fileURLToPath(trimmed)
-    } catch {
-      return null
-    }
-  }
-  return isAbsolute(target) ? target : null
+function isCachedSessionLive(session: Session): boolean {
+  return (session as Session & { readonly isOpen?: boolean }).isOpen !== false
 }
 
 /** 定位 VSCode 主程序。Windows 上 code 命令是 .cmd，无法安全地 shell-less spawn，直接找 Code.exe。 */

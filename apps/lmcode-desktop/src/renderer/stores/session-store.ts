@@ -587,6 +587,16 @@ export function resumeQueuedDrain(sessionId: string): void {
   pausedQueueSessions.delete(sessionId)
 }
 
+export function isQueueDrainPaused(sessionId: string): boolean {
+  return pausedQueueSessions.has(sessionId)
+}
+
+const lastTurnEndReasons = new Map<string, TurnEndedEvent['reason']>()
+
+export function lastTurnEndReason(sessionId: string): TurnEndedEvent['reason'] | undefined {
+  return lastTurnEndReasons.get(sessionId)
+}
+
 /**
  * Single-flight latch for `startSessionWithMessage`. Module-level (like
  * `sessionSendInFlight`) so it takes effect synchronously, before any React
@@ -804,7 +814,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         await get().createSession(target.workDir)
       }
       const sessionId = get().currentSessionId
-      if (sessionId === null) return
+      if (sessionId === null) throw new Error('无法创建会话')
       const normalized = text.trim()
       if (!normalized && attachments.length === 0) return
       // The message rides the normal send pipeline: enqueueing triggers the
@@ -953,8 +963,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return
     }
 
-    if (event.type === 'turn.ended' && (event as TurnEndedEvent).reason === 'cancelled') {
-      pausedQueueSessions.add(sessionId)
+    if (event.type === 'turn.ended') {
+      const ended = event as TurnEndedEvent
+      lastTurnEndReasons.set(sessionId, ended.reason)
+      if (ended.reason === 'cancelled') pausedQueueSessions.add(sessionId)
     }
 
     // Activity drives sidebar ordering. Keep it live instead of waiting for a

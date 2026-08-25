@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { WebSocket } from 'ws'
 import { InteractionHub } from '../src/main/remote/interaction-hub'
 import { RemoteManager } from '../src/main/remote/remote-manager'
 import type { RemoteState } from '../src/shared/remote-types'
@@ -13,7 +14,13 @@ interface FakeSession {
 }
 
 function fakeHarness() {
-  const session: FakeSession = { id: 's1', onEvent: () => () => undefined }
+  const session: FakeSession = {
+    id: 's1',
+    onEvent: () => () => undefined,
+    isOpen: true,
+    setApprovalHandler: () => undefined,
+    setQuestionHandler: () => undefined,
+  } as FakeSession
   return {
     homeDir: 'C:/fake',
     configPath: 'C:/fake/config.toml',
@@ -177,5 +184,55 @@ describe('RemoteManager', () => {
     expect(after.enabled).toBe(true)
     expect(after.token).not.toBe(before.token)
     expect(after.port).toBe(before.port)
+  })
+
+  it('drops authenticated clients when the pairing token is regenerated', async () => {
+    const { manager } = await makeManager()
+    await manager.init()
+    await manager.setPort(await getAvailablePort())
+    await manager.setEnabled(true)
+    const state = manager.getState()
+
+    const ws = new WebSocket(`ws://127.0.0.1:${state.port}/ws`)
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve())
+      ws.once('error', reject)
+    })
+    ws.send(JSON.stringify({ type: 'auth', token: state.token }))
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('auth timeout')), 2000)
+      ws.once('message', (data) => {
+        clearTimeout(timer)
+        const message = JSON.parse(String(data)) as { type: string }
+        if (message.type === 'auth-ok') resolve()
+        else reject(new Error(`unexpected ${message.type}`))
+      })
+    })
+    expect(manager.getState().clientCount).toBe(1)
+
+    const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+    await manager.regenerateToken()
+    await closed
+    expect(manager.getState().clientCount).toBe(0)
+    expect(ws.readyState).toBe(WebSocket.CLOSED)
+  })
+
+  it('does not report enabled when the listen port is already taken', async () => {
+    const blocker = createServer()
+    const port = await getAvailablePort()
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject)
+      blocker.listen(port, '0.0.0.0', () => resolve())
+    })
+    try {
+      const { manager } = await makeManager()
+      await manager.init()
+      await expect(manager.setPort(port).then(() => manager.setEnabled(true))).rejects.toThrow(
+        /无法启动远程服务/,
+      )
+      expect(manager.getState().enabled).toBe(false)
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()))
+    }
   })
 })

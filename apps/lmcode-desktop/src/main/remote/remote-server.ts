@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import type { Socket } from 'node:net'
 import { WebSocket, WebSocketServer } from 'ws'
@@ -12,6 +13,7 @@ import { RemoteBridge, type RemoteConnection } from './remote-bridge.js'
 import type { InteractionHub } from './interaction-hub.js'
 
 const MAX_CLIENTS = 16
+const MAX_PENDING_AUTH = 8
 const AUTH_TIMEOUT_MS = 10_000
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
@@ -76,7 +78,12 @@ export class RemoteServer {
     })
 
     this.wss.on('connection', (socket: WebSocket) => {
-      if (this.closed || this.sockets.size >= MAX_CLIENTS) {
+      const pendingAuth = this.sockets.size - this.connections.size
+      if (
+        this.closed ||
+        this.connections.size >= MAX_CLIENTS ||
+        pendingAuth >= MAX_PENDING_AUTH
+      ) {
         socket.close(1013, 'server busy')
         return
       }
@@ -163,17 +170,29 @@ export class RemoteServer {
   async close(): Promise<void> {
     this.closed = true
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
-    for (const socket of this.sockets) {
-      socket.close(1001, 'server shutting down')
-    }
-    this.sockets.clear()
-    this.connections.clear()
-    this.authTimers.clear()
+    this.disconnectAll(1001, 'server shutting down')
     await new Promise<void>((resolve) => {
       this.wss.close(() => {
         this.httpServer.close(() => resolve())
       })
     })
+  }
+
+  /** Drop every socket (authenticated or not). Used when rotating the pairing token. */
+  disconnectAll(code: number, reason: string): void {
+    for (const timer of this.authTimers.values()) clearTimeout(timer)
+    this.authTimers.clear()
+    for (const [socket, connection] of this.connections) {
+      this.options.bridge.detachConnection(connection)
+      this.connections.delete(socket)
+    }
+    for (const socket of this.sockets) {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close(code, reason)
+      }
+    }
+    this.sockets.clear()
+    this.connections.clear()
   }
 
   /** Push the current service state to every connected client. */
@@ -272,7 +291,11 @@ export class RemoteServer {
   }
 
   private async authenticate(socket: WebSocket, token: string): Promise<boolean> {
-    if (token.length === 0 || token !== this.options.getToken()) {
+    if (this.isAuthRateLimited()) {
+      socket.close(4008, 'too many attempts')
+      return false
+    }
+    if (token.length === 0 || !tokenMatches(token, this.options.getToken())) {
       this.recordFailedAuth()
       socket.close(4001, 'invalid token')
       return false
@@ -286,12 +309,21 @@ export class RemoteServer {
     return true
   }
 
-  private recordFailedAuth(): void {
-    const now = Date.now()
-    this.failedAuthTimes.push(now)
+  private pruneFailedAuth(now = Date.now()): void {
     this.failedAuthTimes = this.failedAuthTimes.filter(
       (t) => now - t < FAILED_AUTH_WINDOW_MS,
     )
+  }
+
+  private isAuthRateLimited(): boolean {
+    this.pruneFailedAuth()
+    return this.failedAuthTimes.length > FAILED_AUTH_LIMIT
+  }
+
+  private recordFailedAuth(): void {
+    const now = Date.now()
+    this.pruneFailedAuth(now)
+    this.failedAuthTimes.push(now)
     if (this.failedAuthTimes.length > FAILED_AUTH_LIMIT) {
       this.options.logger?.warn('remote auth failures exceed rate limit', {
         count: this.failedAuthTimes.length,
@@ -315,4 +347,11 @@ export class RemoteServer {
       )
     }
   }
+}
+
+function tokenMatches(provided: string, expected: string): boolean {
+  const left = Buffer.from(provided)
+  const right = Buffer.from(expected)
+  if (left.length !== right.length) return false
+  return timingSafeEqual(left, right)
 }

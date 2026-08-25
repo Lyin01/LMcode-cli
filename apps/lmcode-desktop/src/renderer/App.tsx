@@ -195,6 +195,14 @@ export default function App() {
         useSessionStore.getState().hydrateSessionHistory(currentSessionId, mapped)
       } catch (err) {
         console.error('Failed to load session history:', err)
+        const message = err instanceof Error ? err.message : String(err)
+        useSessionStore.getState().addMessageToSession(currentSessionId, {
+          id: `msg_history_err_${Date.now()}`,
+          role: 'system',
+          variant: 'error',
+          content: `无法加载会话历史：${message}`,
+          timestamp: Date.now(),
+        })
       }
     })()
     return () => {

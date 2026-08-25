@@ -143,6 +143,9 @@ export function SlashCommandsDialog({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (filtered.length === 0) return
+      const fromComposer =
+        e.target instanceof Element && e.target.closest('[data-lm-composer="true"]') !== null
+      if (!fromComposer && e.key !== 'Escape') return
       switch (e.key) {
         case 'ArrowDown':
         case 'Tab':

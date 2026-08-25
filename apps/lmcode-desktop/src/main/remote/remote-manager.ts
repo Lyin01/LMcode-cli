@@ -51,6 +51,7 @@ export class RemoteManager {
   private readonly configPath: string
   private bridge: RemoteBridge | undefined
   private server: RemoteServer | undefined
+  private hostReleaseSession: ((sessionId: string) => Promise<void>) | undefined
 
   constructor(private readonly options: RemoteManagerOptions) {
     this.configPath = join(options.configDir, CONFIG_FILENAME)
@@ -110,10 +111,17 @@ export class RemoteManager {
   }
 
   async setEnabled(enabled: boolean): Promise<RemoteState> {
-    this.config = { ...this.config, enabled }
     if (enabled) {
-      await this.startServer()
+      try {
+        await this.startServer()
+      } catch (error) {
+        this.config = { ...this.config, enabled: false }
+        this.emitStateChange()
+        throw error
+      }
+      this.config = { ...this.config, enabled: true }
     } else {
+      this.config = { ...this.config, enabled: false }
       await this.stopServer()
     }
     await this.persist()
@@ -149,8 +157,17 @@ export class RemoteManager {
   async regenerateToken(): Promise<RemoteState> {
     this.config = { ...this.config, token: defaultToken() }
     await this.persist()
+    this.server?.disconnectAll(4003, 'token rotated')
     this.emitStateChange()
     return this.getState()
+  }
+
+  dropSession(sessionId: string): void {
+    this.bridge?.dropSession(sessionId)
+  }
+
+  setHostReleaseSession(handler: (sessionId: string) => Promise<void>): void {
+    this.hostReleaseSession = handler
   }
 
   async close(): Promise<void> {
@@ -167,6 +184,7 @@ export class RemoteManager {
       this.options.noProjectWorkDir,
       this.options.memoryStore,
       this.options.onConfigChanged,
+      (sessionId) => this.hostReleaseSession?.(sessionId) ?? Promise.resolve(),
     )
     const server = new RemoteServer({
       bridge,

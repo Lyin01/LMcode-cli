@@ -5,6 +5,9 @@
  * 文件型相对路径。Windows 下也识别 Git Bash/MSYS 输出的 /c/Users/...。
  */
 
+import { isSafeExternalHttpsUrl } from '../../shared/security'
+import { isUnsafeRemoteOrUncPath } from '../../shared/open-path-guard'
+
 export function isWindowsPath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(value)
 }
@@ -120,27 +123,27 @@ export function resolveHrefOpenTarget(href: string, baseDir?: string): string | 
   return resolveOpenTarget(trimmed, baseDir)
 }
 
-/** http(s) only — javascript:/data:/file: never go through openExternal. */
+/** HTTPS only — javascript:/data:/file:/http: never go through openExternal. */
 export function isSafeExternalHref(href: string): boolean {
-  try {
-    const parsed = new URL(href)
-    return (
-      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
-      parsed.hostname.length > 0
-    )
-  } catch {
-    return false
-  }
+  return isSafeExternalHttpsUrl(href)
 }
 
 /** 命中则返回可交给 Electron 打开的绝对本地路径，否则 null。 */
 export function resolveOpenTarget(raw: string, baseDir?: string): string | null {
   const trimmed = raw.trim()
   if (trimmed.length === 0 || trimmed.includes('\0')) return null
-  if (trimmed.startsWith('file://')) return fileUrlToLocalPath(trimmed)
+  if (trimmed.startsWith('file://')) {
+    const local = fileUrlToLocalPath(trimmed)
+    if (local === null || isUnsafeRemoteOrUncPath(local)) return null
+    return local
+  }
   const windowsShellPath = msysPathToWindowsPath(trimmed, baseDir)
-  if (windowsShellPath !== null) return windowsShellPath
-  if (isAbsoluteLocalPath(trimmed)) return trimmed
+  if (windowsShellPath !== null) {
+    return isUnsafeRemoteOrUncPath(windowsShellPath) ? null : windowsShellPath
+  }
+  if (isAbsoluteLocalPath(trimmed)) {
+    return isUnsafeRemoteOrUncPath(trimmed) ? null : trimmed
+  }
   if (baseDir === undefined || !looksLikeRelativeFilePath(trimmed)) return null
   return resolveRelativePath(baseDir.trim(), trimmed)
 }

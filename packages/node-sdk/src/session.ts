@@ -69,6 +69,10 @@ export class Session {
     };
   }
 
+  get isOpen(): boolean {
+    return !this.closed && this.closing === undefined;
+  }
+
   getResumeState(): ResumedSessionState | undefined {
     this.ensureOpen();
     return this.resumeState;

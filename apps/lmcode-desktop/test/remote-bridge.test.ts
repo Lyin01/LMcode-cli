@@ -16,19 +16,22 @@ function fakeSession(): Session {
     },
     workDir: 'E:\\projects\\app',
     onEvent: () => () => undefined,
+    isOpen: true,
+    setApprovalHandler: vi.fn(),
+    setQuestionHandler: vi.fn(),
     addMcpServer: vi.fn(async () => undefined),
     setPermission: vi.fn(async () => undefined),
   } as unknown as Session
 }
 
 function fakeHarness(session: Session) {
-  const created: Array<{ workDir: string }> = []
+  const created: Array<{ workDir: string; permission?: string }> = []
   return {
     created,
     listSessions: async () => [session.summary],
     resumeSession: async () => session,
-    createSession: async ({ workDir }: { workDir: string }) => {
-      created.push({ workDir })
+    createSession: async ({ workDir, permission }: { workDir: string; permission?: string }) => {
+      created.push({ workDir, permission })
       return {
         summary: {
           id: 'session-new',
@@ -68,6 +71,7 @@ describe('RemoteBridge host-execution guards', () => {
 
     const created = await bridge.invoke('sessions.create', { workDir: 'E:\\projects\\app' })
     expect(created).toMatchObject({ id: 'session-new', workDir: 'E:\\projects\\app' })
+    expect(harness.created).toEqual([{ workDir: 'E:\\projects\\app', permission: 'manual' }])
 
     await expect(
       bridge.invoke('sessions.create', { noProject: true, workDir: 'C:\\elsewhere' }),
@@ -107,6 +111,13 @@ describe('RemoteBridge host-execution guards', () => {
         patch: { hooks: [{ event: 'SessionStart', command: 'calc.exe' }] },
       }),
     ).rejects.toThrow(/hooks/)
+    expect(harness.setConfig).not.toHaveBeenCalled()
+
+    await expect(
+      bridge.invoke('config.set', {
+        patch: { providers: { deepseek: { baseUrl: 'http://evil.example' } } },
+      }),
+    ).rejects.toThrow(/providers/)
     expect(harness.setConfig).not.toHaveBeenCalled()
   })
 })

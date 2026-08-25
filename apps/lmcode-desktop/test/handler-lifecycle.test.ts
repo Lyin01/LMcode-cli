@@ -499,8 +499,17 @@ describe('desktop handler lifecycle', () => {
       settled = true
     })
     const navigation = mainWindow.listeners.webContents.get('did-start-navigation')
+    const finishedLoad = mainWindow.listeners.webContents.get('did-finish-load')
     expect(navigation).toBeDefined()
+    expect(finishedLoad).toBeDefined()
     const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+    // The first document load must not cancel approvals that started during
+    // handler attach (scheduled sessions, etc.).
+    navigation?.({}, 'file:///renderer/index.html', false, true)
+    finishedLoad?.()
+    await flush()
+    expect(settled).toBe(false)
 
     // In-page navigations (pushState/hash) keep the UI and its dialogs alive.
     navigation?.({}, 'file:///renderer/index.html#section', true, true)
@@ -512,7 +521,7 @@ describe('desktop handler lifecycle', () => {
     await flush()
     expect(settled).toBe(false)
 
-    // A cross-document main-frame navigation destroys the UI: settle now.
+    // A later cross-document main-frame navigation destroys the UI: settle now.
     navigation?.({}, 'file:///renderer/index.html', false, true)
     await expect(approvalPromise).resolves.toEqual({ decision: 'cancelled' })
 

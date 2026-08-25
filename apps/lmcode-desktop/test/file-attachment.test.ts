@@ -74,6 +74,8 @@ describe('desktop text attachments', () => {
     const pemPath = await temporaryFile('server.pem', '-----BEGIN-----')
     const cookiesPath = await temporaryFile('site_cookies.json', '{}')
     const browserCookiesPath = await temporaryFile('Cookies', '{}')
+    const npmrcPath = await temporaryFile('.npmrc', '//registry.npmjs.org/:_authToken=secret')
+    const netrcPath = await temporaryFile('.netrc', 'machine example.com password secret')
 
     await expect(readTextAttachment(envPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(envLocalPath)).rejects.toThrow('安全考虑')
@@ -81,6 +83,8 @@ describe('desktop text attachments', () => {
     await expect(readTextAttachment(pemPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(cookiesPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(browserCookiesPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(npmrcPath)).rejects.toThrow('安全考虑')
+    await expect(readTextAttachment(netrcPath)).rejects.toThrow('安全考虑')
   })
 
   it('rejects a symlink that points at a sensitive file', async () => {

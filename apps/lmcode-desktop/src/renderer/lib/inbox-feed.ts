@@ -1,6 +1,6 @@
 import type { Event, GoalUpdatedEvent } from '@lmcode-cli/lmcode-sdk'
 import type { StoreApi, UseBoundStore } from 'zustand'
-import type { SessionStore } from '@/stores/session-store'
+import { lastTurnEndReason, type SessionStore } from '@/stores/session-store'
 import type { SubagentStore } from '@/stores/subagent-store'
 import type { TaskStore } from '@/stores/task-store'
 import type { InboxStore } from '@/stores/inbox-store'
@@ -105,30 +105,33 @@ export function startInboxFeed(deps: InboxFeedDeps): () => void {
       typeof document !== 'undefined' && document.visibilityState === 'hidden'
     for (const [sessionId, isStreaming] of nextStreaming) {
       if (streaming.get(sessionId) !== true || isStreaming) continue
+      const reason = lastTurnEndReason(sessionId) ?? 'completed'
+      if (reason === 'cancelled') continue
       const isBackground = sessionId !== state.currentSessionId
       if (!isBackground && !pageHidden) continue
+      const failed = reason === 'failed'
       const title = sessionTitle(state, sessionId)
       if (isBackground) {
         inboxStore.getState().add({
           type: 'turn-completed',
           sessionId,
           projectDir: sessionWorkDir(state, sessionId),
-          title: `回合已完成：${title}`,
-          outcome: 'success',
+          title: failed ? `回合失败：${title}` : `回合已完成：${title}`,
+          outcome: failed ? 'failure' : 'success',
           mergeKey: `turn-completed:${sessionId}`,
         })
         deps.notifyTurnCompleted?.({
           kind: 'turn-completed',
           sessionId,
           title,
-          body: '后台任务的回合已完成',
+          body: failed ? '后台任务的回合失败' : '后台任务的回合已完成',
         })
       } else {
         deps.notifyTurnCompleted?.({
           kind: 'turn-completed',
           sessionId,
           title,
-          body: '当前任务已完成',
+          body: failed ? '当前任务失败' : '当前任务已完成',
         })
       }
     }

@@ -23,7 +23,7 @@ import { defaultPastedImageName } from '@/lib/pasted-image-name'
 import { fileToDataUrl } from '@/lib/file-to-data-url'
 import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
 import type { UserAttachment } from '@/types'
-import { isImeConfirmKey } from '@/lib/ime'
+import { isImeConfirmKey, noteCompositionEnd } from '@/lib/ime'
 import { filesFromClipboardData, shouldCaptureClipboardFiles } from '@/lib/clipboard-files'
 
 const NO_PROJECT_LABEL = '不关联项目'
@@ -69,8 +69,12 @@ export function WelcomeScreen() {
   }
 
   const handlePickFolder = async (): Promise<void> => {
-    const workDir = await window.lmcodeAPI.selectWorkDirectory()
-    if (workDir) setChosenTarget({ kind: 'project', workDir })
+    try {
+      const workDir = await window.lmcodeAPI.selectWorkDirectory()
+      if (workDir) setChosenTarget({ kind: 'project', workDir })
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : '无法选择文件夹')
+    }
   }
 
   const attachPastedFile = async (file: File): Promise<void> => {
@@ -144,7 +148,13 @@ export function WelcomeScreen() {
     attachmentsRef.current = []
     setAttachments([])
     setAttachmentError(null)
-    void startSessionWithMessage(target, text, pendingAttachments).finally(() => setStarting(false))
+    void startSessionWithMessage(target, text, pendingAttachments)
+      .catch((error: unknown) => {
+        attachmentsRef.current = pendingAttachments
+        setAttachments(pendingAttachments)
+        setAttachmentError(error instanceof Error ? error.message : '无法创建会话')
+      })
+      .finally(() => setStarting(false))
   }
 
   return (
@@ -161,6 +171,7 @@ export function WelcomeScreen() {
               setDraft(event.target.value)
               autoGrow()
             }}
+            onCompositionEnd={noteCompositionEnd}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 if (isImeConfirmKey(event)) return

@@ -30,6 +30,9 @@ function fakeHarness() {
         summary,
         workDir: 'C:/work',
         onEvent: () => () => undefined,
+        isOpen: true,
+        setApprovalHandler: () => undefined,
+        setQuestionHandler: () => undefined,
         getContext: async () => ({ history: [{ role: 'user', content: 'hi' }] }),
         getStatus: async () => ({
           thinkingLevel: 'medium',

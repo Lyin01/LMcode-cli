@@ -1,3 +1,5 @@
+import { isSafeExternalHttpsUrl } from '../shared/security.js'
+
 export type NavigationAction = 'allow-local' | 'open-external' | 'deny'
 
 const PRODUCTION_CONNECT_SOURCE = "'none'"
@@ -22,18 +24,7 @@ interface TrustedWebContentsLike {
 
 export function classifyNavigation(targetUrl: string, rendererUrl: string): NavigationAction {
   if (isTrustedRendererUrl(targetUrl, rendererUrl)) return 'allow-local'
-
-  const target = parseUrl(targetUrl)
-  if (
-    target !== null &&
-    target.protocol === 'https:' &&
-    target.hostname.length > 0 &&
-    target.username.length === 0 &&
-    target.password.length === 0
-  ) {
-    return 'open-external'
-  }
-
+  if (isSafeExternalHttpsUrl(targetUrl)) return 'open-external'
   return 'deny'
 }
 

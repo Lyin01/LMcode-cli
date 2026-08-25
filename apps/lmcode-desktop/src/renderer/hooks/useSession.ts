@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import {
   endSessionSend,
+  isQueueDrainPaused,
   pauseQueuedDrain,
   resumeQueuedDrain,
   toDisplayAttachment,
@@ -27,6 +28,11 @@ export function useSession() {
     async (text: string, attachments: readonly UserAttachment[] = EMPTY_ATTACHMENTS) => {
       const normalized = text.trim()
       if (!currentSessionId || (!normalized && attachments.length === 0) || isStreaming) return
+      const queued = useSessionStore.getState().messageQueue[currentSessionId]?.length ?? 0
+      if (isQueueDrainPaused(currentSessionId) || queued > 0) {
+        enqueueMessage(currentSessionId, normalized, attachments)
+        return
+      }
       if (!tryBeginSessionSend(currentSessionId)) {
         enqueueMessage(currentSessionId, normalized, attachments)
         return

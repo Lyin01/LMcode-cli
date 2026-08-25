@@ -8,6 +8,10 @@ import {
 } from '../src/renderer/lib/open-target'
 
 describe('output file open targets', () => {
+  it('does not treat UNC shares as openable local files', () => {
+    expect(resolveOpenTarget('\\\\evil\\share\\notes.txt')).toBeNull()
+  })
+
   it('keeps absolute paths and decodes file URLs', () => {
     expect(resolveOpenTarget('E:/repo/output.html')).toBe('E:/repo/output.html')
     expect(fileUrlToLocalPath('file:///C:/Users/me/output.html')).toBe('C:/Users/me/output.html')
@@ -53,7 +57,8 @@ describe('output file open targets', () => {
 
   it('only treats http(s) URLs as external browser targets', () => {
     expect(isSafeExternalHref('https://example.com/a')).toBe(true)
-    expect(isSafeExternalHref('http://192.168.1.8:37991')).toBe(true)
+    expect(isSafeExternalHref('http://192.168.1.8:37991')).toBe(false)
+    expect(isSafeExternalHref('https://user:secret@example.com/a')).toBe(false)
     expect(isSafeExternalHref('javascript:alert(1)')).toBe(false)
     expect(isSafeExternalHref('file:///C:/secret.txt')).toBe(false)
     expect(isSafeExternalHref('data:text/html,hi')).toBe(false)

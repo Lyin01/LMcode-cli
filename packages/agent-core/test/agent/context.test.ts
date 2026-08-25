@@ -505,6 +505,68 @@ describe('Agent context', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('does not fail the turn when content.part arrives without a live step.begin', () => {
+    const ctx = testAgent();
+    ctx.configure();
+
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'content.part',
+        uuid: 'part-1',
+        turnId: '0',
+        step: 1,
+        stepUuid: 'orphaned-step',
+        part: { type: 'text', text: 'streamed after the step envelope was lost' },
+      },
+    });
+
+    expect(ctx.agent.context.history).toMatchObject([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'streamed after the step envelope was lost' }],
+      },
+    ]);
+  });
+
+  it('keeps an in-flight step writable after compaction of older history', () => {
+    const ctx = testAgent();
+    ctx.configure();
+    const stepUuid = 'live-step-during-compaction';
+
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'old prompt' }]);
+    ctx.agent.context.appendUserMessage([{ type: 'text', text: 'new prompt' }]);
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: { type: 'step.begin', uuid: stepUuid, turnId: '0', step: 1 },
+    });
+
+    ctx.agent.context.applyCompaction({
+      summary: 'summary of old prompt',
+      compactedCount: 1,
+      tokensBefore: 100,
+      tokensAfter: 40,
+    });
+
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'content.part',
+        uuid: 'part-live',
+        turnId: '0',
+        step: 1,
+        stepUuid,
+        part: { type: 'text', text: 'still streaming' },
+      },
+    });
+
+    const assistants = ctx.agent.context.history.filter((message) => message.role === 'assistant');
+    expect(assistants.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'still streaming' }],
+    });
+  });
+
   it('includes new user messages as pending until the next usage update', () => {
     const ctx = testAgent();
     ctx.configure();
