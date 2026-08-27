@@ -59,7 +59,7 @@ export const ModelAliasSchema = z.object({
   reasoningKey: z.string().optional(),
   // Optional pricing (USD per 1M tokens) used to estimate session cost.
   pricing: ModelPricingSchema.optional(),
-  // Explicitly declare adaptive-thinking support, overriding the ltod
+  // Explicitly declare adaptive-thinking support, overriding the liumir
   // model-name version inference. Needed for custom-named Anthropic endpoints
   // whose model name does not encode a parseable Claude version.
   adaptiveThinking: z.boolean().optional(),

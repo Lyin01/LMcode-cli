@@ -7,7 +7,7 @@
  * the LLM call, during tool execution, between steps, and during a hook.
  */
 
-import { inputTotal } from '@lmcode-cli/ltod';
+import { inputTotal } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import type { LLMChatResponse, LoopHooks } from '../../src/loop/index';

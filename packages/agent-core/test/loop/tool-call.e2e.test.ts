@@ -8,7 +8,7 @@
  * while dispatching terminal events in provider order.
  */
 
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import { ToolAccesses } from '../../src/loop';

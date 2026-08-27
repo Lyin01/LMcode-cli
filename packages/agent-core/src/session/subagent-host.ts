@@ -1,4 +1,4 @@
-import type { TokenUsage } from '@lmcode-cli/ltod';
+import type { TokenUsage } from '@lmcode-cli/liumir';
 
 import type { Agent } from '../agent';
 import type { ContextMessage, PromptOrigin } from '../agent/context';

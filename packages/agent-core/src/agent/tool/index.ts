@@ -1,5 +1,5 @@
 import { uniq } from '@antfu/utils';
-import type { ChatProvider, Tool } from '@lmcode-cli/ltod';
+import type { ChatProvider, Tool } from '@lmcode-cli/liumir';
 import picomatch from 'picomatch';
 
 import type { Agent } from '..';

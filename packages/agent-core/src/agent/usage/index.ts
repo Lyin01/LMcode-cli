@@ -7,7 +7,7 @@ import {
   usageCost,
   type ModelPricing,
   type TokenUsage,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import type { Agent } from '..';
 import { normalizeTokenUsage } from './normalize';

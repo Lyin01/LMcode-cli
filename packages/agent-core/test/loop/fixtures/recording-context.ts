@@ -1,4 +1,4 @@
-import type { Message } from '@lmcode-cli/ltod';
+import type { Message } from '@lmcode-cli/liumir';
 
 import type {
   LoopContentPartEvent,

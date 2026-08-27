@@ -25,7 +25,7 @@ export interface OpenAIContentPart {
 }
 
 /**
- * Convert a ltod `ContentPart` to OpenAI-compatible content part.
+ * Convert a liumir `ContentPart` to OpenAI-compatible content part.
  * Returns `null` for think parts (handled separately as reasoning_content).
  */
 export function convertContentPart(part: ContentPart): OpenAIContentPart | null {
@@ -73,7 +73,7 @@ export interface OpenAIToolParam {
 }
 
 /**
- * Convert a ltod `Tool` to OpenAI tool format.
+ * Convert a liumir `Tool` to OpenAI tool format.
  */
 export function toolToOpenAI(tool: Tool): OpenAIToolParam {
   return {
@@ -103,7 +103,7 @@ function classifyBaseApiError(message: string): ChatProviderError {
 }
 
 /**
- * Convert an OpenAI SDK error (or raw Error) to a ltod `ChatProviderError`.
+ * Convert an OpenAI SDK error (or raw Error) to a liumir `ChatProviderError`.
  */
 export function convertOpenAIError(error: unknown): ChatProviderError {
   if (error instanceof ChatProviderError) {
@@ -163,7 +163,7 @@ export function isFunctionToolCall<T extends { type: string }>(
   return tc.type === 'function';
 }
 /**
- * Map ltod `ThinkingEffort` to OpenAI `reasoning_effort` string.
+ * Map liumir `ThinkingEffort` to OpenAI `reasoning_effort` string.
  */
 export function thinkingEffortToReasoningEffort(effort: ThinkingEffort): string | undefined {
   switch (effort) {
@@ -184,7 +184,7 @@ export function thinkingEffortToReasoningEffort(effort: ThinkingEffort): string 
 }
 
 /**
- * Map ltod `ThinkingEffort` to an OpenAI-compatible `reasoning_effort` string,
+ * Map liumir `ThinkingEffort` to an OpenAI-compatible `reasoning_effort` string,
  * adjusted for the gateway serving `model` at `baseUrl`.
  *
  * - GLM models served via OpenAI-compatible gateways (e.g. opencode-go) only
@@ -223,7 +223,7 @@ export function gatewayAwareReasoningEffort(
 }
 
 /**
- * Map OpenAI `reasoning_effort` string back to ltod `ThinkingEffort`.
+ * Map OpenAI `reasoning_effort` string back to liumir `ThinkingEffort`.
  */
 export function reasoningEffortToThinkingEffort(
   reasoning: string | undefined,

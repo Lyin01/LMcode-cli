@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import { testJian } from '../fixtures/test-jian';
-import type { ProviderConfig } from '@lmcode-cli/ltod';
+import type { ProviderConfig } from '@lmcode-cli/liumir';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ProviderManager } from '../../src/session/provider-manager';

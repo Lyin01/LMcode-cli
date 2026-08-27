@@ -1,4 +1,4 @@
-import type { ContentPart, Message, Tool } from '@lmcode-cli/ltod';
+import type { ContentPart, Message, Tool } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import {

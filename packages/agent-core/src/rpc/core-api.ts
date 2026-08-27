@@ -9,7 +9,7 @@ import type { ExperimentalFlagMap } from '#/flags';
 import type { ResumeSessionResult } from '#/rpc/resumed';
 import type { SessionMeta } from '#/session';
 import type { BackgroundTaskInfo } from '#/tools/builtin';
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 import type { PluginInfo, PluginSummary, ReloadSummary } from '#/plugin';
 import type { SessionStats, UsageStatus } from './events';

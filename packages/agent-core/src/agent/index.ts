@@ -19,7 +19,7 @@ import {
   type GenerateResult,
   type Message,
   type Tool,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import type { EnabledPluginSessionStart } from '#/plugin';
 
@@ -67,9 +67,9 @@ import { ToolManager } from './tool/index';
 import { TurnFlow } from './turn';
 import {
   GENERATE_REQUEST_LOG_CONTEXT,
-  LtodLLM,
+  LiumirLLM,
   type GenerateOptionsWithRequestLog,
-} from './turn/ltod-llm';
+} from './turn/liumir-llm';
 import { UsageRecorder, normalizeTokenUsage } from './usage';
 import { resolveCompletionBudget } from '../utils/completion-budget';
 import type { Jian } from '@lmcode-cli/jian';
@@ -307,14 +307,14 @@ export class Agent {
     };
   }
 
-  get llm(): LtodLLM {
+  get llm(): LiumirLLM {
     const model = this.config.model;
     const provider = this.config.provider.withThinking(this.config.thinkingLevel);
     const loopControl = this.lmcodeConfig?.loopControl;
     const completionBudgetConfig = resolveCompletionBudget({
       reservedContextSize: loopControl?.reservedContextSize,
     });
-    return new LtodLLM({
+    return new LiumirLLM({
       provider,
       modelName: model,
       systemPrompt: this.config.systemPrompt,

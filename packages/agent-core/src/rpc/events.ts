@@ -1,4 +1,4 @@
-import type { FinishReason, TokenUsage } from '@lmcode-cli/ltod';
+import type { FinishReason, TokenUsage } from '@lmcode-cli/liumir';
 
 import type { PromptOrigin } from '../agent/context';
 import type { GoalChange, GoalSnapshot } from '../agent/goal';

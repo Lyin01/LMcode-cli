@@ -1,4 +1,4 @@
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 import type { Agent } from '../..';
 import {

@@ -3,7 +3,7 @@
  *
  * Owns the full path from "MCP protocol content blocks" to "what the agent
  * loop feeds back to the model":
- *  1. Convert each {@link MCPContentBlock} to a ltod `ContentPart`
+ *  1. Convert each {@link MCPContentBlock} to a liumir `ContentPart`
  *     (dropping unsupported shapes).
  *  2. Wrap media-only outputs in `<mcp_tool_result name="…">` tags so the
  *     model can attribute binary output when several tools return media.
@@ -19,14 +19,14 @@
  * helpers stay private so callers cannot bypass the limits.
  */
 
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 import type { MCPContentBlock, MCPToolResult } from './types';
 
 // MCP servers can produce arbitrarily large outputs; cap what we feed back to
 // the model so a single chatty server does not blow up the context window. The
 // notice text is fed to the model verbatim so it can react (e.g. paginate),
-// which is why the limits live in the agent layer rather than in ltod.
+// which is why the limits live in the agent layer rather than in liumir.
 export const MCP_MAX_OUTPUT_CHARS = 100_000;
 const MCP_OUTPUT_TRUNCATED_TEXT = `\n\n[Output truncated: exceeded ${String(
   MCP_MAX_OUTPUT_CHARS,
@@ -46,7 +46,7 @@ function binaryPartTooLargeNotice(kind: 'image' | 'audio' | 'video', urlLength: 
 }
 
 /**
- * Convert a single MCP content block into a ltod {@link ContentPart}.
+ * Convert a single MCP content block into a liumir {@link ContentPart}.
  *
  * Returns `null` for block types that cannot be represented (e.g. unknown
  * resource shapes) so the caller can drop them.

@@ -37,7 +37,7 @@
     "node_modules",
     "dist",
     "coverage",
-    "packages/ltod/test/type-safety-negative.ts",
+    "packages/liumir/test/type-safety-negative.ts",
     "**/*.disabled/**",
     "**/*.disabled"
   ]

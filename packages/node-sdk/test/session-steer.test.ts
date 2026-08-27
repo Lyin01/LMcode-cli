@@ -1,4 +1,4 @@
-import type * as LtodModule from '@lmcode-cli/ltod';
+import type * as LiumirModule from '@lmcode-cli/liumir';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LmcodeError } from '#/index';
@@ -10,8 +10,8 @@ const fakeProviderState = vi.hoisted(() => ({
   responseText: 'steer response',
 }));
 
-vi.mock('@lmcode-cli/ltod', async (importOriginal) => {
-  const actual = await importOriginal<typeof LtodModule>();
+vi.mock('@lmcode-cli/liumir', async (importOriginal) => {
+  const actual = await importOriginal<typeof LiumirModule>();
   return {
     ...actual,
     createProvider: () => ({

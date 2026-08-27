@@ -4,7 +4,7 @@ import {
   type FinishReason,
   type Message,
   type StreamedMessagePart,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import type { AgentOptions } from '../../../src/agent';
 import { estimateTokensForMessages } from '../../../src/utils/tokens';

@@ -1,4 +1,4 @@
-import type { ToolCall } from '@lmcode-cli/ltod';
+import type { ToolCall } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import type { PermissionPolicyContext } from '../../../src/agent/permission';

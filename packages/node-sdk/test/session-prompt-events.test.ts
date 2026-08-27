@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { LMCODE_PLATFORM } from '@lmcode-cli/config';
-import type * as LtodModule from '@lmcode-cli/ltod';
+import type * as LiumirModule from '@lmcode-cli/liumir';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Event } from '#/index';
@@ -21,8 +21,8 @@ const fakeProviderState = vi.hoisted(() => ({
   responseText: 'hello from fake provider',
 }));
 
-vi.mock('@lmcode-cli/ltod', async (importOriginal) => {
-  const actual = await importOriginal<typeof LtodModule>();
+vi.mock('@lmcode-cli/liumir', async (importOriginal) => {
+  const actual = await importOriginal<typeof LiumirModule>();
   return {
     ...actual,
     createProvider: (config: unknown) => {

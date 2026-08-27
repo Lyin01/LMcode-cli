@@ -43,7 +43,7 @@
     "@lmcode-cli/agent-core": "workspace:^",
     "@lmcode-cli/config": "workspace:^",
     "@lmcode-cli/jian": "workspace:^",
-    "@lmcode-cli/ltod": "workspace:^",
+    "@lmcode-cli/liumir": "workspace:^",
     "@types/yazl": "^2.4.6"
   },
   "optionalDependencies": {

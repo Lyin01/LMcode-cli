@@ -14,7 +14,7 @@
     "paths": {
       "@lmcode-cli/agent-core": [".tmp-api-extractor/dts/agent-core/src/index.d.ts"],
       "@lmcode-cli/jian": [".tmp-api-extractor/dts/jian/src/index.d.ts"],
-      "@lmcode-cli/ltod": [".tmp-api-extractor/dts/ltod/src/index.d.ts"],
+      "@lmcode-cli/liumir": [".tmp-api-extractor/dts/liumir/src/index.d.ts"],
       "@lmcode-cli/config": [".tmp-api-extractor/dts/config/src/index.d.ts"]
     }
   },

@@ -3,10 +3,10 @@
  *
  * Kept out of the broader `test/agent/harness/agent.ts` because cron unit
  * tests only need two Agent surfaces (turn.hasActiveTurn, turn.steer) and
- * inflating them through `testAgent()` would drag ltod / records / context
+ * inflating them through `testAgent()` would drag liumir / records / context
  * into every unit-level assertion.
  */
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 import type { Agent } from '../../../../src/agent';
 import type { PromptOrigin } from '../../../../src/agent/context/types';

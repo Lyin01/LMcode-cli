@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ActivateSkillPayload } from '#/rpc';
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 import type { Agent } from '..';
 import { ErrorCodes, LmcodeError } from '#/errors';

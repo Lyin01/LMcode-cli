@@ -1,10 +1,10 @@
 import {
   APIContextOverflowError,
-  grandTotal as ltodGrandTotal,
+  grandTotal as liumirGrandTotal,
   type ContentPart,
   type Message,
   type TokenUsage,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -788,7 +788,7 @@ export class TurnFlow {
     if (usage === null) return;
     this.agent.usage.record(model, usage, scope);
     if (goalId !== undefined) {
-      await this.agent.goal.recordTokenUsageForGoal(goalId, ltodGrandTotal(usage));
+      await this.agent.goal.recordTokenUsageForGoal(goalId, liumirGrandTotal(usage));
     }
   }
 
@@ -962,7 +962,7 @@ export class TurnFlow {
               if (stepGoalId === undefined) return;
               const goal = await this.agent.goal.recordTokenUsageForGoal(
                 stepGoalId,
-                ltodGrandTotal(usage),
+                liumirGrandTotal(usage),
               );
               if (goal !== null && isGoalResourceBudgetReached(goal)) {
                 inTurnBudgetGoalId = goal.goalId;

@@ -8,7 +8,7 @@
  * referenced.
  */
 
-import { inputTotal } from '@lmcode-cli/ltod';
+import { inputTotal } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import { ErrorCodes, LmcodeError } from '../../src/errors';

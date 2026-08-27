@@ -6,7 +6,7 @@
  * and final `TurnResult` mapping. One-step execution lives in `turn-step.ts`.
  */
 
-import { addUsage, emptyUsage, type TokenUsage } from '@lmcode-cli/ltod';
+import { addUsage, emptyUsage, type TokenUsage } from '@lmcode-cli/liumir';
 
 import type { Logger } from '#/logging/types';
 

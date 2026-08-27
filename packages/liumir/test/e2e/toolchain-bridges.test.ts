@@ -76,7 +76,7 @@ async function runTwoStepLoop(toolset: SimpleToolset, provider: ChatProvider) {
   return { first, second, toolResults, history };
 }
 
-describe('e2e: ltod toolchain bridges', () => {
+describe('e2e: liumir toolchain bridges', () => {
   it('typed-tool -> SimpleToolset -> step dispatches nested Zod args and completes the loop', async () => {
     const addressTool = createTypedTool({
       name: 'route_address',

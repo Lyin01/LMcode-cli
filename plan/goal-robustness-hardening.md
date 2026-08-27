@@ -24,7 +24,7 @@
 
 | # | 位置 | 类别 | 状态 |
 |---|------|------|------|
-| 0 | 首轮吞错扫描基线 | 审计 | ✅ 已审：`ltod/generate.ts` cancelStream 的空 catch、`loop/tool-scheduler.ts` 的 `void result.catch()`、`rpc`/`session-store`/`mcp/oauth` 的 `.close()/.rm().catch()` **均为有意 best-effort，非 bug**。防御纪律良好 |
+| 0 | 首轮吞错扫描基线 | 审计 | ✅ 已审：`liumir/generate.ts` cancelStream 的空 catch、`loop/tool-scheduler.ts` 的 `void result.catch()`、`rpc`/`session-store`/`mcp/oauth` 的 `.close()/.rm().catch()` **均为有意 best-effort，非 bug**。防御纪律良好 |
 | 1 | 悬空 promise | 悬空 promise | ✅ **结构性杜绝**：实测 `oxlint --type-aware` 默认启用 `no-floating-promises`（探针文件被拦），且全仓 lint 常绿（CI+pre-commit）→ 悬空 promise 不可能存在 |
 | 2 | 资源泄漏：`open()` 句柄 / 定时器 / 监听器 | 资源泄漏 | ✅ 已审，无泄漏。所有 `open()/openSync()` 均 try/finally close（含 blobref/persistence/clock/oauth-store，clock 的 finally 在 catch 早返前执行）；cron scheduler `setInterval` 有 `clearInterval` on stop + `unref()`；TUI 定时器为私有字段随组件生命周期清理 |
 | 3 | 空 `catch {}` 逐个判定：hooks/engine、hooks/runner、self-healing、rpc/core-impl、logging/sinks | 吞错 | ✅ 全判完，**均有意、正确**：hooks/engine 吞可选观察者回调异常、hooks/runner 杀已死进程、self-healing 错误清理时关浏览器、rpc 主错误已记录后的最终 flush、sinks 连 stderr 写失败都吞（否则死循环）。**无吞错 bug** |

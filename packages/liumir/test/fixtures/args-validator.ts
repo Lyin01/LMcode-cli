@@ -1,10 +1,10 @@
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv';
 
 /**
- * Test-only schema validator. Ltod's e2e tests need a way to validate tool
- * arguments inside the SimpleToolset fixture, but ltod itself no longer
+ * Test-only schema validator. Liumir's e2e tests need a way to validate tool
+ * arguments inside the SimpleToolset fixture, but liumir itself no longer
  * ships a runtime validator (the real one moved to agent-core). Fixtures
- * stick with draft-07 since ltod's own test schemas don't exercise newer
+ * stick with draft-07 since liumir's own test schemas don't exercise newer
  * dialects.
  */
 

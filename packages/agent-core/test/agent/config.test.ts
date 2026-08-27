@@ -1,4 +1,4 @@
-import type { ModelCapability, ProviderConfig, ToolCall } from '@lmcode-cli/ltod';
+import type { ModelCapability, ProviderConfig, ToolCall } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import type { ResolvedAgentProfile } from '../../src/profile';

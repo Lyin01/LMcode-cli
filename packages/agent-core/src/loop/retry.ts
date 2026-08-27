@@ -1,6 +1,6 @@
 import { sleep } from '@antfu/utils';
 import * as retry from 'retry';
-import { APIContextOverflowError, APIStatusError, isProviderRateLimitError } from '@lmcode-cli/ltod';
+import { APIContextOverflowError, APIStatusError, isProviderRateLimitError } from '@lmcode-cli/liumir';
 
 import type { Logger } from '#/logging/types';
 

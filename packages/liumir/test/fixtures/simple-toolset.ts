@@ -9,9 +9,9 @@ import {
 
 /**
  * Test-only fixtures that emulate an agent tool-runtime layer on top of
- * ltod's wire types. These were previously exposed by `ltod/src` but
+ * liumir's wire types. These were previously exposed by `liumir/src` but
  * have no production consumers — the real tool runtime lives in
- * `@lmcode-cli/agent-core`. Ltod's own e2e tests still need a minimal
+ * `@lmcode-cli/agent-core`. Liumir's own e2e tests still need a minimal
  * Toolset implementation to drive `generate()` through multi-turn flows.
  */
 

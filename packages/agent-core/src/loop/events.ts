@@ -1,4 +1,4 @@
-import type { FinishReason, TextPart, ThinkPart, TokenUsage } from '@lmcode-cli/ltod';
+import type { FinishReason, TextPart, ThinkPart, TokenUsage } from '@lmcode-cli/liumir';
 
 import type { ToolInputDisplay } from '../tools/display';
 import type { ExecutableToolResult, LoopStepStopReason, ToolUpdate } from './types';

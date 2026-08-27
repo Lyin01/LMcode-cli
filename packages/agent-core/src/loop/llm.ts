@@ -15,7 +15,7 @@ import type {
   TokenUsage,
   Tool,
   ToolCall,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 export interface ToolCallDelta {
   readonly toolCallId: string;

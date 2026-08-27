@@ -1,6 +1,6 @@
 import type { Logger } from '#/logging/types';
-import type { ProviderConfig as LtodProviderConfig, ModelCapability, ProviderRequestAuth } from '@lmcode-cli/ltod';
-import { APIStatusError, createProvider, UNKNOWN_CAPABILITY } from '@lmcode-cli/ltod';
+import type { ProviderConfig as LiumirProviderConfig, ModelCapability, ProviderRequestAuth } from '@lmcode-cli/liumir';
+import { APIStatusError, createProvider, UNKNOWN_CAPABILITY } from '@lmcode-cli/liumir';
 import type { LmcodeConfig, ModelAlias, OAuthRef, ProviderConfig } from '../config';
 import { ErrorCodes, isLmcodeError, LmcodeError } from '../errors';
 
@@ -15,7 +15,7 @@ export type OAuthTokenProviderResolver = (
 
 export interface ResolvedRuntimeProvider {
   readonly providerName: string;
-  readonly provider: LtodProviderConfig;
+  readonly provider: LiumirProviderConfig;
   readonly modelCapabilities: ModelCapability;
 }
 
@@ -38,7 +38,7 @@ export interface ModelProvider {
 
 export class SingleModelProvider implements ModelProvider {
   constructor(
-    private readonly providerConfig: LtodProviderConfig,
+    private readonly providerConfig: LiumirProviderConfig,
     private readonly modelCapabilities: ModelCapability = UNKNOWN_CAPABILITY,
   ) {}
 
@@ -108,7 +108,7 @@ export class ProviderManager implements ModelProvider {
       );
     }
 
-    const provider = toLtodProviderConfig(
+    const provider = toLiumirProviderConfig(
       providerConfig,
       alias.model,
       this.options.lmcodeRequestHeaders,
@@ -198,7 +198,7 @@ export class ProviderManager implements ModelProvider {
 
 function resolveModelCapabilities(
   alias: ModelAlias,
-  provider: LtodProviderConfig,
+  provider: LiumirProviderConfig,
 ): ModelCapability {
   const declared = new Set((alias.capabilities ?? []).map((c) => c.trim().toLowerCase()));
   const probe = createProvider(providerForCapabilityProbe(provider));
@@ -214,7 +214,7 @@ function resolveModelCapabilities(
   };
 }
 
-function toLtodProviderConfig(
+function toLiumirProviderConfig(
   provider: ProviderConfig,
   model: string,
   lmcodeRequestHeaders: Record<string, string> | undefined,
@@ -222,7 +222,7 @@ function toLtodProviderConfig(
   reasoningKey: string | undefined,
   promptCacheKey: string | undefined,
   adaptiveThinking: boolean | undefined,
-): LtodProviderConfig {
+): LiumirProviderConfig {
   switch (provider.type) {
     case 'anthropic':
       return {
@@ -289,7 +289,7 @@ function toLtodProviderConfig(
   }
 }
 
-// Returns a fresh `defaultHeaders` field for a ltod provider config so
+// Returns a fresh `defaultHeaders` field for a liumir provider config so
 // resolved instances never share a header object. Omits the key entirely when
 // there are no headers — callers and tests rely on `'defaultHeaders' in provider`.
 function defaultHeadersField(
@@ -299,7 +299,7 @@ function defaultHeadersField(
   return { defaultHeaders: { ...headers } };
 }
 
-function providerForCapabilityProbe(provider: LtodProviderConfig): LtodProviderConfig {
+function providerForCapabilityProbe(provider: LiumirProviderConfig): LiumirProviderConfig {
   const apiKey = provider.apiKey && provider.apiKey.length > 0 ? provider.apiKey : 'capability-probe';
   if (provider.type === 'vertexai') {
     return { ...provider, vertexai: false, project: undefined, location: undefined, apiKey };

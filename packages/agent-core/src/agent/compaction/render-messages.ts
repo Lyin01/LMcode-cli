@@ -1,4 +1,4 @@
-import type { Message } from '@lmcode-cli/ltod';
+import type { Message } from '@lmcode-cli/liumir';
 
 export function renderMessagesToText(messages: readonly Message[]): string {
   return messages.map((message, index) => renderMessageToText(message, index)).join('\n\n');

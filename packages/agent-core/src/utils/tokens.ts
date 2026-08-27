@@ -1,4 +1,4 @@
-import type { ContentPart, Message, Tool } from '@lmcode-cli/ltod';
+import type { ContentPart, Message, Tool } from '@lmcode-cli/liumir';
 
 /**
  * Estimate token count from text using a character-based heuristic.

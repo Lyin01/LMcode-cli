@@ -3,7 +3,7 @@ import type { Message, ToolCallInfo, UserAttachment } from '@/types'
 
 /**
  * Map the SDK's persisted conversation history (`session.getContext().history`,
- * an array of ltod `Message` objects) into the renderer's flat `Message[]` used
+ * an array of liumir `Message` objects) into the renderer's flat `Message[]` used
  * for display. Mirrors how `session-store.handleEvent` builds messages from the
  * live event stream.
  */

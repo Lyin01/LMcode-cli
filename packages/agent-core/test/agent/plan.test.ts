@@ -1,4 +1,4 @@
-import type { ToolCall } from '@lmcode-cli/ltod';
+import type { ToolCall } from '@lmcode-cli/liumir';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createFakeJian } from '../tools/fixtures/fake-jian';

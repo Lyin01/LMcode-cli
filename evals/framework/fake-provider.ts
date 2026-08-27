@@ -1,12 +1,12 @@
 /**
  * Keyless fake provider for the smoke task.
  *
- * The `lmcode` provider type in `@lmcode-cli/ltod` talks to an OpenAI-compatible
+ * The `lmcode` provider type in `@lmcode-cli/liumir` talks to an OpenAI-compatible
  * Chat Completions endpoint via the `openai` SDK, pointed at `baseUrl`. So
  * instead of mocking `createProvider` (which only works under vitest), we stand
  * up a tiny local HTTP server that *speaks* that wire protocol and point a real
  * `lmcode` provider at it. This exercises the genuine SDK path — session →
- * provider-manager → ltod → openai client → HTTP — end to end, with no network
+ * provider-manager → liumir → openai client → HTTP — end to end, with no network
  * and no API key beyond a throwaway placeholder.
  *
  * The server returns a fixed assistant message as a streaming SSE response

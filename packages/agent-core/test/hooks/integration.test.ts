@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 // Dynamic-import contract: locks the Agent <-> HookEngine integration shape

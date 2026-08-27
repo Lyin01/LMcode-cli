@@ -4,7 +4,7 @@ import {
   APIStatusError,
   emptyUsage,
   isRetryableGenerateError,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import type { LoopEvent } from '#/loop/events';

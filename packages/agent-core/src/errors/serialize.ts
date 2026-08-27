@@ -3,7 +3,7 @@ import {
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import { LmcodeError } from './classes';
 import { ErrorCodes, LMCODE_ERROR_INFO, type LmcodeErrorCode } from './codes';

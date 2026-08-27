@@ -170,7 +170,7 @@ pnpm run build
 apps/lmcode              CLI 和终端 UI，发布为 @liumir/lmcode
 apps/lmcode-desktop      桌面端应用
 packages/agent-core      Agent 运行时、工具、权限、会话、MCP 和目标循环
-packages/ltod            多模型服务的流式客户端
+packages/liumir            多模型服务的流式客户端
 packages/node-sdk        应用层使用的 TypeScript SDK
 packages/jian            文件系统、进程和执行环境抽象
 packages/memory          跨会话记忆存储与检索

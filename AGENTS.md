@@ -31,7 +31,7 @@
 | 包名 | 路径 | 职责 |
 | ----------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
 | `agent-core` | `packages/agent-core/` | Agent 运行时：轮次循环、会话、工具、MCP 客户端、压缩（compaction）、记忆、目标/狼群 |
-| `ltod` | `packages/ltod/` | 多供应商 LLM 客户端，支持流式输出 |
+| `liumir` | `packages/liumir/` | 多供应商 LLM 客户端，支持流式输出 |
 | `jian` | `packages/jian/` | 执行环境抽象（文件系统、进程、沙箱） |
 | `node-sdk` | `packages/node-sdk/` | Node.js SDK（`LmcodeHarness`、`Session`），供应用层使用 |
 | `memory` | `packages/memory/` | 跨会话的记忆存储与评分 |
@@ -44,7 +44,7 @@
 - 当用户说 **"agent"** 或 **"session"** 时，指的是 `packages/agent-core` 运行时（`Session`、`Agent`、轮次循环），而不是 AI 助手本身。
 - **"app"** / **"TUI"** / **"CLI"** 均指 `apps/lmcode`。
 - **"SDK"** 指从 `packages/node-sdk` 导出的 `@lmcode-cli/lmcode-sdk`。
-- **"LLM layer"** 指 `packages/ltod`。
+- **"LLM layer"** 指 `packages/liumir`。
 - **"memory"** 指 `packages/memory` 中的任务经验记录。
 
 ### 跨包导入规则

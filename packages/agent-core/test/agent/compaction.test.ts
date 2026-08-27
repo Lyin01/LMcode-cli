@@ -10,7 +10,7 @@ import {
   UNKNOWN_CAPABILITY,
   type Message,
   type ToolCall,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {

@@ -26,7 +26,7 @@ pnpm test
 - `apps/lmcode-desktop`: Desktop application
 - `packages/agent-core`: Agent engine
 - `packages/node-sdk`: Public TypeScript SDK
-- `packages/ltod`: LLM provider abstraction
+- `packages/liumir`: LLM provider abstraction
 - `packages/jian`: Execution environment
 - `packages/memory`: Memory storage and scoring
 - `packages/config`: Shared configuration and model aliases

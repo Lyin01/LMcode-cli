@@ -1,4 +1,4 @@
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 import type { ToolAccesses } from '../../loop/tool-access';
 import type { ExecutableToolResult } from '../../loop/types';

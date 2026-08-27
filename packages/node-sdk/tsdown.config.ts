@@ -23,7 +23,7 @@ export default defineConfig({
     '@lmcode-cli/agent-core': fileURLToPath(new URL('../agent-core/src/index.ts', import.meta.url)),
     '@lmcode-cli/jian': fileURLToPath(new URL('../jian/src/index.ts', import.meta.url)),
     '@lmcode-cli/config': fileURLToPath(new URL('../config/src/index.ts', import.meta.url)),
-    '@lmcode-cli/ltod': fileURLToPath(new URL('../ltod/src/index.ts', import.meta.url)),
+    '@lmcode-cli/liumir': fileURLToPath(new URL('../liumir/src/index.ts', import.meta.url)),
   },
   deps: {
     alwaysBundle: [/^@lmcode-./],

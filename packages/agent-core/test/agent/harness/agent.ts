@@ -3,7 +3,7 @@ import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
 import { type Environment, type Jian, type JianProcess } from '@lmcode-cli/jian';
-import type { ModelCapability, ProviderConfig } from '@lmcode-cli/ltod';
+import type { ModelCapability, ProviderConfig } from '@lmcode-cli/liumir';
 import { expect, onTestFinished, vi } from 'vitest';
 
 import {

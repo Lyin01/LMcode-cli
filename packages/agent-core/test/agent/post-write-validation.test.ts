@@ -1,4 +1,4 @@
-import type { GenerateResult, Message, ToolCall } from '@lmcode-cli/ltod';
+import type { GenerateResult, Message, ToolCall } from '@lmcode-cli/liumir';
 import { createControlledPromise } from '@antfu/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

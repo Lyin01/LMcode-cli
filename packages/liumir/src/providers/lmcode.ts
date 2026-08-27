@@ -568,7 +568,7 @@ export class LmcodeChatProvider implements ChatProvider {
     // lazily re-created on first access.
     clone._files = undefined;
     // `_client` is intentionally shared with the original instance. Per-step
-    // budget clamping (see LtodLLM.chatOnce) relies on this clone being
+    // budget clamping (see LiumirLLM.chatOnce) relies on this clone being
     // cheap. If a future change introduces a retry path that REPLACES
     // `clone._client` with a freshly built client (and closes the old one),
     // the original instance's `_client` would become a dangling reference to
