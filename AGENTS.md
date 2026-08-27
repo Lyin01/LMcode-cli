@@ -31,7 +31,7 @@
 | 包名 | 路径 | 职责 |
 | ----------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
 | `agent-core` | `packages/agent-core/` | Agent 运行时：轮次循环、会话、工具、MCP 客户端、压缩（compaction）、记忆、目标/狼群 |
-| `ltod` | `packages/ltod/` | 多供应商 LLM 客户端，支持流式输出 |
+| `liumir` | `packages/liumir/` | 多供应商 LLM 客户端，支持流式输出 |
 | `jian` | `packages/jian/` | 执行环境抽象（文件系统、进程）；隔离策略在 agent-core 权限层 |
 | `node-sdk` | `packages/node-sdk/` | Node.js SDK（`LmcodeHarness`、`Session`），供应用层使用 |
 | `memory` | `packages/memory/` | 跨会话的记忆存储与评分 |
@@ -44,7 +44,7 @@
 - 当用户说 **"agent"** 或 **"session"** 时，指的是 `packages/agent-core` 运行时（`Session`、`Agent`、轮次循环），而不是 AI 助手本身。
 - **"app"** / **"TUI"** / **"CLI"** 均指 `apps/lmcode`。
 - **"SDK"** 指从 `packages/node-sdk` 导出的 `@lmcode-cli/lmcode-sdk`。
-- **"LLM layer"** 指 `packages/ltod`。
+- **"LLM layer"** 指 `packages/liumir`。
 - **"memory"** 指 `packages/memory` 中的任务经验记录。
 
 ### 跨包导入规则
@@ -320,6 +320,14 @@ LMcode 内置了 MCP 客户端。Agent 可以通过模型上下文协议（Model
 
 - 内置推荐：`startupTimeoutMs` 统一为 `MCP_RECOMMENDED_STARTUP_TIMEOUT_MS = 300_000`（5 分钟——首次启动可能下载浏览器二进制）。
 - 全局默认：`DEFAULT_STARTUP_TIMEOUT_MS = 60_000`。
+
+### 视觉降级 MCP（visual-mcp）
+
+`visual-mcp` 是「看图补位」通道：当主模型没有图像输入能力（`image_in=false`，如 DeepSeek V4 Flash）时，粘贴的图片会落盘并提示模型通过它读取内容；当模型具备视觉能力（`image_in=true`，如 Grok、GLM-5.3-Flash）时，该服务器的工具会在注入层被屏蔽——有视觉的模型原生即可读图，多余的 MCP 入口只会拖慢任务。
+
+- **名称真相来源**：`packages/agent-core/src/mcp/vision-fallback.ts` —— `VISUAL_FALLBACK_MCP_SERVER_NAME` / `isVisualFallbackMcpServer()`。过滤逻辑与 turn 层降级提示文案都引用它。
+- **过滤**：`packages/agent-core/src/agent/tool/index.ts` —— `ToolManager.isVisualFallbackSuppressed()` 同时作用于 `loopTools`（实际注入）与 `toolInfos`（TUI active 标记）。
+- **降级提示**：`packages/agent-core/src/agent/turn/index.ts` —— `degradeImagesForModel()` 仅在 `image_in=false` 时把图片落盘并提示用 visual-mcp 查看。
 
 ---
 

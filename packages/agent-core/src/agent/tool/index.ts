@@ -1,5 +1,5 @@
 import { uniq } from '@antfu/utils';
-import type { ChatProvider, Tool } from '@lmcode-cli/ltod';
+import type { ChatProvider, Tool } from '@lmcode-cli/liumir';
 import picomatch from 'picomatch';
 
 import type { Agent } from '..';
@@ -10,6 +10,7 @@ import { isRetriableMcpCallError } from '../../mcp/client-shared';
 import type { McpConnectionManager, McpServerEntry } from '../../mcp';
 import { mcpResultToExecutableOutput } from '../../mcp/output';
 import { isMcpToolName, qualifyMcpToolName } from '../../mcp/tool-naming';
+import { isVisualFallbackMcpServer } from '../../mcp/vision-fallback';
 import type { MCPClient } from '../../mcp/types';
 import { DEFAULT_AGENT_PROFILES } from '../../profile';
 import { extendWorkspaceWithSkillRoots } from '../../skill';
@@ -378,6 +379,18 @@ export class ToolManager {
     return this.mcpAccessPatterns.some((pattern) => picomatch.isMatch(name, pattern));
   }
 
+  /**
+   * 视觉降级 MCP（visual-mcp）只应暴露给无图像输入能力的模型；有视觉的
+   * 模型原生即可读图，多出的 MCP 入口只会拖慢任务。与 glob 放行规则
+   * （isMcpToolEnabled）正交，在注入层单独门控。
+   */
+  private isVisualFallbackSuppressed(name: string): boolean {
+    // 能力未知（未配置 provider 或 mock agent）时保守放行，保证看图通道可用。
+    if (this.agent.config.modelCapabilities?.image_in !== true) return false;
+    const entry = this.mcpTools.get(name);
+    return entry !== undefined && isVisualFallbackMcpServer(entry.serverName);
+  }
+
   *toolInfos(): Iterable<ToolInfo> {
     for (const tool of this.builtinTools.values()) {
       yield {
@@ -399,7 +412,7 @@ export class ToolManager {
       yield {
         name: entry.tool.name,
         description: entry.tool.description,
-        active: this.isMcpToolEnabled(entry.tool.name),
+        active: this.isMcpToolEnabled(entry.tool.name) && !this.isVisualFallbackSuppressed(entry.tool.name),
         source: 'mcp',
       };
     }
@@ -516,7 +529,9 @@ export class ToolManager {
   }
 
   get loopTools(): readonly ExecutableTool[] {
-    const mcpNames = [...this.mcpTools.keys()].filter((name) => this.isMcpToolEnabled(name));
+    const mcpNames = [...this.mcpTools.keys()].filter(
+      (name) => this.isMcpToolEnabled(name) && !this.isVisualFallbackSuppressed(name),
+    );
     // Mutation goal tools are only offered to the model while a goal exists.
     const hideGoalMutationTools = this.agent.goal.getGoal().goal === null;
     return uniq([...this.enabledTools, ...mcpNames])

@@ -1,10 +1,10 @@
 import {
   APIContextOverflowError,
-  grandTotal as ltodGrandTotal,
+  grandTotal as liumirGrandTotal,
   type ContentPart,
   type Message,
   type TokenUsage,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,6 +27,7 @@ import {
   type LoopTurnStopReason,
 } from '../../loop/index';
 import type { ExecutableToolOutput } from '../../loop/types';
+import { VISUAL_FALLBACK_MCP_SERVER_NAME } from '../../mcp/vision-fallback';
 import type { AgentEvent, TurnEndedEvent } from '../../rpc';
 import {
   abortable,
@@ -239,7 +240,7 @@ export class TurnFlow {
       text:
         `[用户粘贴了 ${savedPaths.length} 张图片。当前模型无视觉能力，图片未随消息发送，已保存到：\n` +
         savedPaths.map((p) => `- ${p}`).join('\n') +
-        `\n如需查看图片内容，请调用 ReadMediaFile（模型支持视觉时）或当前已配置的视觉工具，传入上述文件路径（每张图一次调用）。]`,
+        `\n如需查看图片内容，请调用 ${VISUAL_FALLBACK_MCP_SERVER_NAME} 的 analyze_image 工具，传入上述文件路径（每张图一次调用）。]`,
     };
     kept.push(note);
     return kept;
@@ -793,7 +794,7 @@ export class TurnFlow {
     if (usage === null) return;
     this.agent.usage.record(model, usage, scope);
     if (goalId !== undefined) {
-      await this.agent.goal.recordTokenUsageForGoal(goalId, ltodGrandTotal(usage));
+      await this.agent.goal.recordTokenUsageForGoal(goalId, liumirGrandTotal(usage));
     }
   }
 
@@ -962,7 +963,7 @@ export class TurnFlow {
               if (stepGoalId === undefined) return;
               const goal = await this.agent.goal.recordTokenUsageForGoal(
                 stepGoalId,
-                ltodGrandTotal(usage),
+                liumirGrandTotal(usage),
               );
               if (goal !== null && isGoalResourceBudgetReached(goal)) {
                 inTurnBudgetGoalId = goal.goalId;
