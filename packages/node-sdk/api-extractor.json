@@ -4,7 +4,7 @@
   "bundledPackages": [
     "@lmcode-cli/agent-core",
     "@lmcode-cli/jian",
-    "@lmcode-cli/ltod"
+    "@lmcode-cli/liumir"
   ],
   "compiler": {
     "tsconfigFilePath": "<projectFolder>/tsconfig.api-extractor.json",

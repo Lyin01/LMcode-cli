@@ -1,4 +1,4 @@
-import { createToolMessage, type ContentPart, type Message } from '@lmcode-cli/ltod';
+import { createToolMessage, type ContentPart, type Message } from '@lmcode-cli/liumir';
 
 import type { Agent } from '..';
 import type { ExecutableToolResult, LoopRecordedEvent } from '../../loop';

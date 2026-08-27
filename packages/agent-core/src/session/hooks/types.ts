@@ -1,4 +1,4 @@
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 export const HOOK_EVENT_TYPES = [
   'PreToolUse',

@@ -1,4 +1,4 @@
-import type { ChatProvider, ModelCapability } from '@lmcode-cli/ltod';
+import type { ChatProvider, ModelCapability } from '@lmcode-cli/liumir';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

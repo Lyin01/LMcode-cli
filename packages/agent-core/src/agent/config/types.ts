@@ -1,4 +1,4 @@
-import type { ModelCapability, ProviderConfig } from '@lmcode-cli/ltod';
+import type { ModelCapability, ProviderConfig } from '@lmcode-cli/liumir';
 
 export interface AgentConfigData {
   cwd: string;

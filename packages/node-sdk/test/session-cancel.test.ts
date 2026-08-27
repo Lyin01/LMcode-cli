@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type * as LtodModule from '@lmcode-cli/ltod';
+import type * as LiumirModule from '@lmcode-cli/liumir';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { LmcodeError, Event } from '#/index';
@@ -9,8 +9,8 @@ import type { LmcodeError, Event } from '#/index';
 import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
-vi.mock('@lmcode-cli/ltod', async (importOriginal) => {
-  const actual = await importOriginal<typeof LtodModule>();
+vi.mock('@lmcode-cli/liumir', async (importOriginal) => {
+  const actual = await importOriginal<typeof LiumirModule>();
   return {
     ...actual,
     createProvider: () => ({

@@ -1,4 +1,4 @@
-import type { ChatProvider, GenerateResult, Message, ToolCall } from '@lmcode-cli/ltod';
+import type { ChatProvider, GenerateResult, Message, ToolCall } from '@lmcode-cli/liumir';
 import { createControlledPromise } from '@antfu/utils';
 import { describe, expect, it, vi } from 'vitest';
 

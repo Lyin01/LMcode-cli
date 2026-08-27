@@ -4,7 +4,7 @@ import {
   type ChatProvider,
   type ModelCapability,
   type ProviderConfig,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import type { Agent } from '..';
 import { ErrorCodes, LmcodeError } from '../../errors';

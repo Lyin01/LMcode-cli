@@ -1,4 +1,4 @@
-import type { ToolCall } from '@lmcode-cli/ltod';
+import type { ToolCall } from '@lmcode-cli/liumir';
 import { expect, it } from 'vitest';
 
 import { testAgent, createCommandJian } from './harness/agent';

@@ -25,7 +25,7 @@
  *    bug must never brick a session or eat user context.
  */
 
-import type { Message } from '@lmcode-cli/ltod';
+import type { Message } from '@lmcode-cli/liumir';
 
 import type { Agent } from '.';
 import type { ContextMessage } from './context';

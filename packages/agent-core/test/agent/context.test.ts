@@ -1,4 +1,4 @@
-import type { Message } from '@lmcode-cli/ltod';
+import type { Message } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import { renderNotificationXml } from '../../src/agent/context/notification-xml';

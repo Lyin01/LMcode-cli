@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { emptyUsage, type TokenUsage } from '@lmcode-cli/ltod';
+import { emptyUsage, type TokenUsage } from '@lmcode-cli/liumir';
 import type { Logger } from '#/logging/types';
 
 import type { LoopEventDispatcher } from './events';

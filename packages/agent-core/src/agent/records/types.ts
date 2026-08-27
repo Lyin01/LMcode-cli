@@ -1,4 +1,4 @@
-import type { ContentPart, TokenUsage } from '@lmcode-cli/ltod';
+import type { ContentPart, TokenUsage } from '@lmcode-cli/liumir';
 
 import type { LoopRecordedEvent } from '../../loop';
 import type { ToolStoreUpdate } from '../../tools/store';

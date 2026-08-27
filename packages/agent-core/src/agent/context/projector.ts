@@ -1,4 +1,4 @@
-import type { ContentPart, Message, TextPart } from '@lmcode-cli/ltod';
+import type { ContentPart, Message, TextPart } from '@lmcode-cli/liumir';
 
 import type { ContextMessage } from './types';
 

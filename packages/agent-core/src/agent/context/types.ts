@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '@lmcode-cli/ltod';
+import type { ContentPart, Message } from '@lmcode-cli/liumir';
 
 import type { SkillSource } from '../../skill';
 import type { BackgroundTaskStatus } from '../../tools/background';

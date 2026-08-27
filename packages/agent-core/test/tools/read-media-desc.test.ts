@@ -1,4 +1,4 @@
-import type { ModelCapability } from '@lmcode-cli/ltod';
+import type { ModelCapability } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import { ReadMediaFileTool } from '../../src/tools/builtin/file/read-media';

@@ -3,7 +3,7 @@
  */
 
 import type { Jian } from '@lmcode-cli/jian';
-import type { ContentPart, ModelCapability } from '@lmcode-cli/ltod';
+import type { ContentPart, ModelCapability } from '@lmcode-cli/liumir';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ToolAccesses } from '../../src/loop';

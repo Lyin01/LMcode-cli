@@ -1,4 +1,4 @@
-import type { Message, Tool as LLMTool } from '@lmcode-cli/ltod';
+import type { Message, Tool as LLMTool } from '@lmcode-cli/liumir';
 import { expect } from 'vitest';
 
 const IS_EVENT_ARRAY = Symbol('isEventArray');

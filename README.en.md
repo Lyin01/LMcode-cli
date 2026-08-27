@@ -47,7 +47,7 @@ On first launch, run `/config` to pick a model provider and model, then sign in 
 
 - **Terminal-native TUI** — streaming responses, transcript view, todo panel, activity and queue panes; resume the last session in a directory with `lm -C`.
 - **Scriptable one-shot mode** — `lm -p "prompt" --output-format stream-json` for CI and automation pipelines.
-- **Multi-provider LLM client** — the `ltod` package streams from multiple providers; switch models and reasoning effort mid-session with `/model`.
+- **Multi-provider LLM client** — the `liumir` package streams from multiple providers; switch models and reasoning effort mid-session with `/model`.
 - **Three-stage compaction pipeline** — micro-compaction (zero-LLM truncation), full LLM summarization, and a blocking safety net, triggered predictively before context overflow.
 - **Goal mode (`/goal`)** — persistent objectives that survive turns and session resumes, with working notes injected each continuation.
 - **Wolfpack mode (`/wolfpack`)** — parallel sub-agent orchestration (template + up to 20 items per batch) with auto-approval of routine tools while sensitive paths still require confirmation.
@@ -148,7 +148,7 @@ Repository layout:
 apps/lmcode              CLI and terminal UI, published as @liumir/lmcode
 apps/lmcode-desktop      Desktop app
 packages/agent-core      Agent runtime: tools, permissions, sessions, MCP, goal loop
-packages/ltod            Streaming client for multiple model providers
+packages/liumir            Streaming client for multiple model providers
 packages/node-sdk        TypeScript SDK for the app layer
 packages/jian            Filesystem, process, and execution-environment abstraction
 packages/memory          Cross-session memory store and retrieval

@@ -10,7 +10,7 @@ import {
   type ChatProvider,
   type GenerateResult,
   type ToolCall,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { DreamTracker } from '@lmcode/memory';
 

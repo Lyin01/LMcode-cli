@@ -1,4 +1,4 @@
-import type { ThinkingEffort } from '@lmcode-cli/ltod';
+import type { ThinkingEffort } from '@lmcode-cli/liumir';
 
 import type { ThinkingConfig } from '../../config/schema';
 

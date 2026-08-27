@@ -667,7 +667,7 @@ const NETWORK_RE = /network|connection|connect|disconnect|fetch failed/i;
 const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;
 
 /**
- * Convert a Google GenAI SDK error (or raw Error) to a ltod `ChatProviderError`.
+ * Convert a Google GenAI SDK error (or raw Error) to a liumir `ChatProviderError`.
  */
 export function convertGoogleGenAIError(error: unknown): ChatProviderError {
   // Google SDK's exported ApiError carries an HTTP status code

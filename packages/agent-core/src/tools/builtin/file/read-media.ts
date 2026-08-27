@@ -21,7 +21,7 @@ import type {
   ModelCapability,
   VideoURLPart,
   VideoUploadInput as ProviderVideoUploadInput,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';

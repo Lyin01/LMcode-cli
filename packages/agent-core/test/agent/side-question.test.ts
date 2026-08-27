@@ -1,4 +1,4 @@
-import type { GenerateResult } from '@lmcode-cli/ltod';
+import type { GenerateResult } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import type { AgentOptions } from '../../src/agent';

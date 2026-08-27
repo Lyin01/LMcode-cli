@@ -1,4 +1,4 @@
-import type { Message } from '@lmcode-cli/ltod';
+import type { Message } from '@lmcode-cli/liumir';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { InMemoryAgentRecordPersistence } from '../../src/agent/records';

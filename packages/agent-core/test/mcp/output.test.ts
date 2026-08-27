@@ -1,5 +1,5 @@
 import { ContentBlockSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 import { describe, expect, test } from 'vitest';
 
 import { convertMCPContentBlock, mcpResultToExecutableOutput } from '../../src/mcp/output';

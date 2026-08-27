@@ -19,7 +19,7 @@ export interface BufferedChatCompletionToolCall {
 
 /**
  * Convert an OpenAI Chat Completions-style streamed tool-call delta into the
- * normalized ltod stream part protocol.
+ * normalized liumir stream part protocol.
  *
  * OpenAI-compatible providers may emit argument chunks before the function name
  * for a stream index. Buffer those early argument chunks until the first named

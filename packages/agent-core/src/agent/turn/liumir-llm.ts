@@ -1,30 +1,30 @@
 /**
- * Ltod-backed implementation of the loop `LLM` interface.
+ * Liumir-backed implementation of the loop `LLM` interface.
  *
  * Bridges the new `loop/llm.ts` contract onto
- * the ltod `generate()` streaming API:
+ * the liumir `generate()` streaming API:
  *
- *   - ltod's per-part `onMessagePart` is forwarded to loop per-delta
+ *   - liumir's per-part `onMessagePart` is forwarded to loop per-delta
  *     callbacks (`onTextDelta`, `onThinkDelta`, `onToolCallDelta`).
  *   - loop per-block callbacks (`onTextPart`, `onThinkPart`) only fire
- *     after the ltod stream drains, iterating over the merged
+ *     after the liumir stream drains, iterating over the merged
  *     `result.message.content`. Completed
  *     blocks land on the WAL seam, raw deltas never do.
- *   - ltod's finish reasons are preserved as provider diagnostics. The loop
+ *   - liumir's finish reasons are preserved as provider diagnostics. The loop
  *     derives loop control from the normalized response shape, not from the
  *     provider's finish-reason spelling.
  */
 
 import {
   emptyUsage,
-  generate as ltodGenerate,
+  generate as liumirGenerate,
   type GenerateOptions,
   isRetryableGenerateError,
   type ChatProvider,
   type GenerateCallbacks,
   type ModelCapability,
   type StreamedMessagePart,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import type {
   LLM,
@@ -44,15 +44,15 @@ export type GenerateOptionsWithRequestLog = GenerateOptions & {
   readonly [GENERATE_REQUEST_LOG_CONTEXT]?: LLMRequestLogContext;
 };
 
-export type GenerateFn = typeof ltodGenerate;
+export type GenerateFn = typeof liumirGenerate;
 
-export interface LtodLLMConfig {
+export interface LiumirLLMConfig {
   readonly provider: ChatProvider;
   readonly modelName: string;
   readonly systemPrompt: string;
   readonly capability?: ModelCapability | undefined;
   /**
-   * Optional override for the ltod `generate()` entry point. Lets the
+   * Optional override for the liumir `generate()` entry point. Lets the
    * agent host (and its test harness) inject a scripted generator without
    * having to substitute the entire LLM implementation.
    */
@@ -64,7 +64,7 @@ export interface LtodLLMConfig {
   readonly completionBudgetConfig?: CompletionBudgetConfig | undefined;
 }
 
-export class LtodLLM implements LLM {
+export class LiumirLLM implements LLM {
   readonly systemPrompt: string;
   readonly modelName: string;
   readonly capability?: ModelCapability | undefined;
@@ -73,12 +73,12 @@ export class LtodLLM implements LLM {
   private readonly generate: GenerateFn;
   private readonly completionBudgetConfig: CompletionBudgetConfig | undefined;
 
-  constructor(config: LtodLLMConfig) {
+  constructor(config: LiumirLLMConfig) {
     this.provider = config.provider;
     this.modelName = config.modelName;
     this.systemPrompt = config.systemPrompt;
     this.capability = config.capability;
-    this.generate = config.generate ?? ltodGenerate;
+    this.generate = config.generate ?? liumirGenerate;
     this.completionBudgetConfig = config.completionBudgetConfig;
   }
 
@@ -97,7 +97,7 @@ export class LtodLLM implements LLM {
         firstChunkAt = Date.now();
       }
     };
-    const callbacks = buildLtodCallbacks(params, markStreamOutput);
+    const callbacks = buildLiumirCallbacks(params, markStreamOutput);
 
     // Compute and apply the per-request completion budget against a
     // throwaway shallow clone. `effectiveProvider` is local to this call
@@ -178,7 +178,7 @@ function generateOptions(
   };
 }
 
-function buildLtodCallbacks(
+function buildLiumirCallbacks(
   params: LLMChatParams,
   markStreamOutput: () => void,
 ): GenerateCallbacks {

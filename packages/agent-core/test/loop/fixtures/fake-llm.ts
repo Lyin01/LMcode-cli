@@ -5,7 +5,7 @@ import {
   type TextPart,
   type ThinkPart,
   type TokenUsage,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 import type {
   LLM,

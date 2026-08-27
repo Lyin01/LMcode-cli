@@ -11,7 +11,7 @@ import {
   type CatalogProviderEntry,
   type ModelCapability,
   type ProviderType,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 
 export { catalogBaseUrl, catalogProviderModels, inferWireType };
 export type { Catalog, CatalogModel, CatalogProviderEntry };

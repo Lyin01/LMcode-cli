@@ -1,6 +1,6 @@
 import { createControlledPromise } from '@antfu/utils';
 import type { Jian } from '@lmcode-cli/jian';
-import type { ToolCall } from '@lmcode-cli/ltod';
+import type { ToolCall } from '@lmcode-cli/liumir';
 import * as posixPath from 'node:path/posix';
 import { describe, expect, it, vi } from 'vitest';
 

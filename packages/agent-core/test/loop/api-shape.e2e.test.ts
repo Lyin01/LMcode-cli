@@ -11,7 +11,7 @@
  * `it` keeps Vitest happy.
  */
 
-import type { ContentPart, ModelCapability, TokenUsage } from '@lmcode-cli/ltod';
+import type { ContentPart, ModelCapability, TokenUsage } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import { createLoopEventDispatcher, runTurn, ToolAccesses } from '../../src/loop/index';
@@ -395,7 +395,7 @@ function _typeOnlyChecks(): void {
   const _badStop3: LoopTurnStopReason = 'tool_use';
   void _badStop3;
 
-  // Capability metadata reuses Ltod's provider-facing shape.
+  // Capability metadata reuses Liumir's provider-facing shape.
   const capability: ModelCapability = {
     image_in: false,
     video_in: false,
@@ -408,7 +408,7 @@ function _typeOnlyChecks(): void {
   void capability;
   void _llmCapability;
 
-  // ToolCall reuses Ltod's provider-facing function-call shape.
+  // ToolCall reuses Liumir's provider-facing function-call shape.
   const toolCall: ToolCall = {
     type: 'function',
     id: 'tc1',
@@ -444,7 +444,7 @@ function _typeOnlyChecks(): void {
   };
   void _badExecuteContext;
 
-  // ExecutableTool is one object: Ltod's model-visible definition plus resolveExecution().
+  // ExecutableTool is one object: Liumir's model-visible definition plus resolveExecution().
   const _tool: ExecutableTool = {
     name: 'x',
     description: 'x',

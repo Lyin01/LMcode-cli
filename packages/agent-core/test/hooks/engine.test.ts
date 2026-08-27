@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 // Dynamic-import contract: locks the public shape of the future HookEngine
 // without forcing TS module resolution to find a file that doesn't exist yet.

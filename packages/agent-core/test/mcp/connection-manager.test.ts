@@ -5,7 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 import { testJian } from '../fixtures/test-jian';
-import type { ProviderConfig } from '@lmcode-cli/ltod';
+import type { ProviderConfig } from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
 import { randomUUID } from 'node:crypto';

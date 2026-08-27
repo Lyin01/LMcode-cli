@@ -60,7 +60,7 @@ export function toMcpToolDefinition(tool: SdkListedTool): MCPToolDefinition {
 }
 
 /**
- * Normalise the SDK's `callTool` return into ltod's {@link MCPToolResult}.
+ * Normalise the SDK's `callTool` return into liumir's {@link MCPToolResult}.
  * The SDK can return either the modern `{ content, isError }` shape or a
  * legacy `{ toolResult }` shape; we collapse the legacy shape to a single
  * text content block.

@@ -13,7 +13,7 @@
  * should be reviewed together.
  */
 
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 import type { Logger } from '#/logging/types';
 import {

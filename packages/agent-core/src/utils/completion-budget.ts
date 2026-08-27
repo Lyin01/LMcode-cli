@@ -1,4 +1,4 @@
-import type { ChatProvider, ModelCapability } from '@lmcode-cli/ltod';
+import type { ChatProvider, ModelCapability } from '@lmcode-cli/liumir';
 
 /** Completion-token budget for the next LLM request. */
 export interface CompletionBudgetConfig {

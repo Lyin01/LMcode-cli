@@ -19,12 +19,12 @@ const tempDir = path.join(packageRoot, '.tmp-api-extractor');
 const dtsRoot = path.join(tempDir, 'dts');
 const providerClientShimPath = path.join(dtsRoot, 'provider-clients.d.ts');
 
-const packageDirs = new Set(['agent-core', 'jian', 'ltod', 'node-sdk', 'oauth']);
+const packageDirs = new Set(['agent-core', 'jian', 'liumir', 'node-sdk', 'oauth']);
 const workspacePackages = new Map([
   ['@lmcode-cli/agent-core', 'agent-core'],
   ['@lmcode-cli/jian', 'jian'],
   ['@lmcode-cli/lmcode-oauth', 'oauth'],
-  ['@lmcode-cli/ltod', 'ltod'],
+  ['@lmcode-cli/liumir', 'liumir'],
 ]);
 
 try {
@@ -133,7 +133,7 @@ async function rewriteWorkspaceSpecifiers() {
           `import { GoogleGenAI as GenAIClient } from '${providerClientSpecifier}';`,
         );
       const updated = providerClientText.replaceAll(
-        /(["'])(#\/[^"']+|@lmcode-cli\/(?:agent-core|jian|lmcode-oauth|ltod)(?:\/[^"']+)?)\1/g,
+        /(["'])(#\/[^"']+|@lmcode-cli\/(?:agent-core|jian|lmcode-oauth|liumir)(?:\/[^"']+)?)\1/g,
         (_match, quote, specifier) => {
           const resolved = resolveSpecifier({
             currentFile: file,

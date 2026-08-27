@@ -11,6 +11,6 @@ export default defineConfig({
   plugins: [rawTextPlugin()],
   deps: {
     alwaysBundle: ['picomatch'],
-    neverBundle: ['@lmcode-cli/ltod', '@lmcode-cli/jian'],
+    neverBundle: ['@lmcode-cli/liumir', '@lmcode-cli/jian'],
   },
 });

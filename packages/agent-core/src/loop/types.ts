@@ -1,16 +1,16 @@
 /**
  * Public contracts for the stateless agent loop.
  *
- * This file defines the narrow surfaces that connect a Ltod conversation to
+ * This file defines the narrow surfaces that connect a Liumir conversation to
  * tool execution, phase hooks, and turn results. Host-layer metadata, policy,
  * archival limits, and UI concerns stay outside these contracts.
  *
- * Field naming is camelCase unless a reused Ltod type says otherwise.
+ * Field naming is camelCase unless a reused Liumir type says otherwise.
  * Optional fields use `?: T | undefined` intentionally under
  * `exactOptionalPropertyTypes: true`.
  */
 
-import type { ContentPart, Message, TokenUsage, Tool, ToolCall } from '@lmcode-cli/ltod';
+import type { ContentPart, Message, TokenUsage, Tool, ToolCall } from '@lmcode-cli/liumir';
 
 import type { ToolInputDisplay } from '../tools/display';
 import type { ToolAccesses } from './tool-access';

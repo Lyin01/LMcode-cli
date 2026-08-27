@@ -4,10 +4,10 @@ import {
   type ModelCapability,
   type StreamedMessagePart,
   type ToolCall,
-} from '@lmcode-cli/ltod';
+} from '@lmcode-cli/liumir';
 import { describe, expect, it } from 'vitest';
 
-import { LtodLLM, type GenerateFn } from '../../src/agent/turn/ltod-llm';
+import { LiumirLLM, type GenerateFn } from '../../src/agent/turn/liumir-llm';
 import type { ToolCallDelta } from '../../src/loop';
 
 const provider: ChatProvider = {
@@ -22,7 +22,7 @@ const provider: ChatProvider = {
   },
 };
 
-describe('LtodLLM streaming tool-call deltas', () => {
+describe('LiumirLLM streaming tool-call deltas', () => {
   it('maps indexed argument deltas back to the provider tool call id', async () => {
     const deltas = await collectToolCallDeltas([
       {
@@ -84,7 +84,7 @@ describe('LtodLLM streaming tool-call deltas', () => {
   });
 });
 
-describe('LtodLLM stream timing', () => {
+describe('LiumirLLM stream timing', () => {
   it('returns timing measured from provider request start to stream end', async () => {
     const generate: GenerateFn = async (
       _provider,
@@ -109,7 +109,7 @@ describe('LtodLLM stream timing', () => {
         rawFinishReason: 'stop',
       };
     };
-    const llm = new LtodLLM({
+    const llm = new LiumirLLM({
       provider,
       modelName: 'test-model',
       systemPrompt: 'system',
@@ -131,7 +131,7 @@ describe('LtodLLM stream timing', () => {
   });
 });
 
-describe('LtodLLM completion budget', () => {
+describe('LiumirLLM completion budget', () => {
   it('applies the model context window as the completion cap', async () => {
     let appliedCap: number | undefined;
     let generatedProvider: ChatProvider | undefined;
@@ -152,7 +152,7 @@ describe('LtodLLM completion budget', () => {
         rawFinishReason: 'stop',
       };
     };
-    const llm = new LtodLLM({
+    const llm = new LiumirLLM({
       provider: providerWithBudget,
       modelName: 'test-model',
       systemPrompt: 'system',
@@ -194,7 +194,7 @@ async function collectToolCallDeltas(
       rawFinishReason: 'tool_calls',
     };
   };
-  const llm = new LtodLLM({
+  const llm = new LiumirLLM({
     provider,
     modelName: 'test-model',
     systemPrompt: 'system',

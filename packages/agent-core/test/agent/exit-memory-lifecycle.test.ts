@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import type { GenerateResult } from '@lmcode-cli/ltod';
+import type { GenerateResult } from '@lmcode-cli/liumir';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentOptions } from '../../src/agent';

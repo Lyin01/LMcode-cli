@@ -1,4 +1,4 @@
-import { grandTotal, type TokenUsage } from '@lmcode-cli/ltod';
+import { grandTotal, type TokenUsage } from '@lmcode-cli/liumir';
 import { z } from 'zod';
 
 import type { Agent } from '../../../agent';

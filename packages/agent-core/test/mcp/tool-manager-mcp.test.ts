@@ -1,4 +1,4 @@
-import type { ContentPart, Tool } from '@lmcode-cli/ltod';
+import type { ContentPart, Tool } from '@lmcode-cli/liumir';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Agent } from '../../src/agent';
@@ -58,7 +58,7 @@ function fakeClient(): MCPClient {
 }
 
 // Mirrors `connection-manager.connectAndDiscoverTools` — projects an MCP
-// client's `listTools()` output into the ltod `Tool` shape that
+// client's `listTools()` output into the liumir `Tool` shape that
 // `ToolManager.registerMcpServer` expects. Tests can hand the same client into
 // `registerMcpServer` so the wrapped `execute` flow hits a real `callTool`.
 async function discoverTools(client: MCPClient): Promise<Tool[]> {

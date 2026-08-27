@@ -4,7 +4,7 @@ import type {
   ShellEnvironment,
 } from '@lmcode-cli/agent-core';
 import type { LmcodeHostIdentity } from '@lmcode-cli/config';
-import type { ContentPart } from '@lmcode-cli/ltod';
+import type { ContentPart } from '@lmcode-cli/liumir';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -51,7 +51,7 @@ export type {
 } from '@lmcode-cli/agent-core';
 
 export type { LmcodeHostIdentity } from '@lmcode-cli/config';
-export type { ContentPart, Role, ToolCall } from '@lmcode-cli/ltod';
+export type { ContentPart, Role, ToolCall } from '@lmcode-cli/liumir';
 
 export type PermissionMode = 'yolo' | 'manual' | 'auto';
 
