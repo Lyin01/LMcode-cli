@@ -129,3 +129,27 @@ export function normalizeOpenPathTarget(raw: unknown): string | null {
   if (isUnsafeRemoteOrUncPath(target)) return null
   return isAbsoluteOpenPath(target) ? target : null
 }
+
+/**
+ * Folder-picker `defaultPath`. Relative names and UNC/remote paths would
+ * otherwise leak into ShellExecute / NTLM; fall back to `fallback`.
+ */
+export function safeDirectoryDialogPath(input: string | undefined, fallback: string): string {
+  const trimmed = input?.trim() ?? ''
+  if (!trimmed) return fallback
+  return normalizeOpenPathTarget(trimmed) ?? fallback
+}
+
+/**
+ * Save-dialog suggested name. Keep only the basename so a renderer-supplied
+ * UNC or absolute path cannot become `defaultPath`.
+ */
+export function safeSaveFileName(suggestedName: string): string {
+  const trimmed = suggestedName.trim()
+  if (!trimmed || trimmed.includes('\0') || isUnsafeRemoteOrUncPath(trimmed)) {
+    return 'export.txt'
+  }
+  const base = (trimmed.split(/[\\/]/).pop() ?? '').trim()
+  if (!base || base === '.' || base === '..') return 'export.txt'
+  return base
+}

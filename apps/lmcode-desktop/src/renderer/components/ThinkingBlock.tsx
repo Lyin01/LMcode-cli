@@ -23,7 +23,7 @@ export function ThinkingBlock({ content = '', state = 'complete' }: ThinkingBloc
 
   if (state === 'hidden') return null
 
-  const charCount = Array.from(content).length
+  const charCount = content.length
   const formatChars = (count: number): string =>
     count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count)
 

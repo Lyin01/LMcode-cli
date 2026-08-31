@@ -38,6 +38,17 @@ function thinkingDelta(delta: string, turnId = 1): Event {
   return { type: 'thinking.delta', turnId, delta, agentId: 'main', sessionId: 'session-a' }
 }
 
+function toolDelta(argumentsPart: string, toolCallId = 'tool-1', turnId = 1): Event {
+  return {
+    type: 'tool.call.delta',
+    turnId,
+    toolCallId,
+    argumentsPart,
+    agentId: 'main',
+    sessionId: 'session-a',
+  }
+}
+
 describe('session event batcher', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -95,6 +106,38 @@ describe('session event batcher', () => {
       ['session-a', 'assistant.delta', 1, 'B'],
       ['session-a', 'assistant.delta', 2, 'C'],
       ['session-b', 'assistant.delta', 1, 'D'],
+    ])
+  })
+
+  it('adjacent tool argument fragments coalesce into one argumentsPart', () => {
+    const scheduler = manualScheduler()
+    const dispatched: Event[] = []
+    const batcher = createSessionEventBatcher((_sessionId, event) => dispatched.push(event), scheduler)
+
+    batcher.push('session-a', toolDelta('{"path":'))
+    batcher.push('session-a', toolDelta('"src/a.ts"}'))
+    scheduler.runAll()
+
+    expect(dispatched).toHaveLength(1)
+    expect(dispatched[0]).toMatchObject({
+      type: 'tool.call.delta',
+      toolCallId: 'tool-1',
+      argumentsPart: '{"path":"src/a.ts"}',
+    })
+  })
+
+  it('does not merge tool argument streams from different toolCallIds', () => {
+    const scheduler = manualScheduler()
+    const dispatched: Event[] = []
+    const batcher = createSessionEventBatcher((_sessionId, event) => dispatched.push(event), scheduler)
+
+    batcher.push('session-a', toolDelta('A', 'tool-1'))
+    batcher.push('session-a', toolDelta('B', 'tool-2'))
+    scheduler.runAll()
+
+    expect(dispatched.map((event) => (event as { argumentsPart?: string }).argumentsPart)).toEqual([
+      'A',
+      'B',
     ])
   })
 

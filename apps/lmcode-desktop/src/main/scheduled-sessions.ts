@@ -2,6 +2,21 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import type { SessionSummary } from '@lmcode-cli/lmcode-sdk'
 
+function interruptibleSleep(ms: number, isClosing: () => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + ms
+    const tick = (): void => {
+      if (isClosing() || Date.now() >= deadline) {
+        resolve()
+        return
+      }
+      const timer = setTimeout(tick, Math.min(50, deadline - Date.now()))
+      timer.unref()
+    }
+    tick()
+  })
+}
+
 async function hasPersistedCronJob(session: SessionSummary): Promise<boolean> {
   try {
     const entries = await fs.readdir(path.join(session.sessionDir, 'cron'), {
@@ -46,9 +61,7 @@ export async function resumeScheduledSessions(input: {
   readonly logWarn?: (message: string, error: unknown) => void
 }): Promise<void> {
   const delays = input.retryDelaysMs ?? [0, 1_000, 4_000]
-  const sleep = input.sleep ?? ((ms: number) => new Promise<void>((resolve) => {
-    setTimeout(resolve, ms)
-  }))
+  const sleep = input.sleep ?? ((ms: number) => interruptibleSleep(ms, input.isClosing))
   let lastError: unknown
   for (const delay of delays) {
     if (input.isClosing()) return

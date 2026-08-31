@@ -84,6 +84,7 @@ export interface ArtifactsStore {
   removeComment: (artifactId: string, commentId: string) => void
   openPanel: (artifactId: string) => void
   closePanel: () => void
+  removeBySession: (sessionId: string) => void
 }
 
 export const useArtifactsStore = create<ArtifactsStore>((set, get) => ({
@@ -160,6 +161,18 @@ export const useArtifactsStore = create<ArtifactsStore>((set, get) => ({
   openPanel: (artifactId) => set({ panelArtifactId: artifactId }),
 
   closePanel: () => set({ panelArtifactId: null }),
+
+  removeBySession: (sessionId) =>
+    set((state) => {
+      const artifacts = state.artifacts.filter((artifact) => artifact.sessionId !== sessionId)
+      const panelOpen =
+        state.panelArtifactId !== null &&
+        artifacts.some((artifact) => artifact.id === state.panelArtifactId)
+      return {
+        artifacts,
+        panelArtifactId: panelOpen ? state.panelArtifactId : null,
+      }
+    }),
 }))
 
 /** 聊天流工具卡片用：该工具调用是否产出了可审阅文档。 */

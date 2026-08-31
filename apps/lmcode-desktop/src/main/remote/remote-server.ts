@@ -17,8 +17,21 @@ const MAX_PENDING_AUTH = 8
 const AUTH_TIMEOUT_MS = 10_000
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
+/** Auth frames are a tiny JSON object; reject oversized pre-auth dumps. */
+const AUTH_MAX_PAYLOAD_BYTES = 4_096
 const FAILED_AUTH_WINDOW_MS = 60_000
 const FAILED_AUTH_LIMIT = 10
+const CLOSE_DRAIN_MS = 1_500
+
+function rawPayloadBytes(data: Buffer | ArrayBuffer | Buffer[]): number {
+  if (Buffer.isBuffer(data)) return data.byteLength
+  if (Array.isArray(data)) {
+    let total = 0
+    for (const chunk of data) total += chunk.byteLength
+    return total
+  }
+  return data.byteLength
+}
 
 export interface RemoteServerOptions {
   readonly bridge: RemoteBridge
@@ -108,10 +121,15 @@ export class RemoteServer {
         },
       }
 
-      socket.on('message', (data: Buffer) => {
+      socket.on('message', (data: Buffer | ArrayBuffer | Buffer[]) => {
+        if (!authenticated && rawPayloadBytes(data) > AUTH_MAX_PAYLOAD_BYTES) {
+          socket.close(1009, 'auth payload too large')
+          return
+        }
         this.handleMessage(socket, data, {
           isAuthenticated: () => authenticated,
           markAuthenticated: (): void => {
+            if (socket.readyState !== WebSocket.OPEN || !this.sockets.has(socket)) return
             authenticated = true
             if (!this.connections.has(socket)) {
               this.connections.set(socket, connection)
@@ -169,17 +187,28 @@ export class RemoteServer {
 
   async close(): Promise<void> {
     this.closed = true
-    if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
-    this.disconnectAll(1001, 'server shutting down')
+    if (this.heartbeatTimer !== undefined) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = undefined
+    }
+    this.disconnectAll(1001, 'server shutting down', true)
+    if (typeof this.httpServer.closeAllConnections === 'function') {
+      this.httpServer.closeAllConnections()
+    }
     await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, CLOSE_DRAIN_MS)
+      timer.unref()
       this.wss.close(() => {
-        this.httpServer.close(() => resolve())
+        this.httpServer.close(() => {
+          clearTimeout(timer)
+          resolve()
+        })
       })
     })
   }
 
   /** Drop every socket (authenticated or not). Used when rotating the pairing token. */
-  disconnectAll(code: number, reason: string): void {
+  disconnectAll(code: number, reason: string, terminate = false): void {
     for (const timer of this.authTimers.values()) clearTimeout(timer)
     this.authTimers.clear()
     for (const [socket, connection] of this.connections) {
@@ -187,6 +216,10 @@ export class RemoteServer {
       this.connections.delete(socket)
     }
     for (const socket of this.sockets) {
+      if (terminate) {
+        socket.terminate()
+        continue
+      }
       if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
         socket.close(code, reason)
       }
@@ -218,7 +251,7 @@ export class RemoteServer {
 
   private handleMessage(
     socket: WebSocket,
-    data: Buffer,
+    data: Buffer | ArrayBuffer | Buffer[],
     state: {
       readonly isAuthenticated: () => boolean
       readonly markAuthenticated: () => void
@@ -226,7 +259,12 @@ export class RemoteServer {
   ): void {
     let message: RemoteClientMessage
     try {
-      message = JSON.parse(data.toString('utf8')) as RemoteClientMessage
+      const raw = Buffer.isBuffer(data)
+        ? data
+        : Array.isArray(data)
+          ? Buffer.concat(data)
+          : Buffer.from(data)
+      message = JSON.parse(raw.toString('utf8')) as RemoteClientMessage
     } catch {
       socket.close(1007, 'invalid JSON')
       return

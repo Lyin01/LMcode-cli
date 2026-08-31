@@ -52,6 +52,7 @@ export function runTaskkill(
   pid: number,
   force: boolean,
   spawnProcess: typeof spawn = spawn,
+  timeoutMs = 1_500,
 ): Promise<boolean> {
   return new Promise((resolve) => {
     // Resolve taskkill.exe from SystemRoot instead of relying on PATH: some
@@ -64,16 +65,28 @@ export function runTaskkill(
     const args = ['/PID', String(pid), '/T']
     if (force) args.push('/F')
     let settled = false
+    let killer: ReturnType<typeof spawn> | undefined
     const settle = (result: boolean): void => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       resolve(result)
     }
-    const killer = spawnProcess(taskkillPath, args, {
+    const timer = setTimeout(() => {
+      try {
+        killer?.kill()
+      } catch {
+        // The helper may already have exited.
+      }
+      settle(false)
+    }, Math.max(1, timeoutMs))
+    timer.unref()
+    killer = spawnProcess(taskkillPath, args, {
       shell: false,
       stdio: 'ignore',
       windowsHide: true,
     })
+    killer.unref?.()
     killer.once('error', () => settle(false))
     killer.once('close', (code) => settle(code === 0))
   })
@@ -88,7 +101,12 @@ async function signalProcessTree(
 
   if (options.platform === 'win32') {
     if (typeof child.pid !== 'number') return false
-    const killed = await runTaskkill(child.pid, force, options.spawnProcess)
+    const killed = await runTaskkill(
+      child.pid,
+      force,
+      options.spawnProcess,
+      force ? options.forceTimeoutMs : options.gracefulTimeoutMs,
+    )
     // When taskkill is blocked by system policy, fall back to a direct
     // SIGKILL on the shell child so at least the parent cannot linger; the
     // awaited close below then surfaces any leftover descendants as an error

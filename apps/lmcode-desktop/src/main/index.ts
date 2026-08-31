@@ -73,6 +73,7 @@ let mainWindow: BrowserWindow | null = null
 let harness: LmcodeHarness | null = null
 let tray: Tray | null = null
 let isQuitting = false
+let launchUpdateTimer: NodeJS.Timeout | null = null
 let trustedRendererUrl: string | null = null
 let handlerRegistration: DesktopHandlerRegistration | null = null
 let handlerCleanup: Promise<void> | null = null
@@ -687,6 +688,10 @@ const closeRuntime = onceAsync(async (options?: HarnessCloseOptions): Promise<vo
 
 async function cleanupApplication(): Promise<void> {
   const errors: unknown[] = []
+  if (launchUpdateTimer !== null) {
+    clearTimeout(launchUpdateTimer)
+    launchUpdateTimer = null
+  }
   try {
     unregisterMenuStateListener()
   } catch (error) {
@@ -756,7 +761,12 @@ if (!gotSingleInstanceLock) {
     setupAutoUpdater()
     // Silent background check a few seconds after launch (only speaks up if a
     // newer release exists). Dedicated repo → no false positives from the CLI.
-    setTimeout(() => void checkForUpdates(false), 5000)
+    launchUpdateTimer = setTimeout(() => {
+      launchUpdateTimer = null
+      if (isQuitting) return
+      void checkForUpdates(false)
+    }, 5000)
+    launchUpdateTimer.unref()
   }).catch((error: unknown) => {
     log.error('desktop initialization failed', error)
     app.quit()

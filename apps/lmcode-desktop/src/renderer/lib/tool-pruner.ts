@@ -70,10 +70,24 @@ export function pruneToolOutput(
   const threshold = config.thresholdChars ?? DEFAULT_PRUNE_CONFIG.thresholdChars
   const headBudget = config.headChars ?? DEFAULT_PRUNE_CONFIG.headChars
   const tailBudget = config.tailChars ?? DEFAULT_PRUNE_CONFIG.tailChars
+  const totalLines = rawContent.split('\n').length
+
+  // UTF-16 length is always >= code-point length. If even that larger
+  // measure is under budget, skip allocating a code-point array for the
+  // common (unpruned) path.
+  if (rawContent.length <= threshold) {
+    return {
+      isPruned: false,
+      displayContent: rawContent,
+      rawContent,
+      totalChars: codePointLength(rawContent),
+      prunedChars: 0,
+      totalLines,
+    }
+  }
 
   const points = Array.from(rawContent)
   const totalChars = points.length
-  const totalLines = rawContent.split('\n').length
 
   if (totalChars <= threshold) {
     return {

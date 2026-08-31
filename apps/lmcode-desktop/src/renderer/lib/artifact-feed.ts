@@ -59,9 +59,20 @@ function commitArtifact(
  * report 先按 toolCallId 暂存，等 Write 成功（tool.result 非错误）才落库，
  * 避免审批拒绝/写失败产生幽灵文档。
  */
-export function startArtifactFeed(deps: ArtifactFeedDeps): () => void {
-  const pendingReports = new Map<string, ArtifactDetection>()
+const pendingReports = new Map<string, ArtifactDetection>()
 
+function pendingReportKey(sessionId: string, toolCallId: string): string {
+  return `${sessionId}\0${toolCallId}`
+}
+
+export function forgetPendingArtifactReports(sessionId: string): void {
+  const prefix = `${sessionId}\0`
+  for (const key of pendingReports.keys()) {
+    if (key.startsWith(prefix)) pendingReports.delete(key)
+  }
+}
+
+export function startArtifactFeed(deps: ArtifactFeedDeps): () => void {
   return deps.subscribeSessionEvents(({ sessionId, event }) => {
     if (event.type === 'tool.call.started') {
       const detection = detectArtifactStart(event)
@@ -69,14 +80,15 @@ export function startArtifactFeed(deps: ArtifactFeedDeps): () => void {
       if (detection.kind === 'plan') {
         commitArtifact(deps, sessionId, detection)
       } else {
-        pendingReports.set(detection.toolCallId, detection)
+        pendingReports.set(pendingReportKey(sessionId, detection.toolCallId), detection)
       }
       return
     }
     if (event.type === 'tool.result') {
-      const detection = pendingReports.get(event.toolCallId)
+      const key = pendingReportKey(sessionId, event.toolCallId)
+      const detection = pendingReports.get(key)
       if (detection === undefined) return
-      pendingReports.delete(event.toolCallId)
+      pendingReports.delete(key)
       if (event.isError === true) return
       commitArtifact(deps, sessionId, detection)
     }

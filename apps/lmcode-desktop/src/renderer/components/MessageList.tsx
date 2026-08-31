@@ -23,6 +23,7 @@ export function MessageList({ findRequest }: MessageListProps) {
   )
   const isStreaming = useSessionStore((s) => s.isStreaming)
   const setMessagesForSession = useSessionStore((s) => s.setMessagesForSession)
+  const addMessageToSession = useSessionStore((s) => s.addMessageToSession)
   const enqueueMessage = useSessionStore((s) => s.enqueueMessage)
   const scrollRef = useRef<HTMLDivElement>(null)
   const findInputRef = useRef<HTMLInputElement>(null)
@@ -154,30 +155,63 @@ export function MessageList({ findRequest }: MessageListProps) {
     return null
   }, [messages])
 
-  const lastUserText = useMemo(() => {
+  const lastUser = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
-      if (m && m.role === 'user' && m.content?.trim()) return m.content
+      if (m && m.role === 'user') return m
     }
-    return ''
+    return null
   }, [messages])
+  const lastUserText = lastUser?.content ?? ''
+  const lastUserAttachments = lastUser?.attachments
+  const canRegenerate =
+    Boolean(lastUser) &&
+    (lastUserText.trim().length > 0 || (lastUserAttachments?.length ?? 0) > 0)
 
   const handleRegenerate = useCallback(async () => {
-    if (!currentSessionId || isStreaming) return
+    if (!currentSessionId || isStreaming || !canRegenerate) return
     const text = lastUserText
-    if (!text.trim()) return
+    const attachments = lastUserAttachments ?? []
+    const showError = (message: string): void => {
+      addMessageToSession(currentSessionId, {
+        id: `msg_regen_err_${Date.now()}`,
+        role: 'system',
+        variant: 'error',
+        content: message,
+        timestamp: Date.now(),
+      })
+    }
     try {
-      // Undo the last assistant turn, refresh the transcript from disk, then
-      // re-queue the same user message — the message queue drain ships it once
-      // the session is idle, mirroring the /revoke flow.
+      // Undo the last assistant turn first. If the history refresh fails after
+      // that, the turn is already gone — tell the user instead of leaving a
+      // silent half-revoke.
       await window.lmcodeAPI.undoHistory(currentSessionId, 1)
-      const history = await window.lmcodeAPI.getSessionHistory(currentSessionId)
-      setMessagesForSession(currentSessionId, historyToMessages(history))
-      enqueueMessage(currentSessionId, text)
     } catch (err) {
       console.error('Failed to regenerate:', err)
+      showError(`重新生成失败：${err instanceof Error ? err.message : String(err)}`)
+      return
     }
-  }, [currentSessionId, enqueueMessage, isStreaming, lastUserText, setMessagesForSession])
+    try {
+      const history = await window.lmcodeAPI.getSessionHistory(currentSessionId)
+      setMessagesForSession(currentSessionId, historyToMessages(history))
+    } catch (err) {
+      console.error('Failed to refresh history after regenerate undo:', err)
+      showError(
+        `已撤销上一轮，但刷新对话失败：${err instanceof Error ? err.message : String(err)}`,
+      )
+      return
+    }
+    enqueueMessage(currentSessionId, text, attachments)
+  }, [
+    addMessageToSession,
+    canRegenerate,
+    currentSessionId,
+    enqueueMessage,
+    isStreaming,
+    lastUserAttachments,
+    lastUserText,
+    setMessagesForSession,
+  ])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -257,7 +291,7 @@ export function MessageList({ findRequest }: MessageListProps) {
                 workDir={currentWorkDir}
                 isStreaming={isStreaming && msg.id === lastAssistantId}
                 onRegenerate={
-                  msg.id === lastAssistantId && !isStreaming && lastUserText.trim()
+                  msg.id === lastAssistantId && !isStreaming && canRegenerate
                     ? handleRegenerate
                     : undefined
                 }

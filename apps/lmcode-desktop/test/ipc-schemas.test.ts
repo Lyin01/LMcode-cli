@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  activateSkillArgsSchema,
   createCronJobArgsSchema,
   createSessionArgsSchema,
   compactSessionArgsSchema,
@@ -8,8 +9,11 @@ import {
   openPathArgsSchema,
   parseIpcArgs,
   promptArgsSchema,
+  searchMemoriesArgsSchema,
+  sessionNamedArgsSchema,
   setAllGitFilesStagedArgsSchema,
   setPermissionArgsSchema,
+  setRemotePortArgsSchema,
   undoHistoryArgsSchema,
 } from '../src/shared/ipc-schemas'
 
@@ -98,6 +102,38 @@ describe('IPC argument schemas (wire boundary contract)', () => {
     expect(() =>
       parseIpcArgs(undoHistoryArgsSchema, ['session-1', 0], 'lmcode:undoHistory'),
     ).toThrow(/Invalid IPC arguments/)
+  })
+
+  it('accepts activateSkill with or without optional args', () => {
+    expect(
+      parseIpcArgs(activateSkillArgsSchema, ['session-1', 'dream'], 'lmcode:activateSkill'),
+    ).toEqual(['session-1', 'dream'])
+    expect(
+      parseIpcArgs(
+        activateSkillArgsSchema,
+        ['session-1', 'dream', 'focus on tags'],
+        'lmcode:activateSkill',
+      ),
+    ).toEqual(['session-1', 'dream', 'focus on tags'])
+    expect(() =>
+      parseIpcArgs(activateSkillArgsSchema, ['session-1', '  '], 'lmcode:activateSkill'),
+    ).toThrow(/Invalid IPC arguments/)
+  })
+
+  it('rejects a blank MCP/skill name and an oversized memory search', () => {
+    expect(() =>
+      parseIpcArgs(sessionNamedArgsSchema, ['session-1', '  '], 'lmcode:stopMcpServer'),
+    ).toThrow(/Invalid IPC arguments/)
+    expect(() =>
+      parseIpcArgs(searchMemoriesArgsSchema, ['x'.repeat(4_001)], 'lmcode:searchMemories'),
+    ).toThrow(/Invalid IPC arguments/)
+  })
+
+  it('rejects a remote port outside the allowed range', () => {
+    expect(parseIpcArgs(setRemotePortArgsSchema, [37_991], 'lmcode:setRemotePort')).toEqual([37_991])
+    expect(() => parseIpcArgs(setRemotePortArgsSchema, [80], 'lmcode:setRemotePort')).toThrow(
+      /Invalid IPC arguments/,
+    )
   })
 
   it('requires openPath and openExternal to receive a string', () => {

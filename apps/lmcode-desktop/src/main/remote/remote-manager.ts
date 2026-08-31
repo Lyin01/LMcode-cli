@@ -51,6 +51,7 @@ export class RemoteManager {
   private readonly configPath: string
   private bridge: RemoteBridge | undefined
   private server: RemoteServer | undefined
+  private starting: Promise<void> | undefined
   private hostReleaseSession: ((sessionId: string) => Promise<void>) | undefined
 
   constructor(private readonly options: RemoteManagerOptions) {
@@ -177,6 +178,21 @@ export class RemoteManager {
   // ── Internals ─────────────────────────────────────────────────────
 
   private async startServer(): Promise<void> {
+    if (this.server !== undefined) return
+    if (this.starting !== undefined) {
+      await this.starting
+      if (this.server !== undefined) return
+    }
+    const run = this.openServer()
+    this.starting = run
+    try {
+      await run
+    } finally {
+      if (this.starting === run) this.starting = undefined
+    }
+  }
+
+  private async openServer(): Promise<void> {
     if (this.server !== undefined) return
     const bridge = new RemoteBridge(
       this.options.harness,

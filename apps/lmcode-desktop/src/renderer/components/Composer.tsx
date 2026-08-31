@@ -9,7 +9,7 @@ import {
   Square,
   X,
 } from 'lucide-react'
-import { useSessionStore } from '@/stores/session-store'
+import { isQueueDrainPaused, useSessionStore } from '@/stores/session-store'
 import { useSession } from '@/hooks/useSession'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
@@ -655,7 +655,11 @@ export function Composer({
           <div className="flex items-center gap-1.5 border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium text-[var(--lm-text-muted)]">
             <ArrowDown size={11} />
             待发送队列 · {queuedMessages.length}
-            <span className="ml-auto font-normal">回合结束后自动发送</span>
+            <span className="ml-auto font-normal">
+              {currentSessionId && isQueueDrainPaused(currentSessionId)
+                ? '已停止，发送或再排队后继续'
+                : '回合结束后自动发送'}
+            </span>
           </div>
           <div className="max-h-32 overflow-y-auto">
             {queuedMessages.map((message, index) => (

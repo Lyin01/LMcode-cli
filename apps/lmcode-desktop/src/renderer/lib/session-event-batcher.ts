@@ -1,4 +1,9 @@
-import type { AssistantDeltaEvent, Event, ThinkingDeltaEvent } from '@lmcode-cli/lmcode-sdk'
+import type {
+  AssistantDeltaEvent,
+  Event,
+  ThinkingDeltaEvent,
+  ToolCallDeltaEvent,
+} from '@lmcode-cli/lmcode-sdk'
 
 /**
  * Batching window for streaming text. One store publication per window instead
@@ -8,16 +13,20 @@ import type { AssistantDeltaEvent, Event, ThinkingDeltaEvent } from '@lmcode-cli
  */
 const BATCH_WINDOW_MS = 16
 
-type DeltaEvent = Event & (AssistantDeltaEvent | ThinkingDeltaEvent)
+type TextDeltaEvent = Event & (AssistantDeltaEvent | ThinkingDeltaEvent)
+type BatchableEvent = TextDeltaEvent | (Event & ToolCallDeltaEvent)
+type BatchField = 'delta' | 'argumentsPart'
 
 /**
  * One ordered run of adjacent deltas sharing the same session, event type,
- * main-agent identity, and turn. Chunks are joined exactly once, at flush.
+ * main-agent identity, and turn (and toolCallId for tool argument streams).
+ * Chunks are joined exactly once, at flush.
  */
 interface PendingSegment {
   readonly key: string
   readonly sessionId: string
-  event: DeltaEvent
+  readonly field: BatchField
+  event: BatchableEvent
   readonly chunks: string[]
 }
 
@@ -61,21 +70,42 @@ function identityPart(value: string | number | null | undefined): string {
  * is a constant; turn/session/type differences always start a new segment,
  * which keeps interleaved streams (`t1:A → t2:B → t1:C`) in arrival order.
  */
-function segmentKey(sessionId: string, event: DeltaEvent): string {
-  return [identityPart(sessionId), event.type, 'main', identityPart(event.turnId)].join('\u0000')
+function segmentKey(sessionId: string, event: BatchableEvent): string {
+  const parts = [identityPart(sessionId), event.type, 'main', identityPart(event.turnId)]
+  if (event.type === 'tool.call.delta') parts.push(identityPart(event.toolCallId))
+  return parts.join('\u0000')
+}
+
+function isMainAgent(event: Event): boolean {
+  const agentId = event.agentId as string | null | undefined
+  return agentId === undefined || agentId === 'main'
 }
 
 /**
- * Batchable events are main-agent text deltas. Events without an agentId
- * (older main processes) are treated as main, matching the store's filter;
- * `null` and sub-agent ids are NOT — they pass through unbatched as segment
- * barriers so their data can never be merged into the main stream.
+ * Batchable events are main-agent text deltas and tool-argument fragments.
+ * Events without an agentId (older main processes) are treated as main,
+ * matching the store's filter; `null` and sub-agent ids are NOT — they pass
+ * through unbatched as segment barriers so their data can never be merged
+ * into the main stream.
  */
-function isBatchable(event: Event): event is DeltaEvent {
-  if (event.type !== 'assistant.delta' && event.type !== 'thinking.delta') return false
-  if (typeof (event as DeltaEvent).delta !== 'string') return false
-  const agentId = event.agentId as string | null | undefined
-  return agentId === undefined || agentId === 'main'
+function isBatchable(event: Event): event is BatchableEvent {
+  if (!isMainAgent(event)) return false
+  if (event.type === 'assistant.delta' || event.type === 'thinking.delta') {
+    return typeof (event as TextDeltaEvent).delta === 'string'
+  }
+  if (event.type === 'tool.call.delta') {
+    return typeof (event as ToolCallDeltaEvent).argumentsPart === 'string'
+  }
+  return false
+}
+
+function chunkOf(event: BatchableEvent): string {
+  if (event.type === 'tool.call.delta') return event.argumentsPart ?? ''
+  return event.delta
+}
+
+function fieldOf(event: BatchableEvent): BatchField {
+  return event.type === 'tool.call.delta' ? 'argumentsPart' : 'delta'
 }
 
 /**
@@ -99,7 +129,10 @@ export function createSessionEventBatcher(
     if (pending.length === 0) return 0
     const segments = pending.splice(0, pending.length)
     for (const segment of segments) {
-      dispatch(segment.sessionId, { ...segment.event, delta: segment.chunks.join('') })
+      dispatch(segment.sessionId, {
+        ...segment.event,
+        [segment.field]: segment.chunks.join(''),
+      } as BatchableEvent)
     }
     return segments.length
   }
@@ -141,11 +174,18 @@ export function createSessionEventBatcher(
 
     const key = segmentKey(sessionId, event)
     const current = pending.at(-1)
+    const chunk = chunkOf(event)
     if (current?.key === key) {
       current.event = { ...event }
-      current.chunks.push(event.delta)
+      current.chunks.push(chunk)
     } else {
-      pending.push({ key, sessionId, event: { ...event }, chunks: [event.delta] })
+      pending.push({
+        key,
+        sessionId,
+        field: fieldOf(event),
+        event: { ...event },
+        chunks: [chunk],
+      })
     }
     scheduleFlush()
   }

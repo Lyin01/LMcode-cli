@@ -23,10 +23,12 @@ import { buildModelEntries } from '@/lib/models'
 import { createDesktopPromptRequest } from '@/lib/prompt-request'
 import { clearComposerDraft } from '@/lib/composer-drafts'
 import { mergeHydratedHistory } from '@/lib/history'
+import { forgetPendingArtifactReports } from '@/lib/artifact-feed'
 import { useConfigStore } from '@/stores/config-store'
 import { useTaskStore } from '@/stores/task-store'
 import { useSubagentStore } from '@/stores/subagent-store'
 import { useGoalStore } from '@/stores/goal-store'
+import { useArtifactsStore } from '@/stores/artifacts-store'
 import type {
   Event,
   TurnEndedEvent,
@@ -637,6 +639,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   removeDeletedSession: (deletedId, remaining) => {
     pausedQueueSessions.delete(deletedId)
     sessionSendInFlight.delete(deletedId)
+    lastTurnEndReasons.delete(deletedId)
     forgottenSessions.add(deletedId)
     set((state) => {
       const bg = { ...state.bg }
@@ -699,6 +702,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     useTaskStore.getState().removeBySession(deletedId)
     useSubagentStore.getState().removeBySession(deletedId)
     useGoalStore.getState().removeBySession(deletedId)
+    useArtifactsStore.getState().removeBySession(deletedId)
+    forgetPendingArtifactReports(deletedId)
     clearComposerDraft(deletedId)
   },
 
@@ -795,6 +800,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       get().adoptSession(summary)
     } catch (err) {
       console.error('Failed to create session:', err)
+      throw err
     }
   },
 
@@ -876,6 +882,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   addMessageToSession: (sessionId, msg, options) =>
     set((state) => {
+      if (state.sessions.some((session) => session.id === sessionId)) {
+        forgottenSessions.delete(sessionId)
+      }
+      if (forgottenSessions.has(sessionId)) return state
       if (state.currentSessionId === sessionId) {
         return { messages: [...state.messages, msg] }
       }
@@ -896,6 +906,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   setMessagesForSession: (sessionId, msgs) =>
     set((state) => {
+      if (state.sessions.some((session) => session.id === sessionId)) {
+        forgottenSessions.delete(sessionId)
+      }
+      if (forgottenSessions.has(sessionId)) return state
       if (state.currentSessionId === sessionId) return { messages: msgs }
       const previous = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
       return {
@@ -969,18 +983,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (ended.reason === 'cancelled') pausedQueueSessions.add(sessionId)
     }
 
-    // Activity drives sidebar ordering. Keep it live instead of waiting for a
-    // full listSessions refresh, which may not happen again until restart.
-    if (event.type === 'turn.started' || event.type === 'turn.ended') {
-      const isStreaming = event.type === 'turn.started'
-      const updatedAt = Date.now()
-      set((state) => ({
-        sessions: state.sessions.map((session) =>
-          session.id === sessionId ? { ...session, updatedAt, isStreaming } : session,
-        ),
-      }))
-    }
-
     // ── Session-scoped status/meta: update the sessions list (and the active
     // scalars when it's the in-view session), regardless of which tab is open.
     if (event.type === 'agent.status.updated') {
@@ -1010,26 +1012,67 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return
     }
 
-    // ── Streaming content events: route to the in-view slice or the session's
-    // background buffer so off-screen tasks keep building up their reply.
-    const state = get()
-    if (sessionId === state.currentSessionId) {
-      const next = reduceMessageEvent(
-        { messages: state.messages, isStreaming: state.isStreaming, streamStatus: state.streamStatus },
-        event,
-      )
-      set({ messages: next.messages, isStreaming: next.isStreaming, streamStatus: next.streamStatus })
-    } else {
+    // Activity (sidebar ordering) and transcript reduce used to be two `set`
+    // calls on turn start/end, and unhandled session-level events (compaction,
+    // MCP status, background-task ticks) still published an identical slice.
+    // One reducer keeps React from double-rendering and lets the queue drain
+    // skip no-op publications.
+    const isTurnBoundary = event.type === 'turn.started' || event.type === 'turn.ended'
+    const listedStreaming = event.type === 'turn.started'
+
+    set((state) => {
+      const sessions = isTurnBoundary
+        ? state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, updatedAt: Date.now(), isStreaming: listedStreaming }
+              : session,
+          )
+        : state.sessions
+
+      if (sessionId === state.currentSessionId) {
+        const next = reduceMessageEvent(
+          {
+            messages: state.messages,
+            isStreaming: state.isStreaming,
+            streamStatus: state.streamStatus,
+          },
+          event,
+        )
+        if (
+          !isTurnBoundary &&
+          next.messages === state.messages &&
+          next.isStreaming === state.isStreaming &&
+          next.streamStatus === state.streamStatus
+        ) {
+          return state
+        }
+        return {
+          sessions,
+          messages: next.messages,
+          isStreaming: next.isStreaming,
+          streamStatus: next.streamStatus,
+        }
+      }
+
       const listed = state.sessions.some((session) => session.id === sessionId)
       // Deleted ids stay dropped. Unknown ids (cron resume before the session
       // list hydrates) park in the background slice instead of vanishing.
-      if (!listed && forgottenSessions.has(sessionId)) return
+      if (!listed && forgottenSessions.has(sessionId)) {
+        return isTurnBoundary ? { sessions } : state
+      }
       const prev = state.bg[sessionId] ?? EMPTY_BACKGROUND_SLICE
       const next = reduceMessageEvent(prev, event)
-      if (next !== prev) {
-        set({ bg: { ...state.bg, [sessionId]: { ...next, unread: true } } })
+      if (next === prev) {
+        return isTurnBoundary ? { sessions } : state
       }
-    }
+      return {
+        sessions,
+        bg: {
+          ...state.bg,
+          [sessionId]: { ...next, unread: true },
+        },
+      }
+    })
   },
 
   clearMessages: () => set({ messages: [] }),
@@ -1293,9 +1336,36 @@ function scheduleQueueDrain(): void {
   })
 }
 
-// The queue drain has exactly one owner — the store itself. Any state change
-// (enqueue, turn.ended flipping a session idle, cancel, deletion) gives every
-// session's queue a chance to advance, in view or in the background.
-useSessionStore.subscribe(() => {
+/**
+ * Drain only cares about queue occupancy, listed sessions, and whether a
+ * session is busy. Streaming text deltas used to fire this on every batch
+ * (one store publication → one microtask that walked every queue).
+ */
+function queueDrainSignature(state: SessionStore): string {
+  const queued: string[] = []
+  for (const [sessionId, queue] of Object.entries(state.messageQueue)) {
+    const length = queue?.length ?? 0
+    if (length > 0) queued.push(`${sessionId}:${length}`)
+  }
+  queued.sort()
+  const streaming: string[] = []
+  if (state.currentSessionId && state.isStreaming) streaming.push(state.currentSessionId)
+  for (const [sessionId, slice] of Object.entries(state.bg)) {
+    if (slice.isStreaming) streaming.push(sessionId)
+  }
+  streaming.sort()
+  const listed = state.sessions.map((session) => session.id).join(',')
+  return `${listed}|${queued.join(',')}|${streaming.join(',')}`
+}
+
+let lastQueueDrainSignature = queueDrainSignature(useSessionStore.getState())
+
+// The queue drain has exactly one owner — the store itself. Enqueue, turn.ended
+// flipping a session idle, cancel, and deletion still change the signature and
+// give every session's queue a chance to advance, in view or in the background.
+useSessionStore.subscribe((state) => {
+  const next = queueDrainSignature(state)
+  if (next === lastQueueDrainSignature) return
+  lastQueueDrainSignature = next
   scheduleQueueDrain()
 })

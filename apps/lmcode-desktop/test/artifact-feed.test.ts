@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Event } from '@lmcode-cli/lmcode-sdk'
-import { startArtifactFeed } from '@/lib/artifact-feed'
+import { forgetPendingArtifactReports, startArtifactFeed } from '@/lib/artifact-feed'
 import { useArtifactsStore } from '@/stores/artifacts-store'
 import { useInboxStore } from '@/stores/inbox-store'
 import { useSessionStore } from '@/stores/session-store'
@@ -106,6 +106,14 @@ describe('artifact feed', () => {
     expect(artifacts).toHaveLength(1)
     expect(artifacts[0]?.kind).toBe('report')
     expect(artifacts[0]?.toolCallIds).toEqual(['tc-write'])
+    dispose()
+  })
+
+  it('drops pending report detections when the session is deleted', () => {
+    emit(callback, 's1', writeStarted('tc-write', 'docs/report.md', '# 报告'))
+    forgetPendingArtifactReports('s1')
+    emit(callback, 's1', writeResult('tc-write'))
+    expect(useArtifactsStore.getState().artifacts).toHaveLength(0)
     dispose()
   })
 })

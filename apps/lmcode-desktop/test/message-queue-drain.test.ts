@@ -210,6 +210,34 @@ describe('desktop message queue drain', () => {
     expect(sendMessage.mock.calls[0]?.[1]).toMatchObject({ text: 'held' })
   })
 
+  it('does not re-drain while streaming text deltas arrive', async () => {
+    const store = useSessionStore.getState()
+    store.handleEvent('session-a', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-a',
+    })
+    store.enqueueMessage('session-a', 'held until idle')
+    await flushDrain()
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    for (let i = 0; i < 20; i += 1) {
+      useSessionStore.getState().handleEvent('session-a', {
+        type: 'assistant.delta',
+        turnId: 1,
+        delta: 'x',
+        agentId: 'main',
+        sessionId: 'session-a',
+      })
+    }
+    await flushDrain()
+
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().messageQueue['session-a']).toHaveLength(1)
+  })
+
   it('never drains sessions that are not in the session list', async () => {
     useSessionStore.getState().enqueueMessage('ghost-session', 'never sent')
     await flushDrain()

@@ -34,6 +34,24 @@ describe('tool-pruner', () => {
     expect(nullResult.displayContent).toBe('')
   })
 
+  it('skips pruning when UTF-16 length is already under the threshold', () => {
+    const text = `${'A'.repeat(100)}\n${'B'.repeat(50)}`
+    const result = pruneToolOutput(text, { thresholdChars: 200 })
+    expect(result.isPruned).toBe(false)
+    expect(result.displayContent).toBe(text)
+    expect(result.totalChars).toBe(text.length)
+    expect(result.totalLines).toBe(2)
+  })
+
+  it('still counts code points when UTF-16 length is over budget but glyphs are not', () => {
+    const text = '🚀'.repeat(40)
+    const result = pruneToolOutput(text, { thresholdChars: 50 })
+    expect(text.length).toBe(80)
+    expect(result.isPruned).toBe(false)
+    expect(result.totalChars).toBe(40)
+    expect(result.displayContent).toBe(text)
+  })
+
   it('prunes over-budget outputs preserving head and tail', () => {
     const head = 'H'.repeat(20)
     const middle = 'M'.repeat(100)

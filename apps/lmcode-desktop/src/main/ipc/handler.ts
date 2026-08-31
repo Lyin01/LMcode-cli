@@ -27,6 +27,8 @@ import { dirname, join } from 'node:path'
 import {
   isUnsafeShellOpenPath,
   normalizeOpenPathTarget,
+  safeDirectoryDialogPath,
+  safeSaveFileName,
 } from '../../shared/open-path-guard.js'
 import { isSafeExternalHttpsUrl } from '../../shared/security.js'
 import type { RemoteState } from '../../shared/remote-types.js'
@@ -85,6 +87,7 @@ import { ProviderUsageService } from '../provider-usage.js'
 import { isPermissionMode } from '../../shared/permission-mode.js'
 import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types.js'
 import {
+  activateSkillArgsSchema,
   addMcpServerArgsSchema,
   applyGitHunkActionArgsSchema,
   compactSessionArgsSchema,
@@ -93,18 +96,27 @@ import {
   createGoalArgsSchema,
   createSessionArgsSchema,
   discardGitFileChangesArgsSchema,
+  filePathArgsSchema,
   idArgsSchema,
+  inlineImageArgsSchema,
+  optionalBooleanArgsSchema,
+  optionalStringArgsSchema,
   parseIpcArgs,
   promptArgsSchema,
   renameSessionArgsSchema,
   respondApprovalArgsSchema,
   respondQuestionArgsSchema,
+  saveTextFileArgsSchema,
+  searchMemoriesArgsSchema,
+  sessionNamedArgsSchema,
   setAllGitFilesStagedArgsSchema,
   setConfigArgsSchema,
   setGitFileStagedArgsSchema,
   setModelArgsSchema,
   setPermissionArgsSchema,
   setPlanModeArgsSchema,
+  setRemoteEnabledArgsSchema,
+  setRemotePortArgsSchema,
   setThinkingArgsSchema,
   undoHistoryArgsSchema,
   updateGoalStatusArgsSchema,
@@ -389,12 +401,42 @@ export function registerAllHandlers(
     hub.settleSession(sessionId)
   }
 
-  async function teardownSession(sessionId: string, work: () => Promise<void>): Promise<void> {
+  type TeardownKind = 'close' | 'delete'
+  const teardownKind = new Map<string, TeardownKind>()
+
+  function finishTeardown(sessionId: string, run: Promise<void>): void {
+    if (tearingDownSessions.get(sessionId) === run) {
+      tearingDownSessions.delete(sessionId)
+      teardownKind.delete(sessionId)
+    }
+  }
+
+  async function teardownSession(
+    sessionId: string,
+    kind: TeardownKind,
+    work: () => Promise<void>,
+  ): Promise<void> {
     const existing = tearingDownSessions.get(sessionId)
     if (existing !== undefined) {
+      const currentKind = teardownKind.get(sessionId)
+      // Close-then-delete used to wait for close and drop the delete, leaving
+      // the session on disk. Upgrade the in-flight teardown to the stronger
+      // operation. Delete-then-close just waits — the session is already going.
+      if (kind === 'delete' && currentKind === 'close') {
+        teardownKind.set(sessionId, 'delete')
+        const chained = existing.then(work, work)
+        tearingDownSessions.set(sessionId, chained)
+        try {
+          await chained
+        } finally {
+          finishTeardown(sessionId, chained)
+        }
+        return
+      }
       await existing
       return
     }
+    teardownKind.set(sessionId, kind)
     const run = (async () => {
       const inflightResume = resumingSessions.get(sessionId)
       if (inflightResume) await inflightResume.catch(() => undefined)
@@ -410,7 +452,7 @@ export function registerAllHandlers(
     try {
       await run
     } finally {
-      tearingDownSessions.delete(sessionId)
+      finishTeardown(sessionId, run)
     }
   }
 
@@ -477,12 +519,13 @@ export function registerAllHandlers(
     async (_event, initialDirectory?: string): Promise<string | undefined> => {
       const result = await dialog.showOpenDialog(mainWindow, {
         title: '选择 LMCODE 项目文件夹',
-        defaultPath: initialDirectory?.trim() || app.getPath('home'),
+        defaultPath: safeDirectoryDialogPath(initialDirectory, app.getPath('home')),
         properties: ['openDirectory', 'createDirectory'],
       })
       if (result.canceled) return undefined
       return result.filePaths[0]
     },
+    optionalStringArgsSchema,
   )
 
   secureInvoke('lmcode:resumeSession', async (_event, id: string): Promise<{
@@ -500,7 +543,7 @@ export function registerAllHandlers(
   }, sessionIdArgsSchema)
 
   secureInvoke('lmcode:deleteSession', async (_event, id: string): Promise<void> => {
-    await teardownSession(id, async () => {
+    await teardownSession(id, 'delete', async () => {
       await harness.deleteSession(id)
       auditLog?.info('desktop critical operation completed', {
         operation: 'session.delete',
@@ -521,12 +564,13 @@ export function registerAllHandlers(
     ): Promise<string | null> => {
       const result = await dialog.showSaveDialog(mainWindow, {
         title: '导出为文件',
-        defaultPath: input.suggestedName.trim() || 'export.txt',
+        defaultPath: safeSaveFileName(input.suggestedName),
       })
       if (result.canceled || !result.filePath) return null
       await writeFile(result.filePath, input.content, 'utf8')
       return result.filePath
     },
+    saveTextFileArgsSchema,
   )
 
   secureInvoke('lmcode:listSessions', async (): Promise<readonly SessionSummary[]> => {
@@ -635,6 +679,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.getGoal()
     },
+    sessionIdArgsSchema,
   )
 
   secureInvoke(
@@ -656,6 +701,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.cancelGoal()
     },
+    sessionIdArgsSchema,
   )
 
   secureInvoke(
@@ -686,7 +732,7 @@ export function registerAllHandlers(
   )
 
   secureInvoke('lmcode:closeSession', async (_event, sessionId: string): Promise<void> => {
-    await teardownSession(sessionId, async () => {
+    await teardownSession(sessionId, 'close', async () => {
       await harness.closeSession(sessionId)
     })
   }, sessionIdArgsSchema)
@@ -699,6 +745,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.listCronJobs()
     },
+    sessionIdArgsSchema,
   )
 
   secureInvoke(
@@ -724,6 +771,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.deleteCronJob(id)
     },
+    sessionNamedArgsSchema,
   )
 
   secureInvoke(
@@ -732,6 +780,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.listBackgroundTasks({ activeOnly: false })
     },
+    sessionIdArgsSchema,
   )
 
   // ── Skills ──────────────────────────────────────────────────────
@@ -739,24 +788,24 @@ export function registerAllHandlers(
   secureInvoke('lmcode:listSkills', async (_event, sessionId: string): Promise<unknown> => {
     const entry = await ensureActiveSession(sessionId)
     return entry.session.listSkills()
-  })
+  }, sessionIdArgsSchema)
 
   secureInvoke('lmcode:activateSkill', async (_event, sessionId: string, name: string, args?: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.activateSkill(name, args)
-  })
+  }, activateSkillArgsSchema)
 
   // ── MCP servers ─────────────────────────────────────────────────
 
   secureInvoke('lmcode:listMcpServers', async (_event, sessionId: string): Promise<unknown> => {
     const entry = await ensureActiveSession(sessionId)
     return entry.session.listMcpServers()
-  })
+  }, sessionIdArgsSchema)
 
   secureInvoke('lmcode:reconnectMcpServer', async (_event, sessionId: string, name: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.reconnectMcpServer(name)
-  })
+  }, sessionNamedArgsSchema)
 
   secureInvoke(
     'lmcode:addMcpServer',
@@ -770,12 +819,12 @@ export function registerAllHandlers(
   secureInvoke('lmcode:stopMcpServer', async (_event, sessionId: string, name: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.stopMcpServer(name)
-  })
+  }, sessionNamedArgsSchema)
 
   secureInvoke('lmcode:removeMcpServer', async (_event, sessionId: string, name: string): Promise<void> => {
     const entry = await ensureActiveSession(sessionId)
     await entry.session.removeMcpServer(name)
-  })
+  }, sessionNamedArgsSchema)
 
   // ── Config ──────────────────────────────────────────────────────
 
@@ -788,6 +837,7 @@ export function registerAllHandlers(
     async (_event, force: unknown): Promise<ProviderUsageSnapshot> => {
       return providerUsage.get(force === true)
     },
+    optionalBooleanArgsSchema,
   )
 
   secureInvoke('lmcode:setConfig', async (_event, patch: LmcodeConfigPatch): Promise<LmcodeConfig> => {
@@ -819,13 +869,14 @@ export function registerAllHandlers(
 
   secureInvoke('lmcode:readFileContent', async (_event, filePath: string): Promise<TextAttachment> => {
     return readTextAttachment(filePath, credentialRoots)
-  })
+  }, filePathArgsSchema)
 
   secureInvoke(
     'lmcode:readFileAttachment',
     async (_event, filePath: string): Promise<FileAttachmentPreview> => {
       return readFileAttachment(filePath, credentialRoots)
     },
+    filePathArgsSchema,
   )
 
   secureInvoke(
@@ -833,6 +884,7 @@ export function registerAllHandlers(
     async (_event, name: string, dataUrl: string): Promise<FileAttachmentPreview> => {
       return readInlineImageAttachment(name, dataUrl)
     },
+    inlineImageArgsSchema,
   )
 
   // ── Git review ─────────────────────────────────────────────────
@@ -842,6 +894,7 @@ export function registerAllHandlers(
     async (_event, sessionId: string): Promise<GitRepositorySnapshot> => {
       return inspectGitRepository(await getSessionWorkDir(sessionId))
     },
+    sessionIdArgsSchema,
   )
 
   secureInvoke(
@@ -849,6 +902,7 @@ export function registerAllHandlers(
     async (_event, sessionId: string, filePath: string): Promise<GitFileDiff> => {
       return inspectGitFileDiff(await getSessionWorkDir(sessionId), filePath)
     },
+    sessionNamedArgsSchema,
   )
 
   secureInvoke(
@@ -934,6 +988,7 @@ export function registerAllHandlers(
     async (_event, sessionId: string): Promise<readonly GitWorktreeInfo[]> => {
       return listGitWorktrees(await getSessionWorkDir(sessionId))
     },
+    sessionIdArgsSchema,
   )
 
   secureInvoke(
@@ -1075,7 +1130,7 @@ export function registerAllHandlers(
 
   if (remote !== undefined) {
     remote.setHostReleaseSession(async (sessionId) => {
-      await teardownSession(sessionId, async () => {
+      await teardownSession(sessionId, 'close', async () => {
         // Local desktop resources only; the remote caller owns harness close/delete.
       })
     })
@@ -1084,17 +1139,13 @@ export function registerAllHandlers(
       return remote.getState()
     })
 
-    secureInvoke('lmcode:setRemoteEnabled', async (_event, enabled: unknown): Promise<RemoteState> => {
-      if (typeof enabled !== 'boolean') throw new Error('Invalid remote enabled value')
+    secureInvoke('lmcode:setRemoteEnabled', async (_event, enabled: boolean): Promise<RemoteState> => {
       return remote.setEnabled(enabled)
-    })
+    }, setRemoteEnabledArgsSchema)
 
-    secureInvoke('lmcode:setRemotePort', async (_event, port: unknown): Promise<RemoteState> => {
-      if (typeof port !== 'number' || !Number.isFinite(port)) {
-        throw new Error('Invalid remote port')
-      }
+    secureInvoke('lmcode:setRemotePort', async (_event, port: number): Promise<RemoteState> => {
       return remote.setPort(port)
-    })
+    }, setRemotePortArgsSchema)
 
     secureInvoke('lmcode:regenerateRemoteToken', async (): Promise<RemoteState> => {
       return remote.regenerateToken()
@@ -1140,7 +1191,7 @@ export function registerAllHandlers(
   secureInvoke('lmcode:searchMemories', async (_event, query: string): Promise<MemoryMemoSummary[]> => {
     const result = await memoryStoreInstance.list({ search: query, limit: 20 })
     return result.memos
-  })
+  }, searchMemoriesArgsSchema)
 
   secureInvoke('lmcode:deleteMemory', async (_event, id: string): Promise<void> => {
     await memoryStoreInstance.delete(id)
@@ -1157,6 +1208,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       await entry.session.stopBackgroundTask(taskId, { reason: 'Stopped from LMCODE Desktop' })
     },
+    sessionNamedArgsSchema,
   )
 
   secureInvoke(
@@ -1165,6 +1217,7 @@ export function registerAllHandlers(
       const entry = await ensureActiveSession(sessionId)
       return entry.session.getBackgroundTaskOutput(taskId)
     },
+    sessionNamedArgsSchema,
   )
 
   // Cron managers are session-owned. Resume every session that has persisted

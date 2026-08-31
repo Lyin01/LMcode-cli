@@ -27,9 +27,14 @@ export function useSession() {
   const sendMessage = useCallback(
     async (text: string, attachments: readonly UserAttachment[] = EMPTY_ATTACHMENTS) => {
       const normalized = text.trim()
-      if (!currentSessionId || (!normalized && attachments.length === 0) || isStreaming) return
-      const queued = useSessionStore.getState().messageQueue[currentSessionId]?.length ?? 0
-      if (isQueueDrainPaused(currentSessionId) || queued > 0) {
+      if (!currentSessionId || (!normalized && attachments.length === 0)) return
+      const state = useSessionStore.getState()
+      const queued = state.messageQueue[currentSessionId]?.length ?? 0
+      if (
+        state.isSessionStreaming(currentSessionId) ||
+        isQueueDrainPaused(currentSessionId) ||
+        queued > 0
+      ) {
         enqueueMessage(currentSessionId, normalized, attachments)
         return
       }
@@ -72,7 +77,7 @@ export function useSession() {
         endSessionSend(currentSessionId)
       }
     },
-    [currentSessionId, enqueueMessage, isStreaming, addMessageToSession, setSessionStreaming],
+    [currentSessionId, enqueueMessage, addMessageToSession, setSessionStreaming],
   )
 
   const cancel = useCallback(async () => {

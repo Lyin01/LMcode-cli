@@ -10,6 +10,31 @@ describe('artifacts store', () => {
     useArtifactsStore.setState({ artifacts: [], panelArtifactId: null })
   })
 
+  it('drops a deleted session\'s artifacts and closes the panel if it was showing one', () => {
+    const store = useArtifactsStore.getState()
+    store.upsert({
+      sessionId: 's1',
+      kind: 'plan',
+      key: 'plan',
+      title: '计划',
+      content: '内容',
+    })
+    store.upsert({
+      sessionId: 's2',
+      kind: 'report',
+      key: 'notes.md',
+      title: '报告',
+      content: '其他会话',
+    })
+    const openId = useArtifactsStore.getState().artifacts[0]!.id
+    store.openPanel(openId)
+    store.removeBySession('s1')
+
+    const next = useArtifactsStore.getState()
+    expect(next.artifacts.map((artifact) => artifact.sessionId)).toEqual(['s2'])
+    expect(next.panelArtifactId).toBeNull()
+  })
+
   it('creates an artifact with version 1 and derives a stable id from kind/session/key', () => {
     const artifact = useArtifactsStore.getState().upsert({
       sessionId: 's1',

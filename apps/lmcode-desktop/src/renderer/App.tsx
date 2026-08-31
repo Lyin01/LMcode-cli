@@ -70,7 +70,11 @@ type ActivePanel =
 export default function App() {
   const loadConfig = useConfigStore((s) => s.loadConfig)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
-  const sessions = useSessionStore((s) => s.sessions)
+  // Identity of the session list (not token counters) so agent.status.updated
+  // does not re-render the whole shell on every usage tick.
+  const conversationOrderKey = useSessionStore((s) =>
+    s.sessions.map((session) => session.id).join('\n'),
+  )
   const messageCount = useSessionStore((s) => s.messages.length)
   const setSessions = useSessionStore((s) => s.setSessions)
   const createSession = useSessionStore((s) => s.createSession)
@@ -151,15 +155,16 @@ export default function App() {
   }, [nextMenuRequestNonce])
 
   useEffect(() => {
-    const adjacent = getAdjacentConversationIds(sessions, currentSessionId)
+    const state = useSessionStore.getState()
+    const adjacent = getAdjacentConversationIds(state.sessions, state.currentSessionId)
     window.lmcodeAPI.updateMenuState({
-      hasActiveSession: currentSessionId !== null,
-      canFindInConversation: currentSessionId !== null && messageCount > 0,
+      hasActiveSession: state.currentSessionId !== null,
+      canFindInConversation: state.currentSessionId !== null && messageCount > 0,
       sidebarOpen,
       canGoPrevious: adjacent.previousId !== null,
       canGoNext: adjacent.nextId !== null,
     })
-  }, [currentSessionId, messageCount, sessions, sidebarOpen])
+  }, [conversationOrderKey, currentSessionId, messageCount, sidebarOpen])
 
   // Load config on mount
   useEffect(() => {
@@ -194,6 +199,7 @@ export default function App() {
         const mapped = historyToMessages(raw as unknown[])
         useSessionStore.getState().hydrateSessionHistory(currentSessionId, mapped)
       } catch (err) {
+        if (cancelled) return
         console.error('Failed to load session history:', err)
         const message = err instanceof Error ? err.message : String(err)
         useSessionStore.getState().addMessageToSession(currentSessionId, {
@@ -354,7 +360,9 @@ export default function App() {
         }
         case 'open-project':
           setActivePanel(null)
-          void createSession()
+          void createSession().catch((error: unknown) => {
+            console.error('Failed to create session:', error)
+          })
           break
         case 'rename-conversation':
           if (state.currentSessionId !== null) {

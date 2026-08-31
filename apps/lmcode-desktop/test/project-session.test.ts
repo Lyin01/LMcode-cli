@@ -84,6 +84,14 @@ describe('desktop project session contract', () => {
     })
   })
 
+  it('surfaces a failed createSession instead of swallowing it', async () => {
+    createDesktopSession.mockRejectedValue(new Error('disk full'))
+
+    await expect(useSessionStore.getState().createSession('C:/repo')).rejects.toThrow('disk full')
+    expect(useSessionStore.getState().currentSessionId).toBeNull()
+    expect(useSessionStore.getState().sessions).toEqual([])
+  })
+
   it('does not create a phantom chat when project selection is cancelled', async () => {
     selectWorkDirectory.mockResolvedValue(undefined)
 
@@ -230,7 +238,7 @@ describe('desktop project session contract', () => {
       useSessionStore
         .getState()
         .startSessionWithMessage({ kind: 'project', workDir: 'C:/repo' }, '你好'),
-    ).rejects.toThrow('无法创建会话')
+    ).rejects.toThrow('harness unavailable')
 
     expect(useSessionStore.getState().currentSessionId).toBeNull()
     expect(useSessionStore.getState().messageQueue).toEqual({})

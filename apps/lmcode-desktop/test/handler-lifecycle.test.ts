@@ -723,4 +723,43 @@ describe('desktop handler lifecycle', () => {
     await history
     await registration.close()
   })
+
+  it('still deletes a session whose close teardown is already in flight', async () => {
+    const session = {
+      id: 'session-close-delete',
+      summary: { id: 'session-close-delete', workDir: 'C:/work' },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+    }
+    const closed = Promise.withResolvers<void>()
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      createSession: vi.fn(async () => session),
+      closeSession: vi.fn(() => closed.promise),
+      deleteSession: vi.fn(async () => undefined),
+      listSessions: vi.fn(async () => []),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+    await invoke('lmcode:createSession', { workDir: 'C:/work' })
+
+    const closing = invoke('lmcode:closeSession', 'session-close-delete')
+    await vi.waitFor(() => {
+      expect(harness.closeSession).toHaveBeenCalledTimes(1)
+    })
+    const deleting = invoke('lmcode:deleteSession', 'session-close-delete')
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(harness.deleteSession).not.toHaveBeenCalled()
+
+    closed.resolve()
+    await expect(closing).resolves.toBeUndefined()
+    await expect(deleting).resolves.toBeUndefined()
+    expect(harness.deleteSession).toHaveBeenCalledWith('session-close-delete')
+
+    await registration.close()
+  })
 })

@@ -487,20 +487,30 @@ async function trashWorkingTreeEntry(
   trashItem: TrashItem,
 ): Promise<void> {
   const absolutePath = resolveWorktreeEntry(root, filePath)
-  const exists = await fs.lstat(absolutePath).then(() => true, () => false)
-  if (exists) await trashItem(absolutePath)
+  const stat = await fs.lstat(absolutePath).then(
+    (value) => value,
+    () => undefined,
+  )
+  if (stat === undefined) return
+  if (stat.isSymbolicLink()) {
+    const realPath = await fs.realpath(absolutePath).catch(() => undefined)
+    if (realPath !== undefined) {
+      const realRoot = await fs.realpath(root)
+      const realRelative = path.relative(realRoot, realPath)
+      if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+        throw new Error('拒绝操作 Git 工作区之外的文件')
+      }
+    }
+  }
+  await trashItem(absolutePath)
 }
 
-export async function discardGitFileChanges(
-  workDir: string,
-  filePath: string,
+async function discardResolvedChange(
+  root: string,
+  change: GitFileChange,
   scope: GitDiscardScope,
   trashItem: TrashItem,
 ): Promise<void> {
-  if (scope !== 'unstaged' && scope !== 'all') {
-    throw new Error('无效的 Git 撤销范围')
-  }
-  const { root, change } = await resolveChange(workDir, filePath)
   const paths = change.originalPath ? [change.path, change.originalPath] : [change.path]
 
   if (change.kind === 'untracked') {
@@ -543,6 +553,19 @@ export async function discardGitFileChanges(
   if (!result.ok) throw new Error(userFacingGitError(result))
 }
 
+export async function discardGitFileChanges(
+  workDir: string,
+  filePath: string,
+  scope: GitDiscardScope,
+  trashItem: TrashItem,
+): Promise<void> {
+  if (scope !== 'unstaged' && scope !== 'all') {
+    throw new Error('无效的 Git 撤销范围')
+  }
+  const { root, change } = await resolveChange(workDir, filePath)
+  await discardResolvedChange(root, change, scope, trashItem)
+}
+
 export async function discardAllGitChanges(
   workDir: string,
   trashItem: TrashItem,
@@ -551,20 +574,8 @@ export async function discardAllGitChanges(
   if (!snapshot.isRepository || !snapshot.root) {
     throw new Error(snapshot.error || '当前项目不是 Git 仓库')
   }
-  const paths = snapshot.changes.map((change) => change.path)
-  for (const filePath of paths) {
-    // `discardGitFileChanges` re-resolves the change list itself and throws
-    // when the path is no longer a change (e.g. a prior discard already
-    // cleaned it up). Skipping those avoids a full repository re-inspection
-    // per file.
-    try {
-      await discardGitFileChanges(workDir, filePath, 'all', trashItem)
-    } catch (error) {
-      if (error instanceof Error && error.message === '该文件不在当前 Git 变更列表中') {
-        continue
-      }
-      throw error
-    }
+  for (const change of snapshot.changes) {
+    await discardResolvedChange(snapshot.root, change, 'all', trashItem)
   }
 }
 

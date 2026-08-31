@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import type { Readable } from 'node:stream'
-import { afterEach, describe, expect, it } from 'vitest'
-import { terminateChildProcessTree } from '../src/main/process-tree'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { runTaskkill, terminateChildProcessTree } from '../src/main/process-tree'
 import type { TerminableChildProcess } from '../src/main/process-tree'
 
 function fakeChild(): TerminableChildProcess & { stdinEnded: () => boolean } {
@@ -81,6 +82,20 @@ describe('child process tree termination', () => {
       },
     })
     expect(signals).toBe(0)
+  })
+
+  it('times out a hung taskkill helper instead of waiting forever', async () => {
+    const killer = new EventEmitter() as EventEmitter & {
+      kill: ReturnType<typeof vi.fn>
+      unref: () => void
+    }
+    killer.kill = vi.fn(() => true)
+    killer.unref = () => undefined
+    const started = Date.now()
+    const result = await runTaskkill(4242, false, (() => killer) as never, 30)
+    expect(result).toBe(false)
+    expect(Date.now() - started).toBeLessThan(500)
+    expect(killer.kill).toHaveBeenCalled()
   })
 })
 

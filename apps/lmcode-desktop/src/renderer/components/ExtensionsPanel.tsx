@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createLatestRequestGate } from '@/lib/latest-request'
+import { parseStdioCommandLine } from '@/lib/mcp-stdio-command'
 import { activateModalPanel } from '@/lib/modal-panel-controller'
 import { useSessionStore } from '@/stores/session-store'
 
@@ -41,6 +42,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   // Latest-wins guard: a slow resolve from a superseded refresh (session or
   // tab switch, manual refresh) must not overwrite newer data.
@@ -107,11 +109,13 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
 
   const activateSkill = async (name: string) => {
     if (!sessionId) return
+    setActionError(null)
     try {
       await window.lmcodeAPI.activateSkill(sessionId, name)
       onClose() // skill runs in the chat — show it
     } catch (err) {
       console.error('Failed to activate skill:', err)
+      setActionError(err instanceof Error ? err.message : '无法运行技能')
     }
   }
 
@@ -121,11 +125,13 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   ) => {
     if (!sessionId) return
     setBusy(name)
+    setActionError(null)
     try {
       await fn(sessionId, name)
       await refresh()
     } catch (err) {
       console.error('MCP action failed:', err)
+      setActionError(err instanceof Error ? err.message : 'MCP 操作失败')
     } finally {
       setBusy(null)
     }
@@ -134,10 +140,16 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
   const addServer = async () => {
     if (!sessionId || !newName.trim() || !newTarget.trim()) return
     setBusy('__add__')
+    setActionError(null)
     try {
       const config =
         newType === 'stdio'
-          ? { command: newTarget.trim() }
+          ? (() => {
+              const parsed = parseStdioCommandLine(newTarget)
+              return parsed.args.length > 0
+                ? { command: parsed.command, args: [...parsed.args] }
+                : { command: parsed.command }
+            })()
           : { url: newTarget.trim() }
       await window.lmcodeAPI.addMcpServer(sessionId, newName.trim(), config)
       setNewName('')
@@ -146,6 +158,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
       await refresh()
     } catch (err) {
       console.error('Failed to add MCP server:', err)
+      setActionError(err instanceof Error ? err.message : '无法添加 MCP 服务器')
     } finally {
       setBusy(null)
     }
@@ -222,6 +235,9 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
               {!loading && loadError && (
                 <p className="px-2 py-8 text-center text-[13px] text-[var(--lm-error)]">{loadError}</p>
               )}
+              {actionError && (
+                <p className="mb-2 px-2 text-[12px] text-[var(--lm-error)]">{actionError}</p>
+              )}
               {!loading && !loadError && skills.length === 0 && (
                 <p className="px-2 py-8 text-center text-[13px] text-[var(--lm-text-muted)]">暂无技能</p>
               )}
@@ -294,6 +310,9 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                     placeholder={newType === 'stdio' ? '启动命令，如 npx -y @foo/mcp' : '服务器 URL'}
                     className="w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-base)] px-2.5 py-1.5 text-[13px] outline-none focus:border-[var(--lm-accent)]"
                   />
+                  {actionError && (
+                    <p className="text-[12px] text-[var(--lm-error)]">{actionError}</p>
+                  )}
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setShowAdd(false)}
@@ -322,6 +341,9 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
 
               {!loading && loadError && (
                 <p className="px-2 py-6 text-center text-[13px] text-[var(--lm-error)]">{loadError}</p>
+              )}
+              {actionError && !showAdd && (
+                <p className="mb-2 px-2 text-[12px] text-[var(--lm-error)]">{actionError}</p>
               )}
               {!loading && !loadError && servers.length === 0 && (
                 <p className="px-2 py-6 text-center text-[13px] text-[var(--lm-text-muted)]">

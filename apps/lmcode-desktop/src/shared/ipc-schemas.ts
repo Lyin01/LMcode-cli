@@ -186,6 +186,52 @@ export const commitGitChangesArgsSchema = z.tuple([sessionIdSchema, z.string().t
 
 export const writeTerminalArgsSchema = z.tuple([sessionIdSchema, z.string()])
 
+/** sessionId + a non-empty name/id (MCP server, skill, cron job, task, git path). */
+export const sessionNamedArgsSchema = z.tuple([sessionIdSchema, z.string().trim().min(1)])
+
+export const activateSkillArgsSchema = z.preprocess(
+  (value) =>
+    Array.isArray(value) ? value.filter((entry) => entry !== undefined) : value,
+  z.union([
+    sessionNamedArgsSchema,
+    z.tuple([sessionIdSchema, z.string().trim().min(1), z.string()]),
+  ]),
+)
+
+export const searchMemoriesArgsSchema = z.tuple([z.string().max(4_000)])
+
+export const setRemoteEnabledArgsSchema = z.tuple([z.boolean()])
+
+export const setRemotePortArgsSchema = z.tuple([
+  z.number().int().min(1_024).max(65_535),
+])
+
+export const saveTextFileArgsSchema = z.tuple([
+  z.object({
+    suggestedName: z.string(),
+    content: z.string(),
+  }),
+])
+
+export const filePathArgsSchema = z.tuple([z.string().trim().min(1)])
+
+export const inlineImageArgsSchema = z.tuple([
+  z.string().trim().min(1),
+  z.string().min(1),
+])
+
+export const optionalStringArgsSchema = z.preprocess(
+  (value) =>
+    Array.isArray(value) ? value.filter((entry) => entry !== undefined) : value,
+  z.union([z.tuple([]), z.tuple([z.string()])]),
+)
+
+export const optionalBooleanArgsSchema = z.preprocess(
+  (value) =>
+    Array.isArray(value) ? value.filter((entry) => entry !== undefined) : value,
+  z.union([z.tuple([]), z.tuple([z.boolean()])]),
+)
+
 /**
  * Validate an IPC argument list against a tuple schema. Returns the parsed
  * arguments, or throws a descriptive error naming the offending channel.

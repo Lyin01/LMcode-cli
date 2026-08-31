@@ -2,6 +2,10 @@
 
 LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 Agent，会话、目标、审批、MCP、记忆和后台任务与 CLI/TUI 使用同一套核心能力。
 
+## 0.7.14
+
+审查修复：扩展里的 stdio MCP 会按空格拆命令和参数，不再把 `npx -y @foo/mcp` 当成一个可执行文件。流式工具参数与文本一样批处理；停止后队列不再假装会自动发送；重新生成会带上附件。远程未鉴权帧有大小上限，关闭时拆掉残留连接。Git 丢弃不再跟着仓库外的 symlink，选文件夹/另存为也不再吃 UNC。剩余写操作 IPC 补上 schema。
+
 ## 0.7.13
 
 审查修复 + 回合失败：对话里的 `.js` / `.url` / UNC 不再一键执行；外链只走无凭据的 HTTPS。远程换令牌会踢掉旧连接，新建会话强制手动权限，不能再改 providers。压缩或流式丢了 `step.begin` 时不再把整轮打成「Received content_part for unknown step_uuid」。扩展加载失败、历史加载失败、停止后队列和斜杠全局 Enter 也一起收了。

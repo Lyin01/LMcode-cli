@@ -3,6 +3,8 @@ import {
   isUnsafeRemoteOrUncPath,
   isUnsafeShellOpenPath,
   normalizeOpenPathTarget,
+  safeDirectoryDialogPath,
+  safeSaveFileName,
 } from '../src/shared/open-path-guard'
 
 describe('isUnsafeShellOpenPath', () => {
@@ -49,5 +51,21 @@ describe('normalizeOpenPathTarget', () => {
     expect(normalizeOpenPathTarget('./notes.md')).toBeNull()
     expect(normalizeOpenPathTarget('file://evil.example/C:/repo/notes.md')).toBeNull()
     expect(normalizeOpenPathTarget('C:\\repo\\notes.md\0.exe')).toBeNull()
+  })
+})
+
+describe('dialog path sanitizers', () => {
+  it('drops UNC and relative folder-picker defaults', () => {
+    expect(safeDirectoryDialogPath(undefined, 'C:\\Users\\me')).toBe('C:\\Users\\me')
+    expect(safeDirectoryDialogPath('\\\\evil\\share\\proj', 'C:\\Users\\me')).toBe('C:\\Users\\me')
+    expect(safeDirectoryDialogPath('notes', 'C:\\Users\\me')).toBe('C:\\Users\\me')
+    expect(safeDirectoryDialogPath('C:\\repo\\app', 'C:\\Users\\me')).toBe('C:\\repo\\app')
+  })
+
+  it('keeps only the basename of a save-dialog suggestion', () => {
+    expect(safeSaveFileName('export.md')).toBe('export.md')
+    expect(safeSaveFileName('C:\\repo\\notes.md')).toBe('notes.md')
+    expect(safeSaveFileName('\\\\evil\\share\\loot.txt')).toBe('export.txt')
+    expect(safeSaveFileName('   ')).toBe('export.txt')
   })
 })
