@@ -582,7 +582,7 @@ function ModelRowEditor({ modelId, model, onDone, onCancel }: ModelRowEditorProp
 
   const handleSave = () => {
     if (!canSave) return
-    onDone({
+    void onDone({
       displayName: displayName.trim(),
       model: modelName.trim() || modelId,
       maxContextSize: parsedContext,

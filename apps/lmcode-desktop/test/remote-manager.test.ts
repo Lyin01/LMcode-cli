@@ -201,9 +201,9 @@ describe('RemoteManager', () => {
     ws.send(JSON.stringify({ type: 'auth', token: state.token }))
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('auth timeout')), 2000)
-      ws.once('message', (data) => {
+      ws.once('message', (data: Buffer) => {
         clearTimeout(timer)
-        const message = JSON.parse(String(data)) as { type: string }
+        const message = JSON.parse(data.toString('utf8')) as { type: string }
         if (message.type === 'auth-ok') resolve()
         else reject(new Error(`unexpected ${message.type}`))
       })
