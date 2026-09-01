@@ -120,7 +120,12 @@ export class LmcodeHarness {
     this.assertOpen();
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
-    if (active !== undefined) return Promise.resolve(active);
+    if (active !== undefined && !active.isClosed) return Promise.resolve(active);
+    if (active !== undefined) {
+      // Close has started: wait it out so callers never reuse a dying object,
+      // then resume a fresh Session from disk.
+      await active.close().catch(() => undefined);
+    }
     const pending = this.pendingSessionsById.get(id);
     if (pending !== undefined) return pending;
 

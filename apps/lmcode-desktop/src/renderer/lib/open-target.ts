@@ -98,7 +98,10 @@ export function fileUrlToLocalPath(url: string): string | null {
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== 'file:') return null
+    const host = parsed.hostname.toLowerCase()
+    if (host !== '' && host !== 'localhost' && host !== '127.0.0.1') return null
     const pathname = decodeURIComponent(parsed.pathname)
+    if (pathname.includes('\0')) return null
     return /^\/[A-Za-z]:[\\/]/.test(pathname) ? pathname.slice(1) : pathname
   } catch {
     return null
@@ -119,6 +122,7 @@ export function resolveHrefOpenTarget(href: string, baseDir?: string): string | 
   const trimmed = href.trim()
   if (trimmed.length === 0) return null
   if (trimmed.startsWith('#') || trimmed.startsWith('mailto:')) return null
+  if (isWindowsPath(trimmed)) return resolveOpenTarget(trimmed, baseDir)
   if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(trimmed) && !trimmed.startsWith('file:')) return null
   return resolveOpenTarget(trimmed, baseDir)
 }
@@ -126,6 +130,24 @@ export function resolveHrefOpenTarget(href: string, baseDir?: string): string | 
 /** HTTPS only — javascript:/data:/file:/http: never go through openExternal. */
 export function isSafeExternalHref(href: string): boolean {
   return isSafeExternalHttpsUrl(href)
+}
+
+/**
+ * react-markdown v10 drops `file:` by default. Allow local file URLs and
+ * Windows drive-letter paths through to MarkdownLink; still strip script/data.
+ */
+export function markdownUrlTransform(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return ''
+  const lower = trimmed.toLowerCase()
+  if (
+    lower.startsWith('javascript:') ||
+    lower.startsWith('vbscript:') ||
+    lower.startsWith('data:')
+  ) {
+    return ''
+  }
+  return trimmed
 }
 
 /** 命中则返回可交给 Electron 打开的绝对本地路径，否则 null。 */

@@ -17,7 +17,7 @@ export {
   InMemoryAgentRecordPersistence,
 } from './persistence';
 export type { FileSystemAgentRecordPersistenceOptions } from './persistence';
-export { BlobStore, isBlobRef } from './blobref';
+export { BlobStore, isBlobContentHash, isBlobRef } from './blobref';
 export type { BlobStoreOptions } from './blobref';
 
 // Contract: restore MUST NOT emit UI events, call the LLM, execute tools, or

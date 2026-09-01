@@ -31,6 +31,7 @@ function fakeHarness() {
         workDir: 'C:/work',
         onEvent: () => () => undefined,
         isOpen: true,
+        isClosed: false,
         setApprovalHandler: () => undefined,
         setQuestionHandler: () => undefined,
         getContext: async () => ({ history: [{ role: 'user', content: 'hi' }] }),
@@ -202,6 +203,16 @@ describe('RemoteServer protocol', () => {
     const closed = new Promise<number>((resolve) => ws.on('close', (code) => resolve(code)))
     ws.send(Buffer.alloc(5_000, 0x61))
     await expect(closed).resolves.toBe(1009)
+    expect(opened.server.clientCount).toBe(0)
+  })
+
+  it('closes the socket when the first frame is JSON null', async () => {
+    const opened = await openServer()
+    servers.push(opened)
+    const ws = await connect(opened.url)
+    const closed = new Promise<number>((resolve) => ws.on('close', (code) => resolve(code)))
+    ws.send('null')
+    await expect(closed).resolves.toBe(1007)
     expect(opened.server.clientCount).toBe(0)
   })
 

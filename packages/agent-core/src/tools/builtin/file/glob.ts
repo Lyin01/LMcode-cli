@@ -246,7 +246,9 @@ export class GlobTool implements BuiltinTool<GlobInput> {
 
       outer: for (const root of searchRoots) {
         for (const pattern of patterns) {
-          for await (const filePath of this.jian.glob(root, pattern)) {
+          for await (const filePath of this.jian.glob(root, pattern, {
+            caseSensitive: this.jian.pathClass() !== 'win32',
+          })) {
             yielded++;
             if (yielded >= YIELD_SAFETY_CAP) {
               truncated = 'yield';

@@ -33,10 +33,15 @@ export function ChatPanel({
   // re-render this panel (and the heavy Composer subtree) on every stream delta.
   const isEmpty = useSessionStore((s) => s.messages.length === 0)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
+  const historyReady = useSessionStore(
+    (s) => s.currentSessionId !== null && Boolean(s.hydratedSessions[s.currentSessionId]),
+  )
 
   if (!currentSessionId) return null
 
-  if (isEmpty) {
+  // History is still loading: keep the chat layout so an existing transcript
+  // does not flash the empty welcome screen.
+  if (isEmpty && historyReady) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
         <div className="w-full max-w-[720px] pb-10">

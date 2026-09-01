@@ -160,7 +160,13 @@ describe('LocalJian', () => {
         matched.push(entry);
       }
       const matchedNames = matched.map((e) => e.split('/').pop()!);
-      expect(new Set(matchedNames)).toEqual(new Set(['bravo.txt']));
+      if (jian.pathClass() === 'win32') {
+        expect(new Set(matchedNames.map((name) => name.toLowerCase()))).toEqual(
+          new Set(['bravo.txt', 'charlie.txt']),
+        );
+      } else {
+        expect(new Set(matchedNames)).toEqual(new Set(['bravo.txt']));
+      }
     });
   });
 

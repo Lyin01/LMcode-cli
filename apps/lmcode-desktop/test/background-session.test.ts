@@ -113,6 +113,45 @@ describe('desktop background session results', () => {
     expect(useSessionStore.getState().bg['session-b']).toBeUndefined()
   })
 
+  it('does not resurrect a deleted session when listSessions still returns it', () => {
+    const store = useSessionStore.getState()
+    const leftover = {
+      id: 'session-b',
+      workDir: 'C:/repo-b',
+      createdAt: 1,
+      updatedAt: 1,
+      thinkingLevel: 'medium' as const,
+      permission: 'manual' as const,
+      contextTokens: 0,
+      maxContextTokens: 1_000,
+      isStreaming: false,
+    }
+    store.removeDeletedSession('session-b', [
+      store.sessions.find((session) => session.id === 'session-a')!,
+      leftover,
+    ])
+
+    expect(useSessionStore.getState().sessions.map((session) => session.id)).toEqual(['session-a'])
+
+    store.setSessions([
+      store.sessions.find((session) => session.id === 'session-a')!,
+      leftover,
+    ])
+    store.setSessionStreaming('session-b', true)
+    store.enqueueMessage('session-b', 'should not queue')
+    store.handleEvent('session-b', {
+      type: 'turn.started',
+      turnId: 1,
+      origin: { kind: 'user' },
+      agentId: 'main',
+      sessionId: 'session-b',
+    })
+
+    expect(useSessionStore.getState().sessions.map((session) => session.id)).toEqual(['session-a'])
+    expect(useSessionStore.getState().bg['session-b']).toBeUndefined()
+    expect(useSessionStore.getState().messageQueue['session-b']).toBeUndefined()
+  })
+
   it('keeps delayed user-facing errors with the session that produced them', () => {
     useSessionStore.setState({ isStreaming: true })
     useSessionStore.getState().addMessageToSession('session-b', {

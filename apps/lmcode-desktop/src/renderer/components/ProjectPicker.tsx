@@ -8,6 +8,7 @@ import {
   collectProjects,
   isNoProjectWorkDir,
   projectDisplayName,
+  sameWorkDir,
   truncateProjectPath,
 } from '@/lib/projects'
 
@@ -97,7 +98,7 @@ export function ProjectPicker({ display, className }: ProjectPickerProps) {
               </p>
             )}
             {projects.map((project) => {
-              const selected = project.workDir === currentWorkDir
+              const selected = sameWorkDir(project.workDir, currentWorkDir)
               return (
                 <DropdownMenu.Item
                   key={project.workDir}

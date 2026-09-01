@@ -3,6 +3,7 @@ import {
   fileBasename,
   fileUrlToLocalPath,
   isSafeExternalHref,
+  markdownUrlTransform,
   resolveHrefOpenTarget,
   resolveOpenTarget,
 } from '../src/renderer/lib/open-target'
@@ -50,9 +51,19 @@ describe('output file open targets', () => {
       'E:\\workspace\\out\\index.html',
     )
     expect(resolveHrefOpenTarget('file:///C:/Users/me/out.html')).toBe('C:/Users/me/out.html')
+    expect(resolveHrefOpenTarget('C:\\repo\\notes.md', 'E:\\workspace')).toBe('C:\\repo\\notes.md')
+    expect(resolveHrefOpenTarget('C:/repo/notes.md', 'E:\\workspace')).toBe('C:/repo/notes.md')
+    expect(fileUrlToLocalPath('file://evil.example/C:/Users/me/output.html')).toBeNull()
     expect(resolveHrefOpenTarget('https://example.com/a.html', 'E:\\workspace')).toBeNull()
     expect(resolveHrefOpenTarget('#section', 'E:\\workspace')).toBeNull()
     expect(fileBasename('E:\\workspace\\burning-letter.html')).toBe('burning-letter.html')
+  })
+
+  it('lets markdown keep file URLs and Windows paths while stripping script URLs', () => {
+    expect(markdownUrlTransform('file:///C:/repo/notes.md')).toBe('file:///C:/repo/notes.md')
+    expect(markdownUrlTransform('C:\\repo\\notes.md')).toBe('C:\\repo\\notes.md')
+    expect(markdownUrlTransform('javascript:alert(1)')).toBe('')
+    expect(markdownUrlTransform('DATA:text/html,hi')).toBe('')
   })
 
   it('only treats http(s) URLs as external browser targets', () => {

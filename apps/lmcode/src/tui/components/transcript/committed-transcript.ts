@@ -49,7 +49,7 @@ class CommittedMessageComponent implements Component {
         const text = entry.content.trim();
         if (text.length === 0) return [];
         const maxLen = 200;
-        const snippet = text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;
+        const snippet = text.length > maxLen ? `${replaceTabs(text.slice(0, maxLen))}…` : replaceTabs(text);
         return new Text(
           `  ${chalk.hex(colors.roleAssistant)('助手：')}${chalk.hex(colors.text)(snippet)}`,
           0,

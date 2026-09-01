@@ -9,9 +9,15 @@ const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024;
 const BLOBREF_PROTOCOL = 'blobref:';
 const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
 const MISSING_MEDIA_PLACEHOLDER = '[media missing]';
+/** SHA-256 hex produced by `writeBlob`. Anything else is a path-traversal attempt. */
+const BLOB_CONTENT_HASH_RE = /^[a-f0-9]{64}$/;
 
 export function isBlobRef(url: string): boolean {
   return url.startsWith(BLOBREF_PROTOCOL);
+}
+
+export function isBlobContentHash(hash: string): boolean {
+  return BLOB_CONTENT_HASH_RE.test(hash);
 }
 
 export interface BlobStoreOptions {
@@ -145,7 +151,7 @@ export class BlobStore {
     }
     const mimeType = rest.slice(0, semiIdx);
     const hash = rest.slice(semiIdx + 1);
-    if (hash.length === 0) {
+    if (!isBlobContentHash(hash)) {
       return undefined;
     }
     const payload = await this.readBlob(hash);
@@ -156,6 +162,7 @@ export class BlobStore {
   }
 
   private async readBlob(hash: string): Promise<Buffer | undefined> {
+    if (!isBlobContentHash(hash)) return undefined;
     const cached = this.cache.get(hash);
     if (cached !== undefined) {
       // Move the entry to the end so it lives longer than less-recently-used items.

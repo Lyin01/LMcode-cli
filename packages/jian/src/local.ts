@@ -263,7 +263,7 @@ export class LocalJian implements Jian {
     options?: { caseSensitive?: boolean },
   ): AsyncGenerator<string> {
     const resolved = this._resolvePath(path);
-    const caseSensitive = options?.caseSensitive ?? true;
+    const caseSensitive = options?.caseSensitive ?? this.pathClass() !== 'win32';
     const patternParts = pattern.split('/');
     yield* this._globWalk(resolved, patternParts, caseSensitive);
   }

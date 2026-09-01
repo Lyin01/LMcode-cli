@@ -1,6 +1,7 @@
 import type { Jian, JianProcess } from '@lmcode-cli/jian';
 
 import { adaptSpawnCommandForWindows, platformFromOsKind } from '#/utils/spawn-command';
+import { mergeSpawnEnv } from '#/utils/spawn-env';
 
 export interface LspLocation {
   readonly uri: string;
@@ -77,7 +78,10 @@ export class LspClient {
     );
     let spawnedProcess: JianProcess;
     try {
-      spawnedProcess = await this.jian.exec(adapted.command, ...adapted.args);
+      spawnedProcess = await this.jian.execWithEnv(
+        [adapted.command, ...adapted.args],
+        mergeSpawnEnv(),
+      );
     } catch (error) {
       this.started = false;
       const message = error instanceof Error ? error.message : String(error);

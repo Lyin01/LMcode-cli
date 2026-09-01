@@ -49,6 +49,17 @@ export interface InteractionHubOptions {
   readonly timeoutMs?: number
 }
 
+/** Minimal session surface the hub needs to own reverse-RPC handlers. */
+export interface HubBoundSession {
+  readonly id: string
+  setApprovalHandler(
+    handler: ((request: ApprovalRequest) => Promise<ApprovalResponse>) | undefined,
+  ): void
+  setQuestionHandler(
+    handler: ((request: QuestionRequest) => Promise<QuestionResult>) | undefined,
+  ): void
+}
+
 const DEFAULT_TIMEOUT_MS = 300_000
 
 /**
@@ -135,6 +146,16 @@ export class InteractionHub {
 
   respondQuestion(requestId: string, result: QuestionResult): boolean {
     return this.pendingQuestions.settle(requestId, result)
+  }
+
+  /**
+   * Install this hub as the session's sole approval/question handler.
+   * Safe to call more than once; later binds replace the previous handler
+   * with the same hub fan-out.
+   */
+  bindSession(session: HubBoundSession): void {
+    session.setApprovalHandler((request) => this.requestApproval(session.id, request))
+    session.setQuestionHandler((request) => this.requestQuestion(session.id, request))
   }
 
   settleSession(sessionId: string): void {

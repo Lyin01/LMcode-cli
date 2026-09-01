@@ -37,6 +37,7 @@ import { USER_PROMPT_ORIGIN, type PromptOrigin } from '../context';
 import { GOAL_BUDGET_REACHED_REASON, isGoalResourceBudgetReached } from '../goal';
 import type { UsageRecordScope } from '../usage';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
+import { isBlobContentHash } from '../records/blobref';
 import { ToolCallDeduplicator } from './tool-dedup';
 import CRITIC_SYSTEM_PROMPT from './critic-system.md';
 import SPEC_CRITIC_CONTINUATION_PROMPT from './spec-critic-continuation.md';
@@ -263,7 +264,7 @@ export class TurnFlow {
       if (semi === -1) return null;
       mime = rest.slice(0, semi);
       const hash = rest.slice(semi + 1);
-      if (hash.length === 0) return null;
+      if (!isBlobContentHash(hash)) return null;
       try {
         buffer = readFileSync(join(homedir, 'blobs', hash));
       } catch {

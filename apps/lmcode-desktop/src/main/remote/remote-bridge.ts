@@ -85,7 +85,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isCachedSessionLive(session: Session): boolean {
-  return (session as Session & { readonly isOpen?: boolean }).isOpen !== false
+  return !session.isClosed
 }
 
 /**
@@ -194,12 +194,11 @@ export class RemoteBridge implements InteractionSurface {
    */
   async ensureSession(sessionId: string): Promise<Session> {
     if (this.closing) throw new Error('Remote bridge is closed')
-    const existing = this.activeSessions.get(sessionId)
-    if (existing !== undefined && isCachedSessionLive(existing.session)) {
-      this.installInteractionHandlers(existing.session)
+    const existing = this.takeLiveEntry(sessionId)
+    if (existing !== undefined) {
+      this.hub.bindSession(existing.session)
       return existing.session
     }
-    if (existing !== undefined) this.dropSession(sessionId)
 
     const inflight = this.resumingSessions.get(sessionId)
     if (inflight !== undefined) return (await inflight).session
@@ -207,13 +206,7 @@ export class RemoteBridge implements InteractionSurface {
     const pending = (async (): Promise<ActiveSessionEntry> => {
       const session = await this.harness.resumeSession({ id: sessionId })
       if (this.closing) throw new Error('Remote bridge is closed')
-      this.installInteractionHandlers(session)
-      const unsubscribeEvent = session.onEvent((event: Event) =>
-        this.broadcastEvent(sessionId, event),
-      )
-      const entry: ActiveSessionEntry = { session, unsubscribeEvent }
-      this.activeSessions.set(sessionId, entry)
-      return entry
+      return this.attachSession(session)
     })()
     this.resumingSessions.set(sessionId, pending)
     try {
@@ -221,6 +214,30 @@ export class RemoteBridge implements InteractionSurface {
     } finally {
       this.resumingSessions.delete(sessionId)
     }
+  }
+
+  private takeLiveEntry(sessionId: string): ActiveSessionEntry | undefined {
+    const existing = this.activeSessions.get(sessionId)
+    if (existing === undefined) return undefined
+    if (isCachedSessionLive(existing.session)) return existing
+    existing.unsubscribeEvent()
+    this.activeSessions.delete(sessionId)
+    return undefined
+  }
+
+  private attachSession(session: Session): ActiveSessionEntry {
+    const prior = this.takeLiveEntry(session.id)
+    if (prior !== undefined) {
+      this.hub.bindSession(prior.session)
+      return prior
+    }
+    this.hub.bindSession(session)
+    const unsubscribeEvent = session.onEvent((event: Event) =>
+      this.broadcastEvent(session.id, event),
+    )
+    const entry: ActiveSessionEntry = { session, unsubscribeEvent }
+    this.activeSessions.set(session.id, entry)
+    return entry
   }
 
   dropSession(sessionId: string): void {
@@ -482,11 +499,6 @@ export class RemoteBridge implements InteractionSurface {
     this.activeSessions.clear()
     // The memory store is owned by the app lifecycle (shared with the desktop
     // IPC handlers); this bridge only borrows it and must not close it.
-  }
-
-  private installInteractionHandlers(session: Session): void {
-    session.setApprovalHandler((request) => this.hub.requestApproval(session.id, request))
-    session.setQuestionHandler((request) => this.hub.requestQuestion(session.id, request))
   }
 
   // ── Private helpers ────────────────────────────────────────────────

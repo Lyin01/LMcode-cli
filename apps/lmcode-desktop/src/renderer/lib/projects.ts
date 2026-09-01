@@ -43,7 +43,7 @@ export interface ProjectSummary {
   readonly latestActivity: number
 }
 
-function comparableWorkDir(workDir: string): string {
+export function comparableWorkDir(workDir: string): string {
   const normalized = workDir.trim().replaceAll('\\', '/').replace(/\/+$/, '') || '/'
   // Drive-letter and UNC paths are case-insensitive even when the renderer is
   // comparing values produced by different Windows APIs. POSIX paths retain
@@ -68,6 +68,14 @@ export function isNoProjectWorkDir(
   return comparableWorkDir(workDir) === comparableWorkDir(sentinel)
 }
 
+export function sameWorkDir(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  if (!left?.trim() || !right?.trim()) return false
+  return comparableWorkDir(left) === comparableWorkDir(right)
+}
+
 /**
  * Derive the known project list from the sessions that live in each working
  * directory. Desktop sessions always have a workDir, so sessions are the
@@ -78,22 +86,21 @@ export function collectProjects(
   sessions: readonly SessionInfo[],
   noProjectWorkDir?: string | null,
 ): readonly ProjectSummary[] {
-  const byWorkDir = new Map<string, { sessionCount: number; latestActivity: number }>()
+  const byWorkDir = new Map<string, { workDir: string; sessionCount: number; latestActivity: number }>()
   for (const session of sessions) {
     const workDir = session.workDir?.trim()
     if (!workDir || isNoProjectWorkDir(workDir, noProjectWorkDir)) continue
     const activity = session.updatedAt ?? session.createdAt ?? 0
-    const existing = byWorkDir.get(workDir)
+    const key = comparableWorkDir(workDir)
+    const existing = byWorkDir.get(key)
     if (existing) {
       existing.sessionCount += 1
       existing.latestActivity = Math.max(existing.latestActivity, activity)
     } else {
-      byWorkDir.set(workDir, { sessionCount: 1, latestActivity: activity })
+      byWorkDir.set(key, { workDir, sessionCount: 1, latestActivity: activity })
     }
   }
-  return [...byWorkDir.entries()]
-    .map(([workDir, info]) => ({ workDir, ...info }))
-    .sort((left, right) => right.latestActivity - left.latestActivity)
+  return [...byWorkDir.values()].sort((left, right) => right.latestActivity - left.latestActivity)
 }
 
 export interface ProjectGroup {
@@ -113,22 +120,23 @@ export function groupSessionsByProject(
   activeWorkDir?: string,
   noProjectWorkDir?: string | null,
 ): readonly ProjectGroup[] {
-  const groups = new Map<string, SessionInfo[]>()
+  const groups = new Map<string, { workDir: string; sessions: SessionInfo[] }>()
   for (const session of sessions) {
     // No-project sessions join the same "未关联项目" bucket as sessions
     // without a working directory instead of grouping under the sentinel path.
     const workDir = isNoProjectWorkDir(session.workDir, noProjectWorkDir)
       ? ''
       : (session.workDir?.trim() ?? '')
-    const bucket = groups.get(workDir)
-    if (bucket) bucket.push(session)
-    else groups.set(workDir, [session])
+    const key = workDir.length === 0 ? '' : comparableWorkDir(workDir)
+    const bucket = groups.get(key)
+    if (bucket) bucket.sessions.push(session)
+    else groups.set(key, { workDir, sessions: [session] })
   }
 
-  const summarized: ProjectGroup[] = [...groups.entries()].map(([workDir, bucket]) => ({
-    workDir,
-    sessions: [...bucket].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0)),
-    latestActivity: bucket.reduce(
+  const summarized: ProjectGroup[] = [...groups.values()].map((bucket) => ({
+    workDir: bucket.workDir,
+    sessions: [...bucket.sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0)),
+    latestActivity: bucket.sessions.reduce(
       (latest, session) => Math.max(latest, session.updatedAt ?? session.createdAt ?? 0),
       0,
     ),
@@ -139,8 +147,8 @@ export function groupSessionsByProject(
     : activeWorkDir?.trim()
   return summarized.sort((left, right) => {
     if (normalizedActive) {
-      if (left.workDir === normalizedActive && right.workDir !== normalizedActive) return -1
-      if (right.workDir === normalizedActive && left.workDir !== normalizedActive) return 1
+      if (sameWorkDir(left.workDir, normalizedActive) && !sameWorkDir(right.workDir, normalizedActive)) return -1
+      if (sameWorkDir(right.workDir, normalizedActive) && !sameWorkDir(left.workDir, normalizedActive)) return 1
     }
     return right.latestActivity - left.latestActivity
   })
@@ -159,7 +167,7 @@ export function latestSessionInProject(
   if (!normalized) return null
   let latest: SessionInfo | null = null
   for (const session of sessions) {
-    if (session.workDir?.trim() !== normalized) continue
+    if (!sameWorkDir(session.workDir, normalized)) continue
     if (
       latest === null ||
       (session.updatedAt ?? session.createdAt ?? 0) >

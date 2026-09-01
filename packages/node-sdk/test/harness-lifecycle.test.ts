@@ -65,6 +65,30 @@ describe('LmcodeHarness lifecycle', () => {
     await harness.close();
   });
 
+  it('does not reuse a session that has started closing', async () => {
+    const { harness, rpc, root } = await createHarness();
+    vi.spyOn(rpc, 'createSession').mockResolvedValue(sessionSummary(root, 'ses_closed_resume'));
+    vi.spyOn(rpc, 'extractMemoriesOnExit').mockResolvedValue(undefined);
+    vi.spyOn(rpc, 'closeSession').mockResolvedValue(undefined);
+    const first = await harness.createSession({
+      id: 'ses_closed_resume',
+      workDir: root,
+    });
+    const closing = first.close();
+    expect(first.isClosed).toBe(true);
+
+    const resumeSession = vi.spyOn(rpc, 'resumeSession').mockResolvedValue(
+      resumedSessionSummary(root, 'ses_closed_resume'),
+    );
+    const resumed = await harness.resumeSession({ id: 'ses_closed_resume' });
+    await closing;
+
+    expect(resumed).not.toBe(first);
+    expect(resumed.isClosed).toBe(false);
+    expect(resumeSession).toHaveBeenCalled();
+    await harness.close();
+  });
+
   it('rejects duplicate creates while the same id is pending or active', async () => {
     const { harness, rpc, root } = await createHarness();
     const summary = sessionSummary(root, 'ses_duplicate_create');

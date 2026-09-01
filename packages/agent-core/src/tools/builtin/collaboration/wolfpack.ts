@@ -96,7 +96,7 @@ export class WolfPackTool implements BuiltinTool<WolfPackToolInput> {
   resolveExecution(args: WolfPackToolInput): ToolExecution {
     return {
       description: `WolfPack: ${args.description} (${args.items.length} agents)`,
-      accesses: ToolAccesses.none(),
+      accesses: ToolAccesses.all(),
       display: {
         kind: 'generic',
         summary: `WolfPack: ${args.description}`,

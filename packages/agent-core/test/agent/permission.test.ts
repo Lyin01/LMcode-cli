@@ -3579,6 +3579,50 @@ function bashCall(): ToolCall {
 }
 
 describe('File sandbox policy', () => {
+  it('denies unrestricted Bash in workspace-write mode, even in yolo', async () => {
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { mode: 'yolo', cwd: '/workspace' },
+    );
+    manager.fileSandbox = 'workspace-write';
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_bash_workspace_write',
+        toolName: 'Bash',
+        args: { command: 'echo secret > /tmp/x', timeout: 60 },
+      }),
+    );
+
+    expect(result).toEqual({
+      block: true,
+      reason: expect.stringContaining('workspace-write file sandbox'),
+    });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
+  it('denies unrestricted Bash in read-only mode, even in yolo', async () => {
+    const { manager, requestApproval } = makePermissionManager(
+      async () => ({ decision: 'approved' }),
+      { mode: 'yolo' },
+    );
+    manager.fileSandbox = 'read-only';
+
+    const result = await manager.beforeToolCall(
+      hookContext({
+        id: 'call_bash_readonly',
+        toolName: 'Bash',
+        args: { command: 'echo secret > /tmp/x', timeout: 60 },
+      }),
+    );
+
+    expect(result).toEqual({
+      block: true,
+      reason: expect.stringContaining('read-only file sandbox'),
+    });
+    expect(requestApproval).not.toHaveBeenCalled();
+  });
+
   it('denies file writes in read-only mode, even in yolo', async () => {
     const { manager, requestApproval } = makePermissionManager(
       async () => ({ decision: 'approved' }),
@@ -4004,6 +4048,7 @@ function testAccesses(toolName: string, args: Record<string, unknown>) {
   if ((toolName === 'Grep' || toolName === 'Glob') && path !== undefined) {
     return ToolAccesses.searchTree(path);
   }
+  if (toolName === 'Bash' || toolName === 'WolfPack') return ToolAccesses.all();
   return ToolAccesses.none();
 }
 

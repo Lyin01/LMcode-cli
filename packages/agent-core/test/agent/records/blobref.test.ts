@@ -186,6 +186,20 @@ describe('blobref', () => {
     expect(url).toBe(dataUri);
   });
 
+  it('does not rehydrate blobref hashes that escape the blobs directory', async () => {
+    const { store } = await makeStore();
+    const record: AgentRecord = {
+      type: 'turn.prompt',
+      input: [{ type: 'image_url', imageUrl: { url: 'blobref:image/png;../secret' } }],
+      origin: { kind: 'user' },
+    };
+
+    await store.rehydrate(record);
+
+    const url = (record.input as unknown as [{ imageUrl: { url: string } }])[0].imageUrl.url;
+    expect(url).toBe('[media missing]');
+  });
+
   it('replaces missing blobs with placeholder text', async () => {
     const { store } = await makeStore();
     const record: AgentRecord = {

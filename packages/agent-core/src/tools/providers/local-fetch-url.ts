@@ -68,6 +68,8 @@ async function getLinkedom(): Promise<{
   return linkedomModule!;
 }
 
+type Ipv4Octets = readonly [number, number, number, number];
+
 /**
  * SSRF guard — reject non-http(s) schemes and (by default) any hostname
  * that is, or parses as, a private / loopback / link-local / ULA IP
@@ -76,6 +78,14 @@ async function getLinkedom(): Promise<{
  * DNS-rebinding is **not** caught here. That attack is a known
  * limitation; mitigations (e.g. pinning the resolved IP through to
  * fetch) are left for a follow-up.
+ *
+ * IPv6 unique-local prefixes (`fc` / `fd`) are only matched on literals
+ * that contain `:`. A prefix check on the raw hostname would block public
+ * domains such as `fda.gov` and `fcbarcelona.com`.
+ *
+ * IPv4-mapped IPv6 (`::ffff:127.0.0.1` / `::ffff:7f00:1`) is expanded and
+ * run through the same private-IPv4 table. Node canonicalizes the dotted
+ * form to hex in `URL.hostname`, so both spellings must be handled.
  */
 function assertSafeFetchTarget(url: string, allowPrivate: boolean): void {
   let parsed: URL;
@@ -92,51 +102,81 @@ function assertSafeFetchTarget(url: string, allowPrivate: boolean): void {
   // Node versions (and not others). Strip them for uniform comparison.
   const hostRaw = parsed.hostname.toLowerCase();
   const host = hostRaw.startsWith('[') && hostRaw.endsWith(']') ? hostRaw.slice(1, -1) : hostRaw;
-  // Literal "localhost" / loopback aliases.
   if (host === 'localhost' || host.endsWith('.localhost')) {
     throw new Error(`Refusing to fetch private host: "${host}"`);
   }
-  // IPv6 loopback / ULA / link-local. Check after bracket strip.
-  if (
+  if (host.includes(':')) {
+    if (isPrivateIpv6Literal(host)) {
+      throw new Error(`Refusing to fetch private host: "${host}"`);
+    }
+    const mapped = parseIpv4MappedIpv6(host);
+    if (mapped !== null && isPrivateIpv4(mapped)) {
+      throw new Error(`Refusing to fetch private address: "${host}"`);
+    }
+    return;
+  }
+  const v4 = parseIpv4Literal(host);
+  if (v4 !== null && isPrivateIpv4(v4)) {
+    throw new Error(`Refusing to fetch private address: "${host}"`);
+  }
+}
+
+function isPrivateIpv6Literal(host: string): boolean {
+  return (
     host === '::1' ||
     host === '::' ||
     host.startsWith('fe80:') ||
     host.startsWith('fc') ||
     host.startsWith('fd')
-  ) {
-    throw new Error(`Refusing to fetch private host: "${host}"`);
-  }
-  // IPv4 literal — only check when the hostname is a dotted-quad; normal
-  // domains will never match.
+  );
+}
+
+function parseIpv4Literal(host: string): Ipv4Octets | null {
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (v4 !== null) {
-    const octets = [v4[1], v4[2], v4[3], v4[4]].map(Number);
-    if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
-      throw new Error(`Invalid IPv4 literal: "${host}"`);
-    }
-    const [a, b] = octets as [number, number, number, number];
-    // 127.0.0.0/8 loopback, 10.0.0.0/8, 192.168.0.0/16,
-    // 172.16.0.0/12, 169.254.0.0/16 link-local / AWS metadata,
-    // 0.0.0.0/8 "this network", 100.64.0.0/10 CGNAT.
-    const isLoopback = a === 127;
-    const isPrivate10 = a === 10;
-    const isPrivate192 = a === 192 && b === 168;
-    const isPrivate172 = a === 172 && b >= 16 && b <= 31;
-    const isLinkLocal = a === 169 && b === 254;
-    const isZero = a === 0;
-    const isCgnat = a === 100 && b >= 64 && b <= 127;
-    if (
-      isLoopback ||
-      isPrivate10 ||
-      isPrivate192 ||
-      isPrivate172 ||
-      isLinkLocal ||
-      isZero ||
-      isCgnat
-    ) {
-      throw new Error(`Refusing to fetch private address: "${host}"`);
-    }
+  if (v4 === null) return null;
+  const octets: Ipv4Octets = [Number(v4[1]), Number(v4[2]), Number(v4[3]), Number(v4[4])];
+  if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    throw new Error(`Invalid IPv4 literal: "${host}"`);
   }
+  return octets;
+}
+
+/**
+ * Node's URL parser rewrites `::ffff:127.0.0.1` to `::ffff:7f00:1`. Accept
+ * both the dotted and hex-pair spellings of an IPv4-mapped IPv6 address.
+ */
+function parseIpv4MappedIpv6(host: string): Ipv4Octets | null {
+  const dotted = /^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/i.exec(host);
+  if (dotted !== null) {
+    const octets: Ipv4Octets = [
+      Number(dotted[1]),
+      Number(dotted[2]),
+      Number(dotted[3]),
+      Number(dotted[4]),
+    ];
+    if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    return octets;
+  }
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(host);
+  if (hex === null) return null;
+  const hi = Number.parseInt(hex[1]!, 16);
+  const lo = Number.parseInt(hex[2]!, 16);
+  return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff];
+}
+
+function isPrivateIpv4([a, b]: Ipv4Octets): boolean {
+  // 127.0.0.0/8 loopback, 10.0.0.0/8, 192.168.0.0/16,
+  // 172.16.0.0/12, 169.254.0.0/16 link-local / AWS metadata,
+  // 0.0.0.0/8 "this network", 100.64.0.0/10 CGNAT.
+  return (
+    a === 127 ||
+    a === 10 ||
+    (a === 192 && b === 168) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 169 && b === 254) ||
+    a === 0 ||
+    (a === 100 && b >= 64 && b <= 127)
+  );
 }
 
 function cacheKey(url: string, allowPrivate: boolean, maxBytes: number, userAgent: string): string {
@@ -247,6 +287,9 @@ export class LocalFetchURLProvider implements UrlFetcher {
     if (contentLengthRaw !== null) {
       const cl = Number(contentLengthRaw);
       if (Number.isFinite(cl) && cl > this.maxBytes) {
+        await response.body?.cancel().catch(() => {
+          /* already closed */
+        });
         throw new Error(
           `Response body too large: ${String(cl)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
         );

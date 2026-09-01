@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useSessionStore } from '@/stores/session-store'
-import { latestSessionInProject } from '@/lib/projects'
+import { latestSessionInProject, sameWorkDir } from '@/lib/projects'
 
 /**
  * Shared project-switching behavior used by the sidebar project picker and
@@ -19,7 +19,7 @@ export function useProjectSwitcher() {
       const currentWorkDir = state.sessions.find(
         (session) => session.id === state.currentSessionId,
       )?.workDir
-      if (workDir === currentWorkDir) return
+      if (sameWorkDir(workDir, currentWorkDir)) return
       const target = latestSessionInProject(state.sessions, workDir)
       if (target) {
         selectSession(target.id)

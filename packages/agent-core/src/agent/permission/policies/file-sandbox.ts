@@ -2,7 +2,7 @@ import type { Agent } from '../..';
 import type { ToolFileAccess } from '../../../loop/tool-access';
 import { isWithinDirectory } from '../../../tools/policies/path-access';
 import type { PermissionPolicy, PermissionPolicyContext, PermissionPolicyResult } from '../types';
-import { resolvePermissionCwd, writeFileAccesses } from './file-access-ask';
+import { hasUnrestrictedAccess, resolvePermissionCwd, writeFileAccesses } from './file-access-ask';
 
 /**
  * Hard file-sandbox boundary, orthogonal to the approval mode.
@@ -25,17 +25,29 @@ export class FileSandboxPermissionPolicy implements PermissionPolicy {
     if (sandbox === 'full-access') return undefined;
 
     const writeAccesses = writeFileAccesses(context);
-    if (writeAccesses.length === 0) return undefined;
+    const unrestricted = hasUnrestrictedAccess(context);
+    if (writeAccesses.length === 0 && !unrestricted) return undefined;
 
     if (sandbox === 'read-only') {
       return {
         kind: 'deny',
         message: 'File writes are disabled by the read-only file sandbox.',
-        reason: fileSandboxReason(writeAccesses[0]!, 'read-only'),
+        reason: fileSandboxReason(writeAccesses[0], 'read-only'),
       };
     }
 
     // workspace-write: hard-deny writes outside the workspace root.
+    // Unrestricted tools (Bash, WolfPack) declare no write paths, so they
+    // cannot be proven to stay inside cwd — deny them the same way yolo
+    // cannot bypass this policy for declared Write/Edit.
+    if (unrestricted) {
+      return {
+        kind: 'deny',
+        message:
+          'Unrestricted tools cannot be proven to stay inside the workspace under the workspace-write file sandbox.',
+        reason: fileSandboxReason(undefined, 'workspace-write'),
+      };
+    }
     const configuredCwd = this.agent.config.cwd;
     if (configuredCwd.length === 0) return undefined;
     const cwd = await resolvePermissionCwd(this.agent, configuredCwd);
@@ -51,12 +63,12 @@ export class FileSandboxPermissionPolicy implements PermissionPolicy {
 }
 
 function fileSandboxReason(
-  access: ToolFileAccess,
+  access: ToolFileAccess | undefined,
   sandbox: 'read-only' | 'workspace-write',
 ): { file_access_operation: string; recursive: boolean; sandbox: string } {
   return {
-    file_access_operation: access.operation,
-    recursive: access.recursive === true,
+    file_access_operation: access?.operation ?? 'readwrite',
+    recursive: access?.recursive === true || access === undefined,
     sandbox,
   };
 }

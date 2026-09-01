@@ -630,8 +630,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   hydratedSessions: {},
 
   setSessions: (sessions) => {
-    for (const session of sessions) forgottenSessions.delete(session.id)
-    set({ sessions })
+    set({ sessions: sessions.filter((session) => !forgottenSessions.has(session.id)) })
   },
 
   setNoProjectWorkDir: (workDir) => set({ noProjectWorkDir: workDir }),
@@ -641,6 +640,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     sessionSendInFlight.delete(deletedId)
     lastTurnEndReasons.delete(deletedId)
     forgottenSessions.add(deletedId)
+    const listed = remaining.filter((session) => session.id !== deletedId)
     set((state) => {
       const bg = { ...state.bg }
       const messageQueue = { ...state.messageQueue }
@@ -653,13 +653,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       delete hydratedSessions[deletedId]
 
       if (state.currentSessionId !== deletedId) {
-        return { sessions: remaining, bg, messageQueue, hydratedSessions, pendingInteractions }
+        return { sessions: listed, bg, messageQueue, hydratedSessions, pendingInteractions }
       }
 
-      const next = remaining[0]
+      const next = listed[0]
       if (!next) {
         return {
-          sessions: remaining,
+          sessions: listed,
           bg,
           messageQueue,
           hydratedSessions,
@@ -679,7 +679,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const restored = bg[next.id]
       delete bg[next.id]
       return {
-        sessions: remaining,
+        sessions: listed,
         bg,
         messageQueue,
         hydratedSessions,
@@ -936,6 +936,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   setSessionStreaming: (sessionId, val) =>
     set((state) => {
+      if (forgottenSessions.has(sessionId)) return state
       if (state.currentSessionId === sessionId) {
         return {
           isStreaming: val,
@@ -1156,6 +1157,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })),
 
   enqueueMessage: (sessionId, text, attachments = []) => {
+    if (forgottenSessions.has(sessionId)) return ''
     pausedQueueSessions.delete(sessionId)
     queuedMessageCounter += 1
     const id = `queued_${Date.now()}_${queuedMessageCounter}`

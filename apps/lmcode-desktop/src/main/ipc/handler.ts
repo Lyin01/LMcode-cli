@@ -6,9 +6,7 @@ import type {
   Session,
   Event,
   LmcodeHarness,
-  ApprovalRequest,
   ApprovalResponse,
-  QuestionRequest,
   QuestionResult,
   SessionSummary,
   ResumedSessionState,
@@ -63,7 +61,6 @@ import {
 import { ProjectTerminalManager } from '../project-terminal.js'
 import { isTrustedIpcSender } from '../security.js'
 import {
-  CANCELLED_APPROVAL,
   InteractionHub,
   type InteractionSurface,
 } from '../remote/interaction-hub.js'
@@ -202,8 +199,13 @@ export function registerAllHandlers(
   const rendererSurface: InteractionSurface = {
     name: 'renderer',
     sendApproval: (payload) => {
-      if (mainWindow.isDestroyed()) return false
+      if (closing || mainWindow.isDestroyed()) return false
       try {
+        sendNotification(
+          'LMCODE - 审批请求',
+          `需要审批：${payload.request.action || '执行操作'}`,
+          mainWindow,
+        )
         mainWindow.webContents.send('lmcode:approvalRequest', payload)
         return true
       } catch {
@@ -283,22 +285,7 @@ export function registerAllHandlers(
       }
     })
 
-    session.setApprovalHandler((request: ApprovalRequest): Promise<ApprovalResponse> => {
-      if (closing) return Promise.resolve(CANCELLED_APPROVAL)
-
-      sendNotification(
-        'LMCODE - 审批请求',
-        `需要审批：${request.action || '执行操作'}`,
-        mainWindow,
-      )
-
-      return hub.requestApproval(session.id, request)
-    })
-
-    session.setQuestionHandler((request: QuestionRequest): Promise<QuestionResult> => {
-      if (closing) return Promise.resolve(null)
-      return hub.requestQuestion(session.id, request)
-    })
+    hub.bindSession(session)
 
     activeSessions.set(session.id, { session, unsubscribeEvent })
   }
@@ -360,7 +347,7 @@ export function registerAllHandlers(
       throw new Error(`Session "${sessionId}" is closing`)
     }
     const existing = activeSessions.get(sessionId)
-    if (existing && isCachedSessionLive(existing.session)) return existing
+    if (existing !== undefined && !existing.session.isClosed) return existing
     if (existing) {
       existing.unsubscribeEvent()
       activeSessions.delete(sessionId)
@@ -1286,8 +1273,6 @@ export function registerAllHandlers(
     runStep(() => hub.detachSurface('renderer'))
     for (const entry of activeSessions.values()) {
       runStep(entry.unsubscribeEvent)
-      runStep(() => entry.session.setApprovalHandler(undefined))
-      runStep(() => entry.session.setQuestionHandler(undefined))
     }
     activeSessions.clear()
     try {
@@ -1332,10 +1317,6 @@ export function registerAllHandlers(
       providerUsage.invalidate()
     },
   }
-}
-
-function isCachedSessionLive(session: Session): boolean {
-  return (session as Session & { readonly isOpen?: boolean }).isOpen !== false
 }
 
 /** 定位 VSCode 主程序。Windows 上 code 命令是 .cmd，无法安全地 shell-less spawn，直接找 Code.exe。 */

@@ -212,3 +212,43 @@ describe('LocalFetchURLProvider redirect SSRF guard', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('LocalFetchURLProvider hostname SSRF guard', () => {
+  it('does not treat public hostnames starting with fd/fc as IPv6 ULA', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(htmlResponse('fda', 'text/plain; charset=utf-8'))
+      .mockResolvedValueOnce(htmlResponse('fcb', 'text/plain; charset=utf-8'));
+    const provider = new LocalFetchURLProvider({ fetchImpl });
+
+    await expect(provider.fetch('https://fda.gov/label')).resolves.toEqual({
+      content: 'fda',
+      kind: 'passthrough',
+    });
+    await expect(provider.fetch('https://fcbarcelona.com/')).resolves.toEqual({
+      content: 'fcb',
+      kind: 'passthrough',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects IPv4-mapped IPv6 loopback and cloud-metadata addresses', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const provider = new LocalFetchURLProvider({ fetchImpl });
+
+    await expect(provider.fetch('http://[::ffff:127.0.0.1]/')).rejects.toThrow(/private address/i);
+    await expect(provider.fetch('http://[::ffff:169.254.169.254]/latest/meta-data/')).rejects.toThrow(
+      /private address/i,
+    );
+    await expect(provider.fetch('http://[::ffff:7f00:1]/')).rejects.toThrow(/private address/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects abbreviated IPv4 loopback after URL canonicalization', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const provider = new LocalFetchURLProvider({ fetchImpl });
+
+    await expect(provider.fetch('http://127.1/')).rejects.toThrow(/private address/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

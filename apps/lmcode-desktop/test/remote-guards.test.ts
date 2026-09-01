@@ -20,11 +20,22 @@ describe('isAllowedRemoteWorkDir', () => {
 describe('assertRemoteSafeMcpConfig', () => {
   it('allows http(s) MCP urls and rejects stdio commands', () => {
     expect(() => assertRemoteSafeMcpConfig({ url: 'https://mcp.example/sse' })).not.toThrow()
-    expect(() => assertRemoteSafeMcpConfig({ url: 'http://127.0.0.1:3100' })).not.toThrow()
     expect(() => assertRemoteSafeMcpConfig({ url: 'http://169.254.169.254/' })).toThrow(
-      /metadata/,
+      /loopback, metadata, or internal/,
+    )
+    expect(() => assertRemoteSafeMcpConfig({ url: 'http://127.0.0.1:3100' })).toThrow(
+      /loopback, metadata, or internal/,
+    )
+    expect(() => assertRemoteSafeMcpConfig({ url: 'http://[::ffff:127.0.0.1]/' })).toThrow(
+      /loopback, metadata, or internal/,
+    )
+    expect(() => assertRemoteSafeMcpConfig({ url: 'http://192.168.1.10:3100' })).toThrow(
+      /loopback, metadata, or internal/,
     )
     expect(() => assertRemoteSafeMcpConfig({ command: 'npx', args: ['-y', 'foo'] })).toThrow(
+      /stdio command/,
+    )
+    expect(() => assertRemoteSafeMcpConfig({ command: ['npx'], url: 'https://x' })).toThrow(
       /stdio command/,
     )
     expect(() => assertRemoteSafeMcpConfig({ command: 'calc.exe', url: 'https://x' })).toThrow(

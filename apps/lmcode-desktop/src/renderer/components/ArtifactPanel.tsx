@@ -8,6 +8,7 @@ import { activateModalPanel } from '@/lib/modal-panel-controller'
 import { blockExcerpt, splitMarkdownBlocks } from '@/lib/markdown-blocks'
 import { formatArtifactComments } from '@/lib/artifact-comments'
 import { formatSessionActivity } from '@/lib/session-list'
+import { markdownUrlTransform } from '@/lib/open-target'
 import {
   activeCommentCount,
   useArtifactsStore,
@@ -191,7 +192,11 @@ export function ArtifactPanel({ onSendFeedback }: ArtifactPanelProps) {
                   className="group relative rounded-md px-2 py-1 transition-colors hover:bg-[var(--lm-bg-hover)]/50"
                 >
                   <div className="lm-markdown">
-                    <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>
+                    <Markdown
+                      remarkPlugins={REMARK_PLUGINS}
+                      rehypePlugins={REHYPE_PLUGINS}
+                      urlTransform={markdownUrlTransform}
+                    >
                       {block}
                     </Markdown>
                   </div>

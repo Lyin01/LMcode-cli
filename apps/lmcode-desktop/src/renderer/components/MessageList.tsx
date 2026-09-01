@@ -4,6 +4,12 @@ import { useSessionStore } from '@/stores/session-store'
 import { MessageItem } from '@/components/MessageItem'
 import { findConversationMessageIds } from '@/lib/conversation-search'
 import { historyToMessages } from '@/lib/history'
+import {
+  MESSAGE_LIST_ESTIMATED_ROW_PX,
+  MESSAGE_LIST_OVERSCAN,
+  MESSAGE_LIST_VIRTUALIZE_AFTER,
+  computeMessageListWindow,
+} from '@/lib/message-list-window'
 import { cn } from '@/lib/utils'
 import type { ConversationFindRequest } from '@/lib/menu-command'
 import { isImeConfirmKey } from '@/lib/ime'
@@ -33,7 +39,13 @@ export function MessageList({ findRequest }: MessageListProps) {
   // read by the messages effect — a ref, not state, so scrolling itself never
   // triggers a re-render.
   const stickToBottomRef = useRef(true)
+  const sessionIdForStickRef = useRef(currentSessionId)
+  const lastUserStickIdRef = useRef<string | undefined>(undefined)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [windowRange, setWindowRange] = useState({
+    start: 0,
+    end: MESSAGE_LIST_VIRTUALIZE_AFTER,
+  })
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
@@ -47,13 +59,27 @@ export function MessageList({ findRequest }: MessageListProps) {
   )
   const activeMatchId = matchingMessageIds[activeMatchIndex] ?? null
 
+  const updateWindow = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const row = MESSAGE_LIST_ESTIMATED_ROW_PX
+    const start = Math.max(0, Math.floor(el.scrollTop / row) - MESSAGE_LIST_OVERSCAN)
+    const visible = Math.ceil(el.clientHeight / row) + MESSAGE_LIST_OVERSCAN * 2
+    setWindowRange((current) => {
+      const next = { start, end: start + visible }
+      if (current.start === next.start && current.end === next.end) return current
+      return next
+    })
+  }, [])
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX
     stickToBottomRef.current = atBottom
     if (atBottom) setShowJumpToBottom(false)
-  }, [])
+    updateWindow()
+  }, [updateWindow])
 
   const jumpToBottom = useCallback(() => {
     const el = scrollRef.current
@@ -91,9 +117,6 @@ export function MessageList({ findRequest }: MessageListProps) {
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    // A freshly sent user message always re-sticks the view to the bottom.
-    const last = messages[messages.length - 1]
-    if (last?.role === 'user') stickToBottomRef.current = true
     if (stickToBottomRef.current) {
       el.scrollTop = el.scrollHeight
     } else {
@@ -167,6 +190,36 @@ export function MessageList({ findRequest }: MessageListProps) {
   const canRegenerate =
     Boolean(lastUser) &&
     (lastUserText.trim().length > 0 || (lastUserAttachments?.length ?? 0) > 0)
+
+  // Session switches and a freshly sent user message must restick before
+  // the window is computed. Doing this during render (not in an effect)
+  // keeps the newest row mounted on the same frame it arrives. Only the
+  // *new* user message resticks — a waiting transcript whose last row is
+  // still the user message must remain scrollable.
+  if (sessionIdForStickRef.current !== currentSessionId) {
+    sessionIdForStickRef.current = currentSessionId
+    stickToBottomRef.current = true
+    lastUserStickIdRef.current = undefined
+  }
+  const lastMessage = messages[messages.length - 1]
+  if (lastMessage?.role === 'user' && lastMessage.id !== lastUserStickIdRef.current) {
+    lastUserStickIdRef.current = lastMessage.id
+    stickToBottomRef.current = true
+  }
+
+  const listWindow = computeMessageListWindow({
+    messageCount: messages.length,
+    findOpen,
+    stickToBottom: stickToBottomRef.current,
+    windowRange,
+  })
+  const visibleMessages = listWindow.virtualize
+    ? messages.slice(listWindow.start, listWindow.end)
+    : messages
+  const topSpacer = listWindow.virtualize ? listWindow.start * MESSAGE_LIST_ESTIMATED_ROW_PX : 0
+  const bottomSpacer = listWindow.virtualize
+    ? Math.max(0, messages.length - listWindow.end) * MESSAGE_LIST_ESTIMATED_ROW_PX
+    : 0
 
   const handleRegenerate = useCallback(async () => {
     if (!currentSessionId || isStreaming || !canRegenerate) return
@@ -271,7 +324,8 @@ export function MessageList({ findRequest }: MessageListProps) {
       )}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-7 px-5 py-7">
-          {messages.map((msg) => (
+          {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
+          {visibleMessages.map((msg) => (
             <div
               key={msg.id}
               ref={(node) => {
@@ -298,6 +352,7 @@ export function MessageList({ findRequest }: MessageListProps) {
               />
             </div>
           ))}
+          {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden />}
         </div>
       </div>
       {showJumpToBottom && (

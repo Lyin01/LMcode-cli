@@ -62,6 +62,18 @@ describe('collectProjects', () => {
     ])
   })
 
+  it('merges Windows drive-letter paths that differ only by slash or case', () => {
+    const projects = collectProjects([
+      session('s1', 'C:\\repo-a', 10),
+      session('s2', 'C:/repo-a', 20),
+      session('s3', 'c:/repo-a', 15),
+    ])
+
+    expect(projects).toEqual([
+      { workDir: 'C:\\repo-a', sessionCount: 3, latestActivity: 20 },
+    ])
+  })
+
   it('skips sessions without a usable working directory', () => {
     expect(collectProjects([session('s1', '   ', 10)])).toEqual([])
   })
@@ -130,6 +142,20 @@ describe('groupSessionsByProject', () => {
     expect(groups.map((group) => group.workDir)).toEqual(['', 'C:/repo-a'])
     expect(groups[0]?.sessions.map((item) => item.id)).toEqual(['s2'])
   })
+
+  it('groups Windows slash and case variants as one project', () => {
+    const groups = groupSessionsByProject(
+      [
+        session('s1', 'C:\\repo-a', 10),
+        session('s2', 'C:/repo-a', 20),
+        session('s3', 'C:/repo-b', 15),
+      ],
+      'c:/repo-a',
+    )
+
+    expect(groups.map((group) => group.workDir)).toEqual(['C:\\repo-a', 'C:/repo-b'])
+    expect(groups[0]?.sessions.map((item) => item.id)).toEqual(['s2', 's1'])
+  })
 })
 
 describe('latestSessionInProject', () => {
@@ -141,6 +167,7 @@ describe('latestSessionInProject', () => {
 
   it('returns the most recently active session of the target project', () => {
     expect(latestSessionInProject(pool, 'C:/repo-a')?.id).toBe('s2')
+    expect(latestSessionInProject(pool, 'C:\\repo-a')?.id).toBe('s2')
     expect(latestSessionInProject(pool, 'C:/repo-b')?.id).toBe('s3')
   })
 

@@ -4,7 +4,12 @@ import { AlertTriangle, Check, Copy, FileText, RotateCcw, Sparkles } from 'lucid
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallList } from '@/components/ToolCallList'
 import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
-import { resolveOpenTarget, resolveHrefOpenTarget, isSafeExternalHref } from '@/lib/open-target'
+import {
+  resolveOpenTarget,
+  resolveHrefOpenTarget,
+  isSafeExternalHref,
+  markdownUrlTransform,
+} from '@/lib/open-target'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -264,6 +269,7 @@ export const MessageItem = memo(function MessageItem({
                   <Markdown
                     remarkPlugins={REMARK_PLUGINS}
                     rehypePlugins={REHYPE_PLUGINS}
+                    urlTransform={markdownUrlTransform}
                     components={MARKDOWN_COMPONENTS}
                   >
                     {message.content}

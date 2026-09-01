@@ -36,8 +36,8 @@ export function createPermissionDecisionPolicies(agent: Agent): readonly Permiss
     // User-configured deny rule matches → deny.
     new UserConfiguredDenyPermissionPolicy(agent),
     // File sandbox is a hard, mode-independent boundary: read-only denies all
-    // writes, workspace-write denies writes outside cwd. Runs before the
-    // ask/allow policies and is NOT bypassed by yolo.
+    // writes, workspace-write denies writes outside cwd and unrestricted
+    // tools. Runs before the ask/allow policies and is NOT bypassed by yolo.
     new FileSandboxPermissionPolicy(agent),
     // Hard file-access boundaries run before auto/session/user allow rules; only yolo bypasses them.
     // Access touches a sensitive file (.env, SSH key, credentials) → ask (skipped in yolo).

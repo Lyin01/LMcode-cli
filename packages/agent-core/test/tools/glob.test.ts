@@ -76,7 +76,7 @@ describe('GlobTool', () => {
     const result = await executeTool(tool, context({ pattern: 'src/**/*.ts', path: '/workspace' }));
 
     expect(result.output).toBe('src/new.ts\nsrc/old.ts');
-    expect(glob).toHaveBeenCalledWith('/workspace', 'src/**/*.ts');
+    expect(glob).toHaveBeenCalledWith('/workspace', 'src/**/*.ts', { caseSensitive: true });
   });
 
   it('uses the backend path class when displaying paths relative to a windows root', async () => {
@@ -93,7 +93,7 @@ describe('GlobTool', () => {
     const result = await executeTool(tool, context({ pattern: 'src/**/*.ts', path: 'C:\\WORKSPACE' }));
 
     expect(result.output).toBe('src/old.ts');
-    expect(glob).toHaveBeenCalledWith('C:/WORKSPACE', 'src/**/*.ts');
+    expect(glob).toHaveBeenCalledWith('C:/WORKSPACE', 'src/**/*.ts', { caseSensitive: false });
   });
 
   it('rejects pure wildcard patterns before walking the tree', async () => {
@@ -127,8 +127,8 @@ describe('GlobTool', () => {
     const result = await executeTool(tool, context({ pattern: '*.{ts,tsx}' }));
 
     expect(result.isError).toBeUndefined();
-    expect(glob).toHaveBeenCalledWith('/workspace', '*.ts');
-    expect(glob).toHaveBeenCalledWith('/workspace', '*.tsx');
+    expect(glob).toHaveBeenCalledWith('/workspace', '*.ts', { caseSensitive: true });
+    expect(glob).toHaveBeenCalledWith('/workspace', '*.tsx', { caseSensitive: true });
     expect(result.output).toContain('a.ts');
     expect(result.output).toContain('b.tsx');
   });
@@ -157,7 +157,7 @@ describe('GlobTool', () => {
     const result = await executeTool(tool, context({ pattern: '*.ts' }));
 
     expect(glob).toHaveBeenCalledTimes(1);
-    expect(glob).toHaveBeenCalledWith('/workspace', '*.ts');
+    expect(glob).toHaveBeenCalledWith('/workspace', '*.ts', { caseSensitive: true });
     expect(result.output).toBe('a.ts\nshared.ts');
   });
 
@@ -172,7 +172,7 @@ describe('GlobTool', () => {
 
     expect(result.output).toBe('pkg/a.ts');
     expect(glob).toHaveBeenCalledTimes(1);
-    expect(glob).toHaveBeenCalledWith('/extra', 'pkg/**/*.ts');
+    expect(glob).toHaveBeenCalledWith('/extra', 'pkg/**/*.ts', { caseSensitive: true });
   });
 
   it('filters directories when include_dirs is false', async () => {
@@ -231,7 +231,7 @@ describe('GlobTool', () => {
 
       expect(result.output).toContain('read_content.py');
       expect(result.output).toContain('utils.py');
-      expect(glob).toHaveBeenCalledWith('/skills', '*.py');
+      expect(glob).toHaveBeenCalledWith('/skills', '*.py', { caseSensitive: true });
     });
 
     it('searches inside a subdirectory of an additionalDir entry', async () => {

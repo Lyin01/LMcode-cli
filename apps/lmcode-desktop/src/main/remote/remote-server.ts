@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { Socket } from 'node:net'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { Logger } from '@lmcode-cli/lmcode-sdk'
@@ -64,7 +64,8 @@ export class RemoteServer {
   private readonly sockets = new Set<WebSocket>()
   private readonly connections = new Map<WebSocket, RemoteConnection>()
   private readonly authTimers = new Map<WebSocket, ReturnType<typeof setTimeout>>()
-  private failedAuthTimes: number[] = []
+  private readonly socketIps = new Map<WebSocket, string>()
+  private readonly failedAuthTimesByIp = new Map<string, number[]>()
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined
   private closed = false
 
@@ -90,7 +91,7 @@ export class RemoteServer {
       })
     })
 
-    this.wss.on('connection', (socket: WebSocket) => {
+    this.wss.on('connection', (socket: WebSocket, request?: IncomingMessage) => {
       const pendingAuth = this.sockets.size - this.connections.size
       if (
         this.closed ||
@@ -100,7 +101,13 @@ export class RemoteServer {
         socket.close(1013, 'server busy')
         return
       }
+      const ip = request?.socket.remoteAddress ?? 'unknown'
+      if (this.isAuthRateLimited(ip)) {
+        socket.close(4008, 'too many auth failures')
+        return
+      }
       this.sockets.add(socket)
+      this.socketIps.set(socket, ip)
       this.options.logger?.info('remote client connected', {
         clientCount: this.sockets.size,
       })
@@ -113,7 +120,9 @@ export class RemoteServer {
       this.authTimers.set(socket, authTimer)
 
       const connection: RemoteConnection = {
-        isOpen: true,
+        get isOpen(): boolean {
+          return socket.readyState === WebSocket.OPEN
+        },
         send: (message: RemoteServerMessage): void => {
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify(message))
@@ -150,6 +159,7 @@ export class RemoteServer {
         if (timer !== undefined) clearTimeout(timer)
         this.authTimers.delete(socket)
         this.sockets.delete(socket)
+        this.socketIps.delete(socket)
         const active = this.connections.get(socket)
         if (active !== undefined) {
           this.connections.delete(socket)
@@ -211,6 +221,7 @@ export class RemoteServer {
   disconnectAll(code: number, reason: string, terminate = false): void {
     for (const timer of this.authTimers.values()) clearTimeout(timer)
     this.authTimers.clear()
+    this.socketIps.clear()
     for (const [socket, connection] of this.connections) {
       this.options.bridge.detachConnection(connection)
       this.connections.delete(socket)
@@ -257,25 +268,30 @@ export class RemoteServer {
       readonly markAuthenticated: () => void
     },
   ): void {
-    let message: RemoteClientMessage
+    let parsed: unknown
     try {
       const raw = Buffer.isBuffer(data)
         ? data
         : Array.isArray(data)
           ? Buffer.concat(data)
           : Buffer.from(data)
-      message = JSON.parse(raw.toString('utf8')) as RemoteClientMessage
+      parsed = JSON.parse(raw.toString('utf8'))
     } catch {
       socket.close(1007, 'invalid JSON')
       return
     }
+    if (!isRemoteClientMessage(parsed)) {
+      socket.close(1007, 'invalid JSON')
+      return
+    }
+    const message = parsed
 
     if (!state.isAuthenticated()) {
       if (message.type !== 'auth') {
         socket.close(4001, 'auth required')
         return
       }
-      this.authenticate(socket, message.token)
+      this.authenticate(socket, message.token, this.socketIps.get(socket) ?? 'unknown')
         .then((ok) => {
           if (ok) state.markAuthenticated()
         })
@@ -328,13 +344,13 @@ export class RemoteServer {
     }
   }
 
-  private async authenticate(socket: WebSocket, token: string): Promise<boolean> {
-    if (this.isAuthRateLimited()) {
-      socket.close(4008, 'too many attempts')
+  private async authenticate(socket: WebSocket, token: string, ip: string): Promise<boolean> {
+    if (this.isAuthRateLimited(ip)) {
+      socket.close(4008, 'too many auth failures')
       return false
     }
     if (token.length === 0 || !tokenMatches(token, this.options.getToken())) {
-      this.recordFailedAuth()
+      this.recordFailedAuth(ip)
       socket.close(4001, 'invalid token')
       return false
     }
@@ -347,24 +363,28 @@ export class RemoteServer {
     return true
   }
 
-  private pruneFailedAuth(now = Date.now()): void {
-    this.failedAuthTimes = this.failedAuthTimes.filter(
-      (t) => now - t < FAILED_AUTH_WINDOW_MS,
-    )
+  private pruneFailedAuth(ip: string, now = Date.now()): void {
+    const times = this.failedAuthTimesByIp.get(ip)
+    if (times === undefined) return
+    const next = times.filter((t) => now - t < FAILED_AUTH_WINDOW_MS)
+    if (next.length === 0) this.failedAuthTimesByIp.delete(ip)
+    else this.failedAuthTimesByIp.set(ip, next)
   }
 
-  private isAuthRateLimited(): boolean {
-    this.pruneFailedAuth()
-    return this.failedAuthTimes.length > FAILED_AUTH_LIMIT
+  private isAuthRateLimited(ip: string): boolean {
+    this.pruneFailedAuth(ip)
+    return (this.failedAuthTimesByIp.get(ip)?.length ?? 0) >= FAILED_AUTH_LIMIT
   }
 
-  private recordFailedAuth(): void {
+  private recordFailedAuth(ip: string): void {
     const now = Date.now()
-    this.pruneFailedAuth(now)
-    this.failedAuthTimes.push(now)
-    if (this.failedAuthTimes.length > FAILED_AUTH_LIMIT) {
+    this.pruneFailedAuth(ip, now)
+    const times = this.failedAuthTimesByIp.get(ip) ?? []
+    times.push(now)
+    this.failedAuthTimesByIp.set(ip, times)
+    if (times.length >= FAILED_AUTH_LIMIT) {
       this.options.logger?.warn('remote auth failures exceed rate limit', {
-        count: this.failedAuthTimes.length,
+        count: times.length,
       })
     }
   }
@@ -387,7 +407,26 @@ export class RemoteServer {
   }
 }
 
+function isRemoteClientMessage(value: unknown): value is RemoteClientMessage {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const type = (value as { type?: unknown }).type
+  if (typeof type !== 'string') return false
+  if (type === 'auth') return typeof (value as { token?: unknown }).token === 'string'
+  if (type === 'request') {
+    return (
+      typeof (value as { id?: unknown }).id === 'string' &&
+      typeof (value as { method?: unknown }).method === 'string'
+    )
+  }
+  if (type === 'approval' || type === 'question') {
+    return typeof (value as { requestId?: unknown }).requestId === 'string'
+  }
+  if (type === 'ping') return typeof (value as { t?: unknown }).t === 'number'
+  return false
+}
+
 function tokenMatches(provided: string, expected: string): boolean {
+  if (provided.length === 0 || expected.length === 0) return false
   const left = Buffer.from(provided)
   const right = Buffer.from(expected)
   if (left.length !== right.length) return false
