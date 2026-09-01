@@ -56,6 +56,11 @@ export class Session {
   private closed = false;
   private closing: Promise<void> | undefined;
 
+  /** True once close has started or finished. Closed sessions must not be reused. */
+  get isClosed(): boolean {
+    return this.closed || this.closing !== undefined;
+  }
+
   constructor(options: SessionOptions) {
     this.id = options.id;
     this.workDir = options.workDir;

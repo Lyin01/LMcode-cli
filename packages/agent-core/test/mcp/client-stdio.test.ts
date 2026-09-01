@@ -124,6 +124,32 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it.skipIf(process.platform !== 'win32')(
+    'forwards USERPROFILE and PATHEXT so Windows cmd shims can resolve',
+    async () => {
+      const client = new StdioMcpClient({
+        transport: 'stdio',
+        command: process.execPath,
+        args: [fixture],
+      });
+      try {
+        await client.connect();
+        const profile = await client.callTool('read_env', { name: 'USERPROFILE' });
+        const pathext = await client.callTool('read_env', { name: 'PATHEXT' });
+        expect(profile.content).toEqual([
+          { type: 'text', text: process.env['USERPROFILE'] ?? '' },
+        ]);
+        expect(pathext.content[0]).toEqual(
+          expect.objectContaining({ type: 'text' }),
+        );
+        expect(String((pathext.content[0] as { text: string }).text)).toMatch(/\.EXE/i);
+      } finally {
+        await client.close();
+      }
+    },
+    15000,
+  );
+
+  it.skipIf(process.platform !== 'win32')(
     'lets config.env override inherited Windows env keys with different casing',
     async () => {
       const client = new StdioMcpClient({

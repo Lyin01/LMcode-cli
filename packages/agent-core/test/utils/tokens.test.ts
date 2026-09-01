@@ -7,6 +7,7 @@ import {
   estimateTokensForMessage,
   estimateTokensForMessages,
   estimateTokensForTools,
+  sliceTextToTokenBudget,
 } from '../../src/utils/tokens';
 
 describe('estimateTokens', () => {
@@ -39,6 +40,17 @@ describe('estimateTokens', () => {
     // Iterated by code point, so the surrogate pair is one non-ASCII unit.
     expect(estimateTokens('😀')).toBe(1);
     expect(estimateTokens('ab😀')).toBe(2); // ceil(2/4)=1 + 1
+  });
+});
+
+describe('sliceTextToTokenBudget', () => {
+  it('returns the original string when it already fits', () => {
+    expect(sliceTextToTokenBudget('abcd', 1)).toBe('abcd');
+  });
+
+  it('keeps a code-point-safe prefix and does not split an emoji', () => {
+    expect(sliceTextToTokenBudget('😀abcd', 1)).toBe('😀');
+    expect(sliceTextToTokenBudget('ab😀', 1)).toBe('ab');
   });
 });
 

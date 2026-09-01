@@ -4,14 +4,17 @@ import { useSessionStore } from '@/stores/session-store'
 import { MessageItem } from '@/components/MessageItem'
 import { findConversationMessageIds } from '@/lib/conversation-search'
 import { historyToMessages } from '@/lib/history'
+import {
+  MESSAGE_LIST_ESTIMATED_ROW_PX,
+  MESSAGE_LIST_OVERSCAN,
+  MESSAGE_LIST_VIRTUALIZE_AFTER,
+  computeMessageListWindow,
+} from '@/lib/message-list-window'
 import { cn } from '@/lib/utils'
 import type { ConversationFindRequest } from '@/lib/menu-command'
 
 /** Distance from the bottom (px) within which the view is considered "stuck". */
 const STICK_THRESHOLD_PX = 80
-const VIRTUALIZE_AFTER = 60
-const ESTIMATED_ROW_PX = 180
-const OVERSCAN = 6
 
 interface MessageListProps {
   findRequest: ConversationFindRequest | null
@@ -31,8 +34,13 @@ export function MessageList({ findRequest }: MessageListProps) {
   // read by the messages effect — a ref, not state, so scrolling itself never
   // triggers a re-render.
   const stickToBottomRef = useRef(true)
+  const sessionIdForStickRef = useRef(currentSessionId)
+  const lastUserStickIdRef = useRef<string | undefined>(undefined)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [windowRange, setWindowRange] = useState({ start: 0, end: VIRTUALIZE_AFTER })
+  const [windowRange, setWindowRange] = useState({
+    start: 0,
+    end: MESSAGE_LIST_VIRTUALIZE_AFTER,
+  })
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
@@ -49,8 +57,9 @@ export function MessageList({ findRequest }: MessageListProps) {
   const updateWindow = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    const start = Math.max(0, Math.floor(el.scrollTop / ESTIMATED_ROW_PX) - OVERSCAN)
-    const visible = Math.ceil(el.clientHeight / ESTIMATED_ROW_PX) + OVERSCAN * 2
+    const row = MESSAGE_LIST_ESTIMATED_ROW_PX
+    const start = Math.max(0, Math.floor(el.scrollTop / row) - MESSAGE_LIST_OVERSCAN)
+    const visible = Math.ceil(el.clientHeight / row) + MESSAGE_LIST_OVERSCAN * 2
     setWindowRange((current) => {
       const next = { start, end: start + visible }
       if (current.start === next.start && current.end === next.end) return current
@@ -158,13 +167,35 @@ export function MessageList({ findRequest }: MessageListProps) {
     return () => cancelAnimationFrame(animationFrame)
   }, [findQuery, findRequest, moveMatch])
 
-  // ── Regenerate ────────────────────────────────────────────────────
-  const virtualize = !findOpen && messages.length > VIRTUALIZE_AFTER
-  const visibleStart = virtualize ? Math.min(windowRange.start, Math.max(0, messages.length - 1)) : 0
-  const visibleEnd = virtualize ? Math.min(messages.length, windowRange.end) : messages.length
-  const visibleMessages = virtualize ? messages.slice(visibleStart, visibleEnd) : messages
-  const topSpacer = virtualize ? visibleStart * ESTIMATED_ROW_PX : 0
-  const bottomSpacer = virtualize ? Math.max(0, messages.length - visibleEnd) * ESTIMATED_ROW_PX : 0
+  // Session switches and a freshly sent user message must restick before
+  // the window is computed. Doing this during render (not in an effect)
+  // keeps the newest row mounted on the same frame it arrives. Only the
+  // *new* user message resticks — a waiting transcript whose last row is
+  // still the user message must remain scrollable.
+  if (sessionIdForStickRef.current !== currentSessionId) {
+    sessionIdForStickRef.current = currentSessionId
+    stickToBottomRef.current = true
+    lastUserStickIdRef.current = undefined
+  }
+  const lastMessage = messages[messages.length - 1]
+  if (lastMessage?.role === 'user' && lastMessage.id !== lastUserStickIdRef.current) {
+    lastUserStickIdRef.current = lastMessage.id
+    stickToBottomRef.current = true
+  }
+
+  const listWindow = computeMessageListWindow({
+    messageCount: messages.length,
+    findOpen,
+    stickToBottom: stickToBottomRef.current,
+    windowRange,
+  })
+  const visibleMessages = listWindow.virtualize
+    ? messages.slice(listWindow.start, listWindow.end)
+    : messages
+  const topSpacer = listWindow.virtualize ? listWindow.start * MESSAGE_LIST_ESTIMATED_ROW_PX : 0
+  const bottomSpacer = listWindow.virtualize
+    ? Math.max(0, messages.length - listWindow.end) * MESSAGE_LIST_ESTIMATED_ROW_PX
+    : 0
 
   const lastAssistantId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {

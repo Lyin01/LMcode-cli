@@ -38,7 +38,7 @@ class CommittedMessageComponent implements Component {
 
     switch (entry.kind) {
       case 'user': {
-        const text = entry.content.trim();
+        const text = replaceTabs(entry.content.trim());
         if (text.length === 0) return [];
         const images = entry.imageAttachmentIds !== undefined && entry.imageAttachmentIds.length > 0
           ? ` [${entry.imageAttachmentIds.length} 个附件]`
@@ -46,7 +46,7 @@ class CommittedMessageComponent implements Component {
         return new UserMessageComponent(`${text}${images}`, colors, undefined).render(width);
       }
       case 'assistant': {
-        const text = entry.content.trim();
+        const text = replaceTabs(entry.content.trim());
         if (text.length === 0) return [];
         const maxLen = 200;
         const snippet = text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;

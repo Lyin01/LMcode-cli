@@ -11,11 +11,17 @@ import type { ContentPart, Message, Tool } from '@lmcode-cli/liumir';
 export function estimateTokens(text: string): number {
   let asciiCount = 0;
   let nonAsciiCount = 0;
-  for (const char of text) {
-    if (char.codePointAt(0)! <= 127) {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code <= 127) {
       asciiCount++;
-    } else {
-      nonAsciiCount++;
+      continue;
+    }
+    nonAsciiCount++;
+    // Count a surrogate pair as one code point, matching `for…of`.
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      const low = text.charCodeAt(i + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) i++;
     }
   }
   return Math.ceil(asciiCount / 4) + nonAsciiCount;
@@ -89,11 +95,19 @@ export function sliceTextToTokenBudget(text: string, budget: number): string {
   if (estimateTokens(text) <= budget) return text;
   let tokens = 0;
   let end = 0;
-  for (const ch of text) {
-    const chTokens = ch.codePointAt(0)! <= 127 ? 1 / 4 : 1;
+  for (let i = 0; i < text.length; ) {
+    const code = text.charCodeAt(i);
+    const isAscii = code <= 127;
+    let width = 1;
+    if (!isAscii && code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      const low = text.charCodeAt(i + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) width = 2;
+    }
+    const chTokens = isAscii ? 1 / 4 : 1;
     if (tokens + chTokens > budget) break;
     tokens += chTokens;
-    end += ch.length;
+    i += width;
+    end = i;
   }
   return text.slice(0, end);
 }

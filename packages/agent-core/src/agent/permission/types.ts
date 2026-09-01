@@ -38,7 +38,9 @@ export const DEFAULT_PERMISSION_MODE: PermissionMode = 'auto';
  *
  *   - `read-only`      — all file writes are denied (reads still allowed)
  *   - `workspace-write`— writes inside the session cwd are allowed; writes
- *                        outside it are denied (no approval channel)
+ *                        outside it, and unrestricted tools (Bash, WolfPack)
+ *                        that declare no write paths, are denied (no approval
+ *                        channel)
  *   - `full-access`    — no additional file gating (existing sensitive-file,
  *                        git-control, and cwd-write policies still apply)
  *

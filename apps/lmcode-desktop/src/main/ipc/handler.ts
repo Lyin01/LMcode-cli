@@ -6,9 +6,7 @@ import type {
   Session,
   Event,
   LmcodeHarness,
-  ApprovalRequest,
   ApprovalResponse,
-  QuestionRequest,
   QuestionResult,
   SessionSummary,
   ResumedSessionState,
@@ -57,7 +55,6 @@ import {
 import { ProjectTerminalManager } from '../project-terminal.js'
 import { isTrustedIpcSender } from '../security.js'
 import {
-  CANCELLED_APPROVAL,
   InteractionHub,
   type InteractionSurface,
 } from '../remote/interaction-hub.js'
@@ -158,6 +155,8 @@ export function registerAllHandlers(
   }> = []
   const activeSessions = new Map<string, SessionEntry>()
   const credentialRoots = [harness.homeDir, dirname(harness.configPath)]
+  let closing = false
+  let closePromise: Promise<void> | undefined
 
   // The renderer is the primary interaction surface. Remote clients attach
   // their own surface so approvals/questions reach every UI that is watching
@@ -165,8 +164,12 @@ export function registerAllHandlers(
   const rendererSurface: InteractionSurface = {
     name: 'renderer',
     sendApproval: (payload) => {
-      if (mainWindow.isDestroyed()) return false
+      if (closing || mainWindow.isDestroyed()) return false
       try {
+        sendNotification(
+          'LMCODE - 审批请求',
+          `需要审批：${payload.request.action || '执行操作'}`,
+        )
         mainWindow.webContents.send('lmcode:approvalRequest', payload)
         return true
       } catch {
@@ -198,8 +201,6 @@ export function registerAllHandlers(
   hub.attachSurface(rendererSurface)
   const auditLog = logger?.createChild({ surface: 'desktop-ipc' })
   const providerUsage = new ProviderUsageService({ loadConfig: () => harness.getConfig() })
-  let closing = false
-  let closePromise: Promise<void> | undefined
   const terminalManager = new ProjectTerminalManager((payload: TerminalOutputPayload) => {
     if (closing || mainWindow.isDestroyed()) return
     try {
@@ -246,21 +247,7 @@ export function registerAllHandlers(
       }
     })
 
-    session.setApprovalHandler((request: ApprovalRequest): Promise<ApprovalResponse> => {
-      if (closing) return Promise.resolve(CANCELLED_APPROVAL)
-
-      sendNotification(
-        'LMCODE - 审批请求',
-        `需要审批：${request.action || '执行操作'}`,
-      )
-
-      return hub.requestApproval(session.id, request)
-    })
-
-    session.setQuestionHandler((request: QuestionRequest): Promise<QuestionResult> => {
-      if (closing) return Promise.resolve(null)
-      return hub.requestQuestion(session.id, request)
-    })
+    hub.bindSession(session)
 
     activeSessions.set(session.id, { session, unsubscribeEvent })
   }
@@ -319,7 +306,11 @@ export function registerAllHandlers(
   async function ensureActiveSession(sessionId: string): Promise<SessionEntry> {
     if (closing) throw new Error('Desktop IPC registration is closed')
     const existing = activeSessions.get(sessionId)
-    if (existing) return existing
+    if (existing !== undefined && !existing.session.isClosed) return existing
+    if (existing !== undefined) {
+      existing.unsubscribeEvent()
+      activeSessions.delete(sessionId)
+    }
 
     const inflight = resumingSessions.get(sessionId)
     if (inflight) return inflight

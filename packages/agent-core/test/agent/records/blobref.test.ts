@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
@@ -198,6 +198,25 @@ describe('blobref', () => {
 
     const url = (record.input as unknown as [{ imageUrl: { url: string } }])[0].imageUrl.url;
     expect(url).toBe('[media missing]');
+  });
+
+  it('does not follow blob hashes that escape the blobs directory', async () => {
+    const { store, blobsDir } = await makeStore();
+    const secretPath = join(blobsDir, '..', 'secret.txt');
+    await writeFile(secretPath, 'leaked-secret', 'utf8');
+    cleanups.push(secretPath);
+
+    const record: AgentRecord = {
+      type: 'turn.prompt',
+      input: [{ type: 'image_url', imageUrl: { url: 'blobref:image/png;../secret.txt' } }],
+      origin: { kind: 'user' },
+    };
+
+    await store.rehydrate(record);
+
+    const url = (record.input as unknown as [{ imageUrl: { url: string } }])[0].imageUrl.url;
+    expect(url).toBe('[media missing]');
+    expect(url).not.toContain('leaked-secret');
   });
 
   it('deduplicates identical payloads by hash', async () => {

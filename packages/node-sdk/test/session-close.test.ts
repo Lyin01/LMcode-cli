@@ -19,7 +19,9 @@ describe('Session.close', () => {
         } as unknown as SDKRpcClient,
       });
 
+      expect(session.isClosed).toBe(false);
       await session.close();
+      expect(session.isClosed).toBe(true);
 
       expect(extractMemoriesOnExit).toHaveBeenCalledTimes(1);
       expect(closeSession).toHaveBeenCalledTimes(1);

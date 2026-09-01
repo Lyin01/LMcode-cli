@@ -436,6 +436,47 @@ describe('desktop handler lifecycle', () => {
     await registration.close()
   })
 
+  it('re-resumes a session after another owner closed the previous instance', async () => {
+    const unsubscribe = vi.fn()
+    const closedSession = {
+      id: 'session-closed',
+      isClosed: false,
+      onEvent: vi.fn(() => unsubscribe),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+      getContext: vi.fn(async () => ({ history: ['stale'] })),
+    }
+    const liveSession = {
+      id: 'session-closed',
+      isClosed: false,
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+      getContext: vi.fn(async () => ({ history: ['fresh'] })),
+    }
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      resumeSession: vi
+        .fn()
+        .mockResolvedValueOnce(closedSession)
+        .mockResolvedValueOnce(liveSession),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+
+    await expect(invoke('lmcode:getSessionHistory', 'session-closed')).resolves.toEqual(['stale'])
+    closedSession.isClosed = true
+    await expect(invoke('lmcode:getSessionHistory', 'session-closed')).resolves.toEqual(['fresh'])
+    expect(harness.resumeSession).toHaveBeenCalledTimes(2)
+    expect(unsubscribe).toHaveBeenCalled()
+    expect(liveSession.setApprovalHandler).toHaveBeenCalled()
+
+    await registration.close()
+  })
+
   it('does not attach a resumed session after its renderer registration closes', async () => {
     const session = {
       id: 'session-late',

@@ -181,20 +181,18 @@ export class RemoteBridge implements InteractionSurface {
    * call concurrently: in-flight resumes are deduplicated by promise.
    */
   async ensureSession(sessionId: string): Promise<Session> {
-    const existing = this.activeSessions.get(sessionId)
-    if (existing !== undefined) return existing.session
+    const existing = this.takeLiveEntry(sessionId)
+    if (existing !== undefined) {
+      this.hub.bindSession(existing.session)
+      return existing.session
+    }
 
     const inflight = this.resumingSessions.get(sessionId)
     if (inflight !== undefined) return (await inflight).session
 
     const pending = (async (): Promise<ActiveSessionEntry> => {
       const session = await this.harness.resumeSession({ id: sessionId })
-      const unsubscribeEvent = session.onEvent((event: Event) =>
-        this.broadcastEvent(sessionId, event),
-      )
-      const entry: ActiveSessionEntry = { session, unsubscribeEvent }
-      this.activeSessions.set(sessionId, entry)
-      return entry
+      return this.attachSession(session)
     })()
     this.resumingSessions.set(sessionId, pending)
     try {
@@ -202,6 +200,30 @@ export class RemoteBridge implements InteractionSurface {
     } finally {
       this.resumingSessions.delete(sessionId)
     }
+  }
+
+  private takeLiveEntry(sessionId: string): ActiveSessionEntry | undefined {
+    const existing = this.activeSessions.get(sessionId)
+    if (existing === undefined) return undefined
+    if (!existing.session.isClosed) return existing
+    existing.unsubscribeEvent()
+    this.activeSessions.delete(sessionId)
+    return undefined
+  }
+
+  private attachSession(session: Session): ActiveSessionEntry {
+    const prior = this.takeLiveEntry(session.id)
+    if (prior !== undefined) {
+      this.hub.bindSession(prior.session)
+      return prior
+    }
+    this.hub.bindSession(session)
+    const unsubscribeEvent = session.onEvent((event: Event) =>
+      this.broadcastEvent(session.id, event),
+    )
+    const entry: ActiveSessionEntry = { session, unsubscribeEvent }
+    this.activeSessions.set(session.id, entry)
+    return entry
   }
 
   async closeSession(sessionId: string): Promise<void> {
@@ -485,6 +507,7 @@ export class RemoteBridge implements InteractionSurface {
     if (!session.summary) {
       throw new Error('Remote session created without a summary')
     }
+    this.attachSession(session)
     return session.summary
   }
 

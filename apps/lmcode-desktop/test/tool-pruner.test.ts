@@ -54,4 +54,18 @@ describe('tool-pruner', () => {
     expect(result.displayContent).toContain('已自动精简')
     expect(result.rawContent).toBe(raw)
   })
+
+  it('does not split a surrogate-pair emoji at the prune boundary', () => {
+    const raw = `${'H'.repeat(8)}🚀${'T'.repeat(8)}`
+    const result = pruneToolOutput(raw, {
+      thresholdChars: 10,
+      headChars: 9,
+      tailChars: 8,
+    })
+
+    expect(result.isPruned).toBe(true)
+    expect(result.displayContent.startsWith(`${'H'.repeat(8)}🚀`)).toBe(true)
+    expect(result.displayContent).toContain('🚀')
+    expect(result.displayContent).toContain('T'.repeat(8))
+  })
 })

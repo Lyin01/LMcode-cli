@@ -156,12 +156,33 @@ describe('LocalJian', () => {
       expect(new Set(names)).toEqual(new Set(['alpha', 'bravo.txt', 'charlie.TXT']));
 
       const matched: string[] = [];
-      for await (const entry of jian.glob(tempDir, '*.txt')) {
+      for await (const entry of jian.glob(tempDir, '*.txt', { caseSensitive: true })) {
         matched.push(entry);
       }
       const matchedNames = matched.map((e) => e.split('/').pop()!);
       expect(new Set(matchedNames)).toEqual(new Set(['bravo.txt']));
+
+      const insensitive: string[] = [];
+      for await (const entry of jian.glob(tempDir, '*.txt', { caseSensitive: false })) {
+        insensitive.push(entry);
+      }
+      const insensitiveNames = insensitive.map((e) => e.split(/[\\/]/).pop()!);
+      expect(new Set(insensitiveNames)).toEqual(new Set(['bravo.txt', 'charlie.TXT']));
     });
+
+    it.skipIf(process.platform !== 'win32')(
+      'defaults to case-insensitive globs on Windows',
+      async () => {
+        await jian.writeText(join(tempDir, 'bravo.txt'), 'bravo');
+        await jian.writeText(join(tempDir, 'charlie.TXT'), 'charlie');
+        const matched: string[] = [];
+        for await (const entry of jian.glob(tempDir, '*.txt')) {
+          matched.push(entry);
+        }
+        const names = matched.map((e) => e.split(/[\\/]/).pop()!);
+        expect(new Set(names)).toEqual(new Set(['bravo.txt', 'charlie.TXT']));
+      },
+    );
   });
 
   describe('glob hidden files', () => {

@@ -30,6 +30,9 @@ function fakeHarness() {
         summary,
         workDir: 'C:/work',
         onEvent: () => () => undefined,
+        isClosed: false,
+        setApprovalHandler: () => undefined,
+        setQuestionHandler: () => undefined,
         getContext: async () => ({ history: [{ role: 'user', content: 'hi' }] }),
         getStatus: async () => ({
           thinkingLevel: 'medium',
@@ -192,6 +195,18 @@ describe('RemoteServer protocol', () => {
     const closed = new Promise<void>((resolve) => ws.on('close', () => resolve()))
     send(ws, { type: 'ping', t: 1 })
     await closed
+    expect(ws.readyState).toBe(WebSocket.CLOSED)
+  })
+
+  it('closes the socket on non-object JSON instead of throwing', async () => {
+    const opened = await openServer()
+    servers.push(opened)
+    const ws = await connect(opened.url)
+    const closed = new Promise<number | undefined>((resolve) => {
+      ws.on('close', (code) => resolve(code))
+    })
+    ws.send('null')
+    expect(await closed).toBe(1007)
     expect(ws.readyState).toBe(WebSocket.CLOSED)
   })
 

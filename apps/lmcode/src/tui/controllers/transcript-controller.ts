@@ -39,6 +39,60 @@ export interface TranscriptControllerHost {
   showStatus(message: string, color?: string): void;
 }
 
+const COMMITTED_CONTENT_CHARS = 200;
+const COMMITTED_TOOL_OUTPUT_CHARS = 160;
+
+/** Drop bulky bodies after a row is folded into the committed history view. */
+export function compactCommittedTranscriptEntry(entry: TranscriptEntry): TranscriptEntry {
+  const trimmed = entry.content.trim();
+  const content =
+    trimmed.length > COMMITTED_CONTENT_CHARS
+      ? `${trimmed.slice(0, COMMITTED_CONTENT_CHARS)}…`
+      : trimmed;
+  const toolCallData = entry.toolCallData;
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    turnId: entry.turnId,
+    renderMode: entry.renderMode,
+    content,
+    color: entry.color,
+    detail: entry.detail,
+    skillName: entry.skillName,
+    skillTrigger: entry.skillTrigger,
+    skillActivationId: entry.skillActivationId,
+    skillArgs: entry.skillArgs,
+    compactionData: entry.compactionData,
+    cronData: entry.cronData,
+    backgroundAgentStatus: entry.backgroundAgentStatus,
+    toolCallData:
+      toolCallData === undefined
+        ? undefined
+        : {
+            id: toolCallData.id,
+            name: toolCallData.name,
+            args: {},
+            description: toolCallData.description,
+            display: toolCallData.display,
+            result:
+              toolCallData.result === undefined
+                ? undefined
+                : {
+                    tool_call_id: toolCallData.result.tool_call_id,
+                    output:
+                      toolCallData.result.output.length > COMMITTED_TOOL_OUTPUT_CHARS
+                        ? `${toolCallData.result.output.slice(0, COMMITTED_TOOL_OUTPUT_CHARS)}…`
+                        : toolCallData.result.output,
+                    is_error: toolCallData.result.is_error,
+                    synthetic: toolCallData.result.synthetic,
+                  },
+            step: toolCallData.step,
+            turnId: toolCallData.turnId,
+            truncated: toolCallData.truncated,
+          },
+  };
+}
+
 export class TranscriptController {
   private welcomeComponent: WelcomeComponent | undefined;
   private committedComponent: CommittedTranscriptComponent | undefined;
@@ -107,7 +161,10 @@ export class TranscriptController {
     }
 
     for (const { component, entry } of toCommit) {
-      this.committedComponent.appendEntry(entry, state.theme.colors);
+      const compacted = compactCommittedTranscriptEntry(entry);
+      this.committedComponent.appendEntry(compacted, state.theme.colors);
+      const storedIndex = state.transcriptEntries.findIndex((item) => item.id === entry.id);
+      if (storedIndex >= 0) state.transcriptEntries[storedIndex] = compacted;
       container.removeChild(component);
       this.liveComponentToEntry.delete(component);
       const disposable = component as { dispose?: () => void };

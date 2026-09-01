@@ -75,6 +75,26 @@ describe('InteractionHub', () => {
     await expect(question).resolves.toEqual({ answers: { q: '42' } })
   })
 
+  it('bindSession installs hub handlers on the session', async () => {
+    const hub = new InteractionHub()
+    const renderer = createSurface('renderer')
+    hub.attachSurface(renderer)
+    let approvalHandler: ((request: { action: string }) => Promise<unknown>) | undefined
+    const session = {
+      id: 'session-bind',
+      setApprovalHandler: (handler: typeof approvalHandler) => {
+        approvalHandler = handler
+      },
+      setQuestionHandler: vi.fn(),
+    }
+    hub.bindSession(session as never)
+
+    const pending = approvalHandler?.({ action: 'run' })
+    expect(renderer.captured).toHaveLength(1)
+    hub.respondApproval(renderer.captured[0]?.requestId ?? '', { decision: 'approved' })
+    await expect(pending).resolves.toEqual({ decision: 'approved' })
+  })
+
   it('cancels pending requests with defaults when no surface delivers', async () => {
     const hub = new InteractionHub()
     const silent = createSurface('silent')

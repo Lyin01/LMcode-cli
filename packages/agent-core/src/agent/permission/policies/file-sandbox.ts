@@ -37,6 +37,17 @@ export class FileSandboxPermissionPolicy implements PermissionPolicy {
     }
 
     // workspace-write: hard-deny writes outside the workspace root.
+    // Unrestricted tools (Bash, WolfPack) declare no write paths, so they
+    // cannot be proven to stay inside cwd — deny them the same way yolo
+    // cannot bypass this policy for declared Write/Edit.
+    if (unrestricted) {
+      return {
+        kind: 'deny',
+        message:
+          'Unrestricted tools cannot be proven to stay inside the workspace under the workspace-write file sandbox.',
+        reason: fileSandboxReason(undefined, 'workspace-write'),
+      };
+    }
     const configuredCwd = this.agent.config.cwd;
     if (configuredCwd.length === 0) return undefined;
     const cwd = await resolvePermissionCwd(this.agent, configuredCwd);

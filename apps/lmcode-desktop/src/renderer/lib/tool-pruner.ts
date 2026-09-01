@@ -34,10 +34,34 @@ export const DEFAULT_PRUNE_CONFIG: Required<ToolPruneConfig> = {
  */
 export function codePointLength(text: string): number {
   let count = 0
-  for (const _ of text) {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      const low = text.charCodeAt(i + 1)
+      if (low >= 0xdc00 && low <= 0xdfff) i++
+    }
     count++
   }
   return count
+}
+
+/** Slice `[start, end)` in Unicode code points without allocating an array of the whole string. */
+export function sliceCodePoints(text: string, start: number, end: number): string {
+  if (end <= start || start >= text.length) return ''
+  let i = 0
+  let seen = 0
+  while (i < text.length && seen < start) {
+    const code = text.codePointAt(i)!
+    i += code > 0xffff ? 2 : 1
+    seen++
+  }
+  const from = i
+  while (i < text.length && seen < end) {
+    const code = text.codePointAt(i)!
+    i += code > 0xffff ? 2 : 1
+    seen++
+  }
+  return text.slice(from, i)
 }
 
 /**
@@ -71,8 +95,21 @@ export function pruneToolOutput(
   const headBudget = config.headChars ?? DEFAULT_PRUNE_CONFIG.headChars
   const tailBudget = config.tailChars ?? DEFAULT_PRUNE_CONFIG.tailChars
 
-  const points = Array.from(rawContent)
-  const totalChars = points.length
+  // UTF-16 length is an upper bound on code-point length. Skip the full
+  // scan (and the previous Array.from of the whole string) when the
+  // output cannot possibly exceed the prune threshold.
+  if (rawContent.length <= threshold) {
+    return {
+      isPruned: false,
+      displayContent: rawContent,
+      rawContent,
+      totalChars: codePointLength(rawContent),
+      prunedChars: 0,
+      totalLines: rawContent.split('\n').length,
+    }
+  }
+
+  const totalChars = codePointLength(rawContent)
   const totalLines = rawContent.split('\n').length
 
   if (totalChars <= threshold) {
@@ -90,8 +127,8 @@ export function pruneToolOutput(
   const tailStart = Math.max(headEnd, totalChars - tailBudget)
   const prunedChars = tailStart - headEnd
 
-  const headText = points.slice(0, headEnd).join('')
-  const tailText = points.slice(tailStart).join('')
+  const headText = sliceCodePoints(rawContent, 0, headEnd)
+  const tailText = sliceCodePoints(rawContent, tailStart, totalChars)
 
   const marker = `\n\n--- ✂️ [已自动精简 ${formatCharCount(prunedChars)} / 点击上方按钮可展开查看完整输出] ✂️ ---\n\n`
   const displayContent = `${headText}${marker}${tailText}`

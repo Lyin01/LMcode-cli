@@ -171,6 +171,28 @@ describe('LSP lifecycle', () => {
     expect(first).toBe(second);
   });
 
+  it('starts language servers with a sanitized environment that omits API keys', async () => {
+    const previous = process.env['OPENAI_API_KEY'];
+    process.env['OPENAI_API_KEY'] = 'should-not-leak';
+    const execWithEnv = vi.fn().mockRejectedValue(new Error('spawn blocked'));
+    const client = new RuntimeLspClient(
+      ['typescript-language-server', '--stdio'],
+      '/workspace',
+      createFakeJian({ execWithEnv }),
+    );
+
+    try {
+      await expect(client.start()).rejects.toThrow('Failed to start language server');
+      expect(execWithEnv).toHaveBeenCalledTimes(1);
+      const env = execWithEnv.mock.calls[0]?.[1] as Record<string, string>;
+      expect(env['OPENAI_API_KEY']).toBeUndefined();
+      expect(Object.keys(env).some((key) => key.toUpperCase() === 'PATH')).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env['OPENAI_API_KEY'];
+      else process.env['OPENAI_API_KEY'] = previous;
+    }
+  });
+
   it('kills a language server whose spawn finishes after stop overtakes startup', async () => {
     const spawned = deferred<{
       readonly stdin: PassThrough;
@@ -183,7 +205,7 @@ describe('LSP lifecycle', () => {
     }>();
     const kill = vi.fn(async () => {});
     const jian = createFakeJian({
-      exec: vi.fn(() => spawned.promise),
+      execWithEnv: vi.fn(() => spawned.promise),
     });
     const client = new RuntimeLspClient(
       ['typescript-language-server', '--stdio'],
