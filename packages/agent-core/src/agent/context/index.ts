@@ -210,12 +210,12 @@ export class ContextMemory {
       ...this._history.slice(summary.compactedCount),
     ];
     this.openSteps.clear();
-    // Compaction may finish while a step is still streaming. Keep those
-    // in-flight assistant placeholders so later content.part / tool.call
-    // events do not fail the turn with "unknown step_uuid".
+    // Compaction may finish while a later step is still streaming. Restore
+    // open-step tracking only for placeholders that remained in the suffix.
+    // Placeholders that were in the compacted prefix stay summarized — pushing
+    // them back would leave a second assistant turn after the summary.
     for (const [uuid, message] of liveOpenSteps) {
-      if (!this._history.includes(message)) this._history.push(message);
-      this.openSteps.set(uuid, message);
+      if (this._history.includes(message)) this.openSteps.set(uuid, message);
     }
     this.flushDeferredMessagesIfToolExchangeClosed();
     this._tokenCount = summary.tokensAfter;

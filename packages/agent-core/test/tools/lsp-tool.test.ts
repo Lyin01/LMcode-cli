@@ -183,7 +183,7 @@ describe('LSP lifecycle', () => {
     }>();
     const kill = vi.fn(async () => {});
     const jian = createFakeJian({
-      exec: vi.fn(() => spawned.promise),
+      execWithEnv: vi.fn(() => spawned.promise),
     });
     const client = new RuntimeLspClient(
       ['typescript-language-server', '--stdio'],
