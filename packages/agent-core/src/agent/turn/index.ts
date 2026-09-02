@@ -1014,6 +1014,7 @@ export class TurnFlow {
 
               if (
                 !thinkingTruncationContinuationUsed &&
+                this.agent.type === 'main' &&
                 (stopReason === 'max_tokens' || stopReason === 'end_turn') &&
                 lastAssistantIsThinkOnly(this.agent.context.history)
               ) {

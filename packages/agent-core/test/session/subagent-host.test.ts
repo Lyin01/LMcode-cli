@@ -562,7 +562,7 @@ describe('SessionSubagentHost', () => {
     parent.configure();
     parent.newEvents();
 
-    const child = testAgent();
+    const child = testAgent({ type: 'sub' });
     child.mockNextProviderResponse({
       parts: [
         { type: 'think', think: 'The child used its output budget before writing a summary.' },

@@ -32,6 +32,27 @@ describe('think-only truncated reasoning continuation', () => {
     expect(followupTexts.some((text) => text.includes('only reasoning'))).toBe(true);
   });
 
+  it('does not continue truncated think-only turns for subagents', async () => {
+    const ctx = testAgent({
+      type: 'sub',
+      initialConfig: { providers: {}, enableSpecCritic: false },
+    });
+    ctx.configure();
+
+    ctx.mockNextResponse({ type: 'think', think: 'child spent the budget thinking' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Investigate' }] });
+    await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls).toHaveLength(1);
+    expect(
+      ctx.agent.context.history.some(
+        (message) =>
+          message.origin?.kind === 'system_trigger' && message.origin.name === 'thinking_truncated',
+      ),
+    ).toBe(false);
+  });
+
   it('does not loop when the continuation is also think-only', async () => {
     const ctx = testAgent({
       initialConfig: { providers: {}, enableSpecCritic: false },
