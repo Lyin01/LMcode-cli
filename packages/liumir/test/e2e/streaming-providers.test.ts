@@ -357,13 +357,14 @@ describe('integration: streaming provider contracts', () => {
       expect(extractText(result.message)).toBe('actual content');
     });
 
-    it('think-only response throws APIEmptyResponseError', async () => {
+    it('think-only response is returned so the caller can continue', async () => {
       const parts: StreamedMessagePart[] = [{ type: 'think', think: 'Just thinking...' }];
 
       const stream = buildStream(parts);
       const provider = new SingleStreamProvider(stream);
 
-      await expect(generate(provider, '', [], [])).rejects.toThrow(/only thinking content/);
+      const result = await generate(provider, '', [], []);
+      expect(result.message.content).toEqual([{ type: 'think', think: 'Just thinking...' }]);
     });
 
     it('usage metadata is correctly passed through from stream', async () => {

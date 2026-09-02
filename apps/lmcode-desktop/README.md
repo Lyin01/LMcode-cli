@@ -2,6 +2,10 @@
 
 LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 Agent，会话、目标、审批、MCP、记忆和后台任务与 CLI/TUI 使用同一套核心能力。
 
+## 0.7.17
+
+GLM-5.3-flash 思考过长修复：默认不再把「中」打成 GLM 的 high/max，思考把输出预算吃光时会续跑一次写出答案或工具调用，而不是红字「回合失败」。
+
 ## 0.7.16
 
 审查修复：FetchURL 不再把 `fda.gov` 当成内网，并拦截 IPv4-mapped 回环/元数据。blobref 只接受 64 位 hex。`workspace-write` 会拒绝 Bash/WolfPack。Windows Glob 大小写不敏感；LSP/MCP 子进程不再继承 API Key。远程 WS 校验 JSON、按 IP 限流，并拒绝环回/私网 MCP。关闭中的 Session 不会被 resume 复用；窗口关掉也不拆远程还在用的审批 handler。删掉的会话不会被过期的 `listSessions` 救活。对话超过 60 条会钉在底部虚拟化；历史加载不再闪欢迎页。Windows 上 `C:\` 与 `C:/` 视为同一项目，Markdown 盘符/`file:` 链接可以打开。

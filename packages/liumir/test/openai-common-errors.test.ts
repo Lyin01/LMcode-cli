@@ -13,6 +13,8 @@ import {
   reasoningEffortToThinkingEffort,
   thinkingEffortToReasoningEffort,
   gatewayAwareReasoningEffort,
+  isGlm5Model,
+  isGlmModel,
 } from '#/providers/openai-common';
 import { OpenAILegacyChatProvider, OpenAILegacyStreamedMessage } from '#/providers/openai-legacy';
 import {
@@ -380,10 +382,10 @@ describe('gatewayAwareReasoningEffort', () => {
       gatewayAwareReasoningEffort('xhigh', 'glm-5.3', 'https://opencode.ai/zen/go/v1'),
     ).toBe('max');
   });
-  it('remaps medium to high for GLM models', () => {
+  it('remaps medium to low for GLM models so the default does not think-max', () => {
     expect(
       gatewayAwareReasoningEffort('medium', 'glm-5.3', 'https://opencode.ai/zen/go/v1'),
-    ).toBe('high');
+    ).toBe('low');
   });
   it('keeps max for GLM models', () => {
     expect(
@@ -407,6 +409,12 @@ describe('gatewayAwareReasoningEffort', () => {
     // The provider constructors default to api.openai.com, so undefined here
     // only occurs in direct unit usage; keep the safe official ceiling.
     expect(gatewayAwareReasoningEffort('max', 'gpt-5.2', undefined)).toBe('xhigh');
+  });
+  it('recognizes routed GLM-5 model ids', () => {
+    expect(isGlmModel('openai/glm-5.3-flash')).toBe(true);
+    expect(isGlm5Model('openai/glm-5.3-flash')).toBe(true);
+    expect(isGlm5Model('GLM-5.3')).toBe(true);
+    expect(isGlm5Model('glm-4-flash')).toBe(false);
   });
 });
 describe('reasoningEffortToThinkingEffort', () => {

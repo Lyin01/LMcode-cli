@@ -79,7 +79,7 @@ const GLM_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   image_in: true,
   video_in: false,
   audio_in: false,
-  thinking: false,
+  thinking: true,
   tool_use: true,
   max_context_tokens: 0,
 });

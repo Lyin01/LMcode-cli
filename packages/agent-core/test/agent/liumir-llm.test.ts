@@ -131,6 +131,37 @@ describe('LiumirLLM stream timing', () => {
   });
 });
 
+describe('LiumirLLM think-only responses', () => {
+  it('maps think-only assistant messages to a truncated finish reason', async () => {
+    const generate: GenerateFn = async () => ({
+      id: 'response-1',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'think', think: 'spent the whole budget reasoning' }],
+        toolCalls: [],
+      },
+      usage: emptyUsage(),
+      finishReason: 'completed',
+      rawFinishReason: 'stop',
+    });
+    const llm = new LiumirLLM({
+      provider,
+      modelName: 'glm-5.3-flash',
+      systemPrompt: 'system',
+      generate,
+    });
+
+    const response = await llm.chat({
+      messages: [],
+      tools: [],
+      signal: new AbortController().signal,
+    });
+
+    expect(response.providerFinishReason).toBe('truncated');
+    expect(response.toolCalls).toEqual([]);
+  });
+});
+
 describe('LiumirLLM completion budget', () => {
   it('applies the model context window as the completion cap', async () => {
     let appliedCap: number | undefined;

@@ -183,6 +183,16 @@ export function thinkingEffortToReasoningEffort(effort: ThinkingEffort): string 
   }
 }
 
+/** True when `model` is a GLM / ChatGLM family id, including routed names. */
+export function isGlmModel(model: string | undefined): boolean {
+  return /(?:^|[/_.-])glm/i.test(String(model ?? ''));
+}
+
+/** True when `model` is GLM-5.x (forced-thinking tiers such as 5.3 / FLASH). */
+export function isGlm5Model(model: string | undefined): boolean {
+  return /(?:^|[/_.-])glm-?5/i.test(String(model ?? ''));
+}
+
 /**
  * Map liumir `ThinkingEffort` to an OpenAI-compatible `reasoning_effort` string,
  * adjusted for the gateway serving `model` at `baseUrl`.
@@ -190,6 +200,10 @@ export function thinkingEffortToReasoningEffort(effort: ThinkingEffort): string 
  * - GLM models served via OpenAI-compatible gateways (e.g. opencode-go) only
  *   accept `low`/`high`/`max`; `xhigh`/`medium` are rejected upstream with
  *   error 1210, so they are remapped before sending.
+ * - GLM-5.3 / FLASH treat omitted `reasoning_effort` as `max` and will spend
+ *   the whole completion budget on thinking. `medium` therefore maps to `low`
+ *   (light reasoning) rather than `high` (enhanced), so the desktop default
+ *   does not exhaust the output window before a tool call or answer.
  * - Custom gateways (any host other than api.openai.com) may accept `max`
  *   natively, so it is passed through instead of folding onto the official
  *   OpenAI `xhigh` ceiling.
@@ -201,9 +215,9 @@ export function gatewayAwareReasoningEffort(
 ): string | undefined {
   const mapped = thinkingEffortToReasoningEffort(effort);
   if (mapped === undefined) return mapped;
-  if (/^glm/i.test(String(model ?? ''))) {
+  if (isGlmModel(model)) {
     if (mapped === 'xhigh') return 'max';
-    if (mapped === 'medium') return 'high';
+    if (mapped === 'medium') return 'low';
     return mapped;
   }
   if (effort === 'max') {

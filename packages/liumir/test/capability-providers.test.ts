@@ -154,6 +154,7 @@ describe('OpenAILegacyChatProvider.getCapability', () => {
     const cap = make('glm-5.3-flash').getCapability();
     expect(cap.image_in).toBe(true);
     expect(cap.tool_use).toBe(true);
+    expect(cap.thinking).toBe(true);
   });
 
   it('glm-5.3-flash name casing is normalized', () => {

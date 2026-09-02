@@ -28,6 +28,7 @@ import {
   type ToolMessageConversion,
   reasoningEffortToThinkingEffort,
   gatewayAwareReasoningEffort,
+  isGlm5Model,
 } from './openai-common';
 import {
   mergeRequestHeaders,
@@ -920,8 +921,13 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     }
 
     const kwargs: Record<string, unknown> = { ...this._generationKwargs };
-    const reasoningEffort = kwargs['reasoning_effort'] as string | undefined;
+    let reasoningEffort = kwargs['reasoning_effort'] as string | undefined;
     delete kwargs['reasoning_effort'];
+
+    // GLM-5.3 / FLASH default to max reasoning when effort is omitted.
+    if (reasoningEffort === undefined && isGlm5Model(this._model)) {
+      reasoningEffort = 'low';
+    }
 
     if (reasoningEffort !== undefined) {
       kwargs['reasoning'] = {

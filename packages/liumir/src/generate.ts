@@ -77,7 +77,8 @@ export interface GenerateCallbacks {
  * @throws {DOMException} with name `"AbortError"` when `options.signal` is
  *   aborted before or during streaming.
  * @throws {APIEmptyResponseError} when the response contains no content and
- *   no tool calls, or only thinking content without any text or tool calls.
+ *   no tool calls. Think-only responses are returned (not thrown) so the
+ *   caller can continue the turn instead of discarding the reasoning.
  */
 export async function generate(
   provider: ChatProvider,
@@ -169,20 +170,6 @@ export async function generate(
     );
   }
 
-  // Think-only response (no real text, no tool calls) is treated as incomplete.
-  const hasThink = message.content.some((p) => p.type === 'think');
-  const hasText = message.content.some((p) => p.type === 'text' && p.text.trim().length > 0);
-  const hasToolCalls = message.toolCalls.length > 0;
-
-  if (hasThink && !hasText && !hasToolCalls) {
-    throw new APIEmptyResponseError(
-      'The API returned a response containing only thinking content ' +
-        'without any text or tool calls. This usually indicates the ' +
-        'stream was interrupted or the output token budget was exhausted ' +
-        `during reasoning. Provider: ${provider.name}, model: ${provider.modelName}`,
-    );
-  }
-
   // Fire onToolCall for every fully-assembled tool call, in final order.
   if (callbacks?.onToolCall !== undefined) {
     for (const toolCall of message.toolCalls) {
@@ -204,6 +191,17 @@ type CancelableStream = StreamedMessage & {
   cancel?: () => unknown;
   return?: () => unknown;
 };
+
+/**
+ * True when the assembled assistant message has reasoning but no user-visible
+ * text and no tool calls. Typical of a truncated reasoning stream: the model
+ * spent the output budget thinking and never emitted an answer.
+ */
+export function isThinkOnlyAssistantMessage(message: Message): boolean {
+  const hasThink = message.content.some((p) => p.type === 'think');
+  const hasText = message.content.some((p) => p.type === 'text' && p.text.trim().length > 0);
+  return hasThink && !hasText && message.toolCalls.length === 0;
+}
 
 function throwAbortError(): never {
   throw new DOMException('The operation was aborted.', 'AbortError');

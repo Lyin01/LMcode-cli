@@ -772,6 +772,17 @@ describe('OpenAIResponsesChatProvider', () => {
       expect(body['include']).toBeUndefined();
     });
 
+    it('sends low reasoning for GLM-5 so omitting effort cannot default to max', async () => {
+      const provider = new OpenAIResponsesChatProvider({
+        model: 'glm-5.3-flash',
+        apiKey: 'test-key',
+      });
+      const body = await captureRequestBody(provider, '', [], [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ]);
+      expect(body['reasoning']).toEqual({ effort: 'low', summary: 'auto' });
+    });
+
     it('with_thinking("off") omits reasoning', async () => {
       const provider = createProvider().withThinking('off');
       const history: Message[] = [

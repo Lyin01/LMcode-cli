@@ -33,7 +33,7 @@ import {
   createDeadlineAbortSignal,
   userCancellationReason,
 } from '../../utils/abort';
-import { USER_PROMPT_ORIGIN, type PromptOrigin } from '../context';
+import { USER_PROMPT_ORIGIN, type ContextMessage, type PromptOrigin } from '../context';
 import { GOAL_BUDGET_REACHED_REASON, isGoalResourceBudgetReached } from '../goal';
 import type { UsageRecordScope } from '../usage';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
@@ -42,6 +42,7 @@ import { ToolCallDeduplicator } from './tool-dedup';
 import CRITIC_SYSTEM_PROMPT from './critic-system.md';
 import SPEC_CRITIC_CONTINUATION_PROMPT from './spec-critic-continuation.md';
 import SPEC_CRITIC_SYSTEM_PROMPT from './spec-critic-system.md';
+import THINKING_TRUNCATED_CONTINUATION_PROMPT from './thinking-truncated-continuation.md';
 import VISUAL_AUDITOR_SYSTEM_PROMPT from './visual-auditor-system.md';
 import { resolveRealPathAccessPath } from '../../tools/policies/path-access';
 import {
@@ -800,6 +801,10 @@ export class TurnFlow {
     origin: PromptOrigin,
   ): Promise<LoopTurnStopReason> {
     let stopHookContinuationUsed = false;
+    // Think-only / truncated-reasoning continuation: one extra step so a
+    // model that burned the output budget on thinking can emit the answer
+    // or tool call instead of failing the turn.
+    let thinkingTruncationContinuationUsed = false;
     // Spec-consistency critic bookkeeping: paths successfully written this
     // turn, and a once-per-turn latch so a critic that keeps finding gaps
     // cannot loop the turn forever.
@@ -1005,6 +1010,19 @@ export class TurnFlow {
                   );
                   return { continue: true };
                 }
+              }
+
+              if (
+                !thinkingTruncationContinuationUsed &&
+                (stopReason === 'max_tokens' || stopReason === 'end_turn') &&
+                lastAssistantIsThinkOnly(this.agent.context.history)
+              ) {
+                thinkingTruncationContinuationUsed = true;
+                this.agent.context.appendSystemReminder(THINKING_TRUNCATED_CONTINUATION_PROMPT, {
+                  kind: 'system_trigger',
+                  name: 'thinking_truncated',
+                });
+                return { continue: true };
               }
 
               // ── Spec-consistency critic ──
@@ -1918,6 +1936,24 @@ function hasDirectAnswerRequirementFidelityTrigger(text: string): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** True when the latest non-empty assistant message is reasoning with no answer. */
+function lastAssistantIsThinkOnly(history: readonly ContextMessage[]): boolean {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const message = history[i];
+    if (message === undefined || message.role !== 'assistant') continue;
+    const hasThink = message.content.some(
+      (part) => part.type === 'think' && part.think.trim().length > 0,
+    );
+    const hasText = message.content.some(
+      (part) => part.type === 'text' && part.text.trim().length > 0,
+    );
+    const hasTools = message.toolCalls.length > 0;
+    if (!hasThink && !hasText && !hasTools) continue;
+    return hasThink && !hasText && !hasTools;
+  }
+  return false;
 }
 
 /** Text of the most recent assistant message that has any, for the spec critic. */

@@ -655,6 +655,40 @@ describe('OpenAILegacyChatProvider', () => {
     });
   });
 
+  describe('GLM-5 reasoning effort', () => {
+    it('sends low when thinking is not configured so GLM-5 cannot default to max', async () => {
+      const provider = createProvider({ model: 'glm-5.3-flash' });
+      const body = await captureRequestBody(provider, '', [], [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ]);
+      expect(body['reasoning_effort']).toBe('low');
+    });
+
+    it('maps desktop medium to low', async () => {
+      const provider = createProvider({ model: 'glm-5.3-flash' }).withThinking('medium');
+      const body = await captureRequestBody(provider, '', [], [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ]);
+      expect(body['reasoning_effort']).toBe('low');
+    });
+
+    it('keeps explicit high', async () => {
+      const provider = createProvider({ model: 'glm-5.3-flash' }).withThinking('high');
+      const body = await captureRequestBody(provider, '', [], [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ]);
+      expect(body['reasoning_effort']).toBe('high');
+    });
+
+    it('sends low when thinking is off so omitting the field cannot default to max', async () => {
+      const provider = createProvider({ model: 'glm-5.3-flash' }).withThinking('off');
+      const body = await captureRequestBody(provider, '', [], [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ]);
+      expect(body['reasoning_effort']).toBe('low');
+    });
+  });
+
   describe('auto reasoning_effort', () => {
     it('auto-injects reasoning_effort when history has ThinkPart and reasoningKey is set', async () => {
       const provider = createProvider({

@@ -269,17 +269,16 @@ describe('e2e: provider error handling (extended)', () => {
       await expect(generate(provider, '', [], [])).rejects.toBeInstanceOf(APIEmptyResponseError);
     });
 
-    it('think-only response -> APIEmptyResponseError', async () => {
-      // Think content without any real text or tool calls is treated as
-      // a stream interruption / token-budget-exhausted condition.
+    it('think-only response is returned rather than treated as empty', async () => {
       const provider = createProvider(
         createStream([{ type: 'think', think: 'thinking aloud...' }]),
       );
 
-      await expect(generate(provider, '', [], [])).rejects.toThrow(APIEmptyResponseError);
+      const result = await generate(provider, '', [], []);
+      expect(result.message.content).toEqual([{ type: 'think', think: 'thinking aloud...' }]);
     });
 
-    it('text with only whitespace + think is still treated as empty', async () => {
+    it('text with only whitespace + think is returned rather than treated as empty', async () => {
       const provider = createProvider(
         createStream([
           { type: 'think', think: 'hmm' },
@@ -287,7 +286,8 @@ describe('e2e: provider error handling (extended)', () => {
         ]),
       );
 
-      await expect(generate(provider, '', [], [])).rejects.toThrow(APIEmptyResponseError);
+      const result = await generate(provider, '', [], []);
+      expect(result.message.content.some((p) => p.type === 'think')).toBe(true);
     });
 
     it('text with real content passes (no APIEmptyResponseError)', async () => {

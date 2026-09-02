@@ -1,5 +1,5 @@
 import { APIEmptyResponseError } from '#/errors';
-import { generate } from '#/generate';
+import { generate, isThinkOnlyAssistantMessage } from '#/generate';
 import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import type { ChatProvider, StreamedMessage, ThinkingEffort } from '#/provider';
 import type { Tool } from '#/tool';
@@ -192,23 +192,49 @@ describe('generate()', () => {
     await expect(generate(provider, '', [], [])).rejects.toThrow(APIEmptyResponseError);
   });
 
-  it('throws APIEmptyResponseError for think-only response', async () => {
+  it('returns think-only responses instead of throwing', async () => {
     const stream = createMockStream([
       { type: 'think', think: 'Deep thinking about the problem...' },
     ]);
     const provider = createMockProvider(stream);
 
-    await expect(generate(provider, '', [], [])).rejects.toThrow(/only thinking content/);
+    const result = await generate(provider, '', [], []);
+    expect(result.message.content).toEqual([
+      { type: 'think', think: 'Deep thinking about the problem...' },
+    ]);
+    expect(result.message.toolCalls).toEqual([]);
   });
 
-  it('throws APIEmptyResponseError for think + empty/whitespace text', async () => {
+  it('returns think + empty/whitespace text instead of throwing', async () => {
     const stream = createMockStream([
       { type: 'think', think: 'Thinking...' },
       { type: 'text', text: '  \n  ' },
     ]);
     const provider = createMockProvider(stream);
 
-    await expect(generate(provider, '', [], [])).rejects.toThrow(/only thinking content/);
+    const result = await generate(provider, '', [], []);
+    expect(result.message.content.some((p) => p.type === 'think')).toBe(true);
+    expect(result.message.toolCalls).toEqual([]);
+  });
+
+  it('isThinkOnlyAssistantMessage detects reasoning without an answer', () => {
+    expect(
+      isThinkOnlyAssistantMessage({
+        role: 'assistant',
+        content: [{ type: 'think', think: 'hmm' }],
+        toolCalls: [],
+      }),
+    ).toBe(true);
+    expect(
+      isThinkOnlyAssistantMessage({
+        role: 'assistant',
+        content: [
+          { type: 'think', think: 'hmm' },
+          { type: 'text', text: 'answer' },
+        ],
+        toolCalls: [],
+      }),
+    ).toBe(false);
   });
 
   it('succeeds for think + real text', async () => {

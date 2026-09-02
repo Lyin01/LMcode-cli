@@ -29,6 +29,7 @@ import {
   type ToolMessageConversion,
   reasoningEffortToThinkingEffort,
   gatewayAwareReasoningEffort,
+  isGlm5Model,
   toolToOpenAI,
 } from './openai-common';
 import {
@@ -430,8 +431,19 @@ export class OpenAILegacyChatProvider implements ChatProvider {
         message.content.some((part) => part.type === 'think'),
       );
       if (hasThinkPart) {
-        reasoningEffort = 'medium';
+        reasoningEffort = gatewayAwareReasoningEffort('medium', this._model, this._baseUrl);
       }
+    }
+
+    // GLM-5.3 / FLASH default to reasoning_effort=max when the field is
+    // omitted, which dumps the whole completion budget into thinking and
+    // returns no text or tool calls. Always send an explicit effort.
+    if (
+      reasoningEffort === undefined &&
+      kwargs['reasoning_effort'] === undefined &&
+      isGlm5Model(this._model)
+    ) {
+      reasoningEffort = 'low';
     }
 
     // Remove undefined values from kwargs

@@ -18,10 +18,13 @@
 import {
   emptyUsage,
   generate as liumirGenerate,
+  isThinkOnlyAssistantMessage,
+  type FinishReason,
   type GenerateOptions,
   isRetryableGenerateError,
   type ChatProvider,
   type GenerateCallbacks,
+  type GenerateResult,
   type ModelCapability,
   type StreamedMessagePart,
 } from '@lmcode-cli/liumir';
@@ -137,7 +140,7 @@ export class LiumirLLM implements LLM {
 
     const response: LLMChatResponse = {
       toolCalls: [...result.message.toolCalls],
-      providerFinishReason: result.finishReason ?? undefined,
+      providerFinishReason: thinkOnlyFinishReason(result),
       rawFinishReason: result.rawFinishReason ?? undefined,
       usage: result.usage ?? emptyUsage(),
       streamTiming:
@@ -164,6 +167,13 @@ function buildStreamTiming(
     firstTokenLatencyMs: Math.max(0, firstChunkAt - requestStartedAt),
     streamDurationMs: Math.max(0, outputEndedAt - firstChunkAt),
   };
+}
+
+function thinkOnlyFinishReason(result: GenerateResult): FinishReason | undefined {
+  if (isThinkOnlyAssistantMessage(result.message)) {
+    return 'truncated';
+  }
+  return result.finishReason ?? undefined;
 }
 
 function generateOptions(
