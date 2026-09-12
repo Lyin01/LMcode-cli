@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import os from 'node:os'
@@ -20,6 +21,8 @@ export interface RemoteManagerOptions {
   readonly memoryStore: MemoryMemoStore
   /** Directory that holds the persisted remote config (the runtime userData). */
   readonly configDir: string
+  /** Built-in mobile page served by the remote HTTP server (`out/remote-app/`). */
+  readonly webRoot: string
   readonly version: string
   readonly noProjectWorkDir: string
   readonly logger?: Logger | undefined
@@ -194,6 +197,12 @@ export class RemoteManager {
 
   private async openServer(): Promise<void> {
     if (this.server !== undefined) return
+    if (!existsSync(join(this.options.webRoot, 'index.html'))) {
+      this.options.logger?.warn(
+        'remote mobile page is missing; run the desktop build to populate out/remote-app',
+        { webRoot: this.options.webRoot },
+      )
+    }
     const bridge = new RemoteBridge(
       this.options.harness,
       this.options.hub,
@@ -207,6 +216,7 @@ export class RemoteManager {
       hub: this.options.hub,
       getToken: () => this.config.token,
       getState: () => this.getState(),
+      webRoot: this.options.webRoot,
       logger: this.options.logger,
     })
     try {
@@ -239,18 +249,51 @@ export class RemoteManager {
   }
 
   private computeLanUrls(port: number): string[] {
-    const urls: string[] = []
+    const addresses: string[] = []
     const interfaces = os.networkInterfaces()
     for (const entries of Object.values(interfaces)) {
       if (entries === undefined) continue
       for (const entry of entries) {
         if (entry.family === 'IPv4' && !entry.internal) {
-          urls.push(`http://${entry.address}:${port}`)
+          addresses.push(entry.address)
         }
       }
     }
-    return urls
+    // Prefer real LAN addresses: virtual adapters (VPN clients, etc.) are often
+    // listed first by the OS but are unreachable from a phone on the same WiFi.
+    return rankLanAddresses(addresses).map((address) => `http://${address}:${port}`)
   }
+}
+
+/** True for RFC1918 private IPv4 addresses — the ones a phone can normally reach. */
+export function isPrivateIpv4(address: string): boolean {
+  const octets = address.split('.')
+  if (octets.length !== 4) return false
+  const first = Number(octets[0])
+  const second = Number(octets[1])
+  if (!Number.isInteger(first) || !Number.isInteger(second)) return false
+  if (first === 10) return true
+  if (first === 192 && second === 168) return true
+  if (first === 172 && second >= 16 && second <= 31) return true
+  return false
+}
+
+/**
+ * Order LAN addresses for the pairing QR / address list: private LAN ranges
+ * first (reachable from a phone), then everything else, link-local last.
+ * Deterministic for equal ranks so the QR does not flap between restarts.
+ */
+export function rankLanAddresses(addresses: readonly string[]): string[] {
+  return [...addresses].sort((left, right) => {
+    const rankDifference = lanAddressRank(left) - lanAddressRank(right)
+    return rankDifference !== 0 ? rankDifference : left.localeCompare(right)
+  })
+}
+
+function lanAddressRank(address: string): number {
+  if (isPrivateIpv4(address)) return 0
+  if (address.startsWith('169.254.')) return 2
+  return 1
 }
 
 function isFiniteNumber(value: unknown): value is number {

@@ -70,6 +70,9 @@ export function createAppMenuTemplate({
         label: '设置…',
         accelerator: 'CmdOrCtrl+,',
       }),
+      commandItem(actions, 'show-remote', {
+        label: '远程连接（手机扫码）…',
+      }),
       { type: 'separator' },
       {
         label: isMac ? '关闭窗口' : '隐藏窗口',

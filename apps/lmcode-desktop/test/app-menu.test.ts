@@ -72,6 +72,7 @@ describe('desktop application menu', () => {
     invoke(findMenuItem(template, 'Git 变更'))
     invoke(findMenuItem(template, '命令面板…'))
     invoke(findMenuItem(template, '键盘快捷键'))
+    invoke(findMenuItem(template, '远程连接（手机扫码）…'))
 
     expect(actions.dispatch).toHaveBeenCalledWith('new-conversation')
     expect(actions.dispatch).toHaveBeenCalledWith('open-project')
@@ -80,6 +81,7 @@ describe('desktop application menu', () => {
     expect(actions.dispatch).toHaveBeenCalledWith('show-git-review')
     expect(actions.dispatch).toHaveBeenCalledWith('show-command-palette')
     expect(actions.dispatch).toHaveBeenCalledWith('show-keyboard-shortcuts')
+    expect(actions.dispatch).toHaveBeenCalledWith('show-remote')
 
     invoke(findMenuItem(template, '隐藏窗口'))
     invoke(findMenuItem(template, '退出 LMCODE'))

@@ -16,13 +16,14 @@
 // `pnpm run build` first — the vendor bundles are not rebuilt here.
 import { spawn, execSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync } from 'node:fs'
-import { resolve, relative, delimiter } from 'node:path'
+import { existsSync, mkdirSync, cpSync } from 'node:fs'
+import { resolve, relative, delimiter, join } from 'node:path'
 import { context } from 'esbuild'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const OUT_MAIN_DIR = resolve(ROOT, 'out/main')
 const OUT_PRELOAD_DIR = resolve(ROOT, 'out/preload')
+const OUT_REMOTE_DIR = resolve(ROOT, 'out/remote-app')
 const VENDOR_DIR = resolve(ROOT, 'out/vendor')
 const RENDERER_PORT = 5173
 const RENDERER_URL = `http://localhost:${RENDERER_PORT}`
@@ -138,8 +139,37 @@ const preloadCtx = await context({
   logLevel: 'info',
 })
 
-await Promise.all([mainCtx.rebuild(), preloadCtx.rebuild()])
-await Promise.all([mainCtx.watch(), preloadCtx.watch()])
+// The built-in mobile page served by the remote service. Rebuilt in place and
+// picked up by a phone page reload — no Electron restart needed.
+const copyRemoteAppAssets = {
+  name: 'copy-remote-app-assets',
+  setup(build) {
+    build.onEnd((result) => {
+      if (result.errors.length > 0) return
+      mkdirSync(OUT_REMOTE_DIR, { recursive: true })
+      for (const asset of ['index.html', 'app.css', 'favicon.svg']) {
+        cpSync(resolve(ROOT, 'src/remote-app', asset), join(OUT_REMOTE_DIR, asset))
+      }
+    })
+  },
+}
+
+const remoteAppCtx = await context({
+  entryPoints: [resolve(ROOT, 'src/remote-app/main.tsx')],
+  bundle: true,
+  platform: 'browser',
+  target: 'es2020',
+  format: 'iife',
+  outfile: join(OUT_REMOTE_DIR, 'app.js'),
+  jsx: 'automatic',
+  define: { 'process.env.NODE_ENV': '"development"' },
+  plugins: [copyRemoteAppAssets],
+  tsconfigRaw: TSCONFIG_RAW,
+  logLevel: 'info',
+})
+
+await Promise.all([mainCtx.rebuild(), preloadCtx.rebuild(), remoteAppCtx.rebuild()])
+await Promise.all([mainCtx.watch(), preloadCtx.watch(), remoteAppCtx.watch()])
 
 // ── 3. Renderer dev server (HMR) ───────────────────────────────────────────
 console.log('> vite dev renderer')
@@ -196,7 +226,7 @@ async function shutdown(code) {
   clearTimeout(restartTimer)
   electronProcess?.kill()
   viteProcess.kill()
-  await Promise.allSettled([mainCtx.dispose(), preloadCtx.dispose()])
+  await Promise.allSettled([mainCtx.dispose(), preloadCtx.dispose(), remoteAppCtx.dispose()])
   process.exit(code)
 }
 

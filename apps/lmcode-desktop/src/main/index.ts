@@ -47,6 +47,11 @@ const { autoUpdater } = updaterPkg
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = join(__filename, '..')
 
+// Built-in mobile page for the remote service, emitted next to the bundled
+// main process by scripts/build.mjs (`out/remote-app/`) and shipped through
+// electron-builder's `files: out/**/*`. Scanning the pairing QR opens it.
+const remoteWebRoot = fileURLToPath(new URL('../remote-app/', import.meta.url))
+
 const defaultUserDataDir = app.getPath('userData')
 const runtimeEnvironment = resolveDesktopRuntimeEnvironment({
   isPackaged: app.isPackaged,
@@ -612,6 +617,7 @@ async function initHarness(): Promise<void> {
     hub: interactionHub,
     memoryStore,
     configDir: runtimeEnvironment.userDataDir,
+    webRoot: remoteWebRoot,
     version: app.getVersion(),
     noProjectWorkDir: runtimeEnvironment.noProjectWorkDir,
     logger: log,

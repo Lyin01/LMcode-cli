@@ -12,6 +12,7 @@ import { ChatPanel } from '@/components/ChatPanel'
 import { WelcomeScreen } from '@/components/WelcomeScreen'
 import { ApprovalDialog } from '@/components/dialogs/ApprovalDialog'
 import { QuestionDialog } from '@/components/dialogs/QuestionDialog'
+import { RemoteConnectDialog } from '@/components/dialogs/RemoteConnectDialog'
 import { SettingsPanel } from '@/components/SettingsPanel'
 import { MemoryBrowser } from '@/components/MemoryBrowser'
 import { TasksPanel } from '@/components/TasksPanel'
@@ -56,6 +57,7 @@ function appendMenuNotice(sessionId: string, content: string, isError = false): 
 
 type ActivePanel =
   | 'settings'
+  | 'remote-connect'
   | 'memory'
   | 'tasks'
   | 'extensions'
@@ -299,6 +301,10 @@ export default function App() {
     setActivePanel('settings')
   }, [])
 
+  const handleOpenRemote = useCallback(() => {
+    setActivePanel('remote-connect')
+  }, [])
+
   const handleOpenMemory = useCallback(() => {
     setActivePanel('memory')
   }, [])
@@ -390,6 +396,9 @@ export default function App() {
         case 'show-settings':
           handleOpenSettings()
           break
+        case 'show-remote':
+          handleOpenRemote()
+          break
         case 'find-in-conversation':
           setFindRequest({ action: 'open', nonce: nextMenuRequestNonce() })
           break
@@ -459,6 +468,7 @@ export default function App() {
       handleOpenExtensions,
       handleOpenGitReview,
       handleOpenMemory,
+      handleOpenRemote,
       handleOpenSettings,
       handleOpenSubagents,
       handleOpenTerminal,
@@ -500,6 +510,7 @@ export default function App() {
             onOpenSubagents={handleOpenSubagents}
             onOpenAutomations={handleOpenAutomations}
             onOpenSettings={handleOpenSettings}
+            onOpenRemote={handleOpenRemote}
             theme={theme}
             onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           />
@@ -571,6 +582,12 @@ export default function App() {
         <ErrorBoundary name="键盘快捷键">
           <KeyboardShortcutsPanel
             open={activePanel === 'keyboard-shortcuts'}
+            onClose={() => setActivePanel(null)}
+          />
+        </ErrorBoundary>
+        <ErrorBoundary name="远程连接">
+          <RemoteConnectDialog
+            open={activePanel === 'remote-connect'}
             onClose={() => setActivePanel(null)}
           />
         </ErrorBoundary>

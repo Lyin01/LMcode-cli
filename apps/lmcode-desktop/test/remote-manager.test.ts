@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocket } from 'ws'
 import { InteractionHub } from '../src/main/remote/interaction-hub'
-import { RemoteManager } from '../src/main/remote/remote-manager'
+import { RemoteManager, rankLanAddresses } from '../src/main/remote/remote-manager'
 import type { RemoteState } from '../src/shared/remote-types'
 
 interface FakeSession {
@@ -79,6 +79,7 @@ async function makeManager(): Promise<{
     hub: new InteractionHub(),
     memoryStore: fakeMemoryStore(),
     configDir,
+    webRoot: join(configDir, 'remote-app'),
     version: '0.0.0-test',
     noProjectWorkDir: join(configDir, 'no-project'),
     onStateChange: (state) => states.push(state),
@@ -131,6 +132,7 @@ describe('RemoteManager', () => {
       hub: new InteractionHub(),
       memoryStore: fakeMemoryStore(),
       configDir: manager['options'].configDir,
+      webRoot: join(manager['options'].configDir, 'remote-app'),
       version: '0.0.0-test',
       noProjectWorkDir: join(manager['options'].configDir, 'no-project'),
     })
@@ -234,5 +236,27 @@ describe('RemoteManager', () => {
     } finally {
       await new Promise<void>((resolve) => blocker.close(() => resolve()))
     }
+  })
+})
+
+describe('rankLanAddresses', () => {
+  it('prefers private LAN addresses over virtual-adapter addresses', () => {
+    expect(rankLanAddresses(['2.0.0.1', '192.168.8.211'])).toEqual([
+      '192.168.8.211',
+      '2.0.0.1',
+    ])
+  })
+
+  it('recognizes 10/8 and 172.16–31/12, and keeps link-local as the last resort', () => {
+    expect(
+      rankLanAddresses(['169.254.10.5', '100.64.0.2', '172.20.3.2', '10.0.0.4']),
+    ).toEqual(['10.0.0.4', '172.20.3.2', '100.64.0.2', '169.254.10.5'])
+  })
+
+  it('orders equal-rank addresses deterministically', () => {
+    expect(rankLanAddresses(['192.168.8.30', '192.168.8.4'])).toEqual([
+      '192.168.8.30',
+      '192.168.8.4',
+    ])
   })
 })

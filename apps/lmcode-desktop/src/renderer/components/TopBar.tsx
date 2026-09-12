@@ -10,6 +10,7 @@ import {
   Moon,
   MoreHorizontal,
   PanelLeftOpen,
+  QrCode,
   Settings,
   SquareTerminal,
   Sun,
@@ -34,6 +35,7 @@ interface TopBarProps {
   onOpenSubagents: () => void
   onOpenAutomations: () => void
   onOpenSettings: () => void
+  onOpenRemote: () => void
   theme: ThemePref
   onToggleTheme: () => void
 }
@@ -85,6 +87,7 @@ export function TopBar({
   onOpenSubagents,
   onOpenAutomations,
   onOpenSettings,
+  onOpenRemote,
   theme,
   onToggleTheme,
 }: TopBarProps) {
@@ -209,6 +212,9 @@ export function TopBar({
             </span>
           )}
         </span>
+      </TopBarAction>
+      <TopBarAction label="远程连接（手机扫码）" onClick={onOpenRemote}>
+        <QrCode size={17} />
       </TopBarAction>
 
       <DropdownMenu.Root>

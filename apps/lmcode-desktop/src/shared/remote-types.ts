@@ -44,6 +44,11 @@ export interface RemoteSystemInfo {
   version: string
   platform: string
   hostname: string
+  /**
+   * Sentinel work directory for "no project" sessions. The built-in mobile
+   * page uses it to label those sessions instead of showing a raw path.
+   */
+  noProjectWorkDir: string
 }
 
 // ── Wire protocol (WebSocket JSON messages) ───────────────────────────

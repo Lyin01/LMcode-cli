@@ -4,6 +4,7 @@ export const DESKTOP_MENU_COMMANDS = [
   'rename-conversation',
   'export-conversation',
   'show-settings',
+  'show-remote',
   'find-in-conversation',
   'find-next',
   'find-previous',

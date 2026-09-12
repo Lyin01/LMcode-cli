@@ -2,6 +2,10 @@
 
 LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 Agent，会话、目标、审批、MCP、记忆和后台任务与 CLI/TUI 使用同一套核心能力。
 
+## 0.7.19
+
+手机扫码直连：顶栏新增二维码按钮（菜单 **文件 → 远程连接（手机扫码）…**），点开即弹配对二维码，服务未开启时在弹窗里一步启用。扫码打开的是桌面端内置的远程页面（纯静态资源，构建到 `out/remote-app`，由远程服务以 CSP + no-store 托管），无需安装任何 App：手机可浏览会话、查看流式输出、发送消息与运行中转向、停止生成、审批工具调用、回答结构化提问，断线自动重连并在重连后重新同步会话与对话。配对二维码与地址列表改为优先真实局域网网卡——VPN 等虚拟网卡（如 aTrust 的 `2.0.0.1`）不再抢占第一地址；端口、令牌轮换与开关仍在设置 →「局域网远程」中管理。
+
 ## 0.7.18
 
 审查修复：远程 MCP 不再允许读取主机环境变量；修改 provider/服务 baseUrl 时不再静默复用已存密钥，需重新输入凭据；没有可压缩前缀的阻塞压缩不再失败整轮请求；无扩展名路径不再能被 `openPath` 一键执行；IPC 监听器与主进程补上异常兜底；停用 MCP 服务器不再被在途启动覆盖状态；崩溃恢复不再丢弃未消费的 steer；流式重试时 TUI/桌面不再叠加两次尝试的文本。
@@ -48,7 +52,7 @@ GLM-5.3-flash 思考过长修复：默认不再把「中」打成 GLM 的 high/m
 - 项目工具：Codex 式代码审查（未暂存/已暂存范围、双侧行号、逐文件/逐 hunk 暂存与撤销、行内评论回填对话）、Git 提交、worktree 创建或接力、项目终端。
 - 自动化：在当前会话中创建、查看和删除 Cron 任务；桌面端运行时会自动恢复包含计划任务的持久化会话。
 - 生态能力：Skills、MCP、记忆浏览与搜索、系统托盘和桌面通知。
-- 远程连接（0.6.8+，0.7.9 接回真实设置面板）：设置 →「远程连接」开启后，手机/其他电脑/浏览器可通过配对令牌远程连接（对话、审批、提问、目标、自动化、任务、技能、MCP、配置与记忆）；支持局域网直连与 Tailscale/ngrok/frp 公网穿透。设置页不再使用占位地址。0.7.10 起远程不能新建未知项目目录、不能加 stdio MCP、不能改 hooks/yolo。
+- 远程连接：顶栏**二维码图标**（或菜单 **文件 → 远程连接（手机扫码）…**）一键弹出配对二维码，手机扫码即连——页面由桌面端自身通过 HTTP 托管，打开后自动配对，无需安装任何 App；支持局域网直连与 Tailscale/ngrok/frp 公网穿透。手机端可浏览会话、对话与转向、停止生成、审批工具调用、回答结构化提问；远程暴露面刻意收窄（无文件读写、无项目终端、无 Git 写操作、无应用退出）。
 - 秒退（0.3.4+）：退出时跳过逐会话的退出记忆提取（LLM 调用，单次最多 30s），关闭即时完成；记忆仍由压缩时提取和空闲 15 分钟提取保留。SDK 侧体现为 `LmcodeHarness.close({ extractMemories: false })`，CLI/TUI 的默认提取行为不变。
 
 ## 关键边界
@@ -58,16 +62,20 @@ GLM-5.3-flash 思考过长修复：默认不再把「中」打成 GLM 的 high/m
 - 文本附件最大 256 KiB；图片附件单个最大 10 MiB，每条消息最多 8 个附件。凭据文件、未知二进制和非法 UTF-8 内容会被拒绝。
 - 项目终端是会话级持久 PowerShell 进程，适合项目命令和连续工作流；它不是完整 PTY 终端模拟器。
 - Cron 自动化依赖桌面应用正在运行，可以最小化到托盘；应用完全退出后不会在系统后台独立触发。
-- 远程服务默认关闭，仅在设置中手动开启；令牌 32 字节随机、重新生成后旧令牌立即失效；远程暴露面刻意收窄（无文件读写、无项目终端、无 Git 写操作、无应用退出）。
+- 远程服务默认关闭，仅在设置中手动开启；令牌 32 字节随机、重新生成后旧令牌立即失效；手机页面是纯静态资源（不含任何机密，令牌只经 URL fragment / 本地存储传递），静态响应带 `no-store` 与 CSP，且服务只读取构建目录内的文件。远程暴露面刻意收窄（无文件读写、无项目终端、无 Git 写操作、无应用退出）。
 
-## 远程连接（lmcode app）
+## 远程连接（手机扫码）
 
-1. 设置（`Ctrl+,`）→ **远程连接** → 打开「允许远程连接」。
-2. 复制**配对令牌**，记下**局域网地址**（如 `http://192.168.1.100:37991`）。
-3. 用手机/浏览器打开 lmcode-remote-app（见 `E:\project from lmcode\lmcode-remote-app\README.md`），填入地址与令牌；也可扫描面板二维码直达（含令牌）。
-4. 外网连接：用 Tailscale / `ngrok http 37991` / frp 把端口映射到公网，客户端填对应的 wss/ws 地址。
+1. 点击顶栏的**二维码图标**（或菜单 **文件 → 远程连接（手机扫码）…**）：弹窗直接显示配对二维码；若服务尚未开启，点一次「开启并显示二维码」即可。
+2. 用手机相机扫描二维码：页面由桌面端自身提供（`http://<局域网IP>:端口/#token=…`），打开后**自动配对**，无需安装任何 App。
+3. 扫码不便时：在手机浏览器打开**局域网地址**，把**配对令牌**粘贴到页面里即可。令牌只保存在手机本地，页面打开后地址栏里的 `#token` 会立即被抹掉。
+4. 外网连接：用 Tailscale / `ngrok http 37991` / frp 把端口映射到公网，再用手机打开映射后的地址（把带 `#token` 的链接换成对应域名即可自动配对）。
 
-远程服务层实现位于 `src/main/remote/`（`interaction-hub` / `remote-bridge` / `remote-manager` / `remote-server`），协议定义在 `src/shared/remote-types.ts`（与 lmcode-remote-app 的 `src/protocol/types.ts` 单点同步）。
+手机端可以浏览会话（按项目分组、新建会话）、查看历史与流式输出、发送消息与运行中转向、停止生成、审批工具调用、回答结构化提问；断线会自动重连，重连后重新拉取会话与当前对话。端口、令牌轮换与开关的完整管理在 **设置 → 局域网远程**。
+
+实现：远程服务层位于 `src/main/remote/`（`interaction-hub` / `remote-bridge` / `remote-manager` / `remote-server` / `remote-web`），协议定义在 `src/shared/remote-types.ts`。手机页面源码在 `src/remote-app/`，构建时打包到 `out/remote-app/`（`app.js` + `index.html` + `app.css`），由 `RemoteServer` 在 `/` 上托管（`no-store`、CSP、路径越界防护）。
+
+协议是纯 WebSocket JSON：第三方客户端只要实现 `auth` → `request/response` → `event/approval/question` 即可接入，桌面端不依赖任何外部客户端。
 
 ## 技术栈
 
@@ -87,6 +95,7 @@ apps/lmcode-desktop/
 │   │   └── ipc/handler.ts   # 类型化 IPC 处理器
 │   ├── preload/             # contextBridge 安全桥
 │   ├── renderer/            # React UI、hooks 和 Zustand stores
+│   ├── remote-app/          # 内置手机页面（由远程服务托管，构建到 out/remote-app）
 │   └── shared/              # 主进程/渲染进程共享协议类型
 ├── test/                    # IPC、状态转换和安全边界测试
 ├── out/                     # 生成的构建产物，请勿手工修改
@@ -129,7 +138,7 @@ apps/lmcode-desktop/发布.bat
 
 已知问题：electron-builder 在上传资产之间可能重复创建 release 并因 422 `already_exists` 中断，导致资产不全。此时删除残缺 release（`gh release delete <tag> --repo Lyin01/LMcode-desktop --cleanup-tag`）重跑，或用 `gh release upload` 手动补齐缺失资产——注意 `latest.yml` 必须与本次安装包的 sha512 / size 一致。
 
-`build` 会先生成主进程、preload 和渲染进程产物，并将运行时需要的 workspace 包复制到 `out/vendor`。源码修改应始终发生在 `src/` 或 workspace 包中。
+`build` 会先生成主进程、preload、渲染进程和内置手机页面（`out/remote-app`）产物，并将运行时需要的 workspace 包复制到 `out/vendor`。源码修改应始终发生在 `src/` 或 workspace 包中。
 
 ## 架构
 

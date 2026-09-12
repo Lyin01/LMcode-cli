@@ -508,6 +508,7 @@ export class RemoteBridge implements InteractionSurface {
       version: 'desktop',
       platform: process.platform,
       hostname: os.hostname(),
+      noProjectWorkDir: this.noProjectWorkDir,
     }
   }
 

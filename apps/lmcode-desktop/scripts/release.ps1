@@ -8,6 +8,35 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 # 切到桌面端项目目录（本脚本在 scripts\ 下，上一级就是项目根）
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
+# 代理自愈：本机代理（如 Clash 的 127.0.0.1:7890）未启动时，HTTP(S)_PROXY
+# 会让依赖审计和 GitHub 上传卡在死代理上。只有检测到不可达才临时清空，
+# 代理正常运行时行为完全不变。
+function Clear-UnreachableProxy {
+  foreach ($name in @('HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy')) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ([string]::IsNullOrWhiteSpace($value)) { continue }
+    $uri = $null
+    try { $uri = [Uri]$value } catch { continue }
+    if (-not $uri -or -not $uri.Host) { continue }
+    $client = [System.Net.Sockets.TcpClient]::new()
+    $reachable = $false
+    try {
+      $connect = $client.ConnectAsync($uri.Host, $uri.Port)
+      $reachable = $connect.Wait(1200) -and $client.Connected
+    } catch {
+      $reachable = $false
+    } finally {
+      $client.Dispose()
+    }
+    if (-not $reachable) {
+      Write-Host "检测到代理 $name=$value 不可达，本次发布临时走直连。" -ForegroundColor Yellow
+      [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    }
+  }
+}
+
+Clear-UnreachableProxy
+
 Write-Host ''
 Write-Host '========== LMCODE 桌面端 · 一键发布 ==========' -ForegroundColor Cyan
 Write-Host '先执行发布门禁：密钥扫描、依赖审计、类型检查、Lint、全量测试和构建。' -ForegroundColor Cyan

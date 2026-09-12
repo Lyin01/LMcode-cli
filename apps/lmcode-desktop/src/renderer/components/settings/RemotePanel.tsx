@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import {
-  Check,
-  Copy,
   KeyRound,
   RefreshCw,
   ShieldAlert,
   Users,
 } from 'lucide-react'
+import { CopyButton } from '@/components/CopyButton'
 import type { RemoteState } from '../../../shared/remote-types'
+import { buildPairingUrl, pairingQrUrl } from '../../../shared/remote-pairing'
 
 const inputClass =
   'w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] px-3 py-2 text-[13px] text-[var(--lm-text-primary)] outline-none transition-colors focus:border-[var(--lm-accent)] disabled:cursor-not-allowed disabled:opacity-50'
-
-type TimerId = number
 
 function Toggle({
   checked,
@@ -50,27 +48,6 @@ function Toggle({
   )
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<TimerId | null>(null)
-  const copy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      if (timer.current !== null) clearTimeout(timer.current)
-      timer.current = window.setTimeout(() => setCopied(false), 1600)
-    } catch {
-      // Clipboard may be unavailable in some sandboxed contexts.
-    }
-  }
-  return (
-    <button type="button" className="lm-settings-action" onClick={() => void copy()} aria-label={label}>
-      {copied ? <Check size={14} /> : <Copy size={14} />}
-      {copied ? '已复制' : '复制'}
-    </button>
-  )
-}
-
 export function RemotePanel() {
   const [state, setState] = useState<RemoteState | null>(null)
   const [portDraft, setPortDraft] = useState('')
@@ -102,14 +79,15 @@ export function RemotePanel() {
   }, [])
 
   useEffect(() => {
-    if (!state?.enabled || state.lanUrls.length === 0) {
+    const target = state === null ? null : pairingQrUrl(state)
+    if (target === null) {
       setQrUrl(null)
       return
     }
-    // QR encodes the LAN base URL with a trailing #token fragment so a phone
-    // can be pointed at the app and pasted straight into the pairing screen.
+    // The QR points at the LAN base URL with a trailing #token fragment. The
+    // page it opens is served by this app and pairs straight from the fragment.
     let disposed = false
-    void QRCode.toDataURL(`${state.lanUrls[0]}#token=${state.token}`, {
+    void QRCode.toDataURL(target, {
       width: 200,
       margin: 1,
       color: { dark: '#1f2937', light: '#ffffff' },
@@ -123,7 +101,7 @@ export function RemotePanel() {
     return () => {
       disposed = true
     }
-  }, [state?.enabled, state?.lanUrls, state?.token])
+  }, [state])
 
   const runMutation = async (action: () => Promise<RemoteState>): Promise<void> => {
     setBusy(true)
@@ -169,8 +147,9 @@ export function RemotePanel() {
             <div className="lm-settings-row-copy">
               <span className="lm-settings-row-title">允许远程连接</span>
               <p>
-                开启后，lmcode app（手机 / 其他电脑 / 浏览器）可以通过令牌远程连接
-                这台电脑上的 LMCODE Desktop，进行对话、审批与任务控制。
+                开启后，手机 / 其他电脑 / 浏览器扫码或打开下方地址，即可连接这台电脑上的
+                LMCODE Desktop，进行对话、审批与任务控制。页面由本应用直接提供，无需安装
+                任何 App。
               </p>
             </div>
             <div className="lm-settings-row-control">
@@ -205,13 +184,13 @@ export function RemotePanel() {
               <div className="lm-settings-row lm-settings-row-top">
                 <div className="lm-settings-row-copy">
                   <span className="lm-settings-row-title">局域网地址</span>
-                  <p>同一 WiFi / 局域网内的设备使用以下地址连接（手机浏览器打开后粘贴令牌）。</p>
+                  <p>同一 WiFi / 局域网内的设备用浏览器打开以下地址（带 #token 的链接会自动配对；不带令牌时可在页面上手动输入）。</p>
                   {state.lanUrls.length > 0 && (
                     <div className="lm-remote-urls">
                       {state.lanUrls.map((url) => (
                         <div key={url} className="lm-remote-url-row">
                           <code className="lm-settings-path">{url}</code>
-                          <CopyButton text={`${url}#token=${state.token}`} label={`复制 ${url}`} />
+                          <CopyButton text={buildPairingUrl(url, state.token)} label={`复制 ${url}`} />
                         </div>
                       ))}
                     </div>
@@ -224,7 +203,7 @@ export function RemotePanel() {
               {qrUrl && (
                 <div className="lm-remote-qr">
                   <img src={qrUrl} alt="远程连接二维码" width={200} height={200} />
-                  <p>用手机扫码打开远程连接页（含令牌）</p>
+                  <p>用手机扫码直接打开远程页面（已含令牌，自动配对）</p>
                 </div>
               )}
             </div>
@@ -299,8 +278,8 @@ export function RemotePanel() {
                 <div className="lm-settings-row-copy">
                   <span className="lm-settings-row-title">公网穿透</span>
                   <p>
-                    想在外面也能连上，请用穿透工具把端口 {state.port} 映射到公网，然后在
-                    lmcode app 里填写对应的 ws/wss 地址：
+                    想在外面也能连上，请用穿透工具把端口 {state.port} 映射到公网，然后用手机打开
+                    映射后的地址（把下面带令牌的链接域名换成穿透地址即可）：
                   </p>
                   <ul className="lm-remote-tunnel-list">
                     <li>
@@ -309,11 +288,11 @@ export function RemotePanel() {
                     </li>
                     <li>
                       <code>ngrok</code>
-                      <span>：ngrok http {state.port}，用返回的 https 地址（wss 自动生效）。</span>
+                      <span>：ngrok http {state.port}，用返回的 https 地址打开（带 #token 链接即可自动配对）。</span>
                     </li>
                     <li>
                       <code>frp</code>
-                      <span>：映射 tcp 端口，客户端填 ws://frp地址:端口。</span>
+                      <span>：映射 tcp 端口，打开 http://frp地址:端口/#token=… 即可。</span>
                     </li>
                   </ul>
                 </div>

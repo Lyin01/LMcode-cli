@@ -1,9 +1,13 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import type { Session } from '@lmcode-cli/lmcode-sdk'
 import { InteractionHub } from '../src/main/remote/interaction-hub'
 import { RemoteBridge } from '../src/main/remote/remote-bridge'
 import { RemoteServer } from '../src/main/remote/remote-server'
+import { buildPairingUrl, readPairingToken } from '../src/shared/remote-pairing'
 import type { RemoteClientMessage, RemoteServerMessage, RemoteState } from '../src/shared/remote-types'
 
 // ── Minimal fakes ──────────────────────────────────────────────────────
@@ -105,11 +109,15 @@ interface OpenedServer {
   bridge: RemoteBridge
   hub: InteractionHub
   url: string
+  httpUrl: string
   state: () => RemoteState
   close(): Promise<void>
 }
 
-async function openServer(token = 'test-token'): Promise<OpenedServer> {
+async function openServer(
+  token = 'test-token',
+  webRoot = join(tmpdir(), 'lmcode-remote-web-absent'),
+): Promise<OpenedServer> {
   const hub = new InteractionHub()
   const harness = fakeHarness() as never
   const bridge = new RemoteBridge(harness, hub, 'C:/no-project', fakeMemoryStore())
@@ -126,6 +134,7 @@ async function openServer(token = 'test-token'): Promise<OpenedServer> {
     hub,
     getToken: () => token,
     getState: () => ({ ...state, clientCount: server.clientCount }),
+    webRoot,
   })
   await server.listen(0)
   const address = server['httpServer'].address()
@@ -135,6 +144,7 @@ async function openServer(token = 'test-token'): Promise<OpenedServer> {
     bridge,
     hub,
     url: `ws://127.0.0.1:${port}/ws`,
+    httpUrl: `http://127.0.0.1:${port}`,
     state: () => ({ ...state, clientCount: server.clientCount }),
     close: async () => {
       await server.close()
@@ -173,10 +183,13 @@ function send(ws: WebSocket, message: RemoteClientMessage): void {
 }
 
 let servers: OpenedServer[] = []
+let tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(servers.map((s) => s.close()))
   servers = []
+  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })))
+  tempDirs = []
 })
 
 describe('RemoteServer protocol', () => {
@@ -381,5 +394,59 @@ describe('RemoteServer protocol', () => {
     ws2.close()
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(opened.state().clientCount).toBe(1)
+  })
+})
+
+describe('RemoteServer static mobile page', () => {
+  async function makeWebRoot(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'lmcode-remote-web-'))
+    tempDirs.push(dir)
+    await writeFile(join(dir, 'index.html'), '<!doctype html><title>LMCODE 远程</title>')
+    await writeFile(join(dir, 'app.css'), 'body { color: red }')
+    return dir
+  }
+
+  it('serves the built-in page while /health and the WebSocket keep working', async () => {
+    const opened = await openServer('pairing-token', await makeWebRoot())
+    servers.push(opened)
+
+    const page = await fetch(`${opened.httpUrl}/`)
+    expect(page.status).toBe(200)
+    expect(page.headers.get('content-type')).toContain('text/html')
+    expect(page.headers.get('cache-control')).toBe('no-store')
+    expect(page.headers.get('content-security-policy')).toContain("default-src 'none'")
+    expect(await page.text()).toContain('LMCODE 远程')
+
+    const css = await fetch(`${opened.httpUrl}/app.css`)
+    expect(css.status).toBe(200)
+    expect(css.headers.get('content-type')).toContain('text/css')
+
+    const health = await fetch(`${opened.httpUrl}/health`)
+    expect(health.status).toBe(200)
+    expect(await health.json()).toMatchObject({ ok: true })
+
+    // The QR URL carries the pairing token in the fragment; a phone can pair
+    // straight from it (fragments never reach the HTTP layer).
+    const pairingUrl = buildPairingUrl(opened.httpUrl, 'pairing-token')
+    expect(new URL(pairingUrl).hash).toBe('#token=pairing-token')
+    const ws = await connect(opened.url)
+    send(ws, { type: 'auth', token: readPairingToken(new URL(pairingUrl).hash) ?? '' })
+    await expect(nextMessage(ws, 'auth-ok')).resolves.toMatchObject({ type: 'auth-ok' })
+    ws.close()
+  })
+
+  it('does not expose files outside the web root over HTTP', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'lmcode-remote-web-parent-'))
+    tempDirs.push(parent)
+    await writeFile(join(parent, 'secret.txt'), 'top-secret')
+    const webRoot = join(parent, 'app')
+    await mkdir(webRoot)
+    await writeFile(join(webRoot, 'index.html'), 'ok')
+
+    const opened = await openServer('secret', webRoot)
+    servers.push(opened)
+    const response = await fetch(`${opened.httpUrl}/..%5Csecret.txt`)
+    expect(response.status).toBe(404)
+    expect(await response.text()).not.toContain('top-secret')
   })
 })

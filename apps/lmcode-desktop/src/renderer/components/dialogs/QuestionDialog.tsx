@@ -10,7 +10,7 @@ import {
   buildQuestionResult,
   createQuestionDrafts,
   type QuestionDraft,
-} from './question-answer'
+} from '../../../shared/question-answer'
 
 export function QuestionDialog() {
   const activeInteraction = useSessionStore((state) =>

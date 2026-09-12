@@ -8,6 +8,7 @@ import { build } from 'esbuild'
 const ROOT = resolve(import.meta.dirname, '..')
 const OUT_MAIN_DIR = resolve(ROOT, 'out/main')
 const OUT_PRELOAD_DIR = resolve(ROOT, 'out/preload')
+const OUT_REMOTE_DIR = resolve(ROOT, 'out/remote-app')
 const VENDOR_DIR = resolve(ROOT, 'out/vendor')
 function resolveVendorPackage(spec, name, relDist, relAssets) {
   const monoMap = {
@@ -246,6 +247,29 @@ execSync('vite build --config vite.renderer.config.ts', {
   stdio: 'inherit',
   env: { ...process.env, PATH: BIN_PATH },
 })
+
+// 5. Build the built-in mobile page served by the remote service. The main
+// process serves this directory over HTTP (`out/remote-app/`), so scanning the
+// pairing QR on a phone opens a working client.
+console.log('> esbuild remote app')
+rmSync(OUT_REMOTE_DIR, { recursive: true, force: true })
+mkdirSync(OUT_REMOTE_DIR, { recursive: true })
+await build({
+  entryPoints: [resolve(ROOT, 'src/remote-app/main.tsx')],
+  bundle: true,
+  platform: 'browser',
+  target: 'es2020',
+  format: 'iife',
+  outfile: join(OUT_REMOTE_DIR, 'app.js'),
+  jsx: 'automatic',
+  minify: true,
+  define: { 'process.env.NODE_ENV': '"production"' },
+  tsconfigRaw,
+  logLevel: 'info',
+})
+for (const asset of ['index.html', 'app.css', 'favicon.svg']) {
+  cpSync(resolve(ROOT, 'src/remote-app', asset), join(OUT_REMOTE_DIR, asset))
+}
 
 console.log('\n✅ 构建完成')
 console.log('启动: cd apps/lmcode-desktop && npx electron .')

@@ -325,8 +325,17 @@ export class MemoryMemoStore {
         await unlink(legacyPath).catch((error: unknown) => {
           if (!isFileNotFound(error)) throw error;
         });
-        await rmdir(dirname(legacyPath)).catch((error: unknown) => {
-          if (!isDirectoryNotEmpty(error) && !isFileNotFound(error)) throw error;
+        await rmdir(dirname(legacyPath)).catch(async (error: unknown) => {
+          if (isFileNotFound(error) || isDirectoryNotEmpty(error)) return;
+          // Windows reports EPERM/EACCES while a concurrent migration (or a
+          // virus scanner) is still deleting the same directory. Removing it is
+          // best-effort — the sources are unlinked and the entries migrated —
+          // so accept the failure only when nothing is left there; a real
+          // permission problem on a non-empty directory still aborts.
+          if (isPermissionDenied(error) && (await isDirectoryEmptyOrMissing(dirname(legacyPath)))) {
+            return;
+          }
+          throw error;
         });
       }
 
@@ -1207,6 +1216,21 @@ function isFileNotFound(error: unknown): boolean {
 
 function isDirectoryNotEmpty(error: unknown): boolean {
   return hasErrorCode(error, 'ENOTEMPTY') || hasErrorCode(error, 'EEXIST');
+}
+
+function isPermissionDenied(error: unknown): boolean {
+  return hasErrorCode(error, 'EPERM') || hasErrorCode(error, 'EACCES');
+}
+
+/** True when the directory is gone, or still exists but holds no entries. */
+async function isDirectoryEmptyOrMissing(dirPath: string): Promise<boolean> {
+  try {
+    const entries = await readdir(dirPath);
+    return entries.length === 0;
+  } catch (error) {
+    if (isFileNotFound(error)) return true;
+    throw error;
+  }
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

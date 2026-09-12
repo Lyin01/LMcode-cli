@@ -5,7 +5,7 @@ import {
   buildQuestionResult,
   createQuestionDrafts,
   type QuestionDraft,
-} from '../src/renderer/components/dialogs/question-answer'
+} from '../src/shared/question-answer'
 
 const request: QuestionRequest = {
   questions: [

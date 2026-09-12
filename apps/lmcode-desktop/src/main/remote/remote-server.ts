@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
-import { createServer, type IncomingMessage, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { Logger } from '@lmcode-cli/lmcode-sdk'
@@ -10,6 +10,7 @@ import type {
   RemoteState,
 } from '../../shared/remote-types.js'
 import { RemoteBridge, type RemoteConnection } from './remote-bridge.js'
+import { REMOTE_WEB_SECURITY_HEADERS, readRemoteWebAsset } from './remote-web.js'
 import type { InteractionHub } from './interaction-hub.js'
 
 const MAX_CLIENTS = 16
@@ -44,6 +45,11 @@ export interface RemoteServerOptions {
   readonly getToken: () => string
   /** Current service state, pushed to clients on auth and on changes. */
   readonly getState: () => RemoteState
+  /**
+   * Directory holding the built-in mobile page (`out/remote-app/`). Served on
+   * plain HTTP requests so scanning the pairing QR opens a working client.
+   */
+  readonly webRoot: string
   readonly logger?: Logger | undefined
 }
 
@@ -71,13 +77,7 @@ export class RemoteServer {
 
   constructor(private readonly options: RemoteServerOptions) {
     this.httpServer = createServer((req, res) => {
-      if (req.url === '/health' && req.method === 'GET') {
-        res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ ok: true, name: 'lmcode-desktop-remote' }))
-        return
-      }
-      res.writeHead(404, { 'content-type': 'text/plain' })
-      res.end('Not found')
+      void this.handleHttpRequest(req, res)
     })
 
     this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES })
@@ -175,6 +175,41 @@ export class RemoteServer {
   /** Number of currently connected (and authenticated) sockets. */
   get clientCount(): number {
     return this.connections.size
+  }
+
+  /**
+   * Health probe, then the built-in mobile page. Anything that is not a
+   * readable file under `webRoot` is a 404 — never a directory listing.
+   */
+  private async handleHttpRequest(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    try {
+      if (request.url === '/health' && request.method === 'GET') {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ ok: true, name: 'lmcode-desktop-remote' }))
+        return
+      }
+      if (request.method === 'GET' || request.method === 'HEAD') {
+        const asset = await readRemoteWebAsset(this.options.webRoot, request.url ?? '/')
+        if (asset !== null) {
+          response.writeHead(200, {
+            'content-type': asset.contentType,
+            ...REMOTE_WEB_SECURITY_HEADERS,
+          })
+          response.end(request.method === 'HEAD' ? undefined : asset.body)
+          return
+        }
+      }
+      response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      response.end('Not found')
+    } catch {
+      if (!response.headersSent) {
+        response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+      }
+      response.end()
+    }
   }
 
   async listen(port: number): Promise<void> {

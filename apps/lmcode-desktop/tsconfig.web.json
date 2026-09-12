@@ -25,6 +25,8 @@
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
     "src/renderer/**/*.d.ts",
+    "src/remote-app/**/*.ts",
+    "src/remote-app/**/*.tsx",
     "src/shared/**/*.ts"
   ]
 }
