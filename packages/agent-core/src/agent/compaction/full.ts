@@ -266,7 +266,13 @@ export class FullCompaction {
 
     if (shouldCompact) {
       if (shouldBlock) {
-        this.beginAutoCompaction();
+        // A blocked step with no legal split point must not fail the turn:
+        // `begin()` throws COMPACTION_UNABLE, which would poison the session
+        // (every later prompt hits the same history and fails again). Fall
+        // through instead — `block()` is a no-op when no compaction started,
+        // and the request still has headroom to succeed; a real 413 goes
+        // through handleOverflowError as before.
+        this.tryBeginAutoCompaction(true);
       } else {
         // Non-blocking branch: an exhausted per-turn compaction budget must
         // not throw CONTEXT_OVERFLOW and fail a turn that still has ~25%

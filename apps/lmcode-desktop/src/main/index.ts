@@ -69,6 +69,16 @@ if (!runtimeEnvironment.isDevelopment) {
   app.commandLine.appendSwitch('disable-extensions')
 }
 
+// Last-resort guards: a stray listener or background write failure must not
+// take the whole desktop app down while sessions are streaming. The failure
+// still lands in the runtime log for diagnostics.
+process.on('unhandledRejection', (reason) => {
+  log.error('desktop main unhandled rejection', reason)
+})
+process.on('uncaughtException', (error) => {
+  log.error('desktop main uncaught exception', error)
+})
+
 let mainWindow: BrowserWindow | null = null
 let harness: LmcodeHarness | null = null
 let tray: Tray | null = null

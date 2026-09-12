@@ -60,6 +60,21 @@ interface BufferedSteer {
   readonly origin: PromptOrigin;
 }
 
+function isTextOnlyContent(content: readonly ContentPart[]): boolean {
+  return content.length > 0 && content.every((part) => part.type === 'text');
+}
+
+function steerMatchesMessage(steer: BufferedSteer, message: ContextMessage): boolean {
+  if (message.role !== 'user') return false;
+  if (JSON.stringify(steer.origin) !== JSON.stringify(message.origin)) return false;
+  if (steer.input.length !== message.content.length) return false;
+  if (!isTextOnlyContent(steer.input) || !isTextOnlyContent(message.content)) return false;
+  return steer.input.every((part, index) => {
+    const other = message.content[index];
+    return part.type === 'text' && other?.type === 'text' && part.text === other.text;
+  });
+}
+
 export interface TurnEndResult {
   readonly event: TurnEndedEvent;
   readonly stopReason?: LoopTurnStopReason;
@@ -419,7 +434,40 @@ export class TurnFlow {
     if (this.activeTurn === 'resuming') {
       this.activeTurn = null;
     }
-    this.steerBuffer.length = 0;
+    this.flushRestoredSteers();
+  }
+
+  /**
+   * Replay hook: a `context.append_message` record matching a buffered steer
+   * proves that steer made it into the context before the crash, so drop it
+   * from the pending list instead of appending it a second time.
+   */
+  consumeRestoredSteer(message: ContextMessage): void {
+    for (let index = 0; index < this.steerBuffer.length; index += 1) {
+      const steer = this.steerBuffer[index];
+      if (steer !== undefined && steerMatchesMessage(steer, message)) {
+        this.steerBuffer.splice(index, 1);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Steers recorded on the wire but never flushed (crash between `turn.steer`
+   * and the next step boundary) would otherwise be dropped silently. Deliver
+   * the text-only ones now; non-text steers cannot be matched reliably against
+   * their degraded live form, so they stay dropped rather than risk duplicate
+   * image messages.
+   */
+  private flushRestoredSteers(): void {
+    const steers = this.steerBuffer;
+    if (steers.length === 0) return;
+    for (const steer of steers) {
+      if (isTextOnlyContent(steer.input)) {
+        this.agent.context.appendUserMessage(steer.input, steer.origin);
+      }
+    }
+    steers.length = 0;
   }
 
   private async turnWorker(

@@ -42,6 +42,12 @@ describe('assertRemoteSafeMcpConfig', () => {
       /stdio command/,
     )
     expect(() => assertRemoteSafeMcpConfig({ url: 'file:///C:/mcp.json' })).toThrow(/http or https/)
+    expect(() =>
+      assertRemoteSafeMcpConfig({ url: 'https://x', bearerTokenEnvVar: 'OPENAI_API_KEY' }),
+    ).toThrow(/environment variables/)
+    expect(() =>
+      assertRemoteSafeMcpConfig({ url: 'https://x', bearerTokenEnvVar: 'GITHUB_TOKEN' }),
+    ).toThrow(/environment variables/)
   })
 })
 

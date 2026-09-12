@@ -15,6 +15,7 @@ function createMockHost(): SessionEventHost {
     setStep: vi.fn(),
     setTurnId: vi.fn(),
     resetToolUi: vi.fn(),
+    resetLiveText: vi.fn(),
     flushNow: vi.fn(),
     finalizeLiveTextBuffers: vi.fn(),
     finalizeAssistantStream: vi.fn(),
@@ -241,5 +242,28 @@ describe('SessionEventHandler', () => {
 
     expect(host.streamingUI.finalizeTurn).toHaveBeenCalled();
     expect(host.streamingUI.resetToolUi).toHaveBeenCalled();
+  });
+
+  it('drops the failed attempt live output when a step retries', () => {
+    const host = createMockHost();
+    const handler = new SessionEventHandler(host);
+
+    handler.handleEvent(
+      {
+        ...baseEvent('turn.step.retrying'),
+        turnId: 1,
+        step: 1,
+        failedAttempt: 1,
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 100,
+        errorName: 'Error',
+        errorMessage: 'boom',
+      } as unknown as Event,
+      vi.fn(),
+    );
+
+    expect(host.streamingUI.resetLiveText).toHaveBeenCalledTimes(1);
+    expect(host.streamingUI.resetToolUi).toHaveBeenCalledTimes(1);
   });
 });

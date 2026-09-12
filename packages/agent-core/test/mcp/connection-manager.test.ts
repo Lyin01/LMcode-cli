@@ -117,6 +117,31 @@ describe('McpConnectionManager', () => {
     }
   });
 
+  it('keeps a stopped server disabled when its in-flight startup settles afterwards', async () => {
+    const cm = new McpConnectionManager();
+    const seen: McpServerEntry['status'][] = [];
+    cm.onStatusChange((entry) => {
+      if (entry.name === 'slow') seen.push(entry.status);
+    });
+    try {
+      const adding = cm.addServer('slow', {
+        transport: 'stdio',
+        command: process.execPath,
+        args: [slowStdioFixture],
+        startupTimeoutMs: 10_000,
+      });
+      expect(cm.get('slow')?.status).toBe('pending');
+
+      await cm.stopServer('slow');
+      await adding;
+
+      expect(cm.get('slow')?.status).toBe('disabled');
+      expect(seen.at(-1)).toBe('disabled');
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
   it('marks disabled servers without attempting a connection', async () => {
     const cm = new McpConnectionManager();
     try {

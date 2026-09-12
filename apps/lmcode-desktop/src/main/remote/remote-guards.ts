@@ -45,11 +45,16 @@ export function isAllowedRemoteWorkDir(
 
 /**
  * Remote MCP add is HTTP/SSE only. A `command` field is local stdio spawn,
- * which would be host RCE for anyone holding the pairing token.
+ * which would be host RCE for anyone holding the pairing token. The same
+ * applies to `bearerTokenEnvVar`, which would let a remote caller exfiltrate
+ * arbitrary host environment variables (API keys, tokens) to its own server.
  */
 export function assertRemoteSafeMcpConfig(config: Record<string, unknown>): void {
   if (Object.hasOwn(config, 'command') || Object.hasOwn(config, 'args')) {
     throw new Error('Remote MCP servers must use an HTTP/SSE url, not a local stdio command')
+  }
+  if (Object.hasOwn(config, 'bearerTokenEnvVar')) {
+    throw new Error('Remote MCP servers cannot read host environment variables')
   }
   const url = config['url']
   if (typeof url !== 'string' || url.trim().length === 0) {

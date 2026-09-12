@@ -94,7 +94,7 @@ function restoreProviderPatch(
   patch: ProviderConfigPatch,
   current: ProviderConfig | undefined,
 ): ProviderConfigPatch {
-  return {
+  const restored: ProviderConfigPatch = {
     ...patch,
     apiKey: restoreSecret(patch.apiKey, current?.apiKey),
     oauth: patch.oauth === undefined
@@ -106,6 +106,21 @@ function restoreProviderPatch(
     customHeaders: restoreHeaderValues(patch.customHeaders, current?.customHeaders),
     env: restoreHeaderValues(patch.env, current?.env),
   }
+  // Stored secrets must never silently follow the provider to a different
+  // endpoint: a compromised renderer could otherwise point `baseUrl` (or the
+  // base-url env var) at its own server and let the saved key authenticate
+  // there. Re-entering the credentials, or keeping the current endpoint, is
+  // the only way through.
+  if (
+    current !== undefined &&
+    providerEndpointChanged(restored, current) &&
+    reusesStoredSecret(patch, current)
+  ) {
+    throw new Error(
+      'Changing the provider baseUrl requires re-entering the stored credentials; otherwise the saved key would be sent to the new endpoint.',
+    )
+  }
+  return restored
 }
 
 function restoreServicePatch(
@@ -113,7 +128,7 @@ function restoreServicePatch(
   current: ServiceConfig | undefined,
 ): ServiceConfigPatch | undefined {
   if (patch === undefined) return undefined
-  return {
+  const restored: ServiceConfigPatch = {
     ...patch,
     apiKey: restoreSecret(patch.apiKey, current?.apiKey),
     oauth: patch.oauth === undefined
@@ -124,6 +139,102 @@ function restoreServicePatch(
         },
     customHeaders: restoreHeaderValues(patch.customHeaders, current?.customHeaders),
   }
+  if (
+    current !== undefined &&
+    baseUrlChanged(
+      restored.baseUrl !== undefined ? restored.baseUrl : current.baseUrl,
+      current.baseUrl,
+    ) &&
+    reusesStoredServiceSecret(patch, current)
+  ) {
+    throw new Error(
+      'Changing the service baseUrl requires re-entering the stored credentials; otherwise the saved key would be sent to the new endpoint.',
+    )
+  }
+  return restored
+}
+
+const PROVIDER_ENDPOINT_ENV_KEYS: Readonly<Record<string, readonly string[]>> = {
+  anthropic: ['ANTHROPIC_BASE_URL'],
+  openai: ['OPENAI_BASE_URL'],
+  openai_responses: ['OPENAI_BASE_URL'],
+  lmcode: ['LMCODE_BASE_URL'],
+}
+
+const PROVIDER_API_KEY_ENV_KEYS: Readonly<Record<string, string>> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  openai_responses: 'OPENAI_API_KEY',
+  lmcode: 'LMCODE_API_KEY',
+  'google-genai': 'GOOGLE_API_KEY',
+}
+
+function providerEndpointChanged(
+  patch: ProviderConfigPatch,
+  current: ProviderConfig,
+): boolean {
+  const envKeys = PROVIDER_ENDPOINT_ENV_KEYS[current.type]
+  if (envKeys === undefined) return false
+  const nextBaseUrl = patch.baseUrl !== undefined ? patch.baseUrl : current.baseUrl
+  const nextEnv = { ...current.env, ...patch.env }
+  const next = resolveEffectiveBaseUrl(nextBaseUrl, nextEnv, envKeys)
+  const previous = resolveEffectiveBaseUrl(current.baseUrl, current.env, envKeys)
+  return next !== undefined && next !== previous
+}
+
+function reusesStoredSecret(patch: ProviderConfigPatch, current: ProviderConfig): boolean {
+  if (current.apiKey !== undefined && current.apiKey.length > 0) {
+    if (patch.apiKey === undefined || isPreservedSecret(patch.apiKey)) return true
+  }
+  if (current.oauth !== undefined) {
+    if (patch.oauth === undefined || isPreservedSecret(patch.oauth.key)) return true
+  }
+  const envKey = PROVIDER_API_KEY_ENV_KEYS[current.type]
+  if (envKey !== undefined) {
+    const storedEnvSecret = current.env?.[envKey]
+    if (storedEnvSecret !== undefined && storedEnvSecret.length > 0) {
+      const nextValue = patch.env?.[envKey]
+      if (nextValue === undefined || isPreservedSecret(nextValue)) return true
+    }
+  }
+  return false
+}
+
+function reusesStoredServiceSecret(
+  patch: ServiceConfigPatch,
+  current: ServiceConfig,
+): boolean {
+  if (current.apiKey !== undefined && current.apiKey.length > 0) {
+    if (patch.apiKey === undefined || isPreservedSecret(patch.apiKey)) return true
+  }
+  if (current.oauth !== undefined) {
+    if (patch.oauth === undefined || isPreservedSecret(patch.oauth.key)) return true
+  }
+  return false
+}
+
+function baseUrlChanged(nextValue: string | undefined, currentValue: string | undefined): boolean {
+  const next = nonEmptyValue(nextValue)
+  return next !== undefined && next !== nonEmptyValue(currentValue)
+}
+
+function resolveEffectiveBaseUrl(
+  baseUrl: string | undefined,
+  env: Record<string, string> | undefined,
+  envKeys: readonly string[],
+): string | undefined {
+  const direct = nonEmptyValue(baseUrl)
+  if (direct !== undefined) return direct
+  for (const key of envKeys) {
+    const value = nonEmptyValue(env?.[key])
+    if (value !== undefined) return value
+  }
+  return undefined
+}
+
+function nonEmptyValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed
 }
 
 function maskSecret(value: string | undefined): string | undefined {

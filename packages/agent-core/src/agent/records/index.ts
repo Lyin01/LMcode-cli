@@ -85,6 +85,7 @@ function restoreAgentRecord(agent: Agent, input: AgentRecord): void {
       return;
     case 'context.append_message':
       agent.context.appendMessage(input.message);
+      agent.turn.consumeRestoredSteer(input.message);
       return;
     case 'context.append_loop_event':
       agent.context.appendLoopEvent(input.event);

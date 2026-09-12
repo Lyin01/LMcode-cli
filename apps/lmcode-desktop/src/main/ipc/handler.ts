@@ -60,6 +60,7 @@ import {
 } from '../git-worktree.js'
 import { ProjectTerminalManager } from '../project-terminal.js'
 import { isTrustedIpcSender } from '../security.js'
+import { checkShellOpenTarget } from '../shell-open-target.js'
 import {
   InteractionHub,
   type InteractionSurface,
@@ -321,7 +322,16 @@ export function registerAllHandlers(
     const wrapped = (event: IpcMainEvent, ...args: unknown[]): void => {
       if (closing) return
       if (!isTrustedIpcSender(event, mainWindow.webContents, trustedRendererUrl)) return
-      listener(event, ...(args as Args))
+      try {
+        listener(event, ...(args as Args))
+      } catch (error) {
+        // A throwing listener must not surface as an uncaught main-process
+        // exception (Electron would tear the app down mid-stream).
+        auditLog?.warn('desktop IPC listener failed', {
+          channel,
+          errorKind: error instanceof Error ? 'error' : typeof error,
+        })
+      }
     }
     ipcMain.on(channel, wrapped)
     eventListeners.push({ channel, listener: wrapped })
@@ -1061,6 +1071,8 @@ export function registerAllHandlers(
     if (isUnsafeShellOpenPath(target)) {
       return '不支持直接打开可执行或脚本文件，请用「在资源管理器中显示」'
     }
+    const checked = await checkShellOpenTarget(target)
+    if (!checked.ok) return checked.reason
     return (await shell.openPath(target)) || ''
   }, openPathArgsSchema)
 
@@ -1154,8 +1166,9 @@ export function registerAllHandlers(
   secureOn('lmcode:sendNotification', (_event, payload: DesktopNotificationPayload) => {
     if (mainWindow.isDestroyed() || mainWindow.isFocused()) return
     if (payload?.kind !== 'turn-completed' || typeof payload.title !== 'string') return
+    if (payload.body !== undefined && typeof payload.body !== 'string') return
     const title = payload.title.trim().slice(0, 120) || '新任务'
-    const body = (payload.body ?? '后台任务的回合已完成').slice(0, 200)
+    const body = (payload.body?.trim() || '后台任务的回合已完成').slice(0, 200)
     sendNotification(`LMCODE - ${title}`, body)
   })
 

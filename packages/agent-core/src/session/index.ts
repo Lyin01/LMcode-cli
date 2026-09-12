@@ -244,7 +244,9 @@ export class Session {
         const recap = main.sessionMemory.getSessionSummary();
         if (recap.length > 0) {
           this.metadata.custom = { ...this.metadata.custom, recap };
-          void this.writeMetadata();
+          this.writeMetadata().catch((error: unknown) => {
+            this.log.warn('session metadata write failed', error);
+          });
         }
       }
       await this.stopBackgroundTasksOnExit();
@@ -310,7 +312,9 @@ export class Session {
       type,
       parentAgentId: parentAgentId ?? null,
     };
-    void this.writeMetadata();
+    this.writeMetadata().catch((error: unknown) => {
+      this.log.warn('session metadata write failed', error);
+    });
 
     return { id, agent };
   }

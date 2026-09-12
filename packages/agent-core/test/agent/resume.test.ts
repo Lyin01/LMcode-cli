@@ -63,6 +63,89 @@ describe('Agent resume', () => {
     `);
   });
 
+  it('delivers steers that were recorded but never flushed before a crash', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'turn.prompt',
+        input: [{ type: 'text', text: 'prompt before crash' }],
+        origin: { kind: 'user' },
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'prompt before crash' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'turn.steer',
+        input: [{ type: 'text', text: 'never flushed steer' }],
+        origin: { kind: 'user' },
+      },
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+    await ctx.agent.records.flush();
+
+    const texts = ctx.agent.context.messages.flatMap((message) =>
+      message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])),
+    );
+    expect(texts.some((text) => text.includes('never flushed steer'))).toBe(true);
+    expect(
+      persistence.records.filter((record) => record.type === 'context.append_message'),
+    ).toHaveLength(2);
+  });
+
+  it('does not duplicate a steer that already left an append_message record', async () => {
+    const persistence = new InMemoryAgentRecordPersistence([
+      { type: 'metadata', protocol_version: AGENT_WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'turn.prompt',
+        input: [{ type: 'text', text: 'prompt before crash' }],
+        origin: { kind: 'user' },
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'prompt before crash' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+      {
+        type: 'turn.steer',
+        input: [{ type: 'text', text: 'flushed steer' }],
+        origin: { kind: 'user' },
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'flushed steer' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+    ]);
+    const ctx = testAgent({ persistence });
+
+    await ctx.agent.resume();
+    await ctx.agent.records.flush();
+
+    const texts = ctx.agent.context.messages.flatMap((message) =>
+      message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])),
+    );
+    expect(texts.filter((text) => text.includes('flushed steer'))).toHaveLength(1);
+    expect(
+      persistence.records.filter((record) => record.type === 'context.append_message'),
+    ).toHaveLength(2);
+  });
+
   it('replays inline skill reminders after pending tool results before the next prompt', async () => {
     const persistence = new RecordingAgentPersistence(resumeDeferredSystemReminderHistory());
     const ctx = testAgent({ persistence });

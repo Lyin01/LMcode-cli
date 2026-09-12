@@ -184,7 +184,7 @@ export class SessionEventHandler {
       case 'turn.step.started': this.handleStepBegin(event); break;
       case 'turn.step.interrupted': this.handleStepInterrupted(event); break;
       case 'turn.step.completed': this.handleStepCompleted(event); break;
-      case 'turn.step.retrying': break;
+      case 'turn.step.retrying': this.handleStepRetry(); break;
       case 'tool.progress': this.handleToolProgress(event); break;
       case 'assistant.delta': this.handleAssistantDelta(event); break;
       case 'hook.result': this.handleHookResult(event); break;
@@ -355,6 +355,14 @@ export class SessionEventHandler {
       streamingPhase: 'waiting',
       streamingStartTime: Date.now(),
     });
+  }
+
+  private handleStepRetry(): void {
+    // The retried request re-streams the whole step: drop the failed
+    // attempt's live draft and tool previews so the transcript does not
+    // render both attempts on top of each other.
+    this.host.streamingUI.resetLiveText();
+    this.host.streamingUI.resetToolUi();
   }
 
   private handleStepCompleted(event: TurnStepCompletedEvent): void {

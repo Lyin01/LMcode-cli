@@ -231,7 +231,7 @@ describe('Agent compaction', () => {
     expect(eventIndex(ctx.newEvents(), 'compaction.started')).toBe(-1);
   });
 
-  it('still rejects a blocking step when no history prefix can be compacted', async () => {
+  it('does not reject a blocking step when no history prefix can be compacted', async () => {
     const blockingWithoutPrefix: CompactionStrategy = {
       shouldCompact: () => true,
       shouldBlock: () => true,
@@ -247,8 +247,9 @@ describe('Agent compaction', () => {
 
     await expect(
       ctx.agent.fullCompaction.beforeStep(new AbortController().signal),
-    ).rejects.toMatchObject({ code: 'compaction.unable' });
+    ).resolves.toBeUndefined();
     expect(ctx.agent.fullCompaction.isCompacting).toBe(false);
+    expect(eventIndex(ctx.newEvents(), 'compaction.started')).toBe(-1);
   });
 
   it('does not throw CONTEXT_OVERFLOW when the non-blocking compaction budget is exhausted', async () => {
@@ -1738,7 +1739,7 @@ describe('Agent compaction', () => {
     ]);
   });
 
-  it('fails the turn with compaction.unable when auto compaction has no compactable prefix', async () => {
+  it('proceeds without blocking when auto compaction has no compactable prefix', async () => {
     const ctx = testAgent();
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
@@ -1748,19 +1749,17 @@ describe('Agent compaction', () => {
       },
     });
     const oversizedPrompt = `initial-pending-verbatim:${'x'.repeat(8_000)}`;
+    ctx.mockNextResponse({ type: 'text', text: 'answer after impossible compaction' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: oversizedPrompt }] });
     const events = await ctx.untilTurnEnd();
 
     expect(eventIndex(events, 'compaction.started')).toBe(-1);
-    expect(ctx.llmCalls).toHaveLength(0);
+    expect(ctx.llmCalls).toHaveLength(1);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
-        args: expect.objectContaining({
-          reason: 'failed',
-          error: expect.objectContaining({ code: 'compaction.unable' }),
-        }),
+        args: expect.objectContaining({ reason: 'completed' }),
       }),
     );
     await ctx.expectResumeMatches();

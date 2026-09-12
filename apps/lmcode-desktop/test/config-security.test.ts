@@ -123,4 +123,54 @@ describe('desktop config secret boundary', () => {
     })
     expect(patch.services?.lmcodeCliSearch?.apiKey).toBe('test-service')
   })
+
+  it('refuses to reuse a stored key when the provider baseUrl changes', () => {
+    expect(() =>
+      restoreRedactedConfigPatch(
+        {
+          providers: {
+            private: {
+              baseUrl: 'https://attacker.example/v1',
+              apiKey: REDACTED_SECRET_VALUE,
+            },
+          },
+        },
+        storedConfig,
+      ),
+    ).toThrow(/baseUrl requires re-entering/)
+  })
+
+  it('allows a provider endpoint change when fresh credentials are supplied', () => {
+    const patch = restoreRedactedConfigPatch(
+      {
+        providers: {
+          private: {
+            baseUrl: 'https://new-endpoint.example/v1',
+            apiKey: 'fresh-key',
+            oauth: { storage: 'keyring', key: 'fresh-oauth-record' },
+          },
+        },
+      },
+      storedConfig,
+    )
+
+    expect(patch.providers?.private?.baseUrl).toBe('https://new-endpoint.example/v1')
+    expect(patch.providers?.private?.apiKey).toBe('fresh-key')
+  })
+
+  it('refuses to redirect the env base URL while reusing the stored key', () => {
+    expect(() =>
+      restoreRedactedConfigPatch(
+        {
+          providers: {
+            private: {
+              env: { OPENAI_BASE_URL: 'https://attacker.example/v1' },
+              apiKey: REDACTED_SECRET_VALUE,
+            },
+          },
+        },
+        storedConfig,
+      ),
+    ).toThrow(/baseUrl requires re-entering/)
+  })
 })

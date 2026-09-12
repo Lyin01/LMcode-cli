@@ -64,6 +64,19 @@ interface SessionSlice {
   messages: Message[]
   isStreaming: boolean
   streamStatus: string | null
+  /**
+   * Where the current step started inside the live assistant message. A retry
+   * rewinds the message to this snapshot so the failed attempt is not rendered
+   * twice next to the retried one.
+   */
+  stepBaseline?: StepBaseline
+}
+
+interface StepBaseline {
+  readonly messageId: string
+  readonly content: number
+  readonly thinking: number
+  readonly toolCallIds: readonly string[]
 }
 
 /**
@@ -190,6 +203,20 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
         toolCalls: [],
       }
       return { messages: [...msgs, msg], isStreaming: true, streamStatus: null }
+    }
+
+    case 'turn.step.started': {
+      const last = msgs.at(-1)
+      if (last?.role !== 'assistant') return slice
+      return {
+        ...slice,
+        stepBaseline: {
+          messageId: last.id,
+          content: last.content.length,
+          thinking: last.thinking?.length ?? 0,
+          toolCallIds: (last.toolCalls ?? []).map((toolCall) => toolCall.id),
+        },
+      }
     }
 
     case 'assistant.delta': {
@@ -403,8 +430,22 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
 
     case 'turn.step.retrying': {
       const ev = event as TurnStepRetryingEvent
+      const baseline = slice.stepBaseline
+      const last = msgs.at(-1)
+      const messages =
+        baseline !== undefined && last?.role === 'assistant' && last.id === baseline.messageId
+          ? patchLastAssistant(msgs, (message) => ({
+              ...message,
+              content: message.content.slice(0, baseline.content),
+              thinking: message.thinking?.slice(0, baseline.thinking),
+              toolCalls: (message.toolCalls ?? []).filter((toolCall) =>
+                baseline.toolCallIds.includes(toolCall.id),
+              ),
+            }))
+          : msgs
       return {
         ...slice,
+        messages,
         streamStatus: `网络/模型异常，正在重试（${ev.nextAttempt}/${ev.maxAttempts}）…${
           ev.errorMessage ? ` ${ev.errorMessage}` : ''
         }`,
@@ -443,6 +484,8 @@ export interface SessionStore {
   isStreaming: boolean
   /** Transient status line shown while streaming (e.g. retry / interrupt notices). */
   streamStatus: string | null
+  /** Live-step snapshot backing the retry rewind; null when no step is active. */
+  stepBaseline: StepBaseline | null
   /** Parked slices for sessions that are not in view but may still be streaming. */
   bg: Record<string, BackgroundSessionSlice>
 
@@ -615,6 +658,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   messages: [],
   isStreaming: false,
   streamStatus: null,
+  stepBaseline: null,
   bg: {},
 
   model: '',
@@ -668,6 +712,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           messages: [],
           isStreaming: false,
           streamStatus: null,
+          stepBaseline: null,
           model: '',
           permission: state.permissionPreference,
           contextTokens: 0,
@@ -688,6 +733,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         messages: restored?.messages ?? [],
         isStreaming: restored?.isStreaming ?? false,
         streamStatus: restored?.streamStatus ?? null,
+        stepBaseline: restored?.stepBaseline ?? null,
         model: next.model ?? '',
         permission: next.permission,
         contextTokens: next.contextTokens,
@@ -721,6 +767,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         messages: state.messages,
         isStreaming: state.isStreaming,
         streamStatus: state.streamStatus,
+        stepBaseline: state.stepBaseline ?? undefined,
         unread: false,
       }
     }
@@ -733,6 +780,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messages: restored?.messages ?? [],
       isStreaming: restored?.isStreaming ?? false,
       streamStatus: restored?.streamStatus ?? null,
+      stepBaseline: restored?.stepBaseline ?? null,
       model: session.model ?? '',
       thinkingLevel: get().thinkingLevel,
       permission: session.permission,
@@ -752,6 +800,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messages: state.messages,
       isStreaming: state.isStreaming,
       streamStatus: state.streamStatus,
+      stepBaseline: state.stepBaseline ?? undefined,
       unread: false,
     }
     set({
@@ -760,6 +809,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messages: [],
       isStreaming: false,
       streamStatus: null,
+      stepBaseline: null,
       model: '',
       permission: state.permissionPreference,
       contextTokens: 0,
@@ -1036,6 +1086,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             messages: state.messages,
             isStreaming: state.isStreaming,
             streamStatus: state.streamStatus,
+            stepBaseline: state.stepBaseline ?? undefined,
           },
           event,
         )
@@ -1043,7 +1094,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           !isTurnBoundary &&
           next.messages === state.messages &&
           next.isStreaming === state.isStreaming &&
-          next.streamStatus === state.streamStatus
+          next.streamStatus === state.streamStatus &&
+          (next.stepBaseline ?? null) === state.stepBaseline
         ) {
           return state
         }
@@ -1052,6 +1104,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           messages: next.messages,
           isStreaming: next.isStreaming,
           streamStatus: next.streamStatus,
+          stepBaseline: next.stepBaseline ?? null,
         }
       }
 
@@ -1076,7 +1129,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })
   },
 
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => set({ messages: [], stepBaseline: null }),
 
   isSessionStreaming: (id) => {
     const s = get()

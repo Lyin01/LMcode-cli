@@ -229,6 +229,10 @@ export class McpConnectionManager {
   async stopServer(name: string): Promise<void> {
     const entry = this.entries.get(name);
     if (entry === undefined) return;
+    // Invalidate any in-flight connect attempt before closing the client:
+    // otherwise its completion would overwrite the `disabled` status below
+    // with `connected`/`failed` and could re-register tools after the stop.
+    this.beginConnectAttempt(entry);
     await this.closeClient(entry);
     entry.status = 'disabled';
     entry.tools = undefined;
