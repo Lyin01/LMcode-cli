@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import { MessageItem } from '@/components/MessageItem'
@@ -6,16 +6,53 @@ import { findConversationMessageIds } from '@/lib/conversation-search'
 import { historyToMessages } from '@/lib/history'
 import {
   MESSAGE_LIST_ESTIMATED_ROW_PX,
-  MESSAGE_LIST_OVERSCAN,
   MESSAGE_LIST_VIRTUALIZE_AFTER,
   computeMessageListWindow,
+  rangeFromOffset,
+  sumMessageHeights,
 } from '@/lib/message-list-window'
 import { cn } from '@/lib/utils'
 import type { ConversationFindRequest } from '@/lib/menu-command'
 import { isImeConfirmKey } from '@/lib/ime'
 
-/** Distance from the bottom (px) within which the view is considered "stuck". */
-const STICK_THRESHOLD_PX = 80
+/**
+ * Distance from the bottom (px) within which the view follows new content
+ * again. Kept tiny: while streaming, a larger threshold would drag the reader
+ * back down on the next delta, which is exactly the "scrolling up bounces
+ * back" bug. Upward wheel intent detaches even without reaching this.
+ */
+const STICK_THRESHOLD_PX = 2
+
+interface ScrollAnchor {
+  readonly id: string
+  /** Anchor row position in *content* space (scrollTop + offset in viewport). */
+  readonly contentOffset: number
+}
+
+/**
+ * Manual scroll anchoring: pick the topmost visible row and remember where it
+ * sits in the scroll content. After any commit that re-lays the list out
+ * (window slide, row measurement, spacer change) the anchor is restored so
+ * the content under the reader does not move.
+ */
+function captureScrollAnchor(
+  container: HTMLElement,
+  rows: ReadonlyMap<string, HTMLElement>,
+): ScrollAnchor | null {
+  const containerTop = container.getBoundingClientRect().top
+  let bestId: string | null = null
+  let bestTop = Number.POSITIVE_INFINITY
+  for (const [id, node] of rows) {
+    const rect = node.getBoundingClientRect()
+    if (rect.bottom <= containerTop + 0.5) continue
+    if (rect.top < bestTop) {
+      bestTop = rect.top
+      bestId = id
+    }
+  }
+  if (bestId === null) return null
+  return { id: bestId, contentOffset: container.scrollTop + (bestTop - containerTop) }
+}
 
 interface MessageListProps {
   findRequest: ConversationFindRequest | null
@@ -34,6 +71,23 @@ export function MessageList({ findRequest }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const findInputRef = useRef<HTMLInputElement>(null)
   const messageRefs = useRef(new Map<string, HTMLDivElement>())
+  const rowObserverRef = useRef<ResizeObserver | null>(null)
+  const heightsFrameRef = useRef<number | null>(null)
+  // Measured row heights by message id (ResizeObserver-fed). Spacers and the
+  // mounted window both derive from this map, so sliding the window never
+  // changes the total scroll height — the old estimate-only spacers made the
+  // viewport jump ("flicker") whenever the fixed 180px guess disagreed with
+  // the real row heights.
+  const rowHeightsRef = useRef(new Map<string, number>())
+  // Rolling average of measured heights, used as the estimate for rows that
+  // were never mounted. A fixed 180px guess is bad on both ends (tiny tool
+  // rows and huge output cards); the running average keeps spacer sums close
+  // to reality so sliding the window does not shift the scroll height.
+  const estimateRef = useRef(MESSAGE_LIST_ESTIMATED_ROW_PX)
+  const lastScrollTopRef = useRef(0)
+  const messagesRef = useRef(messages)
+  // Latest captured scroll anchor (see captureScrollAnchor).
+  const anchorRef = useRef<ScrollAnchor | null>(null)
   const handledFindRequestRef = useRef(0)
   // Whether the view should keep following new content. Updated on scroll and
   // read by the messages effect — a ref, not state, so scrolling itself never
@@ -46,6 +100,7 @@ export function MessageList({ findRequest }: MessageListProps) {
     start: 0,
     end: MESSAGE_LIST_VIRTUALIZE_AFTER,
   })
+  const [rowHeightsVersion, setRowHeightsVersion] = useState(0)
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
@@ -59,25 +114,41 @@ export function MessageList({ findRequest }: MessageListProps) {
   )
   const activeMatchId = matchingMessageIds[activeMatchIndex] ?? null
 
+  const getRowHeight = useCallback((index: number): number | undefined => {
+    const message = messagesRef.current[index]
+    return message === undefined ? undefined : rowHeightsRef.current.get(message.id)
+  }, [])
+
   const updateWindow = useCallback(() => {
     const el = scrollRef.current
-    if (!el) return
-    const row = MESSAGE_LIST_ESTIMATED_ROW_PX
-    const start = Math.max(0, Math.floor(el.scrollTop / row) - MESSAGE_LIST_OVERSCAN)
-    const visible = Math.ceil(el.clientHeight / row) + MESSAGE_LIST_OVERSCAN * 2
+    if (el === null) return
+    const next = rangeFromOffset({
+      messageCount: messagesRef.current.length,
+      offsetPx: el.scrollTop,
+      viewportPx: el.clientHeight,
+      getHeight: getRowHeight,
+      estimatedRowPx: estimateRef.current,
+    })
     setWindowRange((current) => {
-      const next = { start, end: start + visible }
       if (current.start === next.start && current.end === next.end) return current
       return next
     })
-  }, [])
+  }, [getRowHeight])
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
-    if (!el) return
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX
-    stickToBottomRef.current = atBottom
-    if (atBottom) setShowJumpToBottom(false)
+    if (el === null) return
+    const scrolledDown = el.scrollTop > lastScrollTopRef.current + 0.5
+    lastScrollTopRef.current = el.scrollTop
+    const atBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_THRESHOLD_PX
+    // Re-stick only when the user is actually heading to the bottom. A layout
+    // change (row measurement, window slide) can clamp scrollTop and leave the
+    // view a pixel from the bottom without any user intent — that must not
+    // hijack the scroll position back down (the "bounces back" bug).
+    const nextStick = atBottom && (stickToBottomRef.current || scrolledDown)
+    stickToBottomRef.current = nextStick
+    setShowJumpToBottom(!stickToBottomRef.current)
     updateWindow()
   }, [updateWindow])
 
@@ -87,6 +158,68 @@ export function MessageList({ findRequest }: MessageListProps) {
     stickToBottomRef.current = true
     setShowJumpToBottom(false)
     el.scrollTop = el.scrollHeight
+  }, [])
+
+  // Upward wheel intent detaches from the bottom immediately. Without this,
+  // a reader inside the stick threshold gets snapped back by every streaming
+  // delta until the wheel moves past the threshold.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el === null) return
+    const onWheel = (event: WheelEvent): void => {
+      if (event.deltaY >= 0 || event.ctrlKey) return
+      const remaining = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (remaining <= 0) return
+      stickToBottomRef.current = false
+      setShowJumpToBottom(true)
+    }
+    el.addEventListener('wheel', onWheel, { passive: true })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  // Track real row heights (they vary wildly: a one-line bubble vs a bash
+  // output card) so window math uses measured pixels instead of a fixed
+  // guess. Measurements only update the cache; the anchor layout effect
+  // below keeps the viewport stable when a measurement re-lays the list out.
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      let changed = false
+      for (const entry of entries) {
+        const node = entry.target as HTMLElement
+        const id = node.dataset['msgId']
+        if (id === undefined) continue
+        const height = node.offsetHeight
+        if (rowHeightsRef.current.get(id) === height) continue
+        rowHeightsRef.current.set(id, height)
+        changed = true
+      }
+      if (!changed) return
+      let sum = 0
+      let count = 0
+      for (const height of rowHeightsRef.current.values()) {
+        sum += height
+        count += 1
+      }
+      if (count > 0) {
+        estimateRef.current = Math.min(480, Math.max(24, Math.round(sum / count)))
+      }
+      if (heightsFrameRef.current !== null) return
+      heightsFrameRef.current = requestAnimationFrame(() => {
+        heightsFrameRef.current = null
+        setRowHeightsVersion((version) => version + 1)
+      })
+    })
+    rowObserverRef.current = observer
+    for (const node of messageRefs.current.values()) observer.observe(node)
+    return () => {
+      rowObserverRef.current = null
+      observer.disconnect()
+      if (heightsFrameRef.current !== null) {
+        cancelAnimationFrame(heightsFrameRef.current)
+        heightsFrameRef.current = null
+      }
+    }
   }, [])
 
   const moveMatch = useCallback(
@@ -201,6 +334,7 @@ export function MessageList({ findRequest }: MessageListProps) {
     stickToBottomRef.current = true
     lastUserStickIdRef.current = undefined
   }
+  messagesRef.current = messages
   const lastMessage = messages[messages.length - 1]
   if (lastMessage?.role === 'user' && lastMessage.id !== lastUserStickIdRef.current) {
     lastUserStickIdRef.current = lastMessage.id
@@ -216,10 +350,62 @@ export function MessageList({ findRequest }: MessageListProps) {
   const visibleMessages = listWindow.virtualize
     ? messages.slice(listWindow.start, listWindow.end)
     : messages
-  const topSpacer = listWindow.virtualize ? listWindow.start * MESSAGE_LIST_ESTIMATED_ROW_PX : 0
-  const bottomSpacer = listWindow.virtualize
-    ? Math.max(0, messages.length - listWindow.end) * MESSAGE_LIST_ESTIMATED_ROW_PX
-    : 0
+  const spacers = useMemo(
+    () =>
+      listWindow.virtualize
+        ? {
+            top: sumMessageHeights(
+              0,
+              listWindow.start,
+              messages.length,
+              getRowHeight,
+              estimateRef.current,
+            ),
+            bottom: sumMessageHeights(
+              listWindow.end,
+              messages.length,
+              messages.length,
+              getRowHeight,
+              estimateRef.current,
+            ),
+          }
+        : { top: 0, bottom: 0 },
+    // rowHeightsVersion: spacer heights change when a row was measured.
+    [
+      listWindow.virtualize,
+      listWindow.start,
+      listWindow.end,
+      messages,
+      getRowHeight,
+      rowHeightsVersion,
+    ],
+  )
+  const topSpacer = spacers.top
+  const bottomSpacer = spacers.bottom
+
+  // Keep the content under the reader fixed across window slides and row
+  // measurements. With manual anchoring (and `overflow-anchor: none` on the
+  // scroller) the browser does not apply its own anchoring on top.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (el === null) return
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+    } else {
+      const anchor = anchorRef.current
+      if (anchor !== null) {
+        const node = messageRefs.current.get(anchor.id)
+        if (node !== undefined) {
+          const containerTop = el.getBoundingClientRect().top
+          const contentOffset =
+            el.scrollTop + (node.getBoundingClientRect().top - containerTop)
+          const delta = contentOffset - anchor.contentOffset
+          if (delta !== 0) el.scrollTop = Math.max(0, el.scrollTop + delta)
+        }
+      }
+    }
+    anchorRef.current = captureScrollAnchor(el, messageRefs.current)
+  }, [listWindow.start, listWindow.end, rowHeightsVersion])
 
   const handleRegenerate = useCallback(async () => {
     if (!currentSessionId || isStreaming || !canRegenerate) return
@@ -322,15 +508,27 @@ export function MessageList({ findRequest }: MessageListProps) {
           </button>
         </div>
       )}
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        style={{ overflowAnchor: 'none' }}
+        className="flex-1 overflow-y-auto"
+      >
         <div className="mx-auto flex max-w-3xl flex-col gap-7 px-5 py-7">
           {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
           {visibleMessages.map((msg) => (
             <div
               key={msg.id}
+              data-msg-id={msg.id}
               ref={(node) => {
-                if (node) messageRefs.current.set(msg.id, node)
-                else messageRefs.current.delete(msg.id)
+                const previous = messageRefs.current.get(msg.id)
+                if (node !== null) {
+                  messageRefs.current.set(msg.id, node)
+                  if (previous !== node) rowObserverRef.current?.observe(node)
+                } else {
+                  messageRefs.current.delete(msg.id)
+                  if (previous !== undefined) rowObserverRef.current?.unobserve(previous)
+                }
               }}
               className={cn(
                 'rounded-xl transition-[box-shadow,background-color] duration-150',

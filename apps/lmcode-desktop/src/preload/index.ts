@@ -251,6 +251,12 @@ const lmcodeAPI = {
   regenerateRemoteToken: () =>
     ipcRenderer.invoke('lmcode:regenerateRemoteToken'),
 
+  getRemoteFirewallStatus: () =>
+    ipcRenderer.invoke('lmcode:getRemoteFirewallStatus'),
+
+  repairRemoteFirewall: () =>
+    ipcRenderer.invoke('lmcode:repairRemoteFirewall'),
+
   onRemoteStateChanged: (callback: (state: RemoteState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: RemoteState) => callback(state)
     ipcRenderer.on('lmcode:remoteStateChanged', handler)

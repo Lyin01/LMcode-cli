@@ -35,6 +35,7 @@ win:
         - x64
   artifactName: LMCODE-Setup-${version}.${ext}
 nsis:
+  include: resources/installer.nsh
   installerIcon: resources/icon.ico
   uninstallerIcon: resources/icon.ico
   oneClick: false

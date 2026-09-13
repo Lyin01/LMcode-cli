@@ -36,7 +36,7 @@ import type {
   DesktopMenuState,
 } from '../../shared/menu-types'
 import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types'
-import type { RemoteState } from '../../shared/remote-types'
+import type { RemoteFirewallStatus, RemoteState } from '../../shared/remote-types'
 
 declare global {
 interface SessionSummary {
@@ -312,6 +312,10 @@ interface LmcodeAPI {
   setRemotePort: (port: number) => Promise<RemoteState>
 
   regenerateRemoteToken: () => Promise<RemoteState>
+
+  getRemoteFirewallStatus: () => Promise<RemoteFirewallStatus>
+
+  repairRemoteFirewall: () => Promise<RemoteFirewallStatus>
 
   onRemoteStateChanged: (callback: (state: RemoteState) => void) => () => void
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import QRCode from 'qrcode'
 import { QrCode, X } from 'lucide-react'
-import type { RemoteState } from '../../../shared/remote-types'
+import type { RemoteFirewallStatus, RemoteState } from '../../../shared/remote-types'
 import { buildPairingUrl, pairingQrUrl } from '../../../shared/remote-pairing'
 import { CopyButton } from '@/components/CopyButton'
 
@@ -24,14 +24,26 @@ export function RemoteConnectDialog({ open, onClose }: RemoteConnectDialogProps)
   const [qrUrl, setQrUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [firewall, setFirewall] = useState<RemoteFirewallStatus | null>(null)
+  const [repairing, setRepairing] = useState(false)
+  const [repaired, setRepaired] = useState(false)
 
   useEffect(() => {
     if (!open) return
     let disposed = false
     setError(null)
+    setRepaired(false)
     void window.lmcodeAPI.getRemoteState().then((next) => {
       if (!disposed) setState(next)
     })
+    void window.lmcodeAPI
+      .getRemoteFirewallStatus()
+      .then((status) => {
+        if (!disposed) setFirewall(status)
+      })
+      .catch(() => {
+        if (!disposed) setFirewall(null)
+      })
     const unsubscribe = window.lmcodeAPI.onRemoteStateChanged((next) => {
       if (!disposed) setState(next)
     })
@@ -76,6 +88,23 @@ export function RemoteConnectDialog({ open, onClose }: RemoteConnectDialogProps)
     }
   }, [])
 
+  const repairFirewall = useCallback(async (): Promise<void> => {
+    setRepairing(true)
+    try {
+      const status = await window.lmcodeAPI.repairRemoteFirewall()
+      setFirewall(status)
+      setRepaired(status.allowed)
+    } catch (repairError) {
+      setFirewall((current) => ({
+        supported: current?.supported ?? true,
+        allowed: false,
+        error: repairError instanceof Error ? repairError.message : '修复防火墙失败',
+      }))
+    } finally {
+      setRepairing(false)
+    }
+  }, [])
+
   return (
     <Dialog.Root
       open={open}
@@ -106,7 +135,11 @@ export function RemoteConnectDialog({ open, onClose }: RemoteConnectDialogProps)
               qrUrl={qrUrl}
               busy={busy}
               error={error}
+              firewall={firewall}
+              repairing={repairing}
+              repaired={repaired}
               onEnable={() => void enable()}
+              onRepairFirewall={() => void repairFirewall()}
             />
           </div>
         </Dialog.Content>
@@ -120,7 +153,11 @@ export interface RemoteConnectBodyProps {
   readonly qrUrl: string | null
   readonly busy: boolean
   readonly error: string | null
+  readonly firewall: RemoteFirewallStatus | null
+  readonly repairing: boolean
+  readonly repaired: boolean
   readonly onEnable: () => void
+  readonly onRepairFirewall: () => void
 }
 
 export function RemoteConnectBody({
@@ -128,7 +165,11 @@ export function RemoteConnectBody({
   qrUrl,
   busy,
   error,
+  firewall,
+  repairing,
+  repaired,
   onEnable,
+  onRepairFirewall,
 }: RemoteConnectBodyProps) {
   if (state === null) {
     return <p className="text-[13px] text-[var(--lm-text-secondary)]">正在读取远程连接状态…</p>
@@ -170,6 +211,32 @@ export function RemoteConnectBody({
         )}
         <p>用手机相机扫码，打开页面后自动配对（无需安装 App）</p>
       </div>
+
+      {firewall !== null && firewall.supported && !firewall.allowed && (
+        <div className="rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-hover)] p-2.5">
+          <p className="text-[12px] leading-relaxed text-[var(--lm-text-secondary)]">
+            手机打不开页面？Windows 防火墙可能拦住了手机对这台电脑的访问。
+          </p>
+          <button
+            type="button"
+            onClick={onRepairFirewall}
+            disabled={repairing}
+            className="lm-settings-primary-action mt-2"
+          >
+            {repairing ? '正在等待管理员授权…' : '一键放行（需要管理员）'}
+          </button>
+          {firewall.error !== undefined && (
+            <p className="mt-1 text-[12px] text-[var(--lm-error)]" role="alert">
+              {firewall.error}
+            </p>
+          )}
+        </div>
+      )}
+      {repaired && firewall?.allowed === true && (
+        <p className="text-[12px] text-[var(--lm-accent-text)]">
+          防火墙已放行，请在手机上重新扫码。
+        </p>
+      )}
 
       {state.lanUrls.length > 0 && (
         <div className="lm-remote-urls">

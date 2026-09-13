@@ -40,6 +40,20 @@ export interface RemoteState extends RemoteConfig {
   version: string
 }
 
+/**
+ * Windows firewall coverage for the LAN remote service. A fresh install has
+ * no inbound rule until the installer (when elevated) or the in-app repair
+ * adds one — without it phones on the same network cannot reach the port.
+ * Non-Windows platforms report `supported: false`.
+ */
+export interface RemoteFirewallStatus {
+  readonly supported: boolean
+  /** True when an inbound rule allows this executable from the local subnet. */
+  readonly allowed: boolean
+  /** Populated when the check or the repair failed (e.g. UAC declined). */
+  readonly error?: string
+}
+
 export interface RemoteSystemInfo {
   version: string
   platform: string

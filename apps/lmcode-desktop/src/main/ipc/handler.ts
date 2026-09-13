@@ -29,7 +29,8 @@ import {
   safeSaveFileName,
 } from '../../shared/open-path-guard.js'
 import { isSafeExternalHttpsUrl } from '../../shared/security.js'
-import type { RemoteState } from '../../shared/remote-types.js'
+import type { RemoteFirewallStatus, RemoteState } from '../../shared/remote-types.js'
+import { getRemoteFirewallStatus, repairRemoteFirewall } from '../remote/firewall.js'
 import type {
   DesktopCreateSessionOptions,
   DesktopNotificationPayload,
@@ -1150,6 +1151,16 @@ export function registerAllHandlers(
       return remote.regenerateToken()
     })
   }
+
+  // ── Remote firewall (LAN reachability for phones) ─────────────────
+
+  secureInvoke('lmcode:getRemoteFirewallStatus', async (): Promise<RemoteFirewallStatus> => {
+    return getRemoteFirewallStatus(process.execPath)
+  })
+
+  secureInvoke('lmcode:repairRemoteFirewall', async (): Promise<RemoteFirewallStatus> => {
+    return repairRemoteFirewall(process.execPath)
+  })
 
   // ── App control ─────────────────────────────────────────────────
 

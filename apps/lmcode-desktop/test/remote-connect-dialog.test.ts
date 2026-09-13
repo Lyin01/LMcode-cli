@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { RemoteConnectBody } from '../src/renderer/components/dialogs/RemoteConnectDialog'
-import type { RemoteState } from '../src/shared/remote-types'
+import type { RemoteFirewallStatus, RemoteState } from '../src/shared/remote-types'
 
 function remoteState(overrides: Partial<RemoteState> = {}): RemoteState {
   return {
@@ -16,6 +16,10 @@ function remoteState(overrides: Partial<RemoteState> = {}): RemoteState {
   }
 }
 
+function firewallStatus(overrides: Partial<RemoteFirewallStatus> = {}): RemoteFirewallStatus {
+  return { supported: true, allowed: false, ...overrides }
+}
+
 function render(overrides: Partial<Parameters<typeof RemoteConnectBody>[0]> = {}): string {
   return renderToStaticMarkup(
     createElement(RemoteConnectBody, {
@@ -23,7 +27,11 @@ function render(overrides: Partial<Parameters<typeof RemoteConnectBody>[0]> = {}
       qrUrl: 'data:image/png;base64,AAAA',
       busy: false,
       error: null,
+      firewall: null,
+      repairing: false,
+      repaired: false,
       onEnable: vi.fn(),
+      onRepairFirewall: vi.fn(),
       ...overrides,
     }),
   )
@@ -62,5 +70,38 @@ describe('remote connect dialog body', () => {
       error: '端口 37991 已被占用',
     })
     expect(markup).toContain('端口 37991 已被占用')
+  })
+
+  it('offers the firewall repair action when the inbound rule is missing', () => {
+    const markup = render({ firewall: firewallStatus() })
+    expect(markup).toContain('手机打不开页面')
+    expect(markup).toContain('一键放行（需要管理员）')
+  })
+
+  it('hides the repair action when the firewall already allows the app', () => {
+    const markup = render({ firewall: firewallStatus({ allowed: true }) })
+    expect(markup).not.toContain('一键放行')
+    expect(markup).not.toContain('手机打不开页面')
+  })
+
+  it('hides the repair action on platforms without managed firewalls', () => {
+    const markup = render({ firewall: firewallStatus({ supported: false }) })
+    expect(markup).not.toContain('一键放行')
+  })
+
+  it('surfaces firewall repair failures', () => {
+    const markup = render({
+      firewall: firewallStatus({ error: '已取消管理员授权' }),
+    })
+    expect(markup).toContain('已取消管理员授权')
+    expect(markup).toContain('一键放行（需要管理员）')
+  })
+
+  it('confirms after a successful repair', () => {
+    const markup = render({
+      firewall: firewallStatus({ allowed: true }),
+      repaired: true,
+    })
+    expect(markup).toContain('防火墙已放行')
   })
 })
