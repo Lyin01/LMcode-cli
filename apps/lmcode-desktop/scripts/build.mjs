@@ -116,10 +116,40 @@ async function vendorPlaywrightRuntime() {
   }
 }
 
+/**
+ * pdf.js powers PDF text extraction and is loaded lazily from `out/vendor/pdfjs`
+ * (dynamic import), so it ships as plain files instead of being bundled into
+ * main. The `.min.mjs` build imports its fake worker as `./pdf.worker.mjs`,
+ * which is why the minified worker is copied under that exact name.
+ */
+function vendorPdfjs() {
+  const localRequire = createRequire(join(ROOT, 'package.json'))
+  let packageDirectory
+  try {
+    packageDirectory = dirname(localRequire.resolve('pdfjs-dist/package.json'))
+  } catch (err) {
+    throw new Error(`Cannot resolve pdfjs-dist: ${err.message}`)
+  }
+  const destination = join(VENDOR_DIR, 'pdfjs')
+  console.log('> vendor pdfjs-dist')
+  mkdirSync(destination, { recursive: true })
+  cpSync(join(packageDirectory, 'legacy/build/pdf.min.mjs'), join(destination, 'pdf.min.mjs'))
+  cpSync(
+    join(packageDirectory, 'legacy/build/pdf.worker.min.mjs'),
+    join(destination, 'pdf.worker.mjs'),
+  )
+  cpSync(join(packageDirectory, 'cmaps'), join(destination, 'cmaps'), { recursive: true })
+  cpSync(join(packageDirectory, 'standard_fonts'), join(destination, 'standard_fonts'), {
+    recursive: true,
+  })
+  cpSync(join(packageDirectory, 'LICENSE'), join(destination, 'LICENSE'))
+}
+
 async function vendorAll() {
   rmSync(VENDOR_DIR, { recursive: true, force: true })
   mkdirSync(VENDOR_DIR, { recursive: true })
   await vendorPlaywrightRuntime()
+  vendorPdfjs()
   for (const v of VENDOR) {
     if (!existsSync(v.distEntry)) {
       throw new Error(

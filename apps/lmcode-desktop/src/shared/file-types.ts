@@ -8,9 +8,18 @@ export const MAX_PROMPT_ATTACHMENTS = 8
 
 export type FileAttachmentKind = 'text' | 'image'
 
+/** Office/PDF documents arrive as extracted text tagged with their origin. */
+export type DocumentSourceFormat = 'xlsx' | 'docx' | 'pdf'
+
+export function isDocumentSourceFormat(value: unknown): value is DocumentSourceFormat {
+  return value === 'xlsx' || value === 'docx' || value === 'pdf'
+}
+
 export interface TextFileAttachmentPreview extends TextAttachment {
   readonly kind: 'text'
   readonly name: string
+  /** Set when the content was extracted from an Excel/Word/PDF document. */
+  readonly sourceFormat?: DocumentSourceFormat
 }
 
 export interface ImageFileAttachmentPreview {
@@ -51,6 +60,7 @@ export interface TextAttachmentPromptMetadata {
   readonly name: string
   readonly sizeBytes: number
   readonly truncated: boolean
+  readonly sourceFormat?: DocumentSourceFormat
 }
 
 const TEXT_ATTACHMENT_PART_PREFIX = '<lmcode_text_attachment>'
@@ -62,6 +72,7 @@ export function serializeTextAttachmentPart(
     name: attachment.name,
     sizeBytes: attachment.sizeBytes,
     truncated: attachment.truncated,
+    sourceFormat: attachment.sourceFormat,
   }
   return `${TEXT_ATTACHMENT_PART_PREFIX}${JSON.stringify(metadata)}\n${attachment.content}`
 }
@@ -90,11 +101,16 @@ export function parseTextAttachmentPart(
       typeof value.truncated !== 'boolean'
     ) return null
 
+    // Unknown values are dropped rather than failing the parse, so history
+    // written by a future version still renders in this one.
+    const sourceFormat = 'sourceFormat' in value ? value.sourceFormat : undefined
+
     return {
       metadata: {
         name: value.name,
         sizeBytes: value.sizeBytes,
         truncated: value.truncated,
+        sourceFormat: isDocumentSourceFormat(sourceFormat) ? sourceFormat : undefined,
       },
       content: text.slice(lineBreak + 1),
     }

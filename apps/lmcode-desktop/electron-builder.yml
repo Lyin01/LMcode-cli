@@ -6,7 +6,7 @@ directories:
   output: release
 # The app is fully self-contained under out/ (main/preload/renderer are bundled,
 # and out/vendor holds the self-contained SDK + memory bundles with their native
-# addons), so node_modules is not shipped.
+# addons plus the pdfjs-dist text-extraction runtime), so node_modules is not shipped.
 files:
   - out/**/*
   - "!node_modules/**/*"

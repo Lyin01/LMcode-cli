@@ -129,6 +129,7 @@ export function toDisplayAttachment(attachment: UserAttachment): UserAttachment 
     sizeBytes: attachment.sizeBytes,
     truncated: attachment.truncated,
     previewUrl: attachment.previewUrl,
+    sourceFormat: attachment.sourceFormat,
   }
 }
 

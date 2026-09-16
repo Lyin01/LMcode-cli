@@ -1,4 +1,5 @@
 import type { Event, PermissionMode } from '@lmcode-cli/lmcode-sdk'
+import type { DocumentSourceFormat } from '../../shared/file-types'
 import type { ThinkingEffort } from '@/lib/thinking'
 
 export type {
@@ -32,6 +33,8 @@ export interface UserAttachment {
   readonly sizeBytes?: number
   readonly truncated?: boolean
   readonly previewUrl?: string
+  /** Set when the text was extracted from an Excel/Word/PDF document. */
+  readonly sourceFormat?: DocumentSourceFormat
 }
 
 export interface ToolCallInfo {

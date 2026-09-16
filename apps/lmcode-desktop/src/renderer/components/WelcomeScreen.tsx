@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  FileUp,
   Folder,
   FolderOpen,
   FolderX,
@@ -49,7 +50,9 @@ export function WelcomeScreen() {
   const [starting, setStarting] = useState(false)
   const [attachments, setAttachments] = useState<UserAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
   const attachmentsRef = useRef<UserAttachment[]>([])
+  const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const target: NewSessionTarget =
@@ -77,7 +80,7 @@ export function WelcomeScreen() {
     }
   }
 
-  const attachPastedFile = async (file: File): Promise<void> => {
+  const attachFile = async (file: File): Promise<void> => {
     if (attachmentsRef.current.length >= MAX_PROMPT_ATTACHMENTS) {
       setAttachmentError(`每条消息最多附加 ${MAX_PROMPT_ATTACHMENTS} 个文件`)
       return
@@ -105,6 +108,7 @@ export function WelcomeScreen() {
         sizeBytes: preview.sizeBytes,
         truncated: preview.kind === 'text' ? preview.truncated : false,
         previewUrl: preview.kind === 'image' ? preview.dataUrl : undefined,
+        sourceFormat: preview.kind === 'text' ? preview.sourceFormat : undefined,
       }
       const current = attachmentsRef.current
       const isDuplicate = filePath
@@ -135,7 +139,40 @@ export function WelcomeScreen() {
     if (shouldCaptureClipboardFiles(event.clipboardData)) event.preventDefault()
     void (async () => {
       for (const file of files.slice(0, MAX_PROMPT_ATTACHMENTS)) {
-        await attachPastedFile(file)
+        await attachFile(file)
+      }
+    })()
+  }
+
+  // ── Drag-and-drop (mirrors the in-session composer) ────────────────
+  const handleDragEnter = (event: React.DragEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    dragCounter.current++
+    if (event.dataTransfer.items && event.dataTransfer.items.length > 0) setIsDragging(true)
+  }
+
+  const handleDragLeave = (event: React.DragEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    dragCounter.current--
+    if (dragCounter.current === 0) setIsDragging(false)
+  }
+
+  const handleDragOver = (event: React.DragEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  const handleDrop = (event: React.DragEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    setIsDragging(false)
+    dragCounter.current = 0
+    const files = Array.from(event.dataTransfer.files)
+    void (async () => {
+      for (const file of files.slice(0, MAX_PROMPT_ATTACHMENTS)) {
+        await attachFile(file)
       }
     })()
   }
@@ -162,7 +199,21 @@ export function WelcomeScreen() {
       <div className="w-full max-w-[720px]">
         <AgentWelcome />
 
-        <div className="rounded-[18px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-[border-color,box-shadow] focus-within:border-[var(--lm-text-muted)] focus-within:shadow-[var(--lm-shadow-composer)]">
+        <div
+          className="relative rounded-[18px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-[border-color,box-shadow] focus-within:border-[var(--lm-text-muted)] focus-within:shadow-[var(--lm-shadow-composer)]"
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
+          {isDragging && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center rounded-[18px] border-2 border-dashed border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-2 text-[var(--lm-accent-text)]">
+                <FileUp size={32} strokeWidth={1.5} />
+                <span className="text-sm font-medium">释放文件以添加附件</span>
+              </div>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={draft}

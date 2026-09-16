@@ -251,6 +251,7 @@ export function Composer({
           sizeBytes: preview.sizeBytes,
           truncated: preview.kind === 'text' ? preview.truncated : false,
           previewUrl: preview.kind === 'image' ? preview.dataUrl : undefined,
+          sourceFormat: preview.kind === 'text' ? preview.sourceFormat : undefined,
         }
         const current = attachmentsRef.current
         const isDuplicate = filePath
@@ -751,7 +752,7 @@ export function Composer({
           placeholder={
             isStreaming
               ? '继续输入…（Enter 排队，Ctrl+Enter 立即转向）'
-              : '给 LMCODE 发消息…（可粘贴截图，/ 查看命令）'
+              : '给 LMCODE 发消息…（可粘贴截图或文件，/ 查看命令）'
           }
           rows={1}
           className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-relaxed text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none"
@@ -764,8 +765,8 @@ export function Composer({
             onClick={() => fileInputRef.current?.click()}
             disabled={isAttaching || attachments.length >= MAX_PROMPT_ATTACHMENTS}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)]"
-            title="附加文本文件或图片"
-            aria-label="附加文本文件或图片"
+            title="附加文件（文本、图片、Excel、Word、PDF）"
+            aria-label="附加文件（文本、图片、Excel、Word、PDF）"
           >
             <Paperclip size={17} />
           </button>

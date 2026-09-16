@@ -45,6 +45,7 @@ export function historyToMessages(history: unknown[]): Message[] {
               name: parsed.metadata.name,
               sizeBytes: parsed.metadata.sizeBytes,
               truncated: parsed.metadata.truncated,
+              sourceFormat: parsed.metadata.sourceFormat,
             })
           } else {
             visibleText.push(part.text ?? '')

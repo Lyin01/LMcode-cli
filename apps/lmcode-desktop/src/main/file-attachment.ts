@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { PromptInput } from '@lmcode-cli/lmcode-sdk'
+import { detectDocumentFormat, extractDocumentText } from './document/index.js'
 import {
   MAX_PROMPT_ATTACHMENTS,
   isDesktopPromptRequest,
@@ -227,6 +228,33 @@ export async function readFileAttachment(
     }
     const data = await fs.readFile(file.realPath)
     return imagePreviewFromData(file.name, data, mimeType)
+  }
+
+  // Excel / Word / PDF are binary containers, but the model only accepts
+  // text/image/video parts — so attach them as extracted text instead of
+  // rejecting them as binary payloads.
+  const document = detectDocumentFormat(file.name, header)
+  if (document !== null) {
+    if (document.kind === 'legacy') {
+      throw new Error('暂不支持旧版 Office 二进制格式（.doc / .xls / .ppt），请另存为 .docx / .xlsx 后重试')
+    }
+    if (document.kind === 'mismatch') {
+      throw new Error('文件内容与扩展名不一致，无法识别为文档')
+    }
+    const extracted = await extractDocumentText(
+      file.realPath,
+      document.format,
+      TEXT_ATTACHMENT_LIMIT_BYTES,
+    )
+    const preview: TextFileAttachmentPreview = {
+      kind: 'text',
+      name: file.name,
+      content: extracted.content,
+      sizeBytes: file.sizeBytes,
+      truncated: extracted.truncated,
+      sourceFormat: document.format,
+    }
+    return preview
   }
 
   const text = await readTextAttachmentFile(file)

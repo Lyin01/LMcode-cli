@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { FileText, Image as ImageIcon, X } from 'lucide-react'
+import { FileSpreadsheet, FileText, FileType2, Image as ImageIcon, X } from 'lucide-react'
 import type { UserAttachment } from '@/types'
 
 interface AttachmentStripProps {
@@ -14,6 +14,15 @@ function formatFileSize(sizeBytes: number | undefined): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function AttachmentIcon({ attachment }: { readonly attachment: UserAttachment }) {
+  if (attachment.kind === 'image') return <ImageIcon size={18} />
+  if (attachment.sourceFormat === 'xlsx') return <FileSpreadsheet size={18} />
+  if (attachment.sourceFormat === 'docx' || attachment.sourceFormat === 'pdf') {
+    return <FileType2 size={18} />
+  }
+  return <FileText size={18} />
+}
+
 export const AttachmentStrip = memo(function AttachmentStrip({
   attachments,
   onRemove,
@@ -24,7 +33,11 @@ export const AttachmentStrip = memo(function AttachmentStrip({
     <div className="flex max-w-full flex-wrap gap-2" aria-label="消息附件">
       {attachments.map((attachment) => {
         const size = formatFileSize(attachment.sizeBytes)
-        const details = [size, attachment.truncated ? '已截断' : ''].filter(Boolean).join(' · ')
+        const details = [
+          attachment.sourceFormat?.toUpperCase(),
+          size,
+          attachment.truncated ? '已截断' : '',
+        ].filter(Boolean).join(' · ')
         const canPreview =
           attachment.kind === 'image' &&
           attachment.previewUrl?.startsWith('data:image/') === true
@@ -42,7 +55,7 @@ export const AttachmentStrip = memo(function AttachmentStrip({
               />
             ) : (
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lm-bg-hover)] text-[var(--lm-text-muted)]">
-                {attachment.kind === 'image' ? <ImageIcon size={18} /> : <FileText size={18} />}
+                <AttachmentIcon attachment={attachment} />
               </span>
             )}
 
