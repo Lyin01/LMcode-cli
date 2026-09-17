@@ -10,6 +10,7 @@ import type { SDKRpcClient } from './rpc';
 import type {
   BackgroundTaskInfo,
   CompactOptions,
+  ComputerUseStatus,
   CreateCronJobInput,
   CronJobInfo,
   GetGoalResult,
@@ -374,6 +375,23 @@ export class Session {
   async removeMcpServer(name: string): Promise<void> {
     this.ensureOpen();
     await this.rpc.removeMcpServer({ sessionId: this.id, name });
+  }
+
+  async getComputerUseStatus(): Promise<ComputerUseStatus> {
+    this.ensureOpen();
+    return this.rpc.getComputerUseStatus({ sessionId: this.id });
+  }
+
+  /**
+   * Toggle desktop computer use for this live session.
+   *
+   * Persisting the preference is the caller's job (`setConfig`); this only
+   * changes what the running session serves, so a settings screen can apply a
+   * switch without forcing the user to open a new session.
+   */
+  async setComputerUseEnabled(enabled: boolean): Promise<ComputerUseStatus> {
+    this.ensureOpen();
+    return this.rpc.setComputerUseEnabled({ sessionId: this.id, enabled });
   }
 
   async listPlugins(): Promise<readonly PluginSummary[]> {

@@ -59,5 +59,22 @@ export type {
 } from '@lmcode-cli/agent-core';
 export type { GoalSnapshotData } from '@lmcode-cli/agent-core';
 
+// Desktop computer use — the values an application surface needs to report
+// driver availability and to run the vendor installer. Re-exported so apps do
+// not reimplement platform paths or install commands.
+export {
+  COMPUTER_USE_PERMISSION_MODES,
+  computerUseInstallRecipe,
+  computerUseProviders,
+  detectComputerUseDriver,
+} from '@lmcode-cli/agent-core';
+export type {
+  ComputerUseInstallRecipe,
+  ComputerUsePermissionMode,
+  ComputerUseProviderDescriptor,
+  ComputerUseProviderId,
+  ComputerUseStatus,
+} from '@lmcode-cli/agent-core';
+
 export * from './events';
 export type * from './types';

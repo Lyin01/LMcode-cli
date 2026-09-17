@@ -64,6 +64,8 @@ export const ErrorCodes = {
   COMPACTION_UNABLE: 'compaction.unable',
 
   BACKGROUND_TASK_ID_EMPTY: 'background.task_id_empty',
+  COMPUTER_USE_PROVIDER_REGISTERED: 'computer_use.provider_registered',
+  COMPUTER_USE_PROVIDER_UNAVAILABLE: 'computer_use.provider_unavailable',
   MCP_SERVER_NOT_FOUND: 'mcp.server_not_found',
   MCP_SERVER_DISABLED: 'mcp.server_disabled',
   MCP_STARTUP_FAILED: 'mcp.startup_failed',
@@ -385,6 +387,18 @@ export const LMCODE_ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Provide a non-empty task id.',
+  },
+  'computer_use.provider_registered': {
+    title: 'Computer use provider already registered',
+    retryable: false,
+    public: true,
+    action: 'Deactivate the current computer use provider before activating another one.',
+  },
+  'computer_use.provider_unavailable': {
+    title: 'Computer use provider unavailable',
+    retryable: true,
+    public: true,
+    action: 'Confirm the computer use driver is installed and reachable, then retry.',
   },
   'mcp.server_not_found': {
     title: 'MCP server not found',

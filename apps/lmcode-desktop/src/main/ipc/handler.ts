@@ -16,6 +16,7 @@ import type {
   CronJobInfo,
   BackgroundTaskInfo,
   SessionStatus,
+  ComputerUseStatus,
   Logger,
 } from '@lmcode-cli/lmcode-sdk'
 import { writeFile } from 'node:fs/promises'
@@ -31,6 +32,11 @@ import {
 import { isSafeExternalHttpsUrl } from '../../shared/security.js'
 import type { RemoteFirewallStatus, RemoteState } from '../../shared/remote-types.js'
 import { getRemoteFirewallStatus, repairRemoteFirewall } from '../remote/firewall.js'
+import { getComputerUseDriverInfo, installComputerUseDriver } from '../computer-use.js'
+import type {
+  ComputerUseDriverInfo,
+  ComputerUseInstallResult,
+} from '../../shared/computer-use-types.js'
 import type {
   DesktopCreateSessionOptions,
   DesktopNotificationPayload,
@@ -124,6 +130,7 @@ import {
   openExternalArgsSchema,
   openPathArgsSchema,
   sessionIdArgsSchema,
+  setComputerUseEnabledArgsSchema,
 } from '../../shared/ipc-schemas.js'
 
 interface SessionEntry {
@@ -823,6 +830,41 @@ export function registerAllHandlers(
     const entry = await ensureActiveSession(sessionId)
     await entry.session.removeMcpServer(name)
   }, sessionNamedArgsSchema)
+
+  // ── Computer use ────────────────────────────────────────────────
+
+  secureInvoke('lmcode:getComputerUseDriver', async (): Promise<ComputerUseDriverInfo> => {
+    return getComputerUseDriverInfo()
+  })
+
+  secureInvoke('lmcode:installComputerUseDriver', async (): Promise<ComputerUseInstallResult> => {
+    const result = await installComputerUseDriver()
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'computer-use.install-driver',
+      ok: result.ok,
+    })
+    return result
+  })
+
+  secureInvoke('lmcode:getComputerUseStatus', async (_event, sessionId: string): Promise<ComputerUseStatus> => {
+    const entry = await ensureActiveSession(sessionId)
+    return entry.session.getComputerUseStatus()
+  }, sessionIdArgsSchema)
+
+  secureInvoke(
+    'lmcode:setComputerUseEnabled',
+    async (_event, sessionId: string, enabled: boolean): Promise<ComputerUseStatus> => {
+      const entry = await ensureActiveSession(sessionId)
+      const status = await entry.session.setComputerUseEnabled(enabled)
+      auditLog?.info('desktop critical operation completed', {
+        operation: 'computer-use.set-enabled',
+        enabled,
+        phase: status.phase,
+      })
+      return status
+    },
+    setComputerUseEnabledArgsSchema,
+  )
 
   // ── Config ──────────────────────────────────────────────────────
 

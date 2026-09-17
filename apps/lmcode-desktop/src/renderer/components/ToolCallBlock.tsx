@@ -1,4 +1,5 @@
-import { memo, useState, useMemo } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import type { ToolCallInfo } from '@/types'
 import { artifactIdForToolCall, useArtifactsStore } from '@/stores/artifacts-store'
@@ -72,6 +73,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: 
   const [expanded, setExpanded] = useState(false)
   const [showFullOutput, setShowFullOutput] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const fileMenu = useFileContextMenu()
   const filePath = useMemo(
     () => toolFilePath(toolCall.toolName, toolCall.args),
@@ -118,6 +120,20 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: 
     if (!toolCall.result) return null
     return pruneToolOutput(toolCall.result)
   }, [toolCall.result])
+
+  // Tool-result images (computer-use screenshots, read_media, …) render as
+  // real images beside the text instead of inside it.
+  const resultImages = toolCall.resultImages ?? []
+
+  // Escape closes the enlarged preview while it is open.
+  useEffect(() => {
+    if (lightboxUrl === null) return
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setLightboxUrl(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [lightboxUrl])
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -249,7 +265,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: 
           )}
 
           {/* Tool Output Result */}
-          {toolCall.result && (
+          {(toolCall.result || resultImages.length > 0) && (
             <div className="p-3">
               <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-[var(--lm-text-muted)]">
                 <span className="flex items-center gap-1">
@@ -285,9 +301,35 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: 
                 </div>
               </div>
 
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--lm-bg-code)] p-2.5 font-mono text-[11.5px] leading-relaxed text-[var(--lm-text-secondary)] border border-[var(--lm-border)]">
-                {showFullOutput || !prunedResult?.isPruned ? toolCall.result : prunedResult.displayContent}
-              </pre>
+              {toolCall.result && (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--lm-bg-code)] p-2.5 font-mono text-[11.5px] leading-relaxed text-[var(--lm-text-secondary)] border border-[var(--lm-border)]">
+                  {showFullOutput || !prunedResult?.isPruned ? toolCall.result : prunedResult.displayContent}
+                </pre>
+              )}
+
+              {resultImages.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {resultImages.map((url, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      title="点击查看大图"
+                      aria-label="查看图片大图"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setLightboxUrl(url)
+                      }}
+                      className="overflow-hidden rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-code)] transition-opacity hover:opacity-90"
+                    >
+                      <img
+                        src={url}
+                        alt="工具输出图片"
+                        className="max-h-48 max-w-full object-contain"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -313,6 +355,26 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: 
           )}
         </div>
       )}
+
+      {/* Enlarged preview of a tool-result image. */}
+      {lightboxUrl !== null &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="图片预览"
+            title="点击任意位置关闭"
+            onClick={() => setLightboxUrl(null)}
+            className="fixed inset-0 z-[70] flex cursor-zoom-out items-center justify-center bg-black/75 p-6"
+          >
+            <img
+              src={lightboxUrl}
+              alt="工具输出图片"
+              className="max-h-full max-w-full rounded-lg object-contain"
+            />
+          </div>,
+          document.body,
+        )}
     </div>
   )
 })

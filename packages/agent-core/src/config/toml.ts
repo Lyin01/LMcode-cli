@@ -9,6 +9,7 @@ import {
   formatConfigValidationError,
   getDefaultConfig,
   type BackgroundConfig,
+  type ComputerUseConfig,
   type HookDefConfig,
   type LmcodeConfig,
   type LoopControl,
@@ -131,6 +132,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
     } else if (targetKey === 'loopControl' && isPlainObject(value)) {
       result[targetKey] = transformLoopControlData(value);
     } else if (targetKey === 'background' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'computerUse' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
     } else if (!isPlainObject(value)) {
       result[targetKey] = value;
@@ -303,6 +306,7 @@ export function configToTomlData(config: LmcodeConfig): Record<string, unknown> 
   setSection(out, 'services', config.services, servicesToToml);
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
   setSection(out, 'background', config.background, backgroundToToml);
+  setSection(out, 'computer_use', config.computerUse, computerUseToToml);
   setSection(out, 'permission', config.permission, permissionToToml);
   setHooks(out, config.hooks);
 
@@ -459,6 +463,17 @@ function backgroundToToml(
 ): Record<string, unknown> {
   const out = cloneRecord(rawBackground);
   for (const [key, value] of Object.entries(background)) {
+    setDefined(out, camelToSnake(key), value);
+  }
+  return out;
+}
+
+function computerUseToToml(
+  computerUse: ComputerUseConfig,
+  rawComputerUse: unknown,
+): Record<string, unknown> {
+  const out = cloneRecord(rawComputerUse);
+  for (const [key, value] of Object.entries(computerUse)) {
     setDefined(out, camelToSnake(key), value);
   }
   return out;

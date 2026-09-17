@@ -105,6 +105,22 @@ interface OpenAIToolCallOut {
   function: { name: string; arguments: string | null };
 }
 
+/**
+ * Media carried by a tool result.
+ *
+ * This API rejects non-text content on a `tool` message, so a screenshot
+ * returned by a tool cannot ride with its own result. The text stays on the
+ * tool message (every `tool_call_id` must be answered in place) and the media
+ * is re-delivered as a user message once the tool group ends — the one role
+ * this API accepts images on. Without this the image is silently reduced to
+ * text, which makes any screenshot-driven tool useless on this route.
+ */
+function mediaPartsOf(message: Message): ContentPart[] {
+  return message.content.filter(
+    (part) => part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url',
+  );
+}
+
 function convertMessage(
   message: Message,
   reasoningKey: string | undefined,
@@ -409,9 +425,27 @@ export class OpenAILegacyChatProvider implements ChatProvider {
       messages.push({ role: 'system', content: systemPrompt });
     }
     const normalizedHistory = normalizeToolCallIdsForProvider(history, OPENAI_CHAT_TOOL_CALL_ID_POLICY);
+    const pendingToolMedia: ContentPart[] = [];
+    const flushToolMedia = (): void => {
+      if (pendingToolMedia.length === 0) return;
+      const parts = pendingToolMedia
+        .splice(0)
+        .map((part) => convertContentPart(part))
+        .filter((part): part is OpenAIContentPart => part !== null);
+      if (parts.length > 0) {
+        messages.push({ role: 'user', content: parts });
+      }
+    };
     for (const msg of normalizedHistory) {
+      if (msg.role !== 'tool') {
+        flushToolMedia();
+        messages.push(convertMessage(msg, this._reasoningKey, this._toolMessageConversion));
+        continue;
+      }
       messages.push(convertMessage(msg, this._reasoningKey, this._toolMessageConversion));
+      pendingToolMedia.push(...mediaPartsOf(msg));
     }
+    flushToolMedia();
 
     const kwargs: Record<string, unknown> = {
       ...this._generationKwargs,

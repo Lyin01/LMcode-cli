@@ -1,9 +1,9 @@
 import type {
+  ComputerUseStatus,
   ExportSessionManifest,
   ResumeSessionResult,
   ShellEnvironment,
-} from '@lmcode-cli/agent-core';
-import type { LmcodeHostIdentity } from '@lmcode-cli/config';
+} from '@lmcode-cli/agent-core';import type { LmcodeHostIdentity } from '@lmcode-cli/config';
 import type { ContentPart } from '@lmcode-cli/liumir';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -19,6 +19,7 @@ export type {
   BackgroundTaskKind,
   BackgroundTaskStatus,
   ContextMessage,
+  ComputerUseStatus,
   CronJobInfo,
   ExportSessionManifest,
   LmcodeConfig,

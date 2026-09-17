@@ -5,6 +5,7 @@ import type { PlanData } from '#/agent/plan';
 import type { ToolInfo } from '#/agent/tool';
 import type { LmcodeConfig, LmcodeConfigPatch } from '#/config';
 import type { McpServerConfig } from '#/config/schema';
+import type { ComputerUseStatus } from '#/computer-use/types';
 import type { ExperimentalFlagMap } from '#/flags';
 import type { ResumeSessionResult } from '#/rpc/resumed';
 import type { SessionMeta } from '#/session';
@@ -264,6 +265,10 @@ export interface RemoveMcpServerPayload {
   readonly name: string;
 }
 
+export interface SetComputerUseEnabledPayload {
+  readonly enabled: boolean;
+}
+
 export interface InstallPluginPayload {
   readonly source: string;
 }
@@ -419,6 +424,8 @@ export interface SessionAPI extends AgentAPIWithId {
   addMcpServer: (payload: AddMcpServerPayload) => void;
   stopMcpServer: (payload: StopMcpServerPayload) => void;
   removeMcpServer: (payload: RemoveMcpServerPayload) => void;
+  getComputerUseStatus: (payload: EmptyPayload) => ComputerUseStatus;
+  setComputerUseEnabled: (payload: SetComputerUseEnabledPayload) => Promise<ComputerUseStatus>;
   generateAgentsMd: (payload: EmptyPayload) => void;
   createCron: (payload: CreateCronPayload) => CronJobInfo;
   listCron: (payload: EmptyPayload) => readonly CronJobInfo[];

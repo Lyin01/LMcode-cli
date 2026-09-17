@@ -1,5 +1,6 @@
 import type {
   BackgroundTaskInfo,
+  ComputerUseStatus,
   CronJobInfo,
   GoalSnapshotData,
   LmcodeConfig,
@@ -37,6 +38,10 @@ import type {
 } from '../../shared/menu-types'
 import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types'
 import type { RemoteFirewallStatus, RemoteState } from '../../shared/remote-types'
+import type {
+  ComputerUseDriverInfo,
+  ComputerUseInstallResult,
+} from '../../shared/computer-use-types'
 
 declare global {
 interface SessionSummary {
@@ -152,6 +157,15 @@ interface LmcodeAPI {
   addMcpServer: (sessionId: string, name: string, config: Record<string, unknown>) => Promise<void>
   stopMcpServer: (sessionId: string, name: string) => Promise<void>
   removeMcpServer: (sessionId: string, name: string) => Promise<void>
+
+  // Computer use
+  getComputerUseDriver: () => Promise<ComputerUseDriverInfo>
+
+  installComputerUseDriver: () => Promise<ComputerUseInstallResult>
+
+  getComputerUseStatus: (sessionId: string) => Promise<ComputerUseStatus>
+
+  setComputerUseEnabled: (sessionId: string, enabled: boolean) => Promise<ComputerUseStatus>
 
   // Session control
   setModel: (sessionId: string, model: string) => Promise<void>

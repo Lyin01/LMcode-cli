@@ -4,13 +4,37 @@ import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 
 const DRAFT_07_AJV = new Ajv({ strict: false, allErrors: true });
-addFormats(DRAFT_07_AJV);
-
 const DRAFT_2019_AJV = new Ajv2019({ strict: false, allErrors: true });
-addFormats(DRAFT_2019_AJV);
-
 const DRAFT_2020_AJV = new Ajv2020({ strict: false, allErrors: true });
-addFormats(DRAFT_2020_AJV);
+
+/**
+ * `ajv-formats` knows `int32`/`int64` but not the unsigned spellings that
+ * Rust-origin MCP servers advertise. Ajv logs a warning for every unknown
+ * format it drops, and that output lands on the TUI's stdout during a tool
+ * call, corrupting the render. Registering the ranges keeps the schemas
+ * meaningful instead of merely silencing the warning.
+ *
+ * Above 2^53 a JavaScript number cannot represent every integer, so the
+ * 64-bit bound is "non-negative integer" rather than an exact range check.
+ */
+const UINT32_FORMAT = {
+  type: 'number' as const,
+  validate: (value: number) => Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff,
+};
+const UINT64_FORMAT = {
+  type: 'number' as const,
+  validate: (value: number) => Number.isInteger(value) && value >= 0,
+};
+
+function addSchemaFormats(ajv: Ajv | Ajv2019 | Ajv2020): void {
+  addFormats(ajv);
+  ajv.addFormat('uint32', UINT32_FORMAT);
+  ajv.addFormat('uint64', UINT64_FORMAT);
+}
+
+addSchemaFormats(DRAFT_07_AJV);
+addSchemaFormats(DRAFT_2019_AJV);
+addSchemaFormats(DRAFT_2020_AJV);
 
 const DRAFT_2019_KEYWORDS = new Set([
   'dependentRequired',

@@ -9,6 +9,7 @@ import type { SDKSessionRPC } from '#/rpc';
 import { proxyWithExtraPayload } from '#/rpc/types';
 
 import { Agent, type AgentOptions, type AgentType } from '../agent';
+import { ComputerUseController, type ComputerUseProviderId } from '../computer-use';
 import { HookEngine, type HookDef } from './hooks';
 import type { PermissionManagerOptions, PermissionRule } from '../agent/permission';
 import { parseBooleanEnv, resolveConfigValue, type BackgroundConfig, type LmcodeConfig } from '../config';
@@ -93,6 +94,11 @@ export class Session {
   readonly skills: SkillRegistry;
   readonly agents: Map<string, Agent> = new Map();
   readonly mcp: McpConnectionManager;
+  /**
+   * Desktop computer use. Owns the session's single provider slot, so this is
+   * one controller per Session regardless of how many agents exist.
+   */
+  readonly computerUse: ComputerUseController;
   readonly log: Logger;
   private readonly logHandle: SessionLogHandle | undefined;
   readonly hookEngine: HookEngine;
@@ -137,6 +143,13 @@ export class Session {
     this.mcp.onStatusChange((entry) => {
       this.onMcpServerStatusChange(entry);
     });
+    this.computerUse = new ComputerUseController({
+      mcp: this.mcp,
+      log: this.log,
+      onStatusChange: (status) => {
+        void this.rpc.emitEvent({ type: 'computer.use.status', agentId: 'main', status });
+      },
+    });
     this.skillsReady = this.loadSkills()
       .catch((error: unknown) => {
         this.log.error('skills load failed', error);
@@ -147,6 +160,7 @@ export class Session {
     void this.loadMcpServers().catch((error: unknown) => {
       this.emitInitialMcpLoadError(error);
     });
+    void this.activateConfiguredComputerUse();
   }
 
   async createMain() {
@@ -254,6 +268,9 @@ export class Session {
       await this.triggerSessionEnd('exit');
     } finally {
       try {
+        // Release the computer-use slot before shutting the MCP manager down so
+        // a failed teardown cannot leave the registration holding the slot.
+        await this.computerUse.dispose();
         await this.mcp.shutdown();
       } finally {
         // Close SQLite memo stores so WAL/SHM file locks are released before
@@ -451,6 +468,28 @@ export class Session {
     registerBuiltinSkills(this.skills);
   }
 
+  /**
+   * Bring up desktop computer use when the operator enabled it in config.
+   *
+   * Runs alongside `loadMcpServers` rather than inside it: the capability owns
+   * an exclusive reservation and its own failure surface, and a missing driver
+   * must not read as a broken MCP configuration. Failures surface through the
+   * status event that the settings screen and the model-facing guidance read.
+   */
+  private async activateConfiguredComputerUse(): Promise<void> {
+    const settings = this.options.config?.computerUse;
+    if (settings?.enabled !== true) return;
+    const status = await this.computerUse.activate({
+      providerId: settings.provider as ComputerUseProviderId | undefined,
+      command: settings.command,
+      args: settings.args,
+      permissionMode: settings.permissionMode,
+    });
+    if (status.phase === 'failed') {
+      this.log.warn('computer use unavailable', { error: status.error });
+    }
+  }
+
   private async loadMcpServers(): Promise<void> {
     const servers = this.options.mcpConfig?.servers;
     if (servers === undefined || Object.keys(servers).length === 0) return;
@@ -532,6 +571,7 @@ export class Session {
       subagentHost:
         config.subagentHost ?? new SessionSubagentHost(this, id, this.backgroundTaskTimeoutMs()),
       mcp: this.mcp,
+      computerUse: this.computerUse,
       permission: this.permissionOptions(parentAgentId, config.permission),
       log: this.log.createChild({ agentId: id }),
       pluginSessionStarts: type === 'main' ? this.options.pluginSessionStarts : undefined,

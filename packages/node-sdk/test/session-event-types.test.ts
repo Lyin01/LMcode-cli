@@ -68,6 +68,7 @@ describe('Event public types', () => {
         case 'tool.result':
         case 'tool.list.updated':
         case 'mcp.server.status':
+        case 'computer.use.status':
         case 'subagent.spawned':
         case 'subagent.completed':
         case 'subagent.failed':

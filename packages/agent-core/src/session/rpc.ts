@@ -21,8 +21,8 @@ import type {
   RegisterToolPayload,
   SessionAPI,
   SetActiveToolsPayload,
-  SetModelPayload,
-  SetPermissionPayload,
+  SetComputerUseEnabledPayload,
+  SetModelPayload,  SetPermissionPayload,
   SetThinkingPayload,
   SkillSummary,
   SteerPayload,
@@ -39,6 +39,7 @@ import type {
   SetGoalBudgetPayload,
 } from '#/rpc';
 import type { PromisableMethods } from '#/utils/types';
+import type { ComputerUseStatus } from '#/computer-use/types';
 import type { CronManager } from '#/agent/cron';
 import { CronCreateInputSchema, CronCreateTool } from '#/tools/cron/cron-create';
 import { cronToHuman, parseCronExpression } from '#/tools/cron/cron-expr';
@@ -121,6 +122,20 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   async removeMcpServer(payload: RemoveMcpServerPayload): Promise<void> {
     this.session.assertOpen();
     await this.session.mcp.removeServer(payload.name);
+  }
+
+  getComputerUseStatus(_payload: EmptyPayload): ComputerUseStatus {
+    this.session.assertOpen();
+    return this.session.computerUse.status();
+  }
+
+  async setComputerUseEnabled(payload: SetComputerUseEnabledPayload): Promise<ComputerUseStatus> {
+    this.session.assertOpen();
+    if (!payload.enabled) {
+      await this.session.computerUse.deactivate();
+      return this.session.computerUse.status();
+    }
+    return this.session.computerUse.activate();
   }
 
   generateAgentsMd(_payload: EmptyPayload): Promise<void> {

@@ -24,6 +24,7 @@ import {
 import type { EnabledPluginSessionStart } from '#/plugin';
 
 import type { McpConnectionManager } from '../mcp';
+import type { ComputerUseController } from '../computer-use';
 import type { PreparedSystemPromptContext, ResolvedAgentProfile } from '../profile';
 import { SESSION_CONTEXT_TEMPLATE } from '../profile/default';
 import { buildTemplateVars } from '../profile/resolve';
@@ -126,6 +127,12 @@ export interface AgentOptions {
   readonly subagentHost?: SessionSubagentHost | undefined;
   readonly skills?: SkillRegistry;
   readonly mcp?: McpConnectionManager;
+  /**
+   * Session-scoped desktop computer use. Agents hold a read-only reference so
+   * the prompt injector can see whether the capability is live; the Session
+   * owns activation and teardown.
+   */
+  readonly computerUse?: ComputerUseController | undefined;
   readonly hookEngine?: HookEngine;
   readonly permission?: PermissionManagerOptions | undefined;
   readonly log?: Logger;
@@ -144,6 +151,7 @@ export class Agent {
   readonly modelProvider?: ModelProvider;
   readonly subagentHost?: SessionSubagentHost;
   readonly mcp?: McpConnectionManager;
+  readonly computerUse?: ComputerUseController | undefined;
   readonly hooks?: HookEngine;
   readonly log: Logger;
 
@@ -194,6 +202,7 @@ export class Agent {
     this.modelProvider = options.modelProvider;
     this.subagentHost = options.subagentHost;
     this.mcp = options.mcp;
+    this.computerUse = options.computerUse;
     this.hooks = options.hookEngine;
     this.log = options.log ?? log;
 

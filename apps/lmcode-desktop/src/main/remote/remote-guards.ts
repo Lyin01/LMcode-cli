@@ -15,6 +15,7 @@ const REMOTE_FORBIDDEN_CONFIG_KEYS = [
   'background',
   'providers',
   'services',
+  'computerUse',
 ] as const
 
 const BLOCKED_MCP_HOSTS = new Set([

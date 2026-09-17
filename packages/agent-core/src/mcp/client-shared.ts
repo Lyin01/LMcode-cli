@@ -1,3 +1,7 @@
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
+
 import { getCoreVersion } from '#/version';
 
 import type { MCPToolDefinition, MCPToolResult } from './types';
@@ -7,6 +11,34 @@ export const LMCODE_MCP_CLIENT_NAME = 'lmcode';
 // in `initialize` (used for compatibility checks and debugging).
 // `getCoreVersion()` falls back to '0.0.0' if the package.json read fails.
 export const LMCODE_MCP_CLIENT_VERSION = getCoreVersion();
+
+/**
+ * Schema validator for MCP clients.
+ *
+ * The SDK validates a server's structured results with its own Ajv instance,
+ * and `ajv-formats` knows `int32`/`int64` but not the unsigned spellings that
+ * Rust-origin servers publish. Ajv logs a warning for every unknown format it
+ * drops, and that output reaches stdout — where it corrupts terminal rendering
+ * mid-call. Registering the two ranges keeps the schemas meaningful instead of
+ * merely silencing the warning, and leaves everything else at the SDK default.
+ */
+export function createMcpJsonSchemaValidator(): AjvJsonSchemaValidator {
+  const ajv = new Ajv({ strict: false, validateFormats: true, validateSchema: false, allErrors: true });
+  // Same baseline as the SDK's own instance, so this stays a strict superset of
+  // the default behaviour rather than a different validator.
+  addFormats(ajv);
+  ajv.addFormat('uint32', {
+    type: 'number',
+    validate: (value: number) => Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff,
+  });
+  // Above 2^53 a JavaScript number cannot represent every integer, so the
+  // 64-bit bound is "non-negative integer" rather than an exact range check.
+  ajv.addFormat('uint64', {
+    type: 'number',
+    validate: (value: number) => Number.isInteger(value) && value >= 0,
+  });
+  return new AjvJsonSchemaValidator(ajv);
+}
 
 /**
  * Why-context attached when a runtime client notices its underlying transport

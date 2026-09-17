@@ -1,5 +1,6 @@
 import type { Agent } from '..';
 import type { DynamicInjector } from './injector';
+import { ComputerUseInjector } from './computer-use';
 import { GoalInjector } from './goal';
 import { PermissionModeInjector } from './permission-mode';
 import { PluginSessionStartInjector } from './plugin-session-start';
@@ -15,6 +16,7 @@ const VARIANT_TITLES: Record<string, string> = {
   'wolfpack': 'WolfPack Mode',
   'plan_mode': 'Plan Mode',
   'permission_mode': 'Permission Mode',
+  'computer_use': 'Computer Use',
   'plugin_session_start': 'Plugin Session Start',
 };
 
@@ -31,6 +33,7 @@ export class InjectionManager {
       new WolfPackModeInjector(agent),
       new PlanModeInjector(agent),
       new PermissionModeInjector(agent),
+      new ComputerUseInjector(agent),
       new TodoListReminderInjector(agent),
       new GoalInjector(agent),
       new WorkingSetInjector(agent),

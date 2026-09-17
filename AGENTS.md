@@ -470,6 +470,21 @@ Agent 拥有由 `@lmcode-cli/memory` 包提供的记忆系统。定位为"任务
 `packages/agent-core/src/tools/builtin/memory/memory-consolidate.ts`、
 `packages/agent-core/src/skill/builtin/dream.md`。
 
+### 计算机操作（Computer Use）
+
+模型可以观察并操作用户的真实桌面。能力本身**不含任何操作**：工具目录、参数与平台限制都属于提供方，当前提供方是 [Cua Driver](https://cua.ai/docs/cua-driver)（Rust 可执行文件，通过 stdio MCP 提供 57 个工具）。
+
+- **注册服务**：`packages/agent-core/src/computer-use/registry.ts` —— `ComputerUseRegistry.register(name)` 只占一个槽位，第二次注册（即使同名）失败。服务不含操作 API、截图类型、会话锁或运行时选择器。
+- **控制器**：`packages/agent-core/src/computer-use/controller.ts` —— `activate()` 先占槽位再拉起提供方；**启动失败会释放槽位**（坏驱动不阻塞好驱动），已连接的提供方掉线则保留槽位。`deactivate()` 顺序相反：先停连接与工具，最后交回槽位。
+- **提供方描述符**：`providers.ts` —— server 名 `cua-driver-mcp`（工具名 `mcp__cua-driver-mcp__*`）、默认命令、权限模式 env、安装配方与平台候选路径。新增提供方只需加一条描述符 + 一个实现。
+- **配置**：`config.toml` 的 `[computer_use]`（`enabled` / `provider` / `command` / `args` / `permission_mode`）。schema 在 `config/schema.ts`，**读写映射在 `config/toml.ts` 两处都要加**，否则会静默不落盘。CLI/TUI 与桌面共用这一份配置。
+- **操作契约**：`agent/injection/computer-use.ts` + `computer-use.md` —— 能力激活时注入，停用时撤下；激活期间按 full / sparse / 周期性刷新重复（这是安全契约，压缩后必须还在）。契约内容取自**已安装驱动自己的工具描述**（`element_token`/`snapshot_id` 失效规则、`delivery_mode` 必须先 background 且只在驱动报告 `background_unavailable` 后才前台重试、`verify_state` 的 `unknown` 不等于成功、取消不回滚已投递输入）。
+- **审批**：computer-use 工具不在 `DEFAULT_APPROVE_TOOLS`，默认走 `fallback-ask`，桌面输入必然弹确认。**不要**把它们加入任何自动批准列表。
+- **远程**：`apps/lmcode-desktop/src/main/remote/remote-guards.ts` 的 `REMOTE_FORBIDDEN_CONFIG_KEYS` 含 `computerUse` —— 手机/局域网客户端不得开启桌面自动化。
+- **工具返回的媒体**：`openai-legacy` 路由（`type = "openai"`，Chat Completions）拒绝 `tool` 消息携带媒体。`packages/liumir/src/providers/openai-legacy.ts` 会把工具结果里的图片**折成紧随其后的一条 user 消息**（在整组 tool 消息之后发出，保证 `tool_call_id` 应答顺序合法），否则截图会被静默降级成文本、模型什么都看不到。桌面端在对话里直接渲染这些图片（`ToolCallInfo.resultImages`）。
+- **MCP schema 格式**：Rust 侧 MCP 会声明 `uint32`/`uint64`，`ajv-formats` 不认识。`tools/args-validator.ts` 与 `mcp/client-shared.ts`（`createMcpJsonSchemaValidator`，传给 SDK 的 `Client`）都注册了这两个格式——Ajv 对未知格式会打 `console.warn`，而 stdout 输出会破坏 TUI 渲染。
+- **验证**：`test/computer-use/` 覆盖独占注册、激活/回收顺序、失败回滚、接管既有条目、掉线保留槽位；`real-driver.e2e.test.ts` 是唯一打真实驱动的测试，仅在设置 `LMCODE_COMPUTER_USE_DRIVER` 时运行（只做只读调用）。
+
 ### LSP 集成（只读）
 
 Agent 可以通过 `LSP` 工具查询语言服务器以获取只读的代码智能。这在重构、重命名或诊断类型错误之前非常有用。

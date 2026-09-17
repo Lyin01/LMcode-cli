@@ -23,6 +23,7 @@ import { buildModelEntries } from '@/lib/models'
 import { createDesktopPromptRequest } from '@/lib/prompt-request'
 import { clearComposerDraft } from '@/lib/composer-drafts'
 import { mergeHydratedHistory } from '@/lib/history'
+import { projectToolResult } from '@/lib/tool-result'
 import { forgetPendingArtifactReports } from '@/lib/artifact-feed'
 import { useConfigStore } from '@/stores/config-store'
 import { useTaskStore } from '@/stores/task-store'
@@ -285,6 +286,10 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
 
     case 'tool.result': {
       const ev = event as ToolResultEvent
+      // Text rides in `result` (it is also what the copy button copies) while
+      // image parts stay in `resultImages`, so a screenshot never lands in the
+      // card body as base64.
+      const projection = projectToolResult(ev.output)
       return {
         ...slice,
         messages: patchLastAssistant(msgs, (m) =>
@@ -296,10 +301,7 @@ function reduceMessageEvent(slice: SessionSlice, event: Event): SessionSlice {
                     ? {
                         ...tc,
                         status: ev.isError ? ('failed' as const) : ('completed' as const),
-                        result:
-                          typeof ev.output === 'string'
-                            ? ev.output
-                            : JSON.stringify(ev.output, null, 2),
+                        ...projection,
                         endedAt: Date.now(),
                       }
                     : tc,

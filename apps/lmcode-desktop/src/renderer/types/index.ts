@@ -43,6 +43,12 @@ export interface ToolCallInfo {
   args: string
   status: 'pending' | 'running' | 'completed' | 'failed'
   result?: string
+  /**
+   * Image parts carried by the tool result (a computer-use screenshot, for
+   * example). Kept beside `result` instead of inside it: serializing these
+   * into the text would put hundreds of kilobytes of base64 in the card.
+   */
+  resultImages?: string[]
   progress?: string
   /** 工具调用开始时间（tool.call.started 事件），用于耗时显示。 */
   startedAt?: number

@@ -1,4 +1,5 @@
 import { HOOK_EVENT_TYPES } from '../session/hooks/types';
+import { COMPUTER_USE_PERMISSION_MODES } from '../computer-use/types';
 import { parsePattern } from '#/agent/permission/matches-rule';
 import { ErrorCodes, LmcodeError } from '#/errors';
 import { z } from 'zod';
@@ -211,6 +212,28 @@ export const McpServerConfigSchema = z.preprocess((raw) => {
 
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 
+export const ComputerUsePermissionModeSchema = z.enum([...COMPUTER_USE_PERMISSION_MODES]);
+
+/**
+ * Desktop computer use. Enabling this reserves the session's single provider
+ * slot and connects that provider's own tool catalog; the capability itself
+ * contributes no operations of its own.
+ */
+export const ComputerUseConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  /**
+   * Provider id. Only `cua-driver-mcp` ships today; unknown ids fail
+   * activation instead of silently doing nothing.
+   */
+  provider: z.string().optional(),
+  /** Driver executable; detection fills in an installed absolute path. */
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  permissionMode: ComputerUsePermissionModeSchema.optional(),
+});
+
+export type ComputerUseConfig = z.infer<typeof ComputerUseConfigSchema>;
+
 /**
  * Anchored Bootstrap — first-request trajectory anchoring for DeepSeek-family
  * models (modeled after xiaobright/dsh-anchored-standard).
@@ -279,6 +302,8 @@ export const LmcodeConfigSchema = z.object({
   /** First-request trajectory anchoring (DeepSeek-family). See
    *  {@link AnchoredBootstrapSchema}. */
   anchoredBootstrap: AnchoredBootstrapSchema.optional(),
+  /** Desktop computer use. See {@link ComputerUseConfigSchema}. */
+  computerUse: ComputerUseConfigSchema.optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -322,6 +347,7 @@ export const LmcodeConfigPatchSchema = z
     enableSelfHealing: z.boolean().optional(),
     enableSpecCritic: z.boolean().optional(),
     anchoredBootstrap: AnchoredBootstrapSchema.optional(),
+    computerUse: ComputerUseConfigSchema.partial().optional(),
   })
   .strict();
 

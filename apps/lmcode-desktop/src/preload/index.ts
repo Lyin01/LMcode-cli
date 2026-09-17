@@ -158,6 +158,18 @@ const lmcodeAPI = {
   removeMcpServer: (sessionId: string, name: string) =>
     ipcRenderer.invoke('lmcode:removeMcpServer', sessionId, name),
 
+  // ── Computer use ────────────────────────────────────────────────
+
+  getComputerUseDriver: () => ipcRenderer.invoke('lmcode:getComputerUseDriver'),
+
+  installComputerUseDriver: () => ipcRenderer.invoke('lmcode:installComputerUseDriver'),
+
+  getComputerUseStatus: (sessionId: string) =>
+    ipcRenderer.invoke('lmcode:getComputerUseStatus', sessionId),
+
+  setComputerUseEnabled: (sessionId: string, enabled: boolean) =>
+    ipcRenderer.invoke('lmcode:setComputerUseEnabled', sessionId, enabled),
+
   // ── Config ──────────────────────────────────────────────────────
 
   getConfig: () => ipcRenderer.invoke('lmcode:getConfig'),

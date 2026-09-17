@@ -11,6 +11,7 @@ import { DuckDuckGoSearchProvider } from '#/tools/providers/duckduckgo-search';
 import { FallbackSearchProvider } from '#/tools/providers/fallback-search';
 import { LmcodeCliWebSearchProvider } from '#/tools/providers/lmcode-cli-web-search';
 import type { PromisableMethods } from '#/utils/types';
+import type { ComputerUseStatus } from '#/computer-use/types';
 import { getCoreVersion } from '#/version';
 import { resolveThinkingLevel } from '../agent/config/thinking';
 import {
@@ -75,6 +76,7 @@ import type {
   AddMcpServerPayload,
   StopMcpServerPayload,
   RemoveMcpServerPayload,
+  SetComputerUseEnabledPayload,
   RegisterToolPayload,
   ReloadPluginsResult,
   RemoveProviderPayload,
@@ -701,6 +703,20 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
     ...payload
   }: SessionScopedPayload<RemoveMcpServerPayload>): Promise<void> {
     return this.sessionApi(sessionId).removeMcpServer(payload);
+  }
+
+  getComputerUseStatus({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<EmptyPayload>): ComputerUseStatus {
+    return this.sessionApi(sessionId).getComputerUseStatus(payload);
+  }
+
+  setComputerUseEnabled({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<SetComputerUseEnabledPayload>): Promise<ComputerUseStatus> {
+    return this.sessionApi(sessionId).setComputerUseEnabled(payload);
   }
 
   generateAgentsMd({ sessionId, ...payload }: SessionScopedPayload<EmptyPayload>): Promise<void> {

@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 import {
   buildRequestOptions,
+  createMcpJsonSchemaValidator,
   LMCODE_MCP_CLIENT_NAME,
   LMCODE_MCP_CLIENT_VERSION,
   toMcpToolDefinition,
@@ -73,10 +74,13 @@ export class HttpMcpClient implements MCPClient {
       fetch: options.fetch,
       authProvider: options.oauthProvider,
     });
-    this.client = new Client({
-      name: options.clientName ?? LMCODE_MCP_CLIENT_NAME,
-      version: options.clientVersion ?? LMCODE_MCP_CLIENT_VERSION,
-    });
+    this.client = new Client(
+      {
+        name: options.clientName ?? LMCODE_MCP_CLIENT_NAME,
+        version: options.clientVersion ?? LMCODE_MCP_CLIENT_VERSION,
+      },
+      { jsonSchemaValidator: createMcpJsonSchemaValidator() },
+    );
     this.toolCallTimeoutMs = options.toolCallTimeoutMs;
   }
 

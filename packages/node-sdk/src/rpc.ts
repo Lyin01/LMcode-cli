@@ -38,6 +38,7 @@ import type {
   ListSessionsOptions,
   McpServerInfo,
   McpStartupMetrics,
+  ComputerUseStatus,
   PermissionMode,
   PluginInfo,
   PluginSummary,
@@ -140,6 +141,10 @@ export interface AddMcpServerRpcInput extends SessionIdRpcInput {
 
 export interface RemoveMcpServerRpcInput extends SessionIdRpcInput {
   readonly name: string;
+}
+
+export interface SetComputerUseEnabledRpcInput extends SessionIdRpcInput {
+  readonly enabled: boolean;
 }
 
 type ResolvedCoreAPI = RPCMethods<CoreAPI>;
@@ -625,6 +630,16 @@ export class SDKRpcClient {
   async removeMcpServer(input: RemoveMcpServerRpcInput): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.removeMcpServer({ sessionId: input.sessionId, name: input.name });
+  }
+
+  async getComputerUseStatus(input: SessionIdRpcInput): Promise<ComputerUseStatus> {
+    const rpc = await this.getRpc();
+    return rpc.getComputerUseStatus({ sessionId: input.sessionId });
+  }
+
+  async setComputerUseEnabled(input: SetComputerUseEnabledRpcInput): Promise<ComputerUseStatus> {
+    const rpc = await this.getRpc();
+    return rpc.setComputerUseEnabled({ sessionId: input.sessionId, enabled: input.enabled });
   }
 
   async listPlugins(): Promise<readonly PluginSummary[]> {

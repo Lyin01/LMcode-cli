@@ -245,12 +245,14 @@ describe('OpenAILegacyChatProvider', () => {
       ]);
     });
 
-    it('tool call with image result flattens to text to satisfy API constraints', async () => {
+    it('tool call with image result keeps the tool message text-only', async () => {
       // OpenAI Chat Completions `tool` messages only accept text content.
       // Even when toolMessageConversion is unset, a tool result containing
       // image_url / audio_url / video_url parts must not be serialized as a
       // multimodal array — the API would reject the request with a 400.
-      // The provider is expected to force `extract_text` in that case.
+      // The provider is expected to force `extract_text` in that case. The
+      // media is not discarded: it is re-delivered as a user message once the
+      // tool group ends, which the next test pins.
       const provider = createProvider();
       const toolCall: ToolCall = {
         type: 'function',
@@ -286,6 +288,59 @@ describe('OpenAILegacyChatProvider', () => {
       // structured image_url part anywhere in the serialized content.
       expect(toolMsg['content']).toContain('5');
       expect(Array.isArray(toolMsg['content'])).toBe(false);
+    });
+
+    it('re-delivers tool result images as a user message after the tool group', async () => {
+      // A screenshot from a computer-use or media-reading tool has to reach the
+      // model, but this API refuses media on `tool` messages. The delivery that
+      // works everywhere is a user message, and it must come after the whole
+      // tool group so every tool_call_id is still answered in place.
+      const provider = createProvider();
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Look at the window' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Capturing.' }],
+          toolCalls: [
+            { type: 'function', id: 'call_1', name: 'add', arguments: '{}' },
+            { type: 'function', id: 'call_2', name: 'multiply', arguments: '{}' },
+          ],
+        },
+        {
+          role: 'tool',
+          content: [
+            { type: 'text', text: 'first' },
+            { type: 'image_url', imageUrl: { url: 'https://example.com/first.png' } },
+          ] satisfies ContentPart[],
+          toolCallId: 'call_1',
+          toolCalls: [],
+        },
+        {
+          role: 'tool',
+          content: [
+            { type: 'text', text: 'second' },
+            { type: 'image_url', imageUrl: { url: 'https://example.com/second.png' } },
+          ] satisfies ContentPart[],
+          toolCallId: 'call_2',
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+      const messages = body['messages'] as Record<string, unknown>[];
+
+      expect(messages.map((message) => message['role'])).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'tool',
+        'user',
+      ]);
+      expect(messages[2]?.['content']).toBe('first');
+      expect(messages[3]?.['content']).toBe('second');
+      expect(messages[4]?.['content']).toEqual([
+        { type: 'image_url', image_url: { url: 'https://example.com/first.png' } },
+        { type: 'image_url', image_url: { url: 'https://example.com/second.png' } },
+      ]);
     });
 
     it('parallel tool calls', async () => {

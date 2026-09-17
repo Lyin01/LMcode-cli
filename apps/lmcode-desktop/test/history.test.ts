@@ -69,6 +69,54 @@ describe('desktop conversation history projection', () => {
       attachments: [{ kind: 'image', name: 'clipboard.png' }],
     })
   })
+
+  it('restores tool screenshots beside the text result instead of flattening them', () => {
+    const messages = historyToMessages([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '已截取桌面' }],
+        toolCalls: [{ id: 'call-1', name: 'ComputerUse', arguments: '{"action":"screenshot"}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'call-1',
+        content: [
+          { type: 'text', text: 'screenshot.png' },
+          { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AQID' } },
+        ],
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    const toolCall = messages[0]?.toolCalls?.[0]
+    expect(toolCall).toMatchObject({
+      toolName: 'ComputerUse',
+      status: 'completed',
+      result: 'screenshot.png',
+      resultImages: ['data:image/png;base64,AQID'],
+    })
+    expect(toolCall?.result).not.toContain('base64')
+  })
+
+  it('keeps an image-only tool result visible after session resume', () => {
+    const messages = historyToMessages([
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ id: 'call-9', name: 'ComputerUse', arguments: '{}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'call-9',
+        content: [{ type: 'image_url', imageUrl: { url: 'data:image/png;base64,AQID' } }],
+      },
+    ])
+
+    const toolCall = messages[0]?.toolCalls?.[0]
+    expect(toolCall?.resultImages).toEqual(['data:image/png;base64,AQID'])
+    expect(toolCall?.result).not.toBe('')
+    expect(toolCall?.result).not.toContain('data:')
+  })
 })
 
 describe('mergeHydratedHistory', () => {

@@ -1,6 +1,7 @@
 import type { FinishReason, TokenUsage } from '@lmcode-cli/liumir';
 
 import type { PromptOrigin } from '../agent/context';
+import type { ComputerUseStatus } from '../computer-use/types';
 import type { GoalChange, GoalSnapshot } from '../agent/goal';
 import type { LmcodeErrorPayload } from '../errors';
 import type { PermissionMode } from '../agent/permission';
@@ -310,6 +311,11 @@ export interface McpServerStatusEvent {
   readonly server: McpServerStatusPayload;
 }
 
+export interface ComputerUseStatusEvent {
+  readonly type: 'computer.use.status';
+  readonly status: ComputerUseStatus;
+}
+
 export interface McpServerStatusPayload {
   readonly name: string;
   readonly transport: 'stdio' | 'http';
@@ -339,6 +345,7 @@ export type AgentEvent =
   | ToolResultEvent
   | ToolListUpdatedEvent
   | McpServerStatusEvent
+  | ComputerUseStatusEvent
   | SubagentSpawnedEvent
   | SubagentCompletedEvent
   | SubagentFailedEvent

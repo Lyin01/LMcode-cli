@@ -135,6 +135,8 @@ export const addMcpServerArgsSchema = z.tuple([
 
 export const applyGitHunkActionArgsSchema = z.tuple([sessionIdSchema, gitHunkActionInputSchema])
 
+export const setComputerUseEnabledArgsSchema = z.tuple([sessionIdSchema, z.boolean()])
+
 export const setGitFileStagedArgsSchema = z.tuple([
   sessionIdSchema,
   z.string().trim().min(1),

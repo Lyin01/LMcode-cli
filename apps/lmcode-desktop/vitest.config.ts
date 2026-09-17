@@ -1,9 +1,15 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
+import { rawTextPlugin } from '../../build/raw-text-plugin.mjs'
+
 const appRoot = import.meta.dirname
 
 export default defineConfig({
+  // Workspace packages resolve to their TypeScript sources, so the prompt and
+  // profile sources they import (`.md` / `.yaml`) need the same loader the
+  // packages use in their own vitest configs.
+  plugins: [rawTextPlugin()],
   resolve: {
     alias: {
       '@': resolve(appRoot, 'src/renderer'),

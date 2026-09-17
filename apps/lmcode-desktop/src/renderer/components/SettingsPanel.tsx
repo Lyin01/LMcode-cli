@@ -27,6 +27,7 @@ import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 import type { PermissionMode } from '@lmcode-cli/lmcode-sdk'
 import { ModelProvidersPanel } from '@/components/settings/ModelProvidersPanel'
 import { RemotePanel } from '@/components/settings/RemotePanel'
+import { ComputerUsePanel } from '@/components/settings/ComputerUsePanel'
 
 interface SettingsPanelProps {
   open: boolean
@@ -509,6 +510,9 @@ export function SettingsPanel({
                     </button>
                   </div>
                 </section>
+
+                {/* Computer Use */}
+                <ComputerUsePanel />
 
                 {/* Permission Mode */}
                 <section className="space-y-2 pt-2 border-t border-[var(--lm-border)]">

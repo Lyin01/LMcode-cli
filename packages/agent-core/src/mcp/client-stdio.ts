@@ -7,6 +7,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import {
   buildRequestOptions,
+  createMcpJsonSchemaValidator,
   LMCODE_MCP_CLIENT_NAME,
   LMCODE_MCP_CLIENT_VERSION,
   toMcpToolDefinition,
@@ -76,10 +77,13 @@ export class StdioMcpClient implements MCPClient {
     this.transport.stderr?.on('data', (chunk: Buffer | string) => {
       this.stderrBuffer.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
     });
-    this.client = new Client({
-      name: options.clientName ?? LMCODE_MCP_CLIENT_NAME,
-      version: options.clientVersion ?? LMCODE_MCP_CLIENT_VERSION,
-    });
+    this.client = new Client(
+      {
+        name: options.clientName ?? LMCODE_MCP_CLIENT_NAME,
+        version: options.clientVersion ?? LMCODE_MCP_CLIENT_VERSION,
+      },
+      { jsonSchemaValidator: createMcpJsonSchemaValidator() },
+    );
     this.toolCallTimeoutMs = options.toolCallTimeoutMs;
   }
 

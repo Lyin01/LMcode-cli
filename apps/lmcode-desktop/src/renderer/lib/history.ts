@@ -1,5 +1,6 @@
 import { parseTextAttachmentPart } from '../../shared/file-types'
 import type { Message, ToolCallInfo, UserAttachment } from '@/types'
+import { projectToolResult } from './tool-result'
 
 /**
  * Map the SDK's persisted conversation history (`session.getContext().history`,
@@ -88,12 +89,16 @@ export function historyToMessages(history: unknown[]): Message[] {
       }
     } else if (m.role === 'tool') {
       // Attach the tool result to the matching call on the latest assistant turn.
+      // Projected exactly like a live `tool.result` event, so a restored
+      // session keeps showing the same text and screenshots.
+      const projection = projectToolResult(parts)
       for (let i = out.length - 1; i >= 0; i--) {
         const prev = out[i]!
         if (prev.role === 'assistant' && prev.toolCalls) {
           const tc = prev.toolCalls.find((t) => t.id === m.toolCallId)
           if (tc) {
-            tc.result = text
+            tc.result = projection.result
+            tc.resultImages = projection.resultImages
             break
           }
         }

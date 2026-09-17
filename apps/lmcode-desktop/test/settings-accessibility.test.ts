@@ -121,4 +121,15 @@ describe('desktop settings workspace accessibility contract', () => {
     expect(html).toContain('MCP 服务器')
     expect(html).toContain('技能')
   })
+
+  it('exposes the computer-use driver controls in the general tab', () => {
+    const html = renderToStaticMarkup(createElement(SettingsPanel, settingsProps))
+
+    expect(html).toContain('id="settings-computer-use"')
+    expect(html).toContain('电脑操作 (Computer Use)')
+    expect(html).toContain('aria-label="电脑操作总开关"')
+    expect(html).toContain('aria-checked="false"')
+    expect(html).toContain('检测驱动')
+    expect(html).toContain('官方文档')
+  })
 })
