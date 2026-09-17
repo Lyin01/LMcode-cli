@@ -158,6 +158,17 @@ TUI 中渲染的所有文本都必须经过清理。原始内容——文件内�
 - 构建：`bun run build`。
 - 不要直接运行裸 `tsc`。
 
+### 桌面发布（apps/lmcode-desktop）
+
+一条命令：`pnpm -C apps/lmcode-desktop run release` = 发布门禁 → `electron-builder --win --publish never` → `scripts/complete-release.mjs`。
+
+`--publish always` 在本仓库**必然失败**：它在创建 Release、上传安装包之后，卡在 updater feed 这一步报 `422 Published releases must have a valid tag`，并且**从不写出新的 `latest.yml`**——失败后留在 `release/` 里的 `latest.yml` 属于上一个版本，直接上传会把自动更新指向旧安装包。所以打包与发布分成两步，由 `complete-release.mjs` 负责：从**本次真实打包的安装包**重算 sha512/size 生成 feed → 创建或复用 Release → 上传安装包、blockmap、feed（feed 最后传）→ patch 标题与正文 → 校验（资产齐全、GitHub 资产 digest 与本地文件 sha256 一致、公开 `latest.yml` 的版本与摘要一致、`releases/latest` 指向本版本）。
+
+- 正文来源：默认取 `README.md` 里 `## <version>` 段（缺失或为空会直接报错，不会发出空正文）；也可 `node scripts/complete-release.mjs --notes <file>`。
+- 凭据：优先 `GH_TOKEN`，否则读 `git credential fill`（github.com）。代理变量必须**删除**而不是置空，否则 electron-builder 的 HttpsProxyAgent 会 `new URL('')` 抛错。
+- 上传前会校验安装包签名（Windows 上 `Get-AuthenticodeSignature` 必须为 `Valid`）。
+- 中途失败可用 `pnpm -C apps/lmcode-desktop run release:complete` 续跑（幂等，会替换同名资产），`--verify-only` 只做校验。
+
 ---
 
 ## TUI 文件布局 (apps/lmcode)

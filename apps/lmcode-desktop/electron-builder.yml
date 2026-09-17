@@ -17,8 +17,12 @@ asar: false
 npmRebuild: false
 # Desktop releases are published to a DEDICATED repo (kept separate from the CLI
 # release line so electron-updater's "latest release" lookup is unambiguous).
-# `electron-builder --publish always` (with GH_TOKEN set) uploads the installer +
-# latest.yml here; the same config is baked into app-update.yml for the updater.
+# This block also bakes the target into app-update.yml, which is what the running
+# app polls. Packaging and uploading are separate steps because
+# `electron-builder --publish always` fails on this repo after uploading the
+# installer (422, no latest.yml written) — see the release workflow in AGENTS.md
+# and scripts/complete-release.mjs, which uploads the installer, its blockmap and
+# a feed derived from that installer.
 publish:
   provider: github
   owner: Lyin01
