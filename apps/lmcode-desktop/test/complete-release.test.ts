@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildUpdaterFeed, extractReleaseNotes } from '../scripts/complete-release.mjs'
+import {
+  buildUpdaterFeed,
+  extractReleaseNotes,
+  parseArguments,
+} from '../scripts/complete-release.mjs'
 
 /**
  * The updater feed is what every installed client polls to discover a new
@@ -72,5 +76,28 @@ describe('extractReleaseNotes', () => {
   it('refuses to publish a release with no notes', () => {
     expect(() => extractReleaseNotes(README, '1.0.0')).toThrow(/no "## 1.0.0" section/u)
     expect(() => extractReleaseNotes('## 1.0.0\n\n## 0.9.0\n', '1.0.0')).toThrow(/is empty/u)
+  })
+})
+
+/**
+ * The script is normally reached through pnpm, which forwards a literal `--`
+ * when flags are passed. Rejecting it would make the documented resume command
+ * fail, so the separator is tolerated while genuinely unknown flags still stop
+ * the run instead of being silently ignored.
+ */
+describe('parseArguments', () => {
+  it('accepts flags with or without the pnpm separator', () => {
+    expect(parseArguments(['--verify-only']).verifyOnly).toBe(true)
+    expect(parseArguments(['--', '--verify-only']).verifyOnly).toBe(true)
+    expect(parseArguments(['--notes', 'notes.md', '--', '--dry-run'])).toEqual({
+      notes: 'notes.md',
+      verifyOnly: false,
+      dryRun: true,
+      repo: undefined,
+    })
+  })
+
+  it('rejects an unknown flag', () => {
+    expect(() => parseArguments(['--nope'])).toThrow(/unknown argument: --nope/u)
   })
 })

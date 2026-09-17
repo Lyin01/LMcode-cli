@@ -20,3 +20,13 @@ export declare function extractReleaseNotes(markdown: string, version: string): 
 
 /** Hex digest of a file, for the algorithm GitHub reports per asset. */
 export declare function fileDigest(filePath: string, algorithm: string): Promise<string>
+
+export interface ReleaseOptions {
+  readonly notes: string | undefined
+  readonly verifyOnly: boolean
+  readonly dryRun: boolean
+  readonly repo: string | undefined
+}
+
+/** Parses CLI arguments; a bare `--` from `pnpm run <script> -- <flags>` is ignored. */
+export declare function parseArguments(argv: readonly string[]): ReleaseOptions

@@ -82,10 +82,12 @@ async function fileSha512(filePath) {
   return hash.digest('base64')
 }
 
-function parseArguments(argv) {
+export function parseArguments(argv) {
   const options = { notes: undefined, verifyOnly: false, dryRun: false, repo: undefined }
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index]
+    // `pnpm run release:complete -- --verify-only` forwards the separator itself.
+    if (flag === '--') continue
     if (flag === '--verify-only') options.verifyOnly = true
     else if (flag === '--dry-run') options.dryRun = true
     else if (flag === '--notes') options.notes = argv[(index += 1)]
