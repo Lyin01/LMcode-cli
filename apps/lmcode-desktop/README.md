@@ -2,6 +2,10 @@
 
 LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 Agent，会话、目标、审批、MCP、记忆和后台任务与 CLI/TUI 使用同一套核心能力。
 
+## 0.9.1
+
+流式重试修复：模型网关在流式响应中途报错时，回合不再第一次就失败。此前网关（如 OpenCode Go）推送 `Streaming response failed: [500] EngineCore encountered an issue...` 这类错误事件时，OpenAI SDK 会把错误体包装成不带状态码的 `APIError`，客户端把它归为通用错误——即使消息里明确带着 `[500]`，也会被判为「不可重试」，三次尝试里的重试从不发生，回合直接以「回合失败」结束。现在错误体里的 `status` / `status_code` / `http_status` 等字段、数值型 `code`，以及消息中的 `[500]`、`HTTP 503`、`status code 502`、`error code 504` 形式都会作为显式状态码被识别（限定 400–599），按状态错误归类：429 / 500 / 502 / 503 / 504 进入既有重试策略（指数退避、尊重 `Retry-After`，限流最长退避 1 分钟），4xx 与未携带显式状态码的错误保持不重试。该修复覆盖所有 OpenAI 兼容路由（Chat Completions 与 Responses）及 LMCODE 自有网关。
+
 ## 0.9.0
 
 计算机操作（Computer Use）：模型现在可以观察并操作用户的真实桌面。设置 → 通用设置新增计算机操作卡片，显示驱动是否已安装、版本、连接状态与工具数量，并提供带二次确认的一键安装（执行 Cua Driver 官方脚本，且不注册随登录自启的计划任务）；权限模式在驱动启动时固定（standard / bounded / unrestricted）。能力本身不含任何操作——工具目录、参数与平台限制都属于提供方（Cua Driver，通过 stdio MCP 提供 57 个工具，Windows x64/arm64、macOS、Linux），LMCODE 侧只负责**独占注册**（一个会话同时只能有一个提供方，第二次注册失败）、配置、状态与模型可见的操作契约。

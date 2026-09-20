@@ -102,6 +102,55 @@ function classifyBaseApiError(message: string): ChatProviderError {
   return new ChatProviderError(`Error: ${message}`);
 }
 
+// Statuses outside the HTTP error range are never treated as a status hint:
+// an error body or message carrying such a number means something else
+// (e.g. a token count).
+const STATUS_HINT_MIN = 400;
+const STATUS_HINT_MAX = 599;
+
+// Error-body fields gateways commonly use to report the HTTP status.
+const STATUS_HINT_BODY_KEYS = [
+  'status',
+  'status_code',
+  'statusCode',
+  'http_status',
+  'httpStatus',
+] as const;
+
+// Explicit HTTP status in an error message: `[500]`, `HTTP 503`,
+// `status code 502`, `error code 504`.
+const STATUS_HINT_MESSAGE_RE =
+  /\[(\d{3})\]|\bHTTP[\s/]?(\d{3})\b|\bstatus(?:\s*code)?[\s:=]+(\d{3})\b|\berror\s*code[\s:=]+(\d{3})\b/i;
+
+function toStatusHint(value: unknown): number | undefined {
+  let parsed: number | undefined;
+  if (typeof value === 'number') {
+    parsed = value;
+  } else if (typeof value === 'string' && /^\d{3}$/.test(value.trim())) {
+    parsed = Number(value.trim());
+  }
+  if (parsed === undefined || !Number.isInteger(parsed)) return undefined;
+  return parsed >= STATUS_HINT_MIN && parsed <= STATUS_HINT_MAX ? parsed : undefined;
+}
+
+function statusHintFromBody(body: unknown): number | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const record = body as Record<string, unknown>;
+  for (const key of STATUS_HINT_BODY_KEYS) {
+    const status = toStatusHint(record[key]);
+    if (status !== undefined) return status;
+  }
+  // Some gateways report the HTTP status as a numeric `code`; string codes
+  // such as `invalid_api_key` are ignored.
+  return toStatusHint(record['code']);
+}
+
+function statusHintFromMessage(message: string): number | undefined {
+  const match = STATUS_HINT_MESSAGE_RE.exec(message);
+  if (match === null) return undefined;
+  return toStatusHint(match[1] ?? match[2] ?? match[3] ?? match[4]);
+}
+
 /**
  * Convert an OpenAI SDK error (or raw Error) to a liumir `ChatProviderError`.
  */
@@ -121,6 +170,19 @@ export function convertOpenAIError(error: unknown): ChatProviderError {
     const reqId = error.requestID ?? null;
     const retryAfterMs = parseRetryAfterMs(error.headers);
     return normalizeAPIStatusError(error.status, error.message, reqId, { retryAfterMs });
+  }
+  // APIError without a numeric status but carrying an explicit status hint
+  // => status error. SSE error events land here: the SDK wraps the error
+  // body (e.g. `Streaming response failed: [500] ...`) without a status, so
+  // transient upstream engine crashes would otherwise be non-retryable and
+  // fail the turn on the first attempt.
+  if (error instanceof OpenAIAPIError) {
+    const hintedStatus = statusHintFromBody(error.error) ?? statusHintFromMessage(error.message);
+    if (hintedStatus !== undefined) {
+      const reqId = error.requestID ?? null;
+      const retryAfterMs = parseRetryAfterMs(error.headers);
+      return normalizeAPIStatusError(hintedStatus, error.message, reqId, { retryAfterMs });
+    }
   }
   // Base APIError with no status and no body => transport-layer failure.
   // When the error has a body (e.g. SSE error events from the server),

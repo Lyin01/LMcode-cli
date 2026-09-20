@@ -273,6 +273,121 @@ describe('OpenAI streaming: undici terminated mid-stream', () => {
     expect(isRetryableGenerateError(caught)).toBe(true);
   });
 });
+describe('convertOpenAIError: explicit status hints on SSE error events', () => {
+  it('classifies a bracketed [500] engine error as a retryable status error', () => {
+    // Real-world case: the gateway aborts the stream with an error event
+    // whose message embeds the upstream HTTP status —
+    // "Streaming response failed: [500] EngineCore encountered an issue...".
+    const message =
+      'Streaming response failed: [500] EngineCore encountered an issue. See stack trace (above) for the root cause.';
+    const err = new OpenAIAPIError(
+      undefined,
+      { message, type: 'server_error' },
+      undefined,
+      undefined,
+    );
+
+    const result = convertOpenAIError(err);
+
+    expect(result).toBeInstanceOf(APIStatusError);
+    expect((result as APIStatusError).statusCode).toBe(500);
+    expect(isRetryableGenerateError(result)).toBe(true);
+  });
+
+  it('uses a numeric code from the error body as the status', () => {
+    const err = new OpenAIAPIError(
+      undefined,
+      { code: 429, message: 'Rate limit exceeded' },
+      undefined,
+      undefined,
+    );
+
+    const result = convertOpenAIError(err);
+
+    expect(result).toBeInstanceOf(APIStatusError);
+    expect((result as APIStatusError).statusCode).toBe(429);
+    expect(isRetryableGenerateError(result)).toBe(true);
+  });
+
+  it('uses a structured status field from the error body', () => {
+    const err = new OpenAIAPIError(
+      undefined,
+      { status: 503, message: 'Upstream engine unavailable' },
+      undefined,
+      undefined,
+    );
+
+    const result = convertOpenAIError(err);
+
+    expect((result as APIStatusError).statusCode).toBe(503);
+    expect(isRetryableGenerateError(result)).toBe(true);
+  });
+
+  it('reads an "HTTP 502" form from the message', () => {
+    const err = new OpenAIAPIError(
+      undefined,
+      { message: 'HTTP 502 Bad Gateway from upstream' },
+      undefined,
+      undefined,
+    );
+
+    const result = convertOpenAIError(err);
+
+    expect((result as APIStatusError).statusCode).toBe(502);
+    expect(isRetryableGenerateError(result)).toBe(true);
+  });
+
+  it('does not invent a status from unrelated numbers', () => {
+    // "[8192]" is a token count, not an HTTP status; a server error body
+    // without a status hint must stay a generic non-retryable error.
+    const err = new OpenAIAPIError(
+      undefined,
+      { message: 'prompt context [8192] tokens rejected', type: 'server_error' },
+      undefined,
+      undefined,
+    );
+
+    const result = convertOpenAIError(err);
+
+    expect(result.constructor).toBe(ChatProviderError);
+    expect(isRetryableGenerateError(result)).toBe(false);
+  });
+});
+describe('OpenAI streaming: SSE error event carrying [500]', () => {
+  it('rejects with a retryable APIStatusError so the loop retries', async () => {
+    // Simulates the real-world failure: the gateway sends an SSE error event
+    // mid-stream and the SDK raises APIError(undefined, body). The provider
+    // must surface a retryable status error instead of failing the turn.
+    const body = {
+      message:
+        'Streaming response failed: [500] EngineCore encountered an issue. See stack trace (above) for the root cause.',
+      type: 'server_error',
+    };
+    async function* engineCrashStream(): AsyncGenerator<never> {
+      throw new OpenAIAPIError(undefined, body, undefined, undefined);
+      yield undefined as never;
+    }
+
+    const msg = new OpenAILegacyStreamedMessage(
+      engineCrashStream() as AsyncIterable<never>,
+      true,
+      undefined,
+    );
+
+    let caught: unknown;
+    try {
+      for await (const _ of msg) {
+        void _;
+      }
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(APIStatusError);
+    expect((caught as APIStatusError).statusCode).toBe(500);
+    expect(isRetryableGenerateError(caught)).toBe(true);
+  });
+});
 describe('convertContentPart', () => {
   it('converts TextPart to OpenAI text content part', () => {
     expect(convertContentPart({ type: 'text', text: 'hi' })).toEqual({
