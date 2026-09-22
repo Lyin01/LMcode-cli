@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildCommandCodeUsageDisplay,
   buildOpenCodeUsageDisplay,
   buildProviderUsageDisplay,
   remainingQuotaPercent,
@@ -83,5 +84,82 @@ describe('provider usage footer formatting', () => {
       ],
       issue: null,
     })
+  })
+
+  it('projects Command Code windows as USD remaining meters', () => {
+    const snapshot: ProviderUsageSnapshot = {
+      apiBalances: [],
+      subscriptions: [{
+        providerId: 'command-code',
+        summary: { name: '5小时', used: 0.75, limit: 3, resetAt: '2026-08-16T20:00:00Z' },
+        limits: [
+          { name: '每月', used: 62, limit: 70 },
+          { name: '每周', used: 1.5, limit: 15 },
+        ],
+        extraUsage: null,
+      }],
+      issues: [],
+      fetchedAt: 1,
+    }
+
+    expect(buildCommandCodeUsageDisplay(snapshot)).toEqual({
+      providerId: 'command-code',
+      meters: [
+        {
+          label: '5小时',
+          remainingPercent: 75,
+          remaining: 2.25,
+          limit: 3,
+          resetAt: '2026-08-16T20:00:00Z',
+          money: true,
+        },
+        { label: '每周', remainingPercent: 90, remaining: 13.5, limit: 15, money: true },
+        { label: '每月', remainingPercent: 11, remaining: 8, limit: 70, money: true },
+      ],
+      issue: null,
+    })
+  })
+
+  it('keeps Command Code and OpenCode lanes apart when both are configured', () => {
+    const snapshot: ProviderUsageSnapshot = {
+      apiBalances: [],
+      subscriptions: [
+        {
+          providerId: 'opencode-go',
+          summary: { name: '滚动', used: 38, limit: 100 },
+          limits: [{ name: '每月', used: 11, limit: 100 }],
+          extraUsage: null,
+        },
+        {
+          providerId: 'command-code',
+          summary: { name: '5小时', used: 0.75, limit: 3 },
+          limits: [{ name: '每周', used: 1.5, limit: 15 }],
+          extraUsage: null,
+        },
+      ],
+      issues: [],
+      fetchedAt: 1,
+    }
+
+    expect(buildCommandCodeUsageDisplay(snapshot)?.providerId).toBe('command-code')
+    expect(buildCommandCodeUsageDisplay(snapshot)?.meters.map((meter) => meter.label)).toEqual(['5小时', '每周'])
+    expect(buildOpenCodeUsageDisplay(snapshot)?.providerId).toBe('opencode-go')
+    expect(buildOpenCodeUsageDisplay(snapshot)?.meters.map((meter) => meter.label)).toEqual(['滚动', '每月'])
+  })
+
+  it('reports Command Code issues without borrowing the OpenCode lane', () => {
+    const snapshot: ProviderUsageSnapshot = {
+      apiBalances: [],
+      subscriptions: [],
+      issues: [{ providerId: 'command-code', kind: 'command-code', message: 'HTTP 401' }],
+      fetchedAt: 1,
+    }
+
+    expect(buildCommandCodeUsageDisplay(snapshot)).toEqual({
+      providerId: 'command-code',
+      meters: [],
+      issue: 'HTTP 401',
+    })
+    expect(buildOpenCodeUsageDisplay(snapshot)).toBeNull()
   })
 })

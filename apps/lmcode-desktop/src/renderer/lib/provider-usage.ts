@@ -1,5 +1,7 @@
 import type {
   ProviderMoneyBalance,
+  ProviderSubscriptionQuota,
+  ProviderUsageKind,
   ProviderUsageSnapshot,
   SubscriptionQuotaRow,
   SubscriptionQuotaWindow,
@@ -14,22 +16,33 @@ export interface ProviderUsageDisplay {
   readonly subscriptionHasIssues: boolean
 }
 
-export interface OpenCodeQuotaMeter {
+export interface QuotaMeter {
   readonly label: string
   readonly remainingPercent: number | null
   readonly remaining: number
   readonly limit: number
   readonly resetAt?: string
+  /** 剩余/上限是美元金额（如 Command Code 的滚动窗口），而不是百分比计数。 */
+  readonly money?: boolean
 }
 
-export interface OpenCodeUsageDisplay {
+export interface QuotaUsageDisplay {
   readonly providerId: string
-  readonly meters: readonly OpenCodeQuotaMeter[]
+  readonly meters: readonly QuotaMeter[]
   readonly issue: string | null
+}
+
+interface QuotaDisplaySelector {
+  readonly issueKinds: readonly ProviderUsageKind[]
+  readonly providerPattern: RegExp
+  readonly windowLabels: ReadonlySet<string>
+  readonly money: boolean
 }
 
 const OPENCODE_PROVIDER_PATTERN = /open[\s_-]?code/i
 const OPENCODE_WINDOW_LABELS = new Set(['滚动', '每周', '每月'])
+const COMMANDCODE_PROVIDER_PATTERN = /command[\s_-]?code/i
+const COMMANDCODE_WINDOW_LABELS = new Set(['5小时', '每周', '每月'])
 
 export function remainingQuotaPercent(row: SubscriptionQuotaRow): number | null {
   if (row.limit <= 0) return null
@@ -106,19 +119,43 @@ export function buildProviderUsageDisplay(
 
 export function buildOpenCodeUsageDisplay(
   snapshot: ProviderUsageSnapshot,
-): OpenCodeUsageDisplay | null {
+): QuotaUsageDisplay | null {
+  return buildQuotaUsageDisplay(snapshot, {
+    issueKinds: ['opencode-go'],
+    providerPattern: OPENCODE_PROVIDER_PATTERN,
+    windowLabels: OPENCODE_WINDOW_LABELS,
+    money: false,
+  })
+}
+
+/** Command Code 的滚动窗口以美元额度计量，展示方式与 OpenCode Go 一致。 */
+export function buildCommandCodeUsageDisplay(
+  snapshot: ProviderUsageSnapshot,
+): QuotaUsageDisplay | null {
+  return buildQuotaUsageDisplay(snapshot, {
+    issueKinds: ['command-code'],
+    providerPattern: COMMANDCODE_PROVIDER_PATTERN,
+    windowLabels: COMMANDCODE_WINDOW_LABELS,
+    money: true,
+  })
+}
+
+function buildQuotaUsageDisplay(
+  snapshot: ProviderUsageSnapshot,
+  selector: QuotaDisplaySelector,
+): QuotaUsageDisplay | null {
   const issue = snapshot.issues.find(
     (candidate) =>
-      candidate.kind === 'opencode-go' || OPENCODE_PROVIDER_PATTERN.test(candidate.providerId),
+      selector.issueKinds.includes(candidate.kind) ||
+      selector.providerPattern.test(candidate.providerId),
   )
   const subscription = snapshot.subscriptions.find((candidate) =>
-    OPENCODE_PROVIDER_PATTERN.test(candidate.providerId),
-  ) ?? snapshot.subscriptions.find((candidate) => {
-    const rows = candidate.summary === null
-      ? candidate.limits
-      : [candidate.summary, ...candidate.limits]
-    return rows.some((row) => row.name !== undefined && OPENCODE_WINDOW_LABELS.has(row.name))
-  })
+    selector.providerPattern.test(candidate.providerId),
+  ) ?? snapshot.subscriptions.find((candidate) =>
+    subscriptionRows(candidate).some(
+      (row) => row.name !== undefined && selector.windowLabels.has(row.name),
+    ),
+  )
 
   if (subscription === undefined) {
     return issue === undefined
@@ -126,24 +163,30 @@ export function buildOpenCodeUsageDisplay(
       : { providerId: issue.providerId, meters: [], issue: issue.message }
   }
 
-  const rows = subscription.summary === null
-    ? subscription.limits
-    : [subscription.summary, ...subscription.limits]
-  const meters = rows
-    .map((row): OpenCodeQuotaMeter => ({
+  const meters = subscriptionRows(subscription)
+    .map((row): QuotaMeter => ({
       label: row.name?.trim() || quotaWindowLabel(row.window, undefined).trim(),
       remainingPercent: remainingQuotaPercent(row),
       remaining: Math.max(0, row.limit - row.used),
       limit: row.limit,
       resetAt: row.resetAt,
+      money: selector.money ? true : undefined,
     }))
-    .toSorted((left, right) => openCodeWindowOrder(left.label) - openCodeWindowOrder(right.label))
+    .toSorted((left, right) => quotaWindowOrder(left.label) - quotaWindowOrder(right.label))
 
   return {
     providerId: subscription.providerId,
     meters,
     issue: issue?.message ?? null,
   }
+}
+
+function subscriptionRows(
+  subscription: ProviderSubscriptionQuota,
+): readonly SubscriptionQuotaRow[] {
+  return subscription.summary === null
+    ? subscription.limits
+    : [subscription.summary, ...subscription.limits]
 }
 
 function statusText(
@@ -167,9 +210,10 @@ function formatQuotaDetail(providerId: string, row: SubscriptionQuotaRow): strin
   return `${providerId} ${quotaWindowLabel(row.window, row.name)}：剩余 ${String(remaining)} / ${String(row.limit)}${reset}`
 }
 
-function openCodeWindowOrder(label: string): number {
+function quotaWindowOrder(label: string): number {
   switch (label) {
     case '滚动':
+    case '5小时':
       return 0
     case '每周':
       return 1

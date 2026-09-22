@@ -1,4 +1,4 @@
-export type ProviderUsageKind = 'api-balance' | 'subscription-quota' | 'opencode-go'
+export type ProviderUsageKind = 'api-balance' | 'subscription-quota' | 'opencode-go' | 'command-code'
 
 export interface ProviderMoneyBalance {
   readonly currency: string

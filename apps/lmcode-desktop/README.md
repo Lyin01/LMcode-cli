@@ -2,6 +2,10 @@
 
 LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 Agent，会话、目标、审批、MCP、记忆和后台任务与 CLI/TUI 使用同一套核心能力。
 
+## 0.9.2
+
+底部订阅额度新增 Command Code：Footer 现在按已配置的 provider 同时展示 Command Code 的 5 小时与每周滚动窗口（剩余百分比、金额、重置时间）以及按套餐档位折算的每月额度（Go / GOAT / Pro / Max / Ultra）。数据来自 Command Code 的 alpha 账单接口（`api.commandcode.ai/alpha/billing/credits` 与 `/subscriptions`，官方未公开文档），用设置里配置的同一个 API Key 鉴权——provider 的 baseUrl 指向 `https://api.commandcode.ai/provider/v1` 时自动启用，与 OpenCode Go、Kimi Code、DeepSeek / Moonshot 余额并排显示。滚动窗口以美元额度计量，悬停提示按金额显示（例如「剩余 $2.25 / $3.00」）。套餐档位查不到时只隐藏每月一行——宁可不显示，也不把「未知总额」画成「未使用」；5 小时 / 每周窗口不受影响，接口改版也只会把该分组标记为查询失败，不影响其他额度行。API Key 不会进入渲染层数据。
+
 ## 0.9.1
 
 流式重试修复：模型网关在流式响应中途报错时，回合不再第一次就失败。此前网关（如 OpenCode Go）推送 `Streaming response failed: [500] EngineCore encountered an issue...` 这类错误事件时，OpenAI SDK 会把错误体包装成不带状态码的 `APIError`，客户端把它归为通用错误——即使消息里明确带着 `[500]`，也会被判为「不可重试」，三次尝试里的重试从不发生，回合直接以「回合失败」结束。现在错误体里的 `status` / `status_code` / `http_status` 等字段、数值型 `code`，以及消息中的 `[500]`、`HTTP 503`、`status code 502`、`error code 504` 形式都会作为显式状态码被识别（限定 400–599），按状态错误归类：429 / 500 / 502 / 503 / 504 进入既有重试策略（指数退避、尊重 `Retry-After`，限流最长退避 1 分钟），4xx 与未携带显式状态码的错误保持不重试。该修复覆盖所有 OpenAI 兼容路由（Chat Completions 与 Responses）及 LMCODE 自有网关。

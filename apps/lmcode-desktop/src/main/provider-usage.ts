@@ -17,6 +17,9 @@ const DEEPSEEK_HOST = 'api.deepseek.com'
 const MOONSHOT_HOSTS = new Set(['api.moonshot.cn', 'api.moonshot.ai'])
 const OPENCODE_GO_HOST = 'opencode.ai'
 const OPENCODE_GO_USAGE_PATH = '/zen/go/v1/usage'
+const COMMANDCODE_HOST = 'api.commandcode.ai'
+const COMMANDCODE_CREDITS_PATH = '/alpha/billing/credits'
+const COMMANDCODE_SUBSCRIPTIONS_PATH = '/alpha/billing/subscriptions'
 
 export interface ProviderUsageServiceOptions {
   readonly loadConfig: () => Promise<LmcodeConfig>
@@ -55,7 +58,15 @@ interface OpenCodeGoTarget {
   readonly apiKey: string
 }
 
-type ProviderUsageTarget = ApiBalanceTarget | SubscriptionTarget | OpenCodeGoTarget
+interface CommandCodeTarget {
+  readonly kind: 'command-code'
+  readonly providerId: string
+  readonly url: string
+  readonly subscriptionsUrl: string
+  readonly apiKey: string
+}
+
+type ProviderUsageTarget = ApiBalanceTarget | SubscriptionTarget | OpenCodeGoTarget | CommandCodeTarget
 
 type ProviderUsageTargetResult =
   | { readonly kind: 'api-balance'; readonly value: ProviderApiBalance }
@@ -190,6 +201,14 @@ function discoverUsageTargets(config: LmcodeConfig): {
       targets.push({ kind: endpoint.kind, providerId, url: endpoint.url, apiKey })
     } else if (endpoint.kind === 'opencode-go') {
       targets.push({ kind: endpoint.kind, providerId, url: endpoint.url, apiKey })
+    } else if (endpoint.kind === 'command-code') {
+      targets.push({
+        kind: endpoint.kind,
+        providerId,
+        url: endpoint.url,
+        subscriptionsUrl: endpoint.subscriptionsUrl,
+        apiKey,
+      })
     } else {
       targets.push({
         kind: endpoint.kind,
@@ -230,6 +249,7 @@ function usageEndpoint(baseUrl: string):
     }
   | { readonly kind: 'subscription-quota'; readonly url: string }
   | { readonly kind: 'opencode-go'; readonly url: string }
+  | { readonly kind: 'command-code'; readonly url: string; readonly subscriptionsUrl: string }
   | null {
   let url: URL
   try {
@@ -269,6 +289,13 @@ function usageEndpoint(baseUrl: string):
       url: `${url.origin}${OPENCODE_GO_USAGE_PATH}`,
     }
   }
+  if (hostname === COMMANDCODE_HOST && (path === '/provider' || path === '/provider/v1')) {
+    return {
+      kind: 'command-code',
+      url: `${url.origin}${COMMANDCODE_CREDITS_PATH}`,
+      subscriptionsUrl: `${url.origin}${COMMANDCODE_SUBSCRIPTIONS_PATH}`,
+    }
+  }
   return null
 }
 
@@ -300,58 +327,40 @@ async function queryUsageTarget(
   fetchImpl: typeof fetch,
   timeoutMs: number,
 ): Promise<ProviderUsageTargetResult> {
-  const controller = new AbortController()
-  const timer: NodeJS.Timeout = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const response = await fetchImpl(target.url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${target.apiKey}`,
-      },
-      redirect: 'error',
-      signal: controller.signal,
-    })
-    if (!response.ok) {
-      return usageError(target, `HTTP ${String(response.status)}`)
+  if (target.kind === 'command-code') {
+    return queryCommandCodeUsage(target, fetchImpl, timeoutMs)
+  }
+  const outcome = await fetchJson(fetchImpl, target.url, target.apiKey, timeoutMs)
+  if (!outcome.ok) return usageError(target, outcome.message)
+  const payload = outcome.payload
+  if (target.kind === 'subscription-quota') {
+    const parsed = parseSubscriptionUsagePayload(payload)
+    if (parsed.summary === null && parsed.limits.length === 0 && parsed.extraUsage === null) {
+      return usageError(target, '服务返回了无法识别的额度数据')
     }
-    const payload: unknown = await response.json()
-    if (target.kind === 'subscription-quota') {
-      const parsed = parseSubscriptionUsagePayload(payload)
-      if (parsed.summary === null && parsed.limits.length === 0 && parsed.extraUsage === null) {
-        return usageError(target, '服务返回了无法识别的额度数据')
-      }
-      return {
-        kind: target.kind,
-        value: { providerId: target.providerId, ...parsed },
-      }
-    }
-    if (target.kind === 'opencode-go') {
-      const parsed = parseOpenCodeGoUsagePayload(payload)
-      if (parsed === null) {
-        return usageError(target, 'OpenCode Go 返回了无法识别的用量数据')
-      }
-      return {
-        kind: 'subscription-quota',
-        value: { providerId: target.providerId, ...parsed },
-      }
-    }
-
-    const balances = target.service === 'deepseek'
-      ? parseDeepSeekBalancePayload(payload)
-      : parseMoonshotBalancePayload(payload, target.currencyHint ?? 'USD')
-    if (balances.length === 0) return usageError(target, '服务返回了无法识别的余额数据')
     return {
       kind: target.kind,
-      value: { providerId: target.providerId, balances },
+      value: { providerId: target.providerId, ...parsed },
     }
-  } catch (error) {
-    const message = error instanceof Error && error.name === 'AbortError'
-      ? '请求超时'
-      : '网络请求失败'
-    return usageError(target, message)
-  } finally {
-    clearTimeout(timer)
+  }
+  if (target.kind === 'opencode-go') {
+    const parsed = parseOpenCodeGoUsagePayload(payload)
+    if (parsed === null) {
+      return usageError(target, 'OpenCode Go 返回了无法识别的用量数据')
+    }
+    return {
+      kind: 'subscription-quota',
+      value: { providerId: target.providerId, ...parsed },
+    }
+  }
+
+  const balances = target.service === 'deepseek'
+    ? parseDeepSeekBalancePayload(payload)
+    : parseMoonshotBalancePayload(payload, target.currencyHint ?? 'USD')
+  if (balances.length === 0) return usageError(target, '服务返回了无法识别的余额数据')
+  return {
+    kind: target.kind,
+    value: { providerId: target.providerId, balances },
   }
 }
 
@@ -362,6 +371,67 @@ function usageError(
   return {
     kind: 'error',
     issue: { providerId: target.providerId, kind: target.kind, message },
+  }
+}
+
+type JsonFetchOutcome =
+  | { readonly ok: true; readonly payload: unknown }
+  | { readonly ok: false; readonly message: string }
+
+async function fetchJson(
+  fetchImpl: typeof fetch,
+  url: string,
+  apiKey: string,
+  timeoutMs: number,
+  extraHeaders: Readonly<Record<string, string>> = {},
+): Promise<JsonFetchOutcome> {
+  const controller = new AbortController()
+  const timer: NodeJS.Timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetchImpl(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        ...extraHeaders,
+      },
+      redirect: 'error',
+      signal: controller.signal,
+    })
+    if (!response.ok) return { ok: false, message: `HTTP ${String(response.status)}` }
+    return { ok: true, payload: await response.json() }
+  } catch (error) {
+    const message = error instanceof Error && error.name === 'AbortError'
+      ? '请求超时'
+      : '网络请求失败'
+    return { ok: false, message }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Command Code 用量走自己的账单接口：额度行是必需数据，套餐档位只用于折算每月额度。 */
+async function queryCommandCodeUsage(
+  target: CommandCodeTarget,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<ProviderUsageTargetResult> {
+  const extraHeaders = { 'x-api-key': target.apiKey }
+  const [credits, subscription] = await Promise.all([
+    fetchJson(fetchImpl, target.url, target.apiKey, timeoutMs, extraHeaders),
+    fetchJson(fetchImpl, target.subscriptionsUrl, target.apiKey, timeoutMs, extraHeaders),
+  ])
+  if (!credits.ok) return usageError(target, credits.message)
+  const parsed = parseCommandCodeUsagePayload(
+    credits.payload,
+    subscription.ok ? subscription.payload : null,
+  )
+  if (parsed === null) {
+    return usageError(target, 'Command Code 返回了无法识别的额度数据')
+  }
+  return {
+    kind: 'subscription-quota',
+    value: { providerId: target.providerId, ...parsed },
   }
 }
 
@@ -389,6 +459,91 @@ const OPENCODE_GO_USAGE_WINDOWS = [
   { key: 'weekly', label: '每周' },
   { key: 'monthly', label: '每月' },
 ] as const
+
+/**
+ * Command Code 账单接口返回的是**剩余** `monthlyCredits`，不是套餐总额；
+ * 月额度按公开定价页的套餐档位（planId → 每月额度，美元）折算。
+ */
+const COMMAND_CODE_PLANS = [
+  { id: 'individual-go', monthlyCredits: 10 },
+  { id: 'individual-goat', monthlyCredits: 70 },
+  { id: 'individual-pro', monthlyCredits: 30 },
+  { id: 'individual-pro-v1', monthlyCredits: 80 },
+  { id: 'individual-max', monthlyCredits: 150 },
+  { id: 'individual-ultra', monthlyCredits: 300 },
+] as const
+
+export function parseCommandCodeUsagePayload(
+  creditsPayload: unknown,
+  subscriptionsPayload: unknown,
+): ParsedSubscriptionUsage | null {
+  if (!isRecord(creditsPayload)) return null
+  const windowLimits = creditsPayload['windowLimits']
+  const limits: Record<string, unknown> = isRecord(windowLimits) ? windowLimits : {}
+  const rows: SubscriptionQuotaRow[] = []
+  const fiveHour = commandCodeWindowRow('5小时', limits['fiveHour'])
+  if (fiveHour !== null) rows.push(fiveHour)
+  const weekly = commandCodeWindowRow('每周', limits['weekly'])
+  if (weekly !== null) rows.push(weekly)
+  const monthly = commandCodeMonthlyRow(creditsPayload, subscriptionsPayload)
+  if (monthly !== null) rows.push(monthly)
+  if (rows.length === 0) return null
+  const [summary, ...rest] = rows
+  return { summary: summary ?? null, limits: rest, extraUsage: null }
+}
+
+function commandCodeWindowRow(name: string, raw: unknown): SubscriptionQuotaRow | null {
+  if (!isRecord(raw)) return null
+  const limit = finiteNumber(raw['cap'])
+  if (limit === null || limit <= 0) return null
+  return {
+    name,
+    used: Math.max(0, finiteNumber(raw['used']) ?? 0),
+    limit,
+    resetAt: isoTimestamp(raw['resetAt']),
+  }
+}
+
+/** 套餐未知时宁可不显示每月行，也不把「未知总额」画成「未使用」。 */
+function commandCodeMonthlyRow(
+  creditsPayload: Record<string, unknown>,
+  subscriptionsPayload: unknown,
+): SubscriptionQuotaRow | null {
+  const credits = creditsPayload['credits']
+  if (!isRecord(credits)) return null
+  const remaining = finiteNumber(credits['monthlyCredits'])
+  if (remaining === null) return null
+  const subscription = commandCodeSubscription(subscriptionsPayload)
+  if (subscription === null) return null
+  const plan = COMMAND_CODE_PLANS.find((candidate) => candidate.id === subscription.planId)
+  if (plan === undefined) return null
+  return {
+    name: '每月',
+    used: Math.max(0, plan.monthlyCredits - Math.max(0, remaining)),
+    limit: plan.monthlyCredits,
+    resetAt: subscription.currentPeriodEnd,
+  }
+}
+
+function commandCodeSubscription(
+  payload: unknown,
+): { readonly planId: string; readonly currentPeriodEnd: string | undefined } | null {
+  if (!isRecord(payload) || payload['success'] !== true) return null
+  const data = payload['data']
+  if (!isRecord(data)) return null
+  const planId = text(data['planId'])?.toLowerCase()
+  if (planId === undefined) return null
+  return { planId, currentPeriodEnd: isoTimestamp(data['currentPeriodEnd']) }
+}
+
+/** 账单接口的重置时间是 epoch 毫秒，快照其余部分按 ISO 字符串处理。 */
+function isoTimestamp(raw: unknown): string | undefined {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+    const date = new Date(raw > 10_000_000_000 ? raw : raw * 1000)
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
+  }
+  return text(raw)
+}
 
 export function parseDeepSeekBalancePayload(payload: unknown): ProviderMoneyBalance[] {
   if (!isRecord(payload) || !Array.isArray(payload['balance_infos'])) return []

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { LmcodeConfig } from '@lmcode-cli/lmcode-sdk'
 import {
   fetchConfiguredProviderUsage,
+  parseCommandCodeUsagePayload,
   parseMoonshotBalancePayload,
   parseOpenCodeGoUsagePayload,
   parseSubscriptionUsagePayload,
@@ -204,5 +205,122 @@ describe('desktop provider usage', () => {
     expect(parseOpenCodeGoUsagePayload({ usage: { rolling: { status: 'ok' } } })).toBeNull()
     expect(parseOpenCodeGoUsagePayload({ usage: { rolling: { status: 'ok', percent: 5, resetsAt: 'not-a-date' } } })).toBeNull()
     expect(parseOpenCodeGoUsagePayload(null)).toBeNull()
+  })
+
+  it('queries Command Code billing with the provider key and sizes the monthly grant', async () => {
+    const config: LmcodeConfig = {
+      defaultProvider: 'command-code',
+      providers: {
+        'command-code': {
+          type: 'openai',
+          baseUrl: 'https://api.commandcode.ai/provider/v1',
+          apiKey: 'cmd-secret',
+        },
+      },
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = requestUrl(input)
+      if (url === 'https://api.commandcode.ai/alpha/billing/credits') {
+        return jsonResponse({
+          credits: { monthlyCredits: 8.7784, purchasedCredits: 0 },
+          windowLimits: {
+            fiveHour: { cap: 3, used: 0.75, resetAt: 1_780_000_000_000 },
+            weekly: { cap: 15, used: 1.5, resetAt: 1_780_100_000_000 },
+          },
+        })
+      }
+      if (url === 'https://api.commandcode.ai/alpha/billing/subscriptions') {
+        return jsonResponse({
+          success: true,
+          data: {
+            status: 'active',
+            planId: 'individual-goat',
+            currentPeriodEnd: '2026-08-23T18:08:48.000Z',
+          },
+        })
+      }
+      return jsonResponse({ message: 'unexpected endpoint' }, 404)
+    })
+
+    const snapshot = await fetchConfiguredProviderUsage(config, {
+      fetchImpl: fetchMock,
+      now: () => 1234,
+    })
+
+    expect(fetchMock.mock.calls.map(([input]) => requestUrl(input)).toSorted()).toEqual([
+      'https://api.commandcode.ai/alpha/billing/credits',
+      'https://api.commandcode.ai/alpha/billing/subscriptions',
+    ])
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: 'Bearer cmd-secret',
+      'x-api-key': 'cmd-secret',
+    })
+
+    const quota = snapshot.subscriptions[0]
+    expect(quota?.providerId).toBe('command-code')
+    expect(quota?.summary).toMatchObject({ name: '5小时', used: 0.75, limit: 3 })
+    expect(quota?.summary?.resetAt).toBe(new Date(1_780_000_000_000).toISOString())
+    expect(quota?.limits.map((row) => row.name)).toEqual(['每周', '每月'])
+    const monthly = quota?.limits[1]
+    expect(monthly?.limit).toBe(70)
+    expect(monthly?.used).toBeCloseTo(61.2216, 4)
+    expect(monthly?.resetAt).toBe('2026-08-23T18:08:48.000Z')
+    expect(snapshot.issues).toEqual([])
+    expect(JSON.stringify(snapshot)).not.toContain('cmd-secret')
+  })
+
+  it('keeps Command Code window rows when the plan lookup fails', async () => {
+    const config: LmcodeConfig = {
+      providers: {
+        'command-code': {
+          type: 'anthropic',
+          baseUrl: 'https://api.commandcode.ai/provider/v1',
+          apiKey: 'cmd-secret',
+        },
+      },
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      requestUrl(input).endsWith('/alpha/billing/credits')
+        ? jsonResponse({
+          credits: { monthlyCredits: 9.15 },
+          windowLimits: {
+            fiveHour: { cap: 3, used: 0.75, resetAt: 1_780_000_000_000 },
+            weekly: { cap: 6, used: 1.5, resetAt: 1_780_100_000_000 },
+          },
+        })
+        : jsonResponse({ error: 'boom' }, 503),
+    )
+
+    const snapshot = await fetchConfiguredProviderUsage(config, {
+      fetchImpl: fetchMock,
+      now: () => 1,
+    })
+
+    expect(snapshot.issues).toEqual([])
+    const quota = snapshot.subscriptions[0]
+    expect(quota?.providerId).toBe('command-code')
+    expect(quota?.summary).toMatchObject({ name: '5小时' })
+    expect(quota?.limits.map((row) => row.name)).toEqual(['每周'])
+  })
+
+  it('rejects Command Code payloads without usable windows or credits', () => {
+    expect(parseCommandCodeUsagePayload(null, undefined)).toBeNull()
+    expect(parseCommandCodeUsagePayload({ windowLimits: {} }, undefined)).toBeNull()
+    expect(
+      parseCommandCodeUsagePayload({ windowLimits: { fiveHour: { cap: 0, used: 0 } } }, undefined),
+    ).toBeNull()
+    expect(parseCommandCodeUsagePayload({ credits: { monthlyCredits: 8 } }, undefined)).toBeNull()
+    expect(
+      parseCommandCodeUsagePayload(
+        { credits: { monthlyCredits: 8 } },
+        { success: true, data: { planId: 'individual-unknown' } },
+      ),
+    ).toBeNull()
+    expect(
+      parseCommandCodeUsagePayload(
+        { credits: { monthlyCredits: 8 } },
+        { success: true, data: { planId: 'Individual-Go' } },
+      )?.summary,
+    ).toMatchObject({ name: '每月', used: 2, limit: 10 })
   })
 })

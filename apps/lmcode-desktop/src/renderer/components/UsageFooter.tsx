@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Gauge, RefreshCw, WalletCards } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Command, Gauge, RefreshCw, WalletCards } from 'lucide-react'
 import { useSessionStore } from '@/stores/session-store'
 import {
+  buildCommandCodeUsageDisplay,
   buildOpenCodeUsageDisplay,
   buildProviderUsageDisplay,
+  formatMoney,
   formatQuotaResetTime,
-  type OpenCodeQuotaMeter,
+  type QuotaMeter,
+  type QuotaUsageDisplay,
 } from '@/lib/provider-usage'
 import { cn } from '@/lib/utils'
 import type { ProviderUsageSnapshot } from '../../shared/provider-usage-types'
@@ -19,15 +22,21 @@ function quotaFillClass(remainingPercent: number | null): string {
   return 'bg-[var(--lm-accent)]'
 }
 
-function quotaMeterTitle(meter: OpenCodeQuotaMeter): string {
+function quotaMeterTitle(meter: QuotaMeter): string {
   const percent = meter.remainingPercent === null ? '未知' : `${String(meter.remainingPercent)}%`
   const reset = meter.resetAt === undefined
     ? '未提供重置时间'
     : `重置于 ${formatQuotaResetTime(meter.resetAt)}`
-  return `${meter.label}额度：剩余 ${String(meter.remaining)} / ${String(meter.limit)}（${percent}）\n${reset}`
+  const remaining = formatMeterAmount(meter, meter.remaining)
+  const limit = formatMeterAmount(meter, meter.limit)
+  return `${meter.label}额度：剩余 ${remaining} / ${limit}（${percent}）\n${reset}`
 }
 
-function QuotaMeter({ meter }: { readonly meter: OpenCodeQuotaMeter }) {
+function formatMeterAmount(meter: QuotaMeter, value: number): string {
+  return meter.money === true ? formatMoney({ currency: 'USD', available: value }) : String(value)
+}
+
+function QuotaMeter({ meter }: { readonly meter: QuotaMeter }) {
   const percent = meter.remainingPercent
   const title = quotaMeterTitle(meter)
   return (
@@ -61,6 +70,53 @@ function QuotaMeter({ meter }: { readonly meter: OpenCodeQuotaMeter }) {
       >
         {percent === null ? '—' : `${String(percent)}%`}
       </span>
+    </div>
+  )
+}
+
+interface QuotaGroup {
+  readonly id: string
+  readonly title: string
+  readonly icon: ReactNode
+  readonly display: QuotaUsageDisplay
+}
+
+function QuotaGroupHeader({ group, healthy }: { readonly group: QuotaGroup; readonly healthy: boolean }) {
+  const ok = healthy && group.display.issue === null && group.display.meters.length > 0
+  const warning = group.display.issue !== null
+  return (
+    <div className="flex w-[124px] shrink-0 items-center gap-2">
+      {group.icon}
+      <span className="font-semibold text-[var(--lm-text-primary)]">{group.title}</span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'h-1.5 w-1.5 rounded-full',
+          ok
+            ? 'bg-[var(--lm-success)]'
+            : warning
+              ? 'bg-[var(--lm-warning)]'
+              : 'bg-[var(--lm-text-muted)]',
+        )}
+      />
+    </div>
+  )
+}
+
+function QuotaGroupBody({ group }: { readonly group: QuotaGroup }) {
+  const { display } = group
+  if (display.meters.length === 0) {
+    return (
+      <span className={display.issue === null ? undefined : 'text-[var(--lm-warning)]'}>
+        {display.issue === null ? '未返回可显示的额度' : `${group.title} 额度查询失败`}
+      </span>
+    )
+  }
+  return (
+    <div className="grid w-full min-w-0 max-w-[440px] flex-1 grid-cols-3 gap-1">
+      {display.meters.slice(0, 3).map((meter) => (
+        <QuotaMeter key={meter.label} meter={meter} />
+      ))}
     </div>
   )
 }
@@ -117,54 +173,55 @@ export function UsageFooter() {
 
   const display = snapshot === null ? null : buildProviderUsageDisplay(snapshot)
   const openCode = snapshot === null ? null : buildOpenCodeUsageDisplay(snapshot)
+  const commandCode = snapshot === null ? null : buildCommandCodeUsageDisplay(snapshot)
   const title = ipcError === null
     ? display?.title ?? '正在查询账户用量'
     : `刷新失败：${ipcError}${display === null ? '' : `\n${display.title}`}`
-  const healthy =
-    ipcError === null && openCode !== null && openCode.meters.length > 0 && openCode.issue === null
+  const groups: QuotaGroup[] = []
+  if (openCode !== null) {
+    groups.push({
+      id: 'opencode',
+      title: 'OpenCode Go',
+      icon: <Gauge size={13} className="text-[var(--lm-accent-text)]" aria-hidden="true" />,
+      display: openCode,
+    })
+  }
+  if (commandCode !== null) {
+    groups.push({
+      id: 'command-code',
+      title: 'Command Code',
+      icon: <Command size={13} className="text-[var(--lm-accent-text)]" aria-hidden="true" />,
+      display: commandCode,
+    })
+  }
 
   return (
     <footer
       data-lm-global-usage="true"
-      aria-label="OpenCode 订阅额度"
+      aria-label="订阅额度"
       className="relative z-[60] flex h-[var(--lm-global-usage-height)] w-full shrink-0 items-center gap-2 border-t border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)] px-3 text-[10px] text-[var(--lm-text-muted)]"
       title={title}
     >
-      <div className="flex w-[116px] shrink-0 items-center gap-2">
-        <Gauge size={13} className="text-[var(--lm-accent-text)]" aria-hidden="true" />
-        <span className="font-semibold text-[var(--lm-text-primary)]">OpenCode Go</span>
-        <span
-          aria-hidden="true"
-          className={cn(
-            'h-1.5 w-1.5 rounded-full',
-            healthy
-              ? 'bg-[var(--lm-success)]'
-              : openCode?.issue !== null && openCode?.issue !== undefined
-                ? 'bg-[var(--lm-warning)]'
-                : 'bg-[var(--lm-text-muted)]',
-          )}
-        />
-      </div>
-
-      <div className="h-4 w-px shrink-0 bg-[var(--lm-border)]" aria-hidden="true" />
-
-      <div className="flex min-w-0 flex-1 items-center" role="status" aria-live="polite">
+      <div className="flex min-w-0 flex-1 items-center gap-2" role="status" aria-live="polite">
         {snapshot === null ? (
           <span className={ipcError === null ? undefined : 'text-[var(--lm-error)]'}>
             {ipcError === null ? '正在读取订阅额度…' : '额度查询失败'}
           </span>
-        ) : openCode === null ? (
-          <span>未配置 OpenCode Go 订阅</span>
-        ) : openCode.meters.length === 0 ? (
-          <span className={openCode.issue === null ? undefined : 'text-[var(--lm-warning)]'}>
-            {openCode.issue === null ? '未返回可显示的额度' : 'OpenCode 额度查询失败'}
+        ) : groups.length === 0 ? (
+          <span className={ipcError === null ? undefined : 'text-[var(--lm-error)]'}>
+            未配置订阅额度
           </span>
         ) : (
-          <div className="grid w-full max-w-[520px] grid-cols-3 gap-1">
-            {openCode.meters.slice(0, 3).map((meter) => (
-              <QuotaMeter key={meter.label} meter={meter} />
-            ))}
-          </div>
+          groups.map((group, index) => (
+            <div key={group.id} className="flex min-w-0 flex-1 items-center gap-2">
+              {index > 0 && (
+                <span className="h-4 w-px shrink-0 bg-[var(--lm-border)]" aria-hidden="true" />
+              )}
+              <QuotaGroupHeader group={group} healthy={ipcError === null} />
+              <span className="h-4 w-px shrink-0 bg-[var(--lm-border)]" aria-hidden="true" />
+              <QuotaGroupBody group={group} />
+            </div>
+          ))
         )}
       </div>
 
@@ -192,7 +249,7 @@ export function UsageFooter() {
         disabled={loading}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)] disabled:opacity-50"
         title="刷新账户用量"
-        aria-label="刷新 OpenCode 订阅额度"
+        aria-label="刷新订阅额度"
       >
         <RefreshCw size={12} className={loading ? 'lm-spin' : undefined} />
       </button>
