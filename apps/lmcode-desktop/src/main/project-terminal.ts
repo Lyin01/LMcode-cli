@@ -243,6 +243,11 @@ export class ProjectTerminalManager {
   async stop(sessionId: string): Promise<void> {
     const entry = this.terminals.get(sessionId)
     if (!entry) return
+    // Drop the entry before awaiting the termination: a start() landing while
+    // the old tree is still dying must spawn a fresh shell instead of adopting
+    // a shell that is already gone, and a concurrent stop() for the same
+    // session must not signal the same tree twice.
+    this.terminals.delete(sessionId)
     // Terminate the whole process tree — not just the shell — and only
     // resolve after the child truly closed; a tree that survives the forced
     // phase surfaces as an error instead of a silent leak.

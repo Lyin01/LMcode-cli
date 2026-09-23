@@ -14,6 +14,15 @@ const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50
 const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50
 const ZIP64_SENTINEL = 0xffffffff
 const MAX_ENTRY_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+/**
+ * Budget for everything one archive inflates across all `read()` calls. The
+ * per-entry cap alone does not bound the work: the xlsx extractor walks every
+ * sheet part, so an archive can carry a large number of big parts while the
+ * extracted text budget stays empty. Real workbooks keep shared strings,
+ * styles and sheets orders of magnitude below this, so the budget only rejects
+ * that hostile shape.
+ */
+export const MAX_TOTAL_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
 
 interface DirectoryEntry {
   readonly method: number
@@ -77,9 +86,13 @@ function readDirectory(buffer: Buffer, offset: number): Map<string, DirectoryEnt
   return entries
 }
 
-export function openZipArchive(buffer: Buffer): ZipArchive {
+export function openZipArchive(
+  buffer: Buffer,
+  totalUncompressedLimit = MAX_TOTAL_UNCOMPRESSED_BYTES,
+): ZipArchive {
   if (buffer.length < 22) throw new Error('ZIP 归档过小')
   const entries = readDirectory(buffer, findEndOfCentralDirectory(buffer))
+  let totalUncompressedBytes = 0
 
   const read = (name: string): Buffer | null => {
     const entry = entries.get(name)
@@ -102,11 +115,20 @@ export function openZipArchive(buffer: Buffer): ZipArchive {
     if (end > buffer.length) throw new Error('ZIP 条目数据越界')
     const raw = buffer.subarray(start, end)
 
-    if (entry.method === 0) return raw
-    if (entry.method === 8) {
-      return zlib.inflateRawSync(raw, { maxOutputLength: MAX_ENTRY_UNCOMPRESSED_BYTES })
+    let content: Buffer
+    if (entry.method === 0) {
+      content = raw
+    } else if (entry.method === 8) {
+      content = zlib.inflateRawSync(raw, { maxOutputLength: MAX_ENTRY_UNCOMPRESSED_BYTES })
+    } else {
+      throw new Error('不支持的 ZIP 压缩方式')
     }
-    throw new Error('不支持的 ZIP 压缩方式')
+
+    totalUncompressedBytes += content.length
+    if (totalUncompressedBytes > totalUncompressedLimit) {
+      throw new Error('ZIP 累计解压后过大')
+    }
+    return content
   }
 
   return {

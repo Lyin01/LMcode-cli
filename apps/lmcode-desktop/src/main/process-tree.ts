@@ -101,16 +101,20 @@ async function signalProcessTree(
 
   if (options.platform === 'win32') {
     if (typeof child.pid !== 'number') return false
+    // Re-check as late as possible before the helper spawns: taskkill
+    // addresses a PID, and a shell that exited since the caller's check may
+    // already have handed that PID to an unrelated process.
+    if (hasExited(child)) return true
     const killed = await runTaskkill(
       child.pid,
       force,
       options.spawnProcess,
       force ? options.forceTimeoutMs : options.gracefulTimeoutMs,
     )
-    // When taskkill is blocked by system policy, fall back to a direct
-    // SIGKILL on the shell child so at least the parent cannot linger; the
-    // awaited close below then surfaces any leftover descendants as an error
-    // instead of pretending the stop succeeded.
+    // When taskkill is blocked by system policy, fall back to a direct SIGKILL
+    // on the shell child so at least the parent cannot linger. That says
+    // nothing about the descendants: the awaited close below only reflects the
+    // shell, so a surviving descendant is not reported here.
     if (!killed && force && !hasExited(child)) return child.kill('SIGKILL')
     return killed
   }

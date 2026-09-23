@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { deflateRawSync, deflateSync } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
+import { openZipArchive } from '../src/main/document/zip'
 import { buildDesktopPromptInput, readFileAttachment, TEXT_ATTACHMENT_LIMIT_BYTES } from '../src/main/file-attachment'
 import { parseTextAttachmentPart, serializeTextAttachmentPart } from '../src/shared/file-types'
 
@@ -330,6 +331,27 @@ describe('document attachments', () => {
       TEXT_ATTACHMENT_LIMIT_BYTES,
     )
     expect(preview.content.startsWith('## 工作表：大表')).toBe(true)
+  })
+
+  it('caps the cumulative inflated size across archive parts', () => {
+    // The attack shape is a small archive made of large, text-free parts: each
+    // part stays below the per-entry cap while the total inflate work stays
+    // unbounded unless it is budgeted. The injected limit keeps the fixture
+    // cheap — real documents sit far below the 256 MiB default.
+    const part = `<worksheet>${'<row/>'.repeat(33_000)}</worksheet>`
+    const archive = openZipArchive(
+      buildZip([
+        { name: 'xl/worksheets/sheet1.xml', data: part },
+        { name: 'xl/worksheets/sheet2.xml', data: part, store: true },
+        { name: 'xl/worksheets/sheet3.xml', data: part },
+      ]),
+      300_000,
+    )
+
+    expect(archive.read('xl/worksheets/sheet1.xml')?.length).toBe(Buffer.byteLength(part))
+    // The second read crosses the budget, and it is a stored (method 0) part:
+    // both inflate paths count towards the running total.
+    expect(() => archive.read('xl/worksheets/sheet2.xml')).toThrow('累计解压后过大')
   })
 
   it('rejects legacy binary office files with a save-as hint', async () => {

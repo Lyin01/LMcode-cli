@@ -20,6 +20,7 @@ import type { HarnessCloseOptions } from '@lmcode-cli/lmcode-sdk'
 import { MemoryMemoStore } from '@lmcode/memory'
 import { InteractionHub } from './remote/interaction-hub.js'
 import { RemoteManager } from './remote/remote-manager.js'
+import { abortComputerUseInstall } from './computer-use.js'
 import type { RemoteState } from '../shared/remote-types.js'
 import { registerAllHandlers, type DesktopHandlerRegistration } from './ipc/handler.js'
 import { onceAsync, ShutdownCoordinator, withTimeoutBudget } from './lifecycle.js'
@@ -707,6 +708,14 @@ async function cleanupApplication(): Promise<void> {
   if (launchUpdateTimer !== null) {
     clearTimeout(launchUpdateTimer)
     launchUpdateTimer = null
+  }
+  // A driver installation runs a vendor process tree outside the harness, so
+  // stop it before the bounded runtime close instead of letting PowerShell
+  // keep executing the downloaded script after the app is gone.
+  try {
+    abortComputerUseInstall()
+  } catch (error) {
+    errors.push(error)
   }
   try {
     unregisterMenuStateListener()

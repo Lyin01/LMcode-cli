@@ -40,6 +40,31 @@ describe('desktop project terminal', () => {
     )
   })
 
+  it('spawns a fresh shell when a start lands while the previous one is stopping', async () => {
+    const output: TerminalOutputPayload[] = []
+    terminalManager = new ProjectTerminalManager((payload) => output.push(payload))
+    terminalManager.start('session-restart', process.cwd())
+
+    const stopping = terminalManager.stop('session-restart')
+    // A stop() leaves the session immediately: adopting the dying shell here
+    // would hand back a terminal that can no longer run anything.
+    const restarted = terminalManager.start('session-restart', process.cwd())
+    expect(restarted.running).toBe(true)
+
+    terminalManager.write(
+      'session-restart',
+      `node -e "process.stdout.write('lmcode-restart-ok')"\n`,
+    )
+    await vi.waitFor(
+      () => {
+        expect(output.map((payload) => payload.data).join('')).toContain('lmcode-restart-ok')
+      },
+      { timeout: 15_000 },
+    )
+
+    await stopping
+  })
+
   it('removes terminal control sequences before rendering output', () => {
     expect(normalizeTerminalText('\u001b[31merror\u001b[0m\r\nnext\titem\u0000')).toBe(
       'error\nnext    item',
