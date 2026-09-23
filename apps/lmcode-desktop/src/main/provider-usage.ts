@@ -12,6 +12,8 @@ import type {
 
 const DEFAULT_CACHE_TTL_MS = 30_000
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000
+/** How many rounds `get()` may start before it settles for the freshest one it has. */
+const MAX_SNAPSHOT_ATTEMPTS = 3
 const KIMI_CODE_HOST = 'api.kimi.com'
 const DEEPSEEK_HOST = 'api.deepseek.com'
 const MOONSHOT_HOSTS = new Set(['api.moonshot.cn', 'api.moonshot.ai'])
@@ -100,23 +102,37 @@ export class ProviderUsageService {
 
   async get(force = false): Promise<ProviderUsageSnapshot> {
     if (force) this.invalidate()
-    const now = this.now()
-    if (!force && this.cached !== null && now < this.cacheExpiresAt) return this.cached
-    if (this.inFlight !== null) return this.inFlight
-
-    const generation = this.generation
-    const pending = this.load()
-    this.inFlight = pending
-    try {
-      const snapshot = await pending
-      if (generation === this.generation) {
-        this.cached = snapshot
-        this.cacheExpiresAt = this.now() + this.cacheTtlMs
+    // A round in flight can be superseded while we await it: `invalidate()` runs on
+    // every provider-config write, and the snapshot that round produces was computed
+    // from the config the user just replaced. Handing it out would show the wrong
+    // providers as the current usage, so look again instead — the next attempt serves
+    // the cache or starts (or joins) a round for the new generation. Only the caller's
+    // own request bypasses the cache; an attempt that follows a superseded round
+    // settles for whatever the new generation already has.
+    for (let attempt = 0; attempt < MAX_SNAPSHOT_ATTEMPTS; attempt += 1) {
+      if (!force || attempt > 0) {
+        const now = this.now()
+        if (this.cached !== null && now < this.cacheExpiresAt) return this.cached
       }
-      return snapshot
-    } finally {
-      if (this.inFlight === pending) this.inFlight = null
+      const generation = this.generation
+      const pending = this.inFlight ?? this.load()
+      this.inFlight = pending
+      try {
+        const snapshot = await pending
+        if (generation === this.generation) {
+          this.cached = snapshot
+          this.cacheExpiresAt = this.now() + this.cacheTtlMs
+          return snapshot
+        }
+      } finally {
+        if (this.inFlight === pending) this.inFlight = null
+      }
     }
+    // Getting here takes an unbroken stream of invalidations. Answer with one fresh
+    // round — started after the invalidation we last saw — rather than parking the
+    // caller forever or returning a snapshot we already know is superseded. It is
+    // deliberately left uncached: no generation validated it.
+    return this.load()
   }
 
   invalidate(): void {
@@ -398,7 +414,13 @@ async function fetchJson(
       redirect: 'error',
       signal: controller.signal,
     })
-    if (!response.ok) return { ok: false, message: `HTTP ${String(response.status)}` }
+    if (!response.ok) {
+      // A non-OK body is never read, and an unconsumed body keeps its connection out
+      // of the pool until the GC collects it. The usage poll runs every 60s, so a
+      // provider stuck on 401/429 would strand one connection per tick.
+      await response.body?.cancel().catch(() => {})
+      return { ok: false, message: `HTTP ${String(response.status)}` }
+    }
     return { ok: true, payload: await response.json() }
   } catch (error) {
     const message = error instanceof Error && error.name === 'AbortError'

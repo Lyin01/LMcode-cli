@@ -134,6 +134,136 @@ describe('desktop provider usage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
+  it('releases the body of a failed usage request instead of leaving it dangling', async () => {
+    const config: LmcodeConfig = {
+      providers: {
+        deepseek: {
+          type: 'openai',
+          baseUrl: 'https://api.deepseek.com',
+          apiKey: 'key',
+        },
+      },
+    }
+    const responses: Response[] = []
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"error":"too many requests"}'))
+        },
+      })
+      const response = new Response(stream, { status: 429 })
+      responses.push(response)
+      return response
+    })
+
+    const snapshot = await fetchConfiguredProviderUsage(config, {
+      fetchImpl: fetchMock,
+      now: () => 1,
+    })
+
+    // An untouched body holds its connection until the GC collects it, so a provider
+    // answering 429 on every 60s poll would strand one connection per round.
+    expect(responses[0]?.bodyUsed).toBe(true)
+    expect(snapshot.apiBalances).toEqual([])
+    expect(snapshot.issues).toEqual([
+      { providerId: 'deepseek', kind: 'api-balance', message: 'HTTP 429' },
+    ])
+  })
+
+  it('never answers with a round that an invalidate superseded', async () => {
+    const config: LmcodeConfig = {
+      providers: {
+        deepseek: {
+          type: 'openai',
+          baseUrl: 'https://api.deepseek.com',
+          apiKey: 'key',
+        },
+      },
+    }
+    const rounds: PromiseWithResolvers<Response>[] = []
+    const fetchMock = vi.fn<typeof fetch>(() => {
+      const round = Promise.withResolvers<Response>()
+      rounds.push(round)
+      return round.promise
+    })
+    const service = new ProviderUsageService({
+      loadConfig: async () => config,
+      fetchImpl: fetchMock,
+      cacheTtlMs: 100,
+      now: () => 2_000,
+    })
+
+    const refresh = service.get()
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    // A provider-config write lands while the round is in flight: its payload
+    // describes the providers the user just replaced.
+    service.invalidate()
+    rounds[0]!.resolve(jsonResponse({
+      balance_infos: [{ currency: 'CNY', total_balance: '11' }],
+    }))
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+    rounds[1]!.resolve(jsonResponse({
+      balance_infos: [{ currency: 'CNY', total_balance: '222' }],
+    }))
+
+    const snapshot = await refresh
+
+    expect(snapshot.apiBalances[0]?.balances[0]?.available).toBe(222)
+    // The current generation's snapshot is the one that got cached.
+    const cached = await service.get()
+    expect(cached.apiBalances[0]?.balances[0]?.available).toBe(222)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('serves the current generation to callers that raced a superseding refresh', async () => {
+    const config: LmcodeConfig = {
+      providers: {
+        deepseek: {
+          type: 'openai',
+          baseUrl: 'https://api.deepseek.com',
+          apiKey: 'key',
+        },
+      },
+    }
+    const rounds: PromiseWithResolvers<Response>[] = []
+    const fetchMock = vi.fn<typeof fetch>(() => {
+      const round = Promise.withResolvers<Response>()
+      rounds.push(round)
+      return round.promise
+    })
+    const service = new ProviderUsageService({
+      loadConfig: async () => config,
+      fetchImpl: fetchMock,
+      now: () => 1_000,
+    })
+
+    const background = service.get()
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+    const manual = service.get(true)
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    rounds[0]!.resolve(jsonResponse({
+      balance_infos: [{ currency: 'CNY', total_balance: '11' }],
+    }))
+    rounds[1]!.resolve(jsonResponse({
+      balance_infos: [{ currency: 'CNY', total_balance: '222' }],
+    }))
+
+    const [backgroundSnapshot, manualSnapshot] = await Promise.all([background, manual])
+
+    expect(manualSnapshot.apiBalances[0]?.balances[0]?.available).toBe(222)
+    expect(backgroundSnapshot.apiBalances[0]?.balances[0]?.available).toBe(222)
+  })
+
   it('normalizes Kimi quota windows and parses Moonshot balances', () => {
     const usage = parseSubscriptionUsagePayload({
       usage: { used: 1, limit: 10 },

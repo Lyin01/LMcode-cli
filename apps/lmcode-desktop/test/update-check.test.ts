@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { UpdateCheckCoordinator } from '../src/main/update-check'
+import { UPDATE_CHECK_ROUND_TIMEOUT_MS, UpdateCheckCoordinator } from '../src/main/update-check'
 
 describe('UpdateCheckCoordinator', () => {
   it('tracks the manual attribute of the in-flight check round', () => {
@@ -67,5 +67,65 @@ describe('UpdateCheckCoordinator', () => {
 
     coordinator.check(false)
     expect(start).toHaveBeenCalledTimes(2)
+  })
+
+  it('starts a new round after a check that never settles is abandoned', async () => {
+    vi.useFakeTimers()
+    try {
+      const stuck = Promise.withResolvers<void>()
+      const start = vi.fn<() => Promise<unknown>>()
+        .mockReturnValueOnce(stuck.promise)
+        .mockResolvedValue(undefined)
+      const coordinator = new UpdateCheckCoordinator(start)
+
+      coordinator.check(false)
+      coordinator.check(true)
+      expect(start).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(UPDATE_CHECK_ROUND_TIMEOUT_MS)
+
+      // The wedged round stops shadowing the feature ...
+      expect(coordinator.isManual).toBe(false)
+
+      // ... so a manual click reaches electron-updater again, as a manual round.
+      coordinator.check(true)
+      expect(start).toHaveBeenCalledTimes(2)
+      expect(coordinator.isManual).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(coordinator.isManual).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not abandon the round that replaced a settled one', async () => {
+    vi.useFakeTimers()
+    try {
+      const first = Promise.withResolvers<void>()
+      const second = Promise.withResolvers<void>()
+      const start = vi.fn<() => Promise<unknown>>()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise)
+      const coordinator = new UpdateCheckCoordinator(start)
+
+      coordinator.check(false)
+      first.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(coordinator.isManual).toBe(false)
+
+      // A new round starts halfway into the settled round's watchdog window.
+      await vi.advanceTimersByTimeAsync(UPDATE_CHECK_ROUND_TIMEOUT_MS / 2)
+      coordinator.check(true)
+      expect(start).toHaveBeenCalledTimes(2)
+
+      // Reaching the settled round's deadline must not release the new one.
+      await vi.advanceTimersByTimeAsync(UPDATE_CHECK_ROUND_TIMEOUT_MS / 2)
+      expect(coordinator.isManual).toBe(true)
+      coordinator.check(false)
+      expect(start).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
