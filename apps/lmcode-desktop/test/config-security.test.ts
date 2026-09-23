@@ -201,7 +201,7 @@ describe('desktop config secret boundary', () => {
           private: {
             type: 'anthropic',
             env: { ANTHROPIC_BASE_URL: 'https://gateway.example/v1' },
-            apiKey: 'fresh-anthropic-key',
+            apiKey: 'test-anthropic-key',
             oauth: { storage: 'keyring', key: 'fresh-oauth-record' },
           },
         },
@@ -210,7 +210,7 @@ describe('desktop config secret boundary', () => {
     )
 
     expect(patch.providers?.private?.type).toBe('anthropic')
-    expect(patch.providers?.private?.apiKey).toBe('fresh-anthropic-key')
+    expect(patch.providers?.private?.apiKey).toBe('test-anthropic-key')
   })
 
   it('refuses a baseUrl change on a type without an endpoint env var while reusing the stored key', () => {
