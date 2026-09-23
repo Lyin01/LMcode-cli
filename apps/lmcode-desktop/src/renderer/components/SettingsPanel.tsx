@@ -245,6 +245,8 @@ export function SettingsPanel({
       await window.lmcodeAPI?.compactSession(currentSessionId)
       setCompactSuccess(true)
       setTimeout(() => setCompactSuccess(false), 2000)
+    } catch (err) {
+      console.error('Failed to compact session:', err)
     } finally {
       setCompacting(false)
     }

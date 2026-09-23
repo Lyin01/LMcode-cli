@@ -87,6 +87,12 @@ export function Composer({
   onComposerDraftRequestConsumed,
 }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  /**
+   * Mirrors the textarea text. React detaches `textareaRef` while unmounting,
+   * before passive-effect cleanups run, so the draft save below must read this
+   * mirror instead of the (already null) DOM ref.
+   */
+  const draftTextRef = useRef('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const addMessageToSession = useSessionStore((s) => s.addMessageToSession)
@@ -149,6 +155,13 @@ export function Composer({
     ta.style.height = Math.min(ta.scrollHeight, 220) + 'px'
   }, [])
 
+  /** Writes the uncontrolled textarea and keeps the draft mirror in sync. */
+  const writeDraftText = useCallback((value: string): void => {
+    const ta = textareaRef.current
+    if (ta) ta.value = value
+    draftTextRef.current = value
+  }, [])
+
   // Restore the per-session text draft. The textarea is uncontrolled and
   // ChatPanel remounts the composer keyed by session id, so without this the
   // unsent text would be silently discarded on every session switch.
@@ -156,17 +169,19 @@ export function Composer({
     const ta = textareaRef.current
     if (!ta || !currentSessionId) return
     const draft = getComposerDraft(currentSessionId)
-    ta.value = draft
+    writeDraftText(draft)
     setHasDraft(Boolean(draft.trim()))
     autoGrow()
-  }, [currentSessionId, autoGrow])
+  }, [currentSessionId, autoGrow, writeDraftText])
 
   // Save the draft for the outgoing session before switching away or
   // unmounting; the cleanup runs before the restore effect above re-runs.
+  // It reads the mirror: by cleanup time React has already detached the DOM
+  // ref, so `textareaRef.current` would always be null here.
   useEffect(() => {
     return () => {
       if (currentSessionId) {
-        saveComposerDraft(currentSessionId, textareaRef.current?.value ?? '')
+        saveComposerDraft(currentSessionId, draftTextRef.current)
       }
     }
   }, [currentSessionId])
@@ -175,7 +190,7 @@ export function Composer({
     if (!commandPaletteRequest) return
     const textarea = textareaRef.current
     if (!textarea) return
-    textarea.value = '/'
+    writeDraftText('/')
     textarea.setSelectionRange(1, 1)
     setHasDraft(true)
     setSlashQuery('')
@@ -184,14 +199,14 @@ export function Composer({
     autoGrow()
     textarea.focus()
     onCommandPaletteRequestConsumed?.(commandPaletteRequest.nonce)
-  }, [autoGrow, commandPaletteRequest, onCommandPaletteRequestConsumed])
+  }, [autoGrow, commandPaletteRequest, onCommandPaletteRequestConsumed, writeDraftText])
 
   useEffect(() => {
     if (!composerDraftRequest) return
     const textarea = textareaRef.current
     if (!textarea) return
     const next = mergeComposerDraft(textarea.value, composerDraftRequest)
-    textarea.value = next
+    writeDraftText(next)
     textarea.setSelectionRange(next.length, next.length)
     setHasDraft(Boolean(next.trim()))
     setShowSlash(false)
@@ -200,7 +215,7 @@ export function Composer({
     autoGrow()
     textarea.focus()
     onComposerDraftRequestConsumed?.(composerDraftRequest.nonce)
-  }, [autoGrow, composerDraftRequest, onComposerDraftRequestConsumed])
+  }, [autoGrow, composerDraftRequest, onComposerDraftRequestConsumed, writeDraftText])
 
   // ── Attach a file (shared by drop + file picker) ───────────────────
   const removeAttachment = useCallback((id: string) => {
@@ -516,7 +531,7 @@ export function Composer({
       setAttachmentError('斜杠命令不能携带附件，请先移除附件或发送普通消息')
       return
     }
-    ta.value = ''
+    writeDraftText('')
     ta.style.height = 'auto'
     setHasDraft(false)
     setShowSlash(false)
@@ -591,6 +606,7 @@ export function Composer({
   const handleInput = useCallback(() => {
     const ta = textareaRef.current
     if (!ta) return
+    draftTextRef.current = ta.value
     setHasDraft(Boolean(ta.value.trim()))
     autoGrow()
     detectSlashCommand(ta.value, ta.selectionStart)
@@ -601,7 +617,7 @@ export function Composer({
     if (!ta) return
     setShowSlash(false)
     setSlashQuery('')
-    ta.value = command.insertText ?? ''
+    writeDraftText(command.insertText ?? '')
     setHasDraft(Boolean(command.insertText?.trim()))
     if (command.insertText) {
       ta.setSelectionRange(command.insertText.length, command.insertText.length)

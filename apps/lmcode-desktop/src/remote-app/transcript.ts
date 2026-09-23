@@ -18,6 +18,11 @@ export interface AssistantItem {
   readonly id: string
   readonly text: string
   readonly thinking: string
+  /**
+   * Set once a turn boundary was observed. A sealed bubble is complete for its
+   * turn, so the next turn's deltas must start a new one instead of appending.
+   */
+  readonly sealed?: boolean
 }
 
 export interface ToolItem {
@@ -56,17 +61,23 @@ export function appendUserItem(state: TranscriptState, text: string): Transcript
 export function reduceTranscript(state: TranscriptState, event: Event): TranscriptState {
   switch (event.type) {
     case 'turn.started':
-      return state.running ? state : { ...state, running: true }
-    case 'turn.ended':
+      return withRunning(sealAssistant(state), true)
+    case 'turn.ended': {
+      const ended = withRunning(sealAssistant(state), false)
       return event.error === undefined
-        ? { ...state, running: false }
-        : appendNotice({ ...state, running: false }, 'error', event.error.message)
+        ? ended
+        : appendNotice(ended, 'error', event.error.message)
+    }
+    // Streaming activity is also evidence of an active turn: a client that
+    // attached mid-turn never saw `turn.started`, and without this it would
+    // report the session as idle, hide the stop button, and send its next
+    // message as a fresh prompt the core then refuses.
     case 'assistant.delta':
-      return appendAssistantText(state, event.delta)
+      return appendAssistantText(withRunning(state, true), event.delta)
     case 'thinking.delta':
-      return appendAssistantThinking(state, event.delta)
+      return appendAssistantThinking(withRunning(state, true), event.delta)
     case 'tool.call.started':
-      return appendItem(state, (id) => ({
+      return appendItem(withRunning(state, true), (id) => ({
         kind: 'tool',
         id,
         toolCallId: event.toolCallId,
@@ -75,7 +86,7 @@ export function reduceTranscript(state: TranscriptState, event: Event): Transcri
       }))
     case 'tool.result':
       return updateTool(
-        state,
+        withRunning(state, true),
         event.toolCallId,
         event.isError === true ? 'error' : 'done',
         summarizeOutput(event.output),
@@ -176,9 +187,27 @@ function appendNotice(
   return appendItem(state, (id) => ({ kind: 'notice', id, level, text }))
 }
 
+function withRunning(state: TranscriptState, running: boolean): TranscriptState {
+  return state.running === running ? state : { ...state, running }
+}
+
+/**
+ * Seals the trailing assistant bubble when a turn boundary is observed: the
+ * next turn's deltas must start a new bubble rather than append to the
+ * previous answer. A bubble that was never sealed — e.g. one hydrated from
+ * history while the current turn is still streaming — keeps absorbing deltas.
+ */
+function sealAssistant(state: TranscriptState): TranscriptState {
+  const last = state.items[state.items.length - 1]
+  if (last?.kind !== 'assistant' || last.sealed === true) return state
+  const items = [...state.items]
+  items[items.length - 1] = { ...last, sealed: true }
+  return { ...state, items }
+}
+
 function appendAssistantText(state: TranscriptState, text: string): TranscriptState {
   const last = state.items[state.items.length - 1]
-  if (last?.kind === 'assistant') {
+  if (last?.kind === 'assistant' && last.sealed !== true) {
     const items = [...state.items]
     items[items.length - 1] = { ...last, text: last.text + text }
     return { ...state, items }
@@ -188,7 +217,7 @@ function appendAssistantText(state: TranscriptState, text: string): TranscriptSt
 
 function appendAssistantThinking(state: TranscriptState, text: string): TranscriptState {
   const last = state.items[state.items.length - 1]
-  if (last?.kind === 'assistant') {
+  if (last?.kind === 'assistant' && last.sealed !== true) {
     const items = [...state.items]
     items[items.length - 1] = { ...last, thinking: last.thinking + text }
     return { ...state, items }

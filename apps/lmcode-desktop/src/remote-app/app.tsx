@@ -39,8 +39,12 @@ export function App() {
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null)
-  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
+  // Queues, not single slots: the desktop can raise several approvals or
+  // questions at once (parallel subagents, wolfpack), and a sheet that gets
+  // overwritten here would leave its request unanswerable until the hub's
+  // timeout cancels it.
+  const [pendingApprovals, setPendingApprovals] = useState<readonly PendingApproval[]>([])
+  const [pendingQuestions, setPendingQuestions] = useState<readonly PendingQuestion[]>([])
 
   const clientRef = useRef<RemoteClient | null>(null)
   const activeIdRef = useRef<string | null>(null)
@@ -123,17 +127,25 @@ export function App() {
           return
         }
         case 'approval':
-          setPendingApproval({ requestId: message.requestId, request: message.request })
+          setPendingApprovals((previous) =>
+            previous.some((pending) => pending.requestId === message.requestId)
+              ? previous
+              : [...previous, { requestId: message.requestId, request: message.request }],
+          )
           return
         case 'question':
-          setPendingQuestion({ requestId: message.requestId, request: message.request })
+          setPendingQuestions((previous) =>
+            previous.some((pending) => pending.requestId === message.requestId)
+              ? previous
+              : [...previous, { requestId: message.requestId, request: message.request }],
+          )
           return
         case 'settled':
-          setPendingApproval((previous) =>
-            previous?.requestId === message.requestId ? null : previous,
+          setPendingApprovals((previous) =>
+            previous.filter((pending) => pending.requestId !== message.requestId),
           )
-          setPendingQuestion((previous) =>
-            previous?.requestId === message.requestId ? null : previous,
+          setPendingQuestions((previous) =>
+            previous.filter((pending) => pending.requestId !== message.requestId),
           )
           return
         default:
@@ -245,12 +257,16 @@ export function App() {
 
   const respondApproval = useCallback((requestId: string, response: ApprovalResponse) => {
     clientRef.current?.respondApproval(requestId, response)
-    setPendingApproval((previous) => (previous?.requestId === requestId ? null : previous))
+    setPendingApprovals((previous) =>
+      previous.filter((pending) => pending.requestId !== requestId),
+    )
   }, [])
 
   const respondQuestion = useCallback((requestId: string, result: QuestionResult) => {
     clientRef.current?.respondQuestion(requestId, result)
-    setPendingQuestion((previous) => (previous?.requestId === requestId ? null : previous))
+    setPendingQuestions((previous) =>
+      previous.filter((pending) => pending.requestId !== requestId),
+    )
   }, [])
 
   const submitToken = useCallback((next: string) => {
@@ -329,6 +345,9 @@ export function App() {
     )
   }
 
+  const activeApproval = pendingApprovals[0]
+  const activeQuestion = pendingQuestions[0]
+
   return (
     <div className="rm-app">
       {showConnectionBanner && (
@@ -345,16 +364,16 @@ export function App() {
         </div>
       )}
       {body}
-      {pendingApproval !== null && (
+      {activeApproval !== undefined && (
         <ApprovalSheet
-          request={pendingApproval.request}
-          onRespond={(response) => respondApproval(pendingApproval.requestId, response)}
+          request={activeApproval.request}
+          onRespond={(response) => respondApproval(activeApproval.requestId, response)}
         />
       )}
-      {pendingQuestion !== null && (
+      {activeQuestion !== undefined && (
         <QuestionSheet
-          request={pendingQuestion.request}
-          onSubmit={(result) => respondQuestion(pendingQuestion.requestId, result)}
+          request={activeQuestion.request}
+          onSubmit={(result) => respondQuestion(activeQuestion.requestId, result)}
         />
       )}
     </div>

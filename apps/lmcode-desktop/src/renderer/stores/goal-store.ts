@@ -35,18 +35,30 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
   },
 
   pauseGoal: async (sessionId) => {
-    const goal = await window.lmcodeAPI.updateGoalStatus(sessionId, 'paused')
-    get().setGoal(sessionId, goal)
+    try {
+      const goal = await window.lmcodeAPI.updateGoalStatus(sessionId, 'paused')
+      get().setGoal(sessionId, goal)
+    } catch (err) {
+      console.error('Failed to pause goal:', err)
+    }
   },
 
   resumeGoal: async (sessionId) => {
-    const goal = await window.lmcodeAPI.updateGoalStatus(sessionId, 'active')
-    get().setGoal(sessionId, goal)
+    try {
+      const goal = await window.lmcodeAPI.updateGoalStatus(sessionId, 'active')
+      get().setGoal(sessionId, goal)
+    } catch (err) {
+      console.error('Failed to resume goal:', err)
+    }
   },
 
   cancelGoal: async (sessionId) => {
-    const goal = await window.lmcodeAPI.cancelGoal(sessionId)
-    get().setGoal(sessionId, goal)
+    try {
+      const goal = await window.lmcodeAPI.cancelGoal(sessionId)
+      get().setGoal(sessionId, goal)
+    } catch (err) {
+      console.error('Failed to cancel goal:', err)
+    }
   },
 
   removeBySession: (sessionId) =>
