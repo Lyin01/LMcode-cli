@@ -1,11 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import type { Session } from '@lmcode-cli/lmcode-sdk'
 import { InteractionHub } from '../src/main/remote/interaction-hub'
-import { RemoteBridge } from '../src/main/remote/remote-bridge'
+import { RemoteBridge, type RemoteConnection } from '../src/main/remote/remote-bridge'
 import { RemoteServer } from '../src/main/remote/remote-server'
 import { buildPairingUrl, readPairingToken } from '../src/shared/remote-pairing'
 import type { RemoteClientMessage, RemoteServerMessage, RemoteState } from '../src/shared/remote-types'
@@ -378,6 +378,24 @@ describe('RemoteServer protocol', () => {
     await expect(pending).resolves.toEqual({ decision: 'approved' })
   })
 
+  it('settles a question frame without a result as a dismissal', async () => {
+    const opened = await openServer('secret')
+    servers.push(opened)
+    const ws = await connect(opened.url)
+    send(ws, { type: 'auth', token: 'secret' })
+    await nextMessage(ws, 'auth-ok')
+
+    const pending = opened.hub.requestQuestion('session-a', {
+      questions: [{ id: 'q1', question: '继续？' }],
+    } as never)
+    const questionMessage = await nextMessage<{ type: 'question'; requestId: string }>(ws, 'question')
+
+    // A non-conforming client may omit `result`; it must settle as a
+    // dismissal rather than delivering `undefined` to the consumer.
+    ws.send(JSON.stringify({ type: 'question', requestId: questionMessage.requestId }))
+    await expect(pending).resolves.toBeNull()
+  })
+
   it('tracks and broadcasts client count changes in state', async () => {
     const opened = await openServer('secret')
     servers.push(opened)
@@ -394,6 +412,92 @@ describe('RemoteServer protocol', () => {
     ws2.close()
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(opened.state().clientCount).toBe(1)
+  })
+
+  it('ignores frames from a socket that token rotation disconnected', async () => {
+    const opened = await openServer('secret')
+    servers.push(opened)
+    const ws = await connect(opened.url)
+    send(ws, { type: 'auth', token: 'secret' })
+    await nextMessage(ws, 'auth-ok')
+
+    const serverSocket = [...(opened.server['sockets'] as Set<WebSocket>)][0]
+    if (serverSocket === undefined) throw new Error('expected an accepted socket')
+    const invoke = vi.spyOn(opened.bridge, 'invoke')
+
+    opened.server.disconnectAll(4003, 'token rotated')
+    // Delivered through the same listener a client that ignores the close
+    // frame would hit; a revoked socket must not reach the bridge.
+    serverSocket.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({ type: 'request', id: 'r1', method: 'sessions.list', params: {} }),
+      ),
+    )
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('caps unauthenticated sockets per IP so one host cannot starve pairing', async () => {
+    const opened = await openServer('secret')
+    servers.push(opened)
+    const first = await connect(opened.url)
+    const second = await connect(opened.url)
+
+    const third = new WebSocket(opened.url)
+    const closed = new Promise<number>((resolve) => third.on('close', (code) => resolve(code)))
+    await new Promise<void>((resolve, reject) => {
+      third.once('open', () => resolve())
+      third.once('error', reject)
+    })
+
+    await expect(closed).resolves.toBe(1013)
+    expect(first.readyState).toBe(WebSocket.OPEN)
+    expect(second.readyState).toBe(WebSocket.OPEN)
+  })
+
+  it('refuses to authenticate a socket beyond the client cap', async () => {
+    const opened = await openServer('secret')
+    servers.push(opened)
+    const connections = opened.server['connections']
+    const fakeConnection = { isOpen: true, send: () => undefined } as unknown as RemoteConnection
+    for (let index = 0; index < 15; index += 1) {
+      connections.set({} as WebSocket, fakeConnection)
+    }
+
+    const ws = await connect(opened.url)
+    // The last slot fills after the transport accepted the socket but before
+    // it authenticates; the authenticated set must stay capped.
+    connections.set({} as WebSocket, fakeConnection)
+    const closed = new Promise<number>((resolve) => ws.on('close', (code) => resolve(code)))
+    send(ws, { type: 'auth', token: 'secret' })
+
+    await expect(closed).resolves.toBe(1013)
+    expect(opened.server.clientCount).toBe(16)
+  })
+
+  it('reaps a socket that never answers the heartbeat ping', async () => {
+    vi.useFakeTimers()
+    try {
+      const opened = await openServer('secret')
+      servers.push(opened)
+      const ws = await connect(opened.url)
+      send(ws, { type: 'auth', token: 'secret' })
+      await nextMessage(ws, 'auth-ok')
+
+      const serverSocket = [...(opened.server['sockets'] as Set<WebSocket>)][0]
+      if (serverSocket === undefined) throw new Error('expected an accepted socket')
+      // Simulate a peer that stopped answering: the ping never reaches the
+      // wire, so no pong ever comes back.
+      serverSocket.ping = () => undefined
+      const closed = new Promise<void>((resolve) => ws.on('close', () => resolve()))
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.advanceTimersByTimeAsync(30_000)
+      await closed
+      expect(ws.readyState).toBe(WebSocket.CLOSED)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

@@ -252,6 +252,83 @@ describe('desktop handler lifecycle', () => {
     await registration.close()
   })
 
+  it('normalizes a question response that omits the result into a dismissal', async () => {
+    const handlers: FakeSessionHandlers = { approval: undefined, question: undefined }
+    const session = {
+      id: 'session-question',
+      summary: { id: 'session-question', workDir: 'C:/work' },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn((handler) => {
+        handlers.approval = handler
+      }),
+      setQuestionHandler: vi.fn((handler) => {
+        handlers.question = handler
+      }),
+    }
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      createSession: vi.fn(async () => session),
+    }
+    const mainWindow = createWindow()
+    const registration = registerAllHandlers(
+      harness as never,
+      mainWindow as never,
+      'file:///renderer/index.html',
+    )
+    await invoke('lmcode:createSession', { workDir: 'C:/work' })
+
+    const pending = handlers.question?.({ questions: [] })
+    const requestId = mainWindow.webContents.send.mock.calls
+      .filter(([channel]) => channel === 'lmcode:questionRequest')
+      .map(([, payload]) => (payload as { requestId: string }).requestId)[0]
+    expect(requestId).toBeDefined()
+
+    // A renderer payload without `result` must resolve the consumer's question
+    // promise as a dismissal — `undefined` would crash the agent-core answer
+    // normalization on `Object.keys(undefined)`.
+    await invoke('lmcode:respondQuestion', { requestId })
+    await expect(pending).resolves.toBeNull()
+
+    await registration.close()
+  })
+
+  it('rejects a UNC workDir while keeping the guard exemptions usable', async () => {
+    const session = {
+      id: 'session-workdir',
+      summary: { id: 'session-workdir', workDir: 'C:/work' },
+      onEvent: vi.fn(() => vi.fn()),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+    }
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      createSession: vi.fn(async () => session),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+
+    // A UNC workDir would open an SMB session and load `.lmcode/mcp.json`
+    // from the remote share, so the desktop refuses it outright.
+    await expect(
+      invoke('lmcode:createSession', { workDir: '\\\\attacker\\share\\proj' }),
+    ).rejects.toThrow('UNC')
+    await expect(
+      invoke('lmcode:createSession', { workDir: '//attacker/share/proj' }),
+    ).rejects.toThrow('UNC')
+    expect(harness.createSession).not.toHaveBeenCalled()
+
+    // The shared guard still admits WSL and extended local paths.
+    await invoke('lmcode:createSession', { workDir: '\\\\wsl$\\Ubuntu\\home\\me\\app' })
+    expect(harness.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ workDir: '\\\\wsl$\\Ubuntu\\home\\me\\app' }),
+    )
+
+    await registration.close()
+  })
+
   it('bridges goal, plan, compaction, and history controls to the active SDK session', async () => {
     const goal = {
       goalId: 'goal-1',

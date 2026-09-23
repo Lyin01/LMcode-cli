@@ -108,16 +108,17 @@ function restoreProviderPatch(
   }
   // Stored secrets must never silently follow the provider to a different
   // endpoint: a compromised renderer could otherwise point `baseUrl` (or the
-  // base-url env var) at its own server and let the saved key authenticate
-  // there. Re-entering the credentials, or keeping the current endpoint, is
-  // the only way through.
+  // base-url env var) at its own server — including by switching `type`,
+  // which swaps the env var that carries the endpoint — and let the saved key
+  // authenticate there. Re-entering the credentials, or keeping the current
+  // endpoint, is the only way through.
   if (
     current !== undefined &&
     providerEndpointChanged(restored, current) &&
     reusesStoredSecret(patch, current)
   ) {
     throw new Error(
-      'Changing the provider baseUrl requires re-entering the stored credentials; otherwise the saved key would be sent to the new endpoint.',
+      'Changing the provider API format (type) or baseUrl requires re-entering the stored credentials; otherwise the saved key would be sent to the new endpoint.',
     )
   }
   return restored
@@ -173,12 +174,25 @@ function providerEndpointChanged(
   patch: ProviderConfigPatch,
   current: ProviderConfig,
 ): boolean {
-  const envKeys = PROVIDER_ENDPOINT_ENV_KEYS[current.type]
-  if (envKeys === undefined) return false
+  // The endpoint env var belongs to the *provider API format*, so both sides
+  // must be resolved with their own type: switching `type` in the same patch
+  // moves the endpoint to the new format's variable (or to that format's
+  // built-in default). Resolving both sides with only the stored type used to
+  // report "unchanged" while the merged provider actually talks to another
+  // host, which let a `type` + `env` patch redirect a stored key.
+  const nextType = patch.type ?? current.type
   const nextBaseUrl = patch.baseUrl !== undefined ? patch.baseUrl : current.baseUrl
   const nextEnv = { ...current.env, ...patch.env }
-  const next = resolveEffectiveBaseUrl(nextBaseUrl, nextEnv, envKeys)
-  const previous = resolveEffectiveBaseUrl(current.baseUrl, current.env, envKeys)
+  const next = resolveEffectiveBaseUrl(
+    nextBaseUrl,
+    nextEnv,
+    PROVIDER_ENDPOINT_ENV_KEYS[nextType] ?? [],
+  )
+  const previous = resolveEffectiveBaseUrl(
+    current.baseUrl,
+    current.env,
+    PROVIDER_ENDPOINT_ENV_KEYS[current.type] ?? [],
+  )
   return next !== undefined && next !== previous
 }
 

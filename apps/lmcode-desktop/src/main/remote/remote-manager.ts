@@ -149,7 +149,21 @@ export class RemoteManager {
         // Roll the port back and try to restore the previous server, so the
         // reported state never claims a port that is not actually serving.
         this.config = { ...this.config, port: previousPort }
-        await this.startServer().catch(() => undefined)
+        try {
+          await this.startServer()
+        } catch (restoreError) {
+          // The old port is gone too (e.g. taken by another process in the
+          // meantime). Reporting `enabled` while nothing listens would be a
+          // lie, so fall back to disabled exactly like a failed init.
+          this.options.logger?.error('remote server failed to restore the previous port', {
+            port: previousPort,
+            error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+          })
+          this.config = { ...this.config, enabled: false }
+          await this.persist()
+          this.emitStateChange()
+          throw error
+        }
         throw error
       }
     }
@@ -231,6 +245,12 @@ export class RemoteManager {
   }
 
   private async stopServer(): Promise<void> {
+    // A start that is still inside `listen()` has not published `this.server`
+    // yet; wait for it first so disabling cannot race past a server that is
+    // about to come up, which would leave a listening port behind a disabled
+    // (and persisted) state.
+    const starting = this.starting
+    if (starting !== undefined) await starting.catch(() => undefined)
     const server = this.server
     const bridge = this.bridge
     this.server = undefined

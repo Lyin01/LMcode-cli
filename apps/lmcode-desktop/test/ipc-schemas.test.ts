@@ -9,6 +9,7 @@ import {
   openPathArgsSchema,
   parseIpcArgs,
   promptArgsSchema,
+  respondQuestionArgsSchema,
   searchMemoriesArgsSchema,
   sessionNamedArgsSchema,
   setAllGitFilesStagedArgsSchema,
@@ -134,6 +135,34 @@ describe('IPC argument schemas (wire boundary contract)', () => {
     expect(() => parseIpcArgs(setRemotePortArgsSchema, [80], 'lmcode:setRemotePort')).toThrow(
       /Invalid IPC arguments/,
     )
+  })
+
+  it('normalizes a question response without a result to a dismissal', () => {
+    // `z.unknown()` alone accepts a missing key, so `undefined` used to reach
+    // the interaction hub and the ask-user normalization, where it crashed on
+    // `Object.keys(undefined)` and surfaced as "failed to ask the user".
+    expect(
+      parseIpcArgs(respondQuestionArgsSchema, [{ requestId: 'q1' }], 'lmcode:respondQuestion'),
+    ).toEqual([{ requestId: 'q1', result: null }])
+    expect(
+      parseIpcArgs(
+        respondQuestionArgsSchema,
+        [{ requestId: 'q1', result: undefined }],
+        'lmcode:respondQuestion',
+      ),
+    ).toEqual([{ requestId: 'q1', result: null }])
+
+    const answers = { answers: { 'Which file?': 'a.ts' }, method: 'enter' }
+    expect(
+      parseIpcArgs(
+        respondQuestionArgsSchema,
+        [{ requestId: 'q1', result: answers }],
+        'lmcode:respondQuestion',
+      ),
+    ).toEqual([{ requestId: 'q1', result: answers }])
+    expect(() =>
+      parseIpcArgs(respondQuestionArgsSchema, [{ result: null }], 'lmcode:respondQuestion'),
+    ).toThrow(/Invalid IPC arguments/)
   })
 
   it('requires openPath and openExternal to receive a string', () => {

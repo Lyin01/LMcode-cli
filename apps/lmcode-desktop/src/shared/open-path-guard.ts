@@ -46,6 +46,14 @@ const UNSAFE_SHELL_OPEN_EXTENSIONS = new Set([
   'appref-ms',
   'search-ms',
   'settingcontent-ms',
+  // Single-click system handlers that reconfigure or execute without an outer
+  // installer UI: msdt diagnostics (diagcab), Windows Update packages (msu),
+  // desktop theme packs, and scheduled-task definitions.
+  'diagcab',
+  'msu',
+  'theme',
+  'themepack',
+  'job',
 ])
 
 /**

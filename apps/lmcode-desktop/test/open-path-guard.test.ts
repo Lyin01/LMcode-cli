@@ -22,6 +22,14 @@ describe('isUnsafeShellOpenPath', () => {
     expect(isUnsafeShellOpenPath('C:\\tmp\\payload.exe::$DATA')).toBe(true)
   })
 
+  it('rejects single-click system handlers that reconfigure the machine', () => {
+    expect(isUnsafeShellOpenPath('C:\\tmp\\fix.diagcab')).toBe(true)
+    expect(isUnsafeShellOpenPath('C:\\tmp\\update.msu')).toBe(true)
+    expect(isUnsafeShellOpenPath('C:\\tmp\\dark.theme')).toBe(true)
+    expect(isUnsafeShellOpenPath('C:\\tmp\\pack.themepack')).toBe(true)
+    expect(isUnsafeShellOpenPath('C:\\tmp\\backup.job')).toBe(true)
+  })
+
   it('allows documents and source files the chip UI is meant to open', () => {
     expect(isUnsafeShellOpenPath('C:\\repo\\index.html')).toBe(false)
     expect(isUnsafeShellOpenPath('C:\\repo\\notes.md')).toBe(false)
@@ -36,7 +44,9 @@ describe('normalizeOpenPathTarget', () => {
   it('rejects UNC and remote file hosts that would leak NTLM or leave the disk', () => {
     expect(normalizeOpenPathTarget('\\\\evil\\share\\notes.txt')).toBeNull()
     expect(isUnsafeRemoteOrUncPath('\\\\evil\\share\\notes.txt')).toBe(true)
+    expect(isUnsafeRemoteOrUncPath('//evil/share/notes.txt')).toBe(true)
     expect(isUnsafeRemoteOrUncPath('\\\\wsl$\\Ubuntu\\home\\me\\app.ts')).toBe(false)
+    expect(isUnsafeRemoteOrUncPath('\\\\?\\C:\\repo\\app.ts')).toBe(false)
   })
 
   it('accepts a local absolute path and a localhost file URL', () => {

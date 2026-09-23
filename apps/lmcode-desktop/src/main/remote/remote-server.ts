@@ -15,6 +15,8 @@ import type { InteractionHub } from './interaction-hub.js'
 
 const MAX_CLIENTS = 16
 const MAX_PENDING_AUTH = 8
+/** One host cannot hold every pending slot and starve legitimate pairing. */
+const MAX_PENDING_AUTH_PER_IP = 2
 const AUTH_TIMEOUT_MS = 10_000
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
@@ -71,6 +73,8 @@ export class RemoteServer {
   private readonly connections = new Map<WebSocket, RemoteConnection>()
   private readonly authTimers = new Map<WebSocket, ReturnType<typeof setTimeout>>()
   private readonly socketIps = new Map<WebSocket, string>()
+  /** Sockets whose last heartbeat ping has not been answered yet. */
+  private readonly awaitingPong = new Set<WebSocket>()
   private readonly failedAuthTimesByIp = new Map<string, number[]>()
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined
   private closed = false
@@ -92,16 +96,17 @@ export class RemoteServer {
     })
 
     this.wss.on('connection', (socket: WebSocket, request?: IncomingMessage) => {
+      const ip = request?.socket.remoteAddress ?? 'unknown'
       const pendingAuth = this.sockets.size - this.connections.size
       if (
         this.closed ||
         this.connections.size >= MAX_CLIENTS ||
-        pendingAuth >= MAX_PENDING_AUTH
+        pendingAuth >= MAX_PENDING_AUTH ||
+        this.pendingAuthCountForIp(ip) >= MAX_PENDING_AUTH_PER_IP
       ) {
         socket.close(1013, 'server busy')
         return
       }
-      const ip = request?.socket.remoteAddress ?? 'unknown'
       if (this.isAuthRateLimited(ip)) {
         socket.close(4008, 'too many auth failures')
         return
@@ -131,6 +136,11 @@ export class RemoteServer {
       }
 
       socket.on('message', (data: Buffer | ArrayBuffer | Buffer[]) => {
+        // A socket removed by disconnectAll (token rotation / shutdown) keeps
+        // receiving frames until the close handshake finishes. Ignore them so
+        // a client that never answers the close frame cannot keep driving the
+        // bridge with a revoked token.
+        if (!this.sockets.has(socket)) return
         if (!authenticated && rawPayloadBytes(data) > AUTH_MAX_PAYLOAD_BYTES) {
           socket.close(1009, 'auth payload too large')
           return
@@ -139,6 +149,12 @@ export class RemoteServer {
           isAuthenticated: () => authenticated,
           markAuthenticated: (): void => {
             if (socket.readyState !== WebSocket.OPEN || !this.sockets.has(socket)) return
+            if (this.connections.size >= MAX_CLIENTS) {
+              // Pending sockets are admitted below the cap; refuse the ones
+              // that would push the authenticated set over it.
+              socket.close(1013, 'server busy')
+              return
+            }
             authenticated = true
             if (!this.connections.has(socket)) {
               this.connections.set(socket, connection)
@@ -146,6 +162,10 @@ export class RemoteServer {
             }
           },
         })
+      })
+
+      socket.on('pong', () => {
+        this.awaitingPong.delete(socket)
       })
 
       socket.on('error', (error: Error) => {
@@ -160,6 +180,7 @@ export class RemoteServer {
         this.authTimers.delete(socket)
         this.sockets.delete(socket)
         this.socketIps.delete(socket)
+        this.awaitingPong.delete(socket)
         const active = this.connections.get(socket)
         if (active !== undefined) {
           this.connections.delete(socket)
@@ -175,6 +196,15 @@ export class RemoteServer {
   /** Number of currently connected (and authenticated) sockets. */
   get clientCount(): number {
     return this.connections.size
+  }
+
+  /** Sockets from `ip` that passed the transport checks but have not authenticated. */
+  private pendingAuthCountForIp(ip: string): number {
+    let count = 0
+    for (const socket of this.sockets) {
+      if (!this.connections.has(socket) && this.socketIps.get(socket) === ip) count += 1
+    }
+    return count
   }
 
   /**
@@ -282,7 +312,19 @@ export class RemoteServer {
   private startHeartbeat(): void {
     const timer = setInterval(() => {
       for (const socket of this.sockets) {
-        if (socket.readyState === WebSocket.OPEN) socket.ping()
+        if (socket.readyState !== WebSocket.OPEN) {
+          this.awaitingPong.delete(socket)
+          continue
+        }
+        if (this.awaitingPong.delete(socket)) {
+          // The previous ping was never answered: the client is gone even
+          // though the socket still looks open. Reap it instead of feeding
+          // the event stream into a dead connection forever.
+          socket.terminate()
+          continue
+        }
+        this.awaitingPong.add(socket)
+        socket.ping()
       }
     }, HEARTBEAT_INTERVAL_MS)
     timer.unref()
@@ -360,7 +402,10 @@ export class RemoteServer {
         }
         break
       case 'question':
-        if (!this.options.hub.respondQuestion(message.requestId, message.result)) {
+        // The validator does not enforce `result` presence; normalize a
+        // missing value to `null` (dismissal) exactly like the IPC schema, so
+        // `undefined` cannot reach the core's answer normalization.
+        if (!this.options.hub.respondQuestion(message.requestId, message.result ?? null)) {
           socket.send(
             JSON.stringify({
               type: 'settled',

@@ -24,6 +24,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
+  isUnsafeRemoteOrUncPath,
   isUnsafeShellOpenPath,
   normalizeOpenPathTarget,
   safeDirectoryDialogPath,
@@ -498,6 +499,13 @@ export function registerAllHandlers(
     const requestedWorkDir = opts.workDir?.trim() ?? ''
     if (opts.noProject === true && requestedWorkDir) {
       throw new Error('A no-project session cannot also specify a project directory')
+    }
+    // A renderer-chosen UNC path (`\\attacker\share`) would open an SMB session
+    // and let the new session load `.lmcode/mcp.json` (and every other file)
+    // from the remote share. Local paths only — the shared guard keeps `\\wsl$`
+    // and `\\?\C:` working.
+    if (isUnsafeRemoteOrUncPath(requestedWorkDir)) {
+      throw new Error('不支持 UNC 或远程工作目录，请选择本机项目路径')
     }
     const workDir = opts.noProject === true ? resolveNoProjectWorkDir() : requestedWorkDir
     if (!workDir) {

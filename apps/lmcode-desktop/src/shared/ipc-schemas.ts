@@ -104,9 +104,12 @@ export const approvalResponsePayloadSchema = z.object({
 export const questionResponsePayloadSchema = z.object({
   requestId: z.string().trim().min(1),
   // The question result is a reverse-RPC response whose shape is owned by the
-  // agent-core consumer; the desktop only forwards it. Validate the envelope
-  // here and leave the payload to the SDK consumer.
-  result: z.unknown(),
+  // agent-core consumer; the desktop only forwards it. `null` is a real value
+  // (the question was dismissed), and a payload that omits the key must land
+  // on it here: forwarding `undefined` would reach the consumer's answer
+  // normalization as a non-null result, where `Object.keys(undefined)` throws
+  // and surfaces as a misleading "failed to ask the user" turn error.
+  result: z.unknown().nullable().default(null),
 })
 
 export const mcpServerConfigSchema = z.record(z.string(), z.unknown())

@@ -14,7 +14,11 @@ import {
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...actual, readFile: vi.fn(actual.readFile) }
+  return {
+    ...actual,
+    readFile: vi.fn(actual.readFile),
+    realpath: vi.fn(actual.realpath),
+  }
 })
 import { MAX_PROMPT_ATTACHMENTS, parseTextAttachmentPart } from '../src/shared/file-types'
 
@@ -85,6 +89,22 @@ describe('desktop text attachments', () => {
     await expect(readTextAttachment(browserCookiesPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(npmrcPath)).rejects.toThrow('安全考虑')
     await expect(readTextAttachment(netrcPath)).rejects.toThrow('安全考虑')
+  })
+
+  it('rejects UNC and remote attachment paths before touching the filesystem', async () => {
+    const realpathMock = vi.mocked(fs.realpath)
+    realpathMock.mockClear()
+
+    await expect(readTextAttachment('\\\\attacker\\share\\notes.txt')).rejects.toThrow('附件路径无效')
+    await expect(readTextAttachment('//attacker/share/notes.txt')).rejects.toThrow('附件路径无效')
+    // A UNC path must never reach `realpath`/`stat`, which is what would open
+    // the SMB session and leak NetNTLM.
+    expect(realpathMock).not.toHaveBeenCalled()
+
+    const localPath = await temporaryFile('notes.txt', 'local content')
+    await expect(readTextAttachment(localPath)).resolves.toMatchObject({
+      content: 'local content',
+    })
   })
 
   it('rejects a symlink that points at a sensitive file', async () => {
@@ -232,6 +252,9 @@ describe('sensitive attachment path denylist', () => {
     expect(isSensitiveAttachmentPath(inHome('.lmcode', 'config.toml'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.lmcode', 'config.toml.bak'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.lmcode', 'device_id'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'mcp.json'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'remote-config.json'))).toBe(true)
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'credentials', 'mcp', 'github.json'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.ssh', 'id_rsa'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.gnupg', 'secring.gpg'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('.aws', 'credentials'))).toBe(true)
@@ -239,6 +262,19 @@ describe('sensitive attachment path denylist', () => {
     expect(isSensitiveAttachmentPath(inHome('Library', 'Browser', 'Cookies'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('project', '.ENV.PRODUCTION'))).toBe(true)
     expect(isSensitiveAttachmentPath(inHome('project', 'CLIENT.P12'))).toBe(true)
+  })
+
+  it('blocks MCP tokens, MCP config, and the remote pairing token inside profile roots', async () => {
+    const desktopData = await fs.mkdtemp(path.join(os.tmpdir(), 'lmcode-desktop-data-'))
+    temporaryDirectories.push(desktopData)
+    const mcpTokenPath = path.join(desktopData, 'credentials', 'mcp', 'github.json')
+    await fs.mkdir(path.dirname(mcpTokenPath), { recursive: true })
+    await fs.writeFile(mcpTokenPath, '{"access_token":"runtime-secret"}')
+
+    expect(isSensitiveAttachmentPath(mcpTokenPath, [desktopData])).toBe(true)
+    expect(isSensitiveAttachmentPath(path.join(desktopData, 'mcp.json'), [desktopData])).toBe(true)
+    expect(isSensitiveAttachmentPath(path.join(desktopData, 'remote-config.json'), [desktopData])).toBe(true)
+    await expect(readTextAttachment(mcpTokenPath, [desktopData])).rejects.toThrow('安全考虑')
   })
 
   it('blocks credentials inside profile-specific desktop data directories', async () => {
@@ -254,7 +290,9 @@ describe('sensitive attachment path denylist', () => {
   it('does not over-block ordinary files, including non-secret files under ~/.lmcode', () => {
     expect(isSensitiveAttachmentPath(inHome('.lmcode', 'sessions', 'abc', 'events.jsonl'))).toBe(false)
     expect(isSensitiveAttachmentPath(inHome('.lmcode', 'memory', 'note.md'))).toBe(false)
+    expect(isSensitiveAttachmentPath(inHome('.lmcode', 'logs', 'desktop.log'))).toBe(false)
     expect(isSensitiveAttachmentPath(inHome('project', 'config.toml'))).toBe(false)
+    expect(isSensitiveAttachmentPath(inHome('project', 'mcp.json'))).toBe(false)
     expect(isSensitiveAttachmentPath(inHome('project', 'src', 'index.ts'))).toBe(false)
     expect(isSensitiveAttachmentPath(inHome('project', 'env.example'))).toBe(false)
   })

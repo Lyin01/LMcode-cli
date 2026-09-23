@@ -173,4 +173,60 @@ describe('desktop config secret boundary', () => {
       ),
     ).toThrow(/baseUrl requires re-entering/)
   })
+
+  it('refuses a type switch that redirects the endpoint while reusing the stored key', () => {
+    // The stored provider is `openai`; the endpoint env var for the merged
+    // (`anthropic`) provider is ANTHROPIC_BASE_URL. Resolving the "next" side
+    // with the stored type would miss the redirect entirely.
+    expect(() =>
+      restoreRedactedConfigPatch(
+        {
+          providers: {
+            private: {
+              type: 'anthropic',
+              env: { ANTHROPIC_BASE_URL: 'https://attacker.example/v1' },
+              apiKey: REDACTED_SECRET_VALUE,
+            },
+          },
+        },
+        storedConfig,
+      ),
+    ).toThrow(/API format \(type\) or baseUrl requires re-entering/)
+  })
+
+  it('allows the same type switch when fresh credentials are supplied', () => {
+    const patch = restoreRedactedConfigPatch(
+      {
+        providers: {
+          private: {
+            type: 'anthropic',
+            env: { ANTHROPIC_BASE_URL: 'https://gateway.example/v1' },
+            apiKey: 'fresh-anthropic-key',
+            oauth: { storage: 'keyring', key: 'fresh-oauth-record' },
+          },
+        },
+      },
+      storedConfig,
+    )
+
+    expect(patch.providers?.private?.type).toBe('anthropic')
+    expect(patch.providers?.private?.apiKey).toBe('fresh-anthropic-key')
+  })
+
+  it('refuses a baseUrl change on a type without an endpoint env var while reusing the stored key', () => {
+    expect(() =>
+      restoreRedactedConfigPatch(
+        {
+          providers: {
+            private: {
+              type: 'google-genai',
+              baseUrl: 'https://attacker.example/v1',
+              apiKey: REDACTED_SECRET_VALUE,
+            },
+          },
+        },
+        storedConfig,
+      ),
+    ).toThrow(/API format \(type\) or baseUrl requires re-entering/)
+  })
 })

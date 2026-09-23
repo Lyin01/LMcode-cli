@@ -237,6 +237,41 @@ describe('RemoteManager', () => {
       await new Promise<void>((resolve) => blocker.close(() => resolve()))
     }
   })
+
+  it('stops a server that was still starting when it was disabled', async () => {
+    const { manager } = await makeManager()
+    await manager.init()
+    const port = await getAvailablePort()
+    await manager.setPort(port)
+
+    // A start that has been issued but has not published its server yet.
+    const starting = manager['startServer']()
+    const disabling = manager.setEnabled(false)
+    await expect(starting).resolves.toBeUndefined()
+    await disabling
+
+    expect(manager.getState().enabled).toBe(false)
+    await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow()
+  })
+
+  it('reports disabled when the previous port cannot be restored either', async () => {
+    const { manager, configPath, states } = await makeManager()
+    await manager.init()
+    await manager.setPort(await getAvailablePort())
+    await manager.setEnabled(true)
+
+    // Both the new port and the rollback start fail — e.g. something else
+    // grabbed the old port while the manager was restarting.
+    manager['startServer'] = async () => {
+      throw new Error('port blocked')
+    }
+    await expect(manager.setPort(await getAvailablePort())).rejects.toThrow(/port blocked/)
+
+    expect(manager.getState().enabled).toBe(false)
+    expect(states.at(-1)?.enabled).toBe(false)
+    const persisted = JSON.parse(await readFile(configPath, 'utf8')) as { enabled: boolean }
+    expect(persisted.enabled).toBe(false)
+  })
 })
 
 describe('rankLanAddresses', () => {

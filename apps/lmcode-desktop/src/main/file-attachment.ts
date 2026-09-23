@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { PromptInput } from '@lmcode-cli/lmcode-sdk'
+import { isUnsafeRemoteOrUncPath } from '../shared/open-path-guard.js'
 import { detectDocumentFormat, extractDocumentText } from './document/index.js'
 import {
   MAX_PROMPT_ATTACHMENTS,
@@ -42,11 +43,20 @@ async function resolveAttachmentFile(
   filePath: string,
   credentialRoots: readonly string[],
 ): Promise<ResolvedAttachmentFile> {
-  if (!filePath || filePath.includes('\0') || !path.isAbsolute(filePath)) {
+  if (
+    !filePath ||
+    filePath.includes('\0') ||
+    !path.isAbsolute(filePath) ||
+    isUnsafeRemoteOrUncPath(filePath)
+  ) {
     throw new Error('附件路径无效')
   }
 
   const realPath = await fs.realpath(filePath).catch(() => filePath)
+  // Re-check the resolved target before any stat/open: a local symlink (or
+  // another path alias) must not smuggle a UNC share in, which would make the
+  // main process authenticate to `\\attacker\...` and leak NetNTLM.
+  if (isUnsafeRemoteOrUncPath(realPath)) throw new Error('附件路径无效')
   if (
     isSensitiveAttachmentPath(filePath, credentialRoots) ||
     isSensitiveAttachmentPath(realPath, credentialRoots)
@@ -177,10 +187,19 @@ export function isSensitiveAttachmentPath(
     const normalizedRoot = normalizeForCompare(root)
     const insideRoot =
       target === normalizedRoot || target.startsWith(`${normalizedRoot}${path.sep}`)
+    if (!insideRoot) continue
+    // Credential stores that live directly under a profile root: the device
+    // identity, the provider config, MCP server env/headers, and the remote
+    // pairing token.
     if (
-      insideRoot &&
-      (base === 'device_id' || base.startsWith('config.toml'))
+      base === 'device_id' ||
+      base.startsWith('config.toml') ||
+      base === 'mcp.json' ||
+      base === 'remote-config.json'
     ) return true
+    // MCP OAuth tokens live in `<root>/credentials/mcp/`.
+    const relative = path.relative(normalizedRoot, target)
+    if (relative.split(path.sep)[0] === 'credentials') return true
   }
 
   for (const dir of SENSITIVE_HOME_DIRS) {
