@@ -15,6 +15,7 @@ import {
   gatewayAwareReasoningEffort,
   isGlm5Model,
   isGlmModel,
+  isMimoModel,
 } from '#/providers/openai-common';
 import { OpenAILegacyChatProvider, OpenAILegacyStreamedMessage } from '#/providers/openai-legacy';
 import {
@@ -507,6 +508,22 @@ describe('gatewayAwareReasoningEffort', () => {
       gatewayAwareReasoningEffort('max', 'GLM-5.3', 'https://opencode.ai/zen/go/v1'),
     ).toBe('max');
   });
+  it('folds xhigh/max to high for MiMo models (gateway rejects them with HTTP 400)', () => {
+    expect(
+      gatewayAwareReasoningEffort('max', 'mimo-v2.6-pro', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('high');
+    expect(
+      gatewayAwareReasoningEffort('xhigh', 'mimo-v2.6-flash', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('high');
+  });
+  it('keeps low/medium/high for MiMo models', () => {
+    expect(
+      gatewayAwareReasoningEffort('medium', 'mimo-v2.6-pro', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('medium');
+    expect(
+      gatewayAwareReasoningEffort('high', 'mimo-v2.6-pro', 'https://opencode.ai/zen/go/v1'),
+    ).toBe('high');
+  });
   it('keeps xhigh for non-GLM models on custom gateways', () => {
     expect(
       gatewayAwareReasoningEffort('xhigh', 'deepseek-v4-pro', 'https://opencode.ai/zen/go/v1'),
@@ -530,6 +547,11 @@ describe('gatewayAwareReasoningEffort', () => {
     expect(isGlm5Model('openai/glm-5.3-flash')).toBe(true);
     expect(isGlm5Model('GLM-5.3')).toBe(true);
     expect(isGlm5Model('glm-4-flash')).toBe(false);
+  });
+  it('recognizes routed MiMo model ids', () => {
+    expect(isMimoModel('opencode-go/mimo-v2.6-pro')).toBe(true);
+    expect(isMimoModel('MiMo-V2.5')).toBe(true);
+    expect(isMimoModel('deepseek-v4-pro')).toBe(false);
   });
 });
 describe('reasoningEffortToThinkingEffort', () => {

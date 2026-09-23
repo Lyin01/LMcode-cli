@@ -255,6 +255,11 @@ export function isGlm5Model(model: string | undefined): boolean {
   return /(?:^|[/_.-])glm-?5/i.test(String(model ?? ''));
 }
 
+/** True when `model` is a MiMo (Xiaomi) family id, including routed names. */
+export function isMimoModel(model: string | undefined): boolean {
+  return /(?:^|[/_.-])mimo/i.test(String(model ?? ''));
+}
+
 /**
  * Map liumir `ThinkingEffort` to an OpenAI-compatible `reasoning_effort` string,
  * adjusted for the gateway serving `model` at `baseUrl`.
@@ -266,6 +271,9 @@ export function isGlm5Model(model: string | undefined): boolean {
  *   the whole completion budget on thinking. `medium` therefore maps to `low`
  *   (light reasoning) rather than `high` (enhanced), so the desktop default
  *   does not exhaust the output window before a tool call or answer.
+ * - MiMo models served via OpenAI-compatible gateways (e.g. opencode-go) only
+ *   accept `low`/`medium`/`high`; `xhigh`/`max` are rejected upstream with
+ *   HTTP 400 "Invalid request parameters", so they fold onto `high`.
  * - Custom gateways (any host other than api.openai.com) may accept `max`
  *   natively, so it is passed through instead of folding onto the official
  *   OpenAI `xhigh` ceiling.
@@ -280,6 +288,10 @@ export function gatewayAwareReasoningEffort(
   if (isGlmModel(model)) {
     if (mapped === 'xhigh') return 'max';
     if (mapped === 'medium') return 'low';
+    return mapped;
+  }
+  if (isMimoModel(model)) {
+    if (mapped === 'xhigh') return 'high';
     return mapped;
   }
   if (effort === 'max') {
