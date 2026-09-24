@@ -3,6 +3,7 @@ import type { DynamicInjector } from './injector';
 import { ComputerUseInjector } from './computer-use';
 import { GoalInjector } from './goal';
 import { PermissionModeInjector } from './permission-mode';
+import { RecentSessionsInjector } from './recent-sessions';
 import { UserPreferencesInjector } from './user-preferences';
 import { PluginSessionStartInjector } from './plugin-session-start';
 import { PlanModeInjector } from './plan-mode';
@@ -20,6 +21,7 @@ const VARIANT_TITLES: Record<string, string> = {
   'computer_use': 'Computer Use',
   'plugin_session_start': 'Plugin Session Start',
   'user_preferences': '用户习惯与偏好',
+  'recent_sessions': '最近的工作会话',
 };
 
 function sectionTitle(variant: string): string {
@@ -33,6 +35,7 @@ export class InjectionManager {
     this.injectors = [
       new PluginSessionStartInjector(agent),
       new UserPreferencesInjector(agent),
+      new RecentSessionsInjector(agent),
       new WolfPackModeInjector(agent),
       new PlanModeInjector(agent),
       new PermissionModeInjector(agent),

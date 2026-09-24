@@ -32,6 +32,7 @@ import type { SystemPromptContext } from '../profile/types';
 import { renderPrompt } from '../utils/render-prompt';
 import { linkAbortSignal } from '../utils/abort';
 import type { ModelProvider } from '../session/provider-manager';
+import { SessionStore } from '../session/store';
 import type { SessionSubagentHost } from '../session/subagent-host';
 import type { SkillRegistry } from '../skill';
 import {
@@ -49,6 +50,10 @@ import { ContextMemory } from './context';
 import { GoalMode, type GoalBudgetLimits } from './goal';
 import { HookEngine } from '../session/hooks';
 import { InjectionManager } from './injection/manager';
+import {
+  RECENT_SESSION_INJECTION_LIMIT,
+  renderRecentSessionLines,
+} from './injection/recent-sessions';
 import {
   USER_PREFERENCE_INJECTION_LIMIT,
   renderUserPreferenceLines,
@@ -183,6 +188,7 @@ export class Agent {
   readonly dreamTracker: DreamTracker;
   readonly replayBuilder: ReplayBuilder;
 
+  private readonly lmcodeHomeDir: string | undefined;
   private lastLlmConfigLogSignature?: string;
   private readonly memoStoreReady: Promise<void> | undefined;
   private exitMemoryExtraction: ExitMemoryExtraction | undefined;
@@ -199,6 +205,7 @@ export class Agent {
     this.jian = options.jian;
     this.lmcodeConfig = options.config;
     this.homedir = options.homedir;
+    this.lmcodeHomeDir = options.lmcodeHomeDir;
     this.rpc = options.rpc;
     this.toolServices = options.toolServices;
     this.pluginSessionStarts = options.pluginSessionStarts ?? [];
@@ -618,6 +625,28 @@ export class Agent {
     }
   }
 
+  /**
+   * Render the user's most recent sessions (excluding this one) for prompt
+   * injection. Failures degrade to an empty string — a session-store lookup
+   * must never break a turn.
+   */
+  async renderRecentSessions(limit = RECENT_SESSION_INJECTION_LIMIT): Promise<string> {
+    const homeDir = this.lmcodeHomeDir;
+    if (homeDir === undefined) return '';
+    try {
+      const store = new SessionStore(homeDir);
+      const sessions = await store.list();
+      return renderRecentSessionLines(sessions, {
+        selfSessionId: this.homedir === undefined ? undefined : sessionIdFromAgentHome(this.homedir),
+        now: Date.now(),
+        limit,
+      });
+    } catch (error) {
+      this.log.warn('failed to render recent sessions', { error });
+      return '';
+    }
+  }
+
   /** Extract memory memos from the full conversation history on session exit. */
   extractMemoriesOnExit(signal?: AbortSignal): Promise<void> {
     if (this.closing !== undefined) {
@@ -669,10 +698,9 @@ export class Agent {
     // firing after an exit extraction already ran) — nothing new to learn.
     if (contextRevision === this.lastMemoryExtractionContextRevision) return;
 
-    // homedir = <projectDir>/<sessionId>/agents/<agentId>
-    const sessionId = this.homedir
-      ? basename(dirname(dirname(this.homedir)))
-      : 'unknown';
+    // homedir = <sessionDir>/agents/<agentId>
+    const sessionId =
+      this.homedir !== undefined ? sessionIdFromAgentHome(this.homedir) : 'unknown';
 
     const sessionTitle = await this.getSessionTitle();
     signal.throwIfAborted();
@@ -1039,4 +1067,9 @@ function fingerprint(content: string): string {
 
 function requestLogContext(options: Parameters<typeof generate>[5]) {
   return (options as GenerateOptionsWithRequestLog | undefined)?.[GENERATE_REQUEST_LOG_CONTEXT];
+}
+
+/** Derive the owning session id from an agent homedir (`<sessionDir>/agents/<agentId>`). */
+function sessionIdFromAgentHome(homedir: string): string {
+  return basename(dirname(dirname(homedir)));
 }
