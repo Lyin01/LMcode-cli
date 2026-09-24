@@ -51,16 +51,65 @@ export function parseMemoryMemos(text: string): MemoryMemo[] {
   return memos;
 }
 
+/** A pending memo reduced to what the extraction model needs to close it. */
+export interface PendingTaskRef {
+  readonly id: string;
+  readonly userNeed: string;
+}
+
+/**
+ * Parse the ids of pending memos the model reported as completed.
+ *
+ * Resolution lives in dedicated `memory-resolve` blocks so ids can never mix
+ * with memo parsing; malformed blocks are skipped and ids are deduplicated in
+ * first-seen order.
+ */
+export function parseResolvedPendingIds(text: string): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  const regex = /```memory-resolve[\s\S]*?\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    const jsonStr = match[1]?.trim();
+    if (!jsonStr) continue;
+
+    try {
+      const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+      const raw = parsed['resolved'];
+      if (!Array.isArray(raw)) continue;
+      for (const entry of raw) {
+        if (typeof entry !== 'string') continue;
+        const id = entry.trim();
+        if (id.length === 0 || seen.has(id)) continue;
+        seen.add(id);
+        ids.push(id);
+      }
+    } catch {
+      // Malformed JSON block: skip silently so one bad block cannot break resolution parsing.
+    }
+  }
+
+  return ids;
+}
+
 /** System prompt for exit-time extraction — instructs the LLM how to extract. */
 export const EXIT_EXTRACTION_SYSTEM_PROMPT =
-  '你是一个长期记忆提取助手。任务是：1）从对话记录中识别已完成的任务闭环，提炼任务经验记录；2）识别用户明确表达的、稳定的偏好与习惯，提炼偏好记录；3）识别明确未完成、需要下次继续的工作，提炼未完成事项记录。用对话的主要语言输出（中文对话用中文，英文对话用英文）。只输出指定的 JSON 格式，不要调用任何工具。';
+  '你是一个长期记忆提取助手。任务是：1）从对话记录中识别已完成的任务闭环，提炼任务经验记录；2）识别用户明确表达的、稳定的偏好与习惯，提炼偏好记录；3）识别明确未完成、需要下次继续的工作，提炼未完成事项记录；4）提示词给出待续清单时，把本次明确完成的待续事项输出为销账块。用对话的主要语言输出（中文对话用中文，英文对话用英文）。只输出指定的 JSON 格式，不要调用任何工具。';
 
-/** Build the user prompt for exit-time extraction, including a conversation sample. */
+/**
+ * Build the user prompt for exit-time extraction, including a conversation
+ * sample. When `pendingTasks` is given, the prompt also lists the open pending
+ * memos so the model can report the ones this session finished.
+ */
 export function buildExitExtractionPrompt(
   sessionId: string,
   messageCount: number,
   sampleText: string,
+  pendingTasks?: readonly PendingTaskRef[],
 ): string {
+  const pendingSection = renderPendingResolutionSection(pendingTasks);
   return `以下是会话 "${sessionId}"（共 ${messageCount} 条消息）的对话记录。请提取三类长期记忆：
 
 **一、已完成的任务闭环**（kind 省略或填 "task"）
@@ -122,7 +171,7 @@ export function buildExitExtractionPrompt(
 - 只有任务明显还需要继续时才输出；话题自然结束、用户没有表达继续意愿时按完成处理
 - 同一任务只输出一条，不要拆成多条
 
-注意：
+${pendingSection}注意：
 - tags 是 3-5 个语义标签，概括任务领域/技术栈/动作类型，例如 ["react", "auth", "部署"]
 - whatFailed 记录重要的错误尝试，帮助未来避免重蹈覆辙
 - whatWorked 记录最终成功的关键动作，帮助未来复用经验
@@ -140,4 +189,43 @@ export function buildExitExtractionPrompt(
 ${sampleText}
 
 --- 对话记录结束 ---`;
+}
+
+const MAX_PENDING_TASK_CHARS = 120;
+
+/** Render the optional prompt section that offers open pending ids for closure. */
+function renderPendingResolutionSection(
+  pendingTasks: readonly PendingTaskRef[] | undefined,
+): string {
+  if (pendingTasks === undefined || pendingTasks.length === 0) return '';
+  const lines = pendingTasks
+    .map((task) => `- ${task.id}｜${truncatePendingTask(task.userNeed)}`)
+    .join('\n');
+  return `**四、待续事项销账**（可选）
+
+以下是此前记录的、仍未完成的待续事项（格式：id｜任务）：
+
+${lines}
+
+如果本次会话**明确完成**了其中某一项（工作已交付、结果已达成、或用户确认完成），在 memory-memo 块之外额外输出一个销账块：
+
+\`\`\`memory-resolve
+{"resolved": ["<完成的 id>"]}
+\`\`\`
+
+销账判定要宁缺毋滥：
+- 只列本次会话确凿完成的 id；部分完成、不确定、只是提到但没有做完的，一律不列
+- id 必须原样取自上方清单，不要编造、不要改写
+- 即使本次没有其它记忆要写，只要完成了清单中的事项，也照常输出销账块
+- 销账不影响第一节：完成的工作仍可按第一节提炼为任务经验
+- 没有任何一项完成时，不要输出销账块
+
+`;
+}
+
+function truncatePendingTask(text: string): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  return collapsed.length <= MAX_PENDING_TASK_CHARS
+    ? collapsed
+    : `${collapsed.slice(0, MAX_PENDING_TASK_CHARS)}…`;
 }

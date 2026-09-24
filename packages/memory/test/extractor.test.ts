@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseMemoryMemos } from '../src/extractor.js';
+import { parseMemoryMemos, parseResolvedPendingIds } from '../src/extractor.js';
 
 /**
  * Edge-case coverage for the LLM-output memo parser. The happy path and basic
@@ -144,5 +144,46 @@ describe('parseMemoryMemos — memo kinds', () => {
     );
     expect(memos).toHaveLength(1);
     expect(memos[0]!.kind).toBe('task');
+  });
+});
+
+describe('parseResolvedPendingIds — robustness', () => {
+  it('parses ids from a resolve block', () => {
+    expect(parseResolvedPendingIds('```memory-resolve\n{"resolved": ["memo-a", "memo-b"]}\n```')).toEqual([
+      'memo-a',
+      'memo-b',
+    ]);
+  });
+
+  it('merges multiple blocks and deduplicates ids in first-seen order', () => {
+    const text =
+      '```memory-resolve\n{"resolved": ["memo-b", "memo-a"]}\n```\n\n' +
+      '```memory-resolve\n{"resolved": ["memo-a", "memo-c"]}\n```';
+    expect(parseResolvedPendingIds(text)).toEqual(['memo-b', 'memo-a', 'memo-c']);
+  });
+
+  it('ignores malformed blocks, non-array payloads, and blank or non-string ids', () => {
+    const text =
+      '```memory-resolve\n{ not valid json }\n```\n\n' +
+      '```memory-resolve\n{"resolved": "memo-a"}\n```\n\n' +
+      '```memory-resolve\n{"resolved": ["", "  ", 42, null, "memo-ok"]}\n```';
+    expect(parseResolvedPendingIds(text)).toEqual(['memo-ok']);
+  });
+
+  it('reads CRLF blocks embedded in prose', () => {
+    const text = [
+      'Summary follows.',
+      '```memory-resolve',
+      '{"resolved": ["memo-crlf"]}',
+      '```',
+      'Closing remarks.',
+    ].join('\r\n');
+    expect(parseResolvedPendingIds(text)).toEqual(['memo-crlf']);
+  });
+
+  it('never reads ids out of memo blocks', () => {
+    expect(parseResolvedPendingIds('no blocks here')).toEqual([]);
+    expect(parseResolvedPendingIds('')).toEqual([]);
+    expect(parseResolvedPendingIds('```memory-memo\n{"userNeed": "x"}\n```')).toEqual([]);
   });
 });

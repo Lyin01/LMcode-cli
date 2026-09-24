@@ -793,4 +793,36 @@ describe('buildExitExtractionPrompt', () => {
     expect(prompt).toContain('已完成的任务闭环');
     expect(prompt).toContain('对话记录');
   });
+
+  it('lists pending refs with ids and asks for a resolve block when provided', () => {
+    const prompt = buildExitExtractionPrompt('sess-1', 5, '[user] continue', [
+      { id: 'memo-abc', userNeed: '修复 flaky test' },
+      { id: 'memo-def', userNeed: '升级 CI 缓存' },
+    ]);
+    expect(prompt).toContain('待续事项销账');
+    expect(prompt).toContain('- memo-abc｜修复 flaky test');
+    expect(prompt).toContain('- memo-def｜升级 CI 缓存');
+    expect(prompt).toContain('memory-resolve');
+    expect(prompt).toContain('{"resolved": ["<完成的 id>"]}');
+  });
+
+  it('omits the resolve section when no pending refs are given', () => {
+    const withoutRefs = buildExitExtractionPrompt('sess-1', 5, 'sample');
+    expect(withoutRefs).not.toContain('待续事项销账');
+    expect(withoutRefs).not.toContain('memory-resolve');
+
+    const withEmptyList = buildExitExtractionPrompt('sess-1', 5, 'sample', []);
+    expect(withEmptyList).not.toContain('待续事项销账');
+  });
+
+  it('collapses whitespace and truncates long pending task text', () => {
+    const prompt = buildExitExtractionPrompt('sess-1', 5, 'sample', [
+      { id: 'memo-long', userNeed: `修复\n  换行   任务${'x'.repeat(200)}` },
+    ]);
+    const line = prompt.split('\n').find((candidate) => candidate.startsWith('- memo-long｜'));
+    expect(line).toBeDefined();
+    expect(line!.length).toBeLessThan(140);
+    expect(line!.endsWith('…')).toBe(true);
+    expect(line).toContain('修复 换行 任务');
+  });
 });
