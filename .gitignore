@@ -22,6 +22,9 @@ dream-lock.json
 # Session export artifact accidentally written to the repo root by the
 # export tests/CLI; regenerated (with a fresh timestamp) on every run.
 session_default_output.zip
+# fastembed model cache: its default cacheDir is the process cwd, so running
+# the test suite (or the dev CLI) from the repo root downloads ~90 MB here.
+local_cache/
 
 # Runtime credentials and per-environment overrides
 .env
