@@ -2,18 +2,10 @@ import { basename } from 'pathe';
 
 import type { SessionSummary } from '#/rpc/core-api';
 
-import { DynamicInjector } from './injector';
+import { DynamicInjector, FRESH_SESSION_MAX_HISTORY } from './injector';
 
 /** How many recent sessions one briefing may carry. */
 export const RECENT_SESSION_INJECTION_LIMIT = 5;
-
-/**
- * History length above which the session is treated as resumed. A fresh
- * session holds nothing but the prompt that started the current turn (plus,
- * at most, the dream suggestion appended right before injections run), while
- * a resumed session replays its transcript into the history first.
- */
-export const RECENT_SESSION_MAX_FRESH_HISTORY = 2;
 
 const MAX_TITLE_CHARS = 80;
 const MAX_PROMPT_CHARS = 120;
@@ -96,7 +88,7 @@ export class RecentSessionsInjector extends DynamicInjector {
   protected override async getInjection(): Promise<string | undefined> {
     if (this.hasPublished) return undefined;
     if (this.agent.type !== 'main') return undefined;
-    if (this.agent.context.history.length > RECENT_SESSION_MAX_FRESH_HISTORY) return undefined;
+    if (this.agent.context.history.length > FRESH_SESSION_MAX_HISTORY) return undefined;
 
     let rendered: string;
     try {

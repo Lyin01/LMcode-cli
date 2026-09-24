@@ -51,6 +51,11 @@ import { GoalMode, type GoalBudgetLimits } from './goal';
 import { HookEngine } from '../session/hooks';
 import { InjectionManager } from './injection/manager';
 import {
+  PENDING_TASK_INJECTION_LIMIT,
+  PENDING_TASK_SCAN_LIMIT,
+  renderPendingTaskLines,
+} from './injection/pending-tasks';
+import {
   RECENT_SESSION_INJECTION_LIMIT,
   renderRecentSessionLines,
 } from './injection/recent-sessions';
@@ -643,6 +648,27 @@ export class Agent {
       });
     } catch (error) {
       this.log.warn('failed to render recent sessions', { error });
+      return '';
+    }
+  }
+
+  /**
+   * Render the user's unfinished (pending) task memos for prompt injection.
+   * Failures degrade to an empty string — a memory lookup must never break a
+   * turn.
+   */
+  async renderPendingTasks(limit = PENDING_TASK_INJECTION_LIMIT): Promise<string> {
+    const store = this.memoStore;
+    if (store === undefined) return '';
+    try {
+      await this.memoStoreReady;
+      const { memos } = await store.list({
+        kinds: ['pending'],
+        limit: PENDING_TASK_SCAN_LIMIT,
+      });
+      return renderPendingTaskLines(memos, { now: Date.now(), limit });
+    } catch (error) {
+      this.log.warn('failed to render pending tasks', { error });
       return '';
     }
   }

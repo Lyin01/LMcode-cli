@@ -35,7 +35,7 @@ Guidelines:
 - Record important failed attempts in "whatFailed" to help avoid repeating mistakes.
 - Record key successful actions in "whatWorked" to help reuse effective approaches.
 - Include 3-5 semantic "tags" summarizing the task domain, tech stack, or action type (e.g. ["react", "auth", "部署"]).
-- Skip in-progress work unless it contains a valuable error+fix experience.
+- Skip in-progress work as task experience unless it contains a valuable error+fix experience; record clearly unfinished work as a pending memo instead (see below).
 - Merge closely related sub-tasks into a single record.
 - Use the exact field names and JSON format shown above.
 
@@ -59,7 +59,26 @@ While scanning the compacted messages, also look for **stable user preferences a
 - If the user corrected an earlier habit, record the new rule (it supersedes the old one).
 - Be conservative: if you are unsure whether the habit is stable, skip it.
 
-If no completed task loops and no new stable preferences are found in the compacted messages, output:
+### 未完成事项（kind = "pending"）
+
+If the compacted messages contain **clearly unfinished work** — a task interrupted mid-way, the user saying they will continue later, or work started but not yet wrapped up — output one pending record describing how far it got and what remains. Do **not** output one when the task was completed, the user was satisfied, or it was mere chit-chat.
+
+```memory-memo
+{
+  "kind": "pending",
+  "userNeed": "<the task itself, one sentence>",
+  "approach": "<current progress and the next step: what is done, where it is stuck, what comes next — 2-4 sentences>",
+  "outcome": "未完成",
+  "whatFailed": "<paths tried that did not work, or 'none'>",
+  "whatWorked": "<actions already known to work, or 'none'>",
+  "tags": ["<tag1>", "<tag2>", "<tag3>"]
+}
+```
+
+- Be conservative: only when the task clearly still needs more work.
+- One record per task; do not split it into several.
+
+If no completed task loops, no new stable preferences, and no pending tasks are found in the compacted messages, output:
 ```memory-memo
 {"none": true}
 ```

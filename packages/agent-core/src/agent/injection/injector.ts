@@ -1,5 +1,12 @@
 import type { Agent } from '..';
 
+/**
+ * History length above which a session is treated as resumed (it replayed its
+ * own transcript into the context) rather than fresh. Injectors that only
+ * brief brand-new sessions use this to stay silent in resumed ones.
+ */
+export const FRESH_SESSION_MAX_HISTORY = 2;
+
 export abstract class DynamicInjector {
   protected injectedAt: number | null = null;
 

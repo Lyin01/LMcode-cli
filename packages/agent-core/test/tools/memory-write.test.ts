@@ -137,6 +137,33 @@ describe('MemoryWriteTool', () => {
     expect(appended!.approach).toBe('回复用中文，结论先行');
   });
 
+  it('records a pending memo when kind is set', async () => {
+    let appended: { kind?: string; output?: string } | undefined;
+
+    const { agent } = makeAgent({
+      append: async (memo) => {
+        appended = memo as unknown as typeof appended;
+      },
+    });
+    const tool = new MemoryWriteTool(agent);
+
+    const result = await executeTool(tool, {
+      turnId: 't1',
+      toolCallId: 'call_1',
+      args: {
+        kind: 'pending',
+        userNeed: '修复 flaky test',
+        approach: '已定位到文件锁，下一步验证重试预算',
+        outcome: '未完成',
+      },
+      signal,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(appended).toBeDefined();
+    expect(appended!.kind).toBe('pending');
+  });
+
   it('records a task memo when kind is omitted', async () => {
     let appended: { kind?: string } | undefined;
 

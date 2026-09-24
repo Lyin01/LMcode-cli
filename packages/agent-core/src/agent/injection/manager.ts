@@ -2,6 +2,7 @@ import type { Agent } from '..';
 import type { DynamicInjector } from './injector';
 import { ComputerUseInjector } from './computer-use';
 import { GoalInjector } from './goal';
+import { PendingTasksInjector } from './pending-tasks';
 import { PermissionModeInjector } from './permission-mode';
 import { RecentSessionsInjector } from './recent-sessions';
 import { UserPreferencesInjector } from './user-preferences';
@@ -22,6 +23,7 @@ const VARIANT_TITLES: Record<string, string> = {
   'plugin_session_start': 'Plugin Session Start',
   'user_preferences': '用户习惯与偏好',
   'recent_sessions': '最近的工作会话',
+  'pending_tasks': '未完成的工作',
 };
 
 function sectionTitle(variant: string): string {
@@ -36,6 +38,7 @@ export class InjectionManager {
       new PluginSessionStartInjector(agent),
       new UserPreferencesInjector(agent),
       new RecentSessionsInjector(agent),
+      new PendingTasksInjector(agent),
       new WolfPackModeInjector(agent),
       new PlanModeInjector(agent),
       new PermissionModeInjector(agent),

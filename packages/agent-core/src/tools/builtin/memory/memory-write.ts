@@ -9,11 +9,12 @@ import { toInputJsonSchema } from '../../support/input-schema';
 
 export const MemoryWriteInputSchema = z.object({
   kind: z
-    .enum(['task', 'preference'])
+    .enum(['task', 'preference', 'pending'])
     .optional()
     .describe(
       'Memo kind. "preference" records a stable user habit (language, tooling, style, workflow) ' +
-        'that will be injected into every session; omit or use "task" for a task experience record.',
+        'that will be injected into every session; "pending" records an unfinished task to resume ' +
+        'in a later session. Omit or use "task" for a task experience record.',
     ),
   userNeed: z
     .string()
@@ -31,7 +32,7 @@ export const MemoryWriteInputSchema = z.object({
     .string()
     .min(1)
     .describe(
-      'Final outcome, e.g. "完成", "部分完成", "失败". For kind "preference": use "已记录为长期偏好".',
+      'Final outcome, e.g. "完成", "部分完成", "失败". For kind "preference": use "已记录为长期偏好"; for kind "pending": use "未完成".',
     ),
   whatFailed: z
     .string()
@@ -60,6 +61,7 @@ export class MemoryWriteTool implements BuiltinTool<MemoryWriteInput> {
     'Write a new memory memo to the global memory memo store. ' +
     'Call this when the user explicitly asks to save an experience, lesson, or summary to memory, ' +
     'for example "保存到记忆", "保存到备忘录", "总结并保存", "永久记忆", "记录我的记忆", "记住这个", "添加到记忆", or "存入记忆库". ' +
+    'Set kind to "pending" when the user asks you to remember an unfinished task to resume later. ' +
     'Set kind to "preference" when the user asks you to remember a stable habit or preference ' +
     '("记住我喜欢用 pnpm"); preferences are injected into every session so they must stay small and general. ' +
     'Summarize the user need, approach taken, final outcome, what failed, what worked, and 3-5 tags.';
