@@ -117,6 +117,19 @@ describe('parseMemoryMemos — memo kinds', () => {
     expect(memos[0]!.approach).toBe('回复用中文');
   });
 
+  it('parses a pending memo and keeps its kind', () => {
+    const text =
+      '```memory-memo\n' +
+      '{"kind": "pending", "userNeed": "修复 flaky test", "approach": "已定位到 Win 文件锁", ' +
+      '"outcome": "未完成", "whatFailed": "none", "whatWorked": "none", ' +
+      '"tags": ["测试", "稳定性"]}\n```';
+
+    const memos = parseMemoryMemos(text);
+    expect(memos).toHaveLength(1);
+    expect(memos[0]!.kind).toBe('pending');
+    expect(memos[0]!.outcome).toBe('未完成');
+  });
+
   it('defaults a missing kind to a task memo', () => {
     const memos = parseMemoryMemos(
       '```memory-memo\n{"userNeed": "修复构建", "approach": "升级依赖", "outcome": "完成"}\n```',

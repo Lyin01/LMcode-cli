@@ -53,7 +53,7 @@ export function parseMemoryMemos(text: string): MemoryMemo[] {
 
 /** System prompt for exit-time extraction — instructs the LLM how to extract. */
 export const EXIT_EXTRACTION_SYSTEM_PROMPT =
-  '你是一个长期记忆提取助手。任务是：1）从对话记录中识别已完成的任务闭环，提炼任务经验记录；2）识别用户明确表达的、稳定的偏好与习惯，提炼偏好记录。用对话的主要语言输出（中文对话用中文，英文对话用英文）。只输出指定的 JSON 格式，不要调用任何工具。';
+  '你是一个长期记忆提取助手。任务是：1）从对话记录中识别已完成的任务闭环，提炼任务经验记录；2）识别用户明确表达的、稳定的偏好与习惯，提炼偏好记录；3）识别明确未完成、需要下次继续的工作，提炼未完成事项记录。用对话的主要语言输出（中文对话用中文，英文对话用英文）。只输出指定的 JSON 格式，不要调用任何工具。';
 
 /** Build the user prompt for exit-time extraction, including a conversation sample. */
 export function buildExitExtractionPrompt(
@@ -61,7 +61,7 @@ export function buildExitExtractionPrompt(
   messageCount: number,
   sampleText: string,
 ): string {
-  return `以下是会话 "${sessionId}"（共 ${messageCount} 条消息）的对话记录。请提取两类长期记忆：
+  return `以下是会话 "${sessionId}"（共 ${messageCount} 条消息）的对话记录。请提取三类长期记忆：
 
 **一、已完成的任务闭环**（kind 省略或填 "task"）
 
@@ -102,15 +102,35 @@ export function buildExitExtractionPrompt(
 - 用户对既有偏好的纠正也要记录（写清新规则）
 - 每条偏好独立成块，不要与任务经验合并
 
+**三、未完成事项**（kind = "pending"）
+
+仅当本次会话存在**明确未完成**的工作时输出：任务做到一半被打断、用户表示"下次继续 / 先到这里"、或已经开始但尚未收尾。任务已经完成并交付、用户表示满意、或只是日常问答时，不要输出。
+
+\`\`\`memory-memo
+{
+  "kind": "pending",
+  "userNeed": "<任务本身，一句话，如'修复 XXX 的启动崩溃'>",
+  "approach": "<当前进度与下一步：做到哪了、卡在哪、下一步是什么，2-4 句话>",
+  "outcome": "未完成",
+  "whatFailed": "<已尝试但无效的路径，无则填 'none'>",
+  "whatWorked": "<已验证有效的动作，无则填 'none'>",
+  "tags": ["<标签1>", "<标签2>", "<标签3>"]
+}
+\`\`\`
+
+未完成判定要宁缺毋滥：
+- 只有任务明显还需要继续时才输出；话题自然结束、用户没有表达继续意愿时按完成处理
+- 同一任务只输出一条，不要拆成多条
+
 注意：
 - tags 是 3-5 个语义标签，概括任务领域/技术栈/动作类型，例如 ["react", "auth", "部署"]
 - whatFailed 记录重要的错误尝试，帮助未来避免重蹈覆辙
 - whatWorked 记录最终成功的关键动作，帮助未来复用经验
-- 跳过未完成的工作，除非其中包含有价值的踩坑经验
+- 未完成的工作不写入任务经验；如有需要保留的未完成事项，按第三节单独输出
 - 将紧密相关的子任务合并为一条记录
 - 严格遵守上述字段名和 JSON 格式，不要添加额外字段
 
-如果既没有已完成的任务闭环，也没有新的稳定偏好，输出：
+如果既没有已完成的任务闭环，也没有新的稳定偏好，也没有未完成事项，输出：
 \`\`\`memory-memo
 {"none": true}
 \`\`\`

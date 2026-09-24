@@ -458,6 +458,22 @@ describe('MemoryMemoStore', () => {
       expect(tasks.memos[0]!.userNeed).toBe('修复构建');
     });
 
+    it('filters pending memos out of task and preference queries', async () => {
+      await store.append(makeMemo({ userNeed: '修复 flaky test', kind: 'pending' }));
+      await store.append(makeMemo({ userNeed: '修复构建', kind: 'task' }));
+      await store.append(
+        makeMemo({ userNeed: '所有会话', approach: '回复用中文', kind: 'preference' }),
+      );
+
+      const pending = await store.list({ kinds: ['pending'] });
+      expect(pending.total).toBe(1);
+      expect(pending.memos[0]!.userNeed).toBe('修复 flaky test');
+
+      const tasks = await store.list({ kinds: ['task'] });
+      expect(tasks.total).toBe(1);
+      expect(tasks.memos[0]!.userNeed).toBe('修复构建');
+    });
+
     it('treats a memo appended without a kind as a task memo', async () => {
       const legacy = { ...makeMemo({ userNeed: '旧记录' }) };
       delete (legacy as { kind?: unknown }).kind;

@@ -1,18 +1,21 @@
 import { normalizeTags } from './tags.js';
 
 /**
- * Two kinds of long-term memory: a completed *task experience*, or a stable
- * *user preference/habit*. Preference memos are injected into the session
- * context so the assistant already knows how the user likes to work.
+ * Three kinds of long-term memory: a completed *task experience*, a stable
+ * *user preference/habit*, or a *pending task* that was left unfinished and
+ * should be resumed. Preference memos are injected into the session context
+ * so the assistant already knows how the user likes to work; pending tasks
+ * are surfaced at the start of a fresh session so work can continue where it
+ * stopped.
  */
-export type MemoryMemoKind = 'task' | 'preference';
+export type MemoryMemoKind = 'task' | 'preference' | 'pending';
 
 /**
- * Normalize an untrusted kind (legacy records, LLM output): anything that is
- * not exactly `"preference"` is treated as a task memo.
+ * Normalize an untrusted kind (legacy records, LLM output): only the known
+ * kinds survive, anything else is treated as a task memo.
  */
 export function normalizeMemoKind(value: unknown): MemoryMemoKind {
-  return value === 'preference' ? 'preference' : 'task';
+  return value === 'preference' || value === 'pending' ? value : 'task';
 }
 
 /** Memory memo types — structured task experience records extracted from conversations. */
@@ -44,8 +47,9 @@ export interface MemoryMemo {
   tags?: string[];
   /**
    * `'preference'` marks a stable user habit (language, tooling, style,
-   * workflow) rather than a one-off task outcome. Absent = `'task'` (memos
-   * written before this field existed).
+   * workflow) rather than a one-off task outcome; `'pending'` marks an
+   * unfinished task to be resumed in a later session. Absent = `'task'`
+   * (memos written before this field existed).
    */
   kind?: MemoryMemoKind;
 }
