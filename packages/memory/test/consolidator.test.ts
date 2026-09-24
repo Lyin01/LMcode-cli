@@ -262,4 +262,60 @@ describe('applyConsolidation', () => {
     expect(remaining.length).toBe(1);
     expect(remaining[0]?.projectDir).toBe('');
   });
+
+  it('keeps a preference group as a preference memo after merging', async () => {
+    await store.append(
+      makeMemo('g1', {
+        userNeed: '所有会话',
+        approach: '回复使用中文，结论先行，简洁直接',
+        kind: 'preference',
+      }),
+    );
+    await store.append(
+      makeMemo('g2', {
+        userNeed: '所有会话',
+        approach: '回复用中文，结论先行，保持简洁直接',
+        kind: 'preference',
+      }),
+    );
+
+    const plan = await buildConsolidationPlan(store);
+    expect(plan.duplicateGroups.length).toBeGreaterThan(0);
+    await applyConsolidation(store, plan);
+
+    const remaining: MemoryMemo[] = [];
+    for await (const memo of store.read()) {
+      remaining.push(memo);
+    }
+    expect(remaining.length).toBe(1);
+    expect(remaining[0]?.kind).toBe('preference');
+  });
+
+  it('degrades a mixed task/preference group to a task memo', async () => {
+    await store.append(
+      makeMemo('x1', {
+        userNeed: 'Fix login token refresh',
+        approach: 'Add axios interceptor',
+        kind: 'preference',
+      }),
+    );
+    await store.append(
+      makeMemo('x2', {
+        userNeed: 'Fix login token refresh bug',
+        approach: 'Use axios interceptor for refresh',
+        kind: 'task',
+      }),
+    );
+
+    const plan = await buildConsolidationPlan(store);
+    expect(plan.duplicateGroups.length).toBeGreaterThan(0);
+    await applyConsolidation(store, plan);
+
+    const remaining: MemoryMemo[] = [];
+    for await (const memo of store.read()) {
+      remaining.push(memo);
+    }
+    expect(remaining.length).toBe(1);
+    expect(remaining[0]?.kind).toBe('task');
+  });
 });

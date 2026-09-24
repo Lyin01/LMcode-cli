@@ -1,5 +1,5 @@
-export type { MemoryMemo, MemoryMemoRecord, MemoryMemoSummary, MemoryMemoListResult } from './models.js';
-export { createMemoryMemo, toSummary } from './models.js';
+export type { MemoryMemo, MemoryMemoKind, MemoryMemoRecord, MemoryMemoSummary, MemoryMemoListResult } from './models.js';
+export { createMemoryMemo, normalizeMemoKind, toSummary } from './models.js';
 export { MemoryMemoStore } from './store.js';
 export { parseMemoryMemos, buildExitExtractionPrompt, EXIT_EXTRACTION_SYSTEM_PROMPT } from './extractor.js';
 export { computeRelevanceScore, rankMemos, extractKeywords, buildProjectTagCloud, detectQueryIntent, type ScoredMemo, type QueryIntent } from './scoring.js';

@@ -39,7 +39,27 @@ Guidelines:
 - Merge closely related sub-tasks into a single record.
 - Use the exact field names and JSON format shown above.
 
-If no completed task loops are found in the compacted messages, output:
+### 用户偏好与习惯（同等重要）
+
+While scanning the compacted messages, also look for **stable user preferences and habits** the user explicitly stated or repeatedly demonstrated — preferred tooling (e.g. pnpm), reply language and style, workflow rules ("always run the tests first"), formatting likes/dislikes, recurring review expectations. Do **not** record one-off task requirements ("use X this time") or passing context. When found, output one preference record per habit:
+
+```memory-memo
+{
+  "kind": "preference",
+  "userNeed": "<the scene it applies to, e.g. '所有会话' or '代码修改'>",
+  "approach": "<the rule itself, one sentence, written so it can be followed directly>",
+  "outcome": "已记录为长期偏好",
+  "whatFailed": "none",
+  "whatWorked": "none",
+  "tags": ["偏好", "<tag2>", "<tag3>"]
+}
+```
+
+- Write the rule text in the same language the user used with you.
+- If the user corrected an earlier habit, record the new rule (it supersedes the old one).
+- Be conservative: if you are unsure whether the habit is stable, skip it.
+
+If no completed task loops and no new stable preferences are found in the compacted messages, output:
 ```memory-memo
 {"none": true}
 ```

@@ -8,18 +8,31 @@ import type { ToolExecution } from '../../../loop/types';
 import { toInputJsonSchema } from '../../support/input-schema';
 
 export const MemoryWriteInputSchema = z.object({
+  kind: z
+    .enum(['task', 'preference'])
+    .optional()
+    .describe(
+      'Memo kind. "preference" records a stable user habit (language, tooling, style, workflow) ' +
+        'that will be injected into every session; omit or use "task" for a task experience record.',
+    ),
   userNeed: z
     .string()
     .min(1)
-    .describe('The user need or goal, summarized in one sentence.'),
+    .describe(
+      'The user need or goal, summarized in one sentence. For kind "preference": the scene the habit applies to, e.g. "所有会话" or "代码修改".',
+    ),
   approach: z
     .string()
     .min(1)
-    .describe('The approach taken — what was actually done.'),
+    .describe(
+      'The approach taken — what was actually done. For kind "preference": the rule itself, written so it can be followed directly.',
+    ),
   outcome: z
     .string()
     .min(1)
-    .describe('Final outcome, e.g. "完成", "部分完成", "失败".'),
+    .describe(
+      'Final outcome, e.g. "完成", "部分完成", "失败". For kind "preference": use "已记录为长期偏好".',
+    ),
   whatFailed: z
     .string()
     .optional()
@@ -47,6 +60,8 @@ export class MemoryWriteTool implements BuiltinTool<MemoryWriteInput> {
     'Write a new memory memo to the global memory memo store. ' +
     'Call this when the user explicitly asks to save an experience, lesson, or summary to memory, ' +
     'for example "保存到记忆", "保存到备忘录", "总结并保存", "永久记忆", "记录我的记忆", "记住这个", "添加到记忆", or "存入记忆库". ' +
+    'Set kind to "preference" when the user asks you to remember a stable habit or preference ' +
+    '("记住我喜欢用 pnpm"); preferences are injected into every session so they must stay small and general. ' +
     'Summarize the user need, approach taken, final outcome, what failed, what worked, and 3-5 tags.';
   readonly parameters: Record<string, unknown> = toInputJsonSchema(MemoryWriteInputSchema);
 
@@ -76,6 +91,7 @@ export class MemoryWriteTool implements BuiltinTool<MemoryWriteInput> {
             : generateTags(`${args.userNeed} ${args.approach}`);
 
         const memo = createMemoryMemo({
+          kind: args.kind,
           sourceSessionId: sessionId,
           sourceSessionTitle,
           userNeed: args.userNeed,

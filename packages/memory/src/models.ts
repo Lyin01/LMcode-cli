@@ -1,5 +1,20 @@
 import { normalizeTags } from './tags.js';
 
+/**
+ * Two kinds of long-term memory: a completed *task experience*, or a stable
+ * *user preference/habit*. Preference memos are injected into the session
+ * context so the assistant already knows how the user likes to work.
+ */
+export type MemoryMemoKind = 'task' | 'preference';
+
+/**
+ * Normalize an untrusted kind (legacy records, LLM output): anything that is
+ * not exactly `"preference"` is treated as a task memo.
+ */
+export function normalizeMemoKind(value: unknown): MemoryMemoKind {
+  return value === 'preference' ? 'preference' : 'task';
+}
+
 /** Memory memo types — structured task experience records extracted from conversations. */
 
 export interface MemoryMemo {
@@ -27,6 +42,12 @@ export interface MemoryMemo {
   projectDir: string;
   /** Semantic tags summarizing the task domain (3-5 items). */
   tags?: string[];
+  /**
+   * `'preference'` marks a stable user habit (language, tooling, style,
+   * workflow) rather than a one-off task outcome. Absent = `'task'` (memos
+   * written before this field existed).
+   */
+  kind?: MemoryMemoKind;
 }
 
 /** JSONL envelope — one line in entries.jsonl. */
@@ -50,6 +71,7 @@ export interface MemoryMemoSummary {
   recordedAt: number;
   projectDir: string;
   tags?: string[];
+  kind?: MemoryMemoKind;
 }
 
 /** Result of listing/filtering memos. */
@@ -65,11 +87,12 @@ function generateId(): string {
 }
 
 export function createMemoryMemo(
-  partial: Omit<MemoryMemo, 'id' | 'recordedAt' | 'projectDir' | 'tags'> & {
+  partial: Omit<MemoryMemo, 'id' | 'recordedAt' | 'projectDir' | 'tags' | 'kind'> & {
     id?: string;
     recordedAt?: number;
     projectDir?: string;
     tags?: unknown;
+    kind?: unknown;
   },
 ): MemoryMemo {
   return {
@@ -85,6 +108,7 @@ export function createMemoryMemo(
     recordedAt: partial.recordedAt ?? Date.now(),
     projectDir: partial.projectDir ?? '',
     tags: normalizedTags(partial.tags),
+    kind: normalizeMemoKind(partial.kind),
   };
 }
 
@@ -107,5 +131,6 @@ export function toSummary(memo: MemoryMemo): MemoryMemoSummary {
     recordedAt: memo.recordedAt,
     projectDir: memo.projectDir,
     tags: memo.tags,
+    kind: normalizeMemoKind(memo.kind),
   };
 }

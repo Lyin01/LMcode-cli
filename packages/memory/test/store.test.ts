@@ -213,9 +213,13 @@ describe('MemoryMemoStore', () => {
       try {
         await expect(legacyStore.init()).resolves.toBeUndefined();
         await legacyStore.append(memo);
+        // `kind` did not exist in the legacy schema; the migration must add it
+        // (the append above already proves the column exists) and old rows must
+        // read back as task memos.
         await expect(legacyStore.get(memo.id)).resolves.toMatchObject({
           projectDir: '/workspace/legacy',
           tags: ['sqlite'],
+          kind: 'task',
         });
       } finally {
         await legacyStore.close();
@@ -436,6 +440,50 @@ describe('MemoryMemoStore', () => {
       await store.append(makeMemo({ userNeed: '修复bug', approach: '使用redis缓存' }));
       const result = await store.list({ search: 'redis' });
       expect(result.total).toBe(1);
+    });
+
+    it('filters by memo kind and keeps task memos out of a preference query', async () => {
+      await store.append(makeMemo({ userNeed: '修复构建', kind: 'task' }));
+      await store.append(
+        makeMemo({ userNeed: '所有会话', approach: '回复用中文', kind: 'preference' }),
+      );
+
+      const preferences = await store.list({ kinds: ['preference'] });
+      expect(preferences.total).toBe(1);
+      expect(preferences.memos[0]!.approach).toBe('回复用中文');
+      expect(preferences.memos[0]!.kind).toBe('preference');
+
+      const tasks = await store.list({ kinds: ['task'] });
+      expect(tasks.total).toBe(1);
+      expect(tasks.memos[0]!.userNeed).toBe('修复构建');
+    });
+
+    it('treats a memo appended without a kind as a task memo', async () => {
+      const legacy = { ...makeMemo({ userNeed: '旧记录' }) };
+      delete (legacy as { kind?: unknown }).kind;
+      await store.append(legacy as MemoryMemo);
+
+      expect((await store.list({ kinds: ['preference'] })).total).toBe(0);
+      const tasks = await store.list({ kinds: ['task'] });
+      expect(tasks.total).toBe(1);
+      expect(tasks.memos[0]!.kind).toBe('task');
+    });
+
+    it('combines the kind filter with the project filter', async () => {
+      await store.append(
+        makeMemo({ kind: 'preference', projectDir: '/repo-a', approach: '项目 A 的偏好' }),
+      );
+      await store.append(
+        makeMemo({ kind: 'preference', projectDir: '/repo-b', approach: '项目 B 的偏好' }),
+      );
+      await store.append(makeMemo({ kind: 'preference', projectDir: '', approach: '全局偏好' }));
+
+      const scoped = await store.list({ kinds: ['preference'], projectDir: '/repo-a' });
+      expect(scoped.total).toBe(2);
+      expect(scoped.memos.map((memo) => memo.approach).sort()).toEqual([
+        '全局偏好',
+        '项目 A 的偏好',
+      ]);
     });
   });
 

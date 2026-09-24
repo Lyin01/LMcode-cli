@@ -102,3 +102,34 @@ describe('parseMemoryMemos — robustness', () => {
     expect(parseMemoryMemos('')).toEqual([]);
   });
 });
+
+describe('parseMemoryMemos — memo kinds', () => {
+  it('parses a preference memo and keeps its kind', () => {
+    const text =
+      '```memory-memo\n' +
+      '{"kind": "preference", "userNeed": "所有会话", "approach": "回复用中文", ' +
+      '"outcome": "已记录为长期偏好", "whatFailed": "none", "whatWorked": "none", ' +
+      '"tags": ["偏好", "沟通"]}\n```';
+
+    const memos = parseMemoryMemos(text);
+    expect(memos).toHaveLength(1);
+    expect(memos[0]!.kind).toBe('preference');
+    expect(memos[0]!.approach).toBe('回复用中文');
+  });
+
+  it('defaults a missing kind to a task memo', () => {
+    const memos = parseMemoryMemos(
+      '```memory-memo\n{"userNeed": "修复构建", "approach": "升级依赖", "outcome": "完成"}\n```',
+    );
+    expect(memos).toHaveLength(1);
+    expect(memos[0]!.kind).toBe('task');
+  });
+
+  it('degrades an unknown kind value to a task memo', () => {
+    const memos = parseMemoryMemos(
+      '```memory-memo\n{"kind": "habit", "userNeed": "x", "approach": "y", "outcome": "完成"}\n```',
+    );
+    expect(memos).toHaveLength(1);
+    expect(memos[0]!.kind).toBe('task');
+  });
+});

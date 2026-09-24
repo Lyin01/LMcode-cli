@@ -49,6 +49,10 @@ import { ContextMemory } from './context';
 import { GoalMode, type GoalBudgetLimits } from './goal';
 import { HookEngine } from '../session/hooks';
 import { InjectionManager } from './injection/manager';
+import {
+  USER_PREFERENCE_INJECTION_LIMIT,
+  renderUserPreferenceLines,
+} from './injection/user-preferences';
 import { DreamTracker, EXIT_EXTRACTION_SYSTEM_PROMPT, MemoryMemoStore, buildExitExtractionPrompt, createFastEmbedEngine, parseMemoryMemos } from '@lmcode/memory';
 import { PermissionManager, type PermissionManagerOptions } from './permission';
 import { PlanMode } from './plan';
@@ -594,6 +598,24 @@ export class Agent {
       // ignore — state.json may not exist
     }
     return undefined;
+  }
+
+  /**
+   * Render the user's long-term preference memos (`kind === 'preference'`)
+   * for prompt injection. Failures degrade to an empty string — a memory
+   * lookup must never break a turn.
+   */
+  async renderUserPreferences(limit = USER_PREFERENCE_INJECTION_LIMIT): Promise<string> {
+    const store = this.memoStore;
+    if (store === undefined) return '';
+    try {
+      await this.memoStoreReady;
+      const { memos } = await store.list({ kinds: ['preference'], limit });
+      return renderUserPreferenceLines(memos);
+    } catch (error) {
+      this.log.warn('failed to render user preferences', { error });
+      return '';
+    }
   }
 
   /** Extract memory memos from the full conversation history on session exit. */

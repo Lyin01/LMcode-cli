@@ -1,5 +1,5 @@
 import type { MemoryMemo, MemoryMemoSummary } from './models.js';
-import { createMemoryMemo, toSummary } from './models.js';
+import { createMemoryMemo, normalizeMemoKind, toSummary } from './models.js';
 import type { MemoryMemoStore } from './store.js';
 import { STOP_WORDS, computeRelevanceScore } from './scoring.js';
 import { normalizeTags } from './tags.js';
@@ -137,6 +137,14 @@ export async function applyConsolidation(
     )
       ? firstProjectDir
       : '';
+    // Same inheritance rule for the memo kind: a group that mixes task
+    // experience with user preferences stays a task memo.
+    const firstKind = normalizeMemoKind(group.memos[0]?.kind);
+    const sharedKind = group.memos.every(
+      (memo) => normalizeMemoKind(memo.kind) === firstKind,
+    )
+      ? firstKind
+      : 'task';
     const merged = createMemoryMemo({
       sourceSessionId: newest.sourceSessionId,
       sourceSessionTitle: newest.sourceSessionTitle,
@@ -147,6 +155,7 @@ export async function applyConsolidation(
       whatWorked: group.merged.whatWorked,
       projectDir: sharedProjectDir,
       tags: group.merged.tags ?? mergedTags,
+      kind: sharedKind,
       extractionSource: 'compaction', // merged memos are post-hoc
     });
 

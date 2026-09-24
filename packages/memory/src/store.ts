@@ -3,8 +3,8 @@ import { mkdir, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/
 import type { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'pathe';
 
-import type { MemoryMemo, MemoryMemoListResult } from './models.js';
-import { toSummary } from './models.js';
+import type { MemoryMemo, MemoryMemoKind, MemoryMemoListResult } from './models.js';
+import { normalizeMemoKind, toSummary } from './models.js';
 import { buildEmbeddingText, type EmbeddingEngine } from './embeddings.js';
 
 const FILE_NAME = 'entries.jsonl';
@@ -204,12 +204,14 @@ export class MemoryMemoStore {
     return rows.map(rowToMemo);
   }
 
-  /** List memos with optional full-text search and pagination. */
+  /** List memos with optional full-text search, kind filter, and pagination. */
   async list(options?: {
     search?: string;
     limit?: number;
     offset?: number;
     projectDir?: string;
+    /** Restrict results to these memo kinds (e.g. only user preferences). */
+    kinds?: readonly MemoryMemoKind[];
   }): Promise<MemoryMemoListResult> {
     this.assertReadable();
     await this.init();
@@ -219,6 +221,7 @@ export class MemoryMemoStore {
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
     const projectDir = options?.projectDir;
+    const kinds = normalizeKindFilter(options?.kinds);
 
     if (search !== undefined && search.length > 0) {
       let candidates = await this.search(search, { projectDir });
@@ -241,7 +244,9 @@ export class MemoryMemoStore {
           candidates.push(memo);
         }
       }
-      const filtered = candidates.filter((memo) => memoMatchesSearch(memo, search));
+      const filtered = candidates.filter(
+        (memo) => memoMatchesSearch(memo, search) && matchesKindFilter(memo, kinds),
+      );
       // The FTS candidate pool is capped (SEARCH_CANDIDATE_LIMIT), so its size
       // is a lower bound, not the true total. When the cap was hit, count
       // exactly with a full scan; the full-scan fallback is already exact.
@@ -249,13 +254,13 @@ export class MemoryMemoStore {
       if (!scannedAll && candidates.length >= SEARCH_CANDIDATE_LIMIT) {
         total = 0;
         for await (const memo of this.read({ projectDir })) {
-          if (memoMatchesSearch(memo, search)) total += 1;
+          if (memoMatchesSearch(memo, search) && matchesKindFilter(memo, kinds)) total += 1;
         }
       }
       return { memos: filtered.slice(offset, offset + limit).map(toSummary), total };
     }
 
-    const { rows, total } = this.listAll(limit, offset, projectDir);
+    const { rows, total } = this.listAll(limit, offset, projectDir, kinds);
     return { memos: rows.map(toSummary), total };
   }
 
@@ -397,7 +402,8 @@ export class MemoryMemoStore {
         extraction_source TEXT NOT NULL CHECK(extraction_source IN ('compaction', 'exit', 'manual')),
         recorded_at INTEGER NOT NULL,
         project_dir TEXT NOT NULL DEFAULT '',
-        tags TEXT NOT NULL DEFAULT '[]'
+        tags TEXT NOT NULL DEFAULT '[]',
+        kind TEXT NOT NULL DEFAULT 'task'
       );
 
       CREATE VIRTUAL TABLE IF NOT EXISTS memos_fts USING fts5(
@@ -433,6 +439,10 @@ export class MemoryMemoStore {
     const hasTags = info.some((col) => col.name === 'tags');
     if (!hasTags) {
       this.db.exec("ALTER TABLE memos ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+    }
+    const hasKind = info.some((col) => col.name === 'kind');
+    if (!hasKind) {
+      this.db.exec("ALTER TABLE memos ADD COLUMN kind TEXT NOT NULL DEFAULT 'task'");
     }
     // Ensure indexes exist even for databases created before these indexes were added.
     this.db.exec(`
@@ -475,8 +485,8 @@ export class MemoryMemoStore {
     const insert = this.db.prepare(
       `INSERT INTO memos (
         id, source_session_id, source_session_title, user_need, approach,
-        outcome, what_failed, what_worked, extraction_source, recorded_at, project_dir, tags
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        outcome, what_failed, what_worked, extraction_source, recorded_at, project_dir, tags, kind
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO NOTHING
       RETURNING rowid`,
     );
@@ -500,6 +510,7 @@ export class MemoryMemoStore {
           memo.recordedAt,
           memo.projectDir ?? '',
           JSON.stringify(memo.tags ?? []),
+          memo.kind ?? 'task',
         ) as { rowid: number } | undefined;
         if (row === undefined) continue;
         insertFts.run(
@@ -524,8 +535,8 @@ export class MemoryMemoStore {
     const insert = this.db.prepare(
       `INSERT INTO memos (
         id, source_session_id, source_session_title, user_need, approach,
-        outcome, what_failed, what_worked, extraction_source, recorded_at, project_dir, tags
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        outcome, what_failed, what_worked, extraction_source, recorded_at, project_dir, tags, kind
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING rowid`,
     );
     const insertFts = this.db.prepare(
@@ -547,6 +558,7 @@ export class MemoryMemoStore {
         entry.recordedAt,
         entry.projectDir ?? '',
         JSON.stringify(entry.tags ?? []),
+        entry.kind ?? 'task',
       ) as { rowid: number };
       insertFts.run(
         row.rowid,
@@ -595,7 +607,8 @@ export class MemoryMemoStore {
         extraction_source = ?,
         recorded_at = ?,
         project_dir = ?,
-        tags = ?
+        tags = ?,
+        kind = ?
       WHERE id = ?
       RETURNING rowid`,
     );
@@ -622,6 +635,7 @@ export class MemoryMemoStore {
         updated.recordedAt,
         updated.projectDir ?? '',
         JSON.stringify(updated.tags ?? []),
+        updated.kind ?? 'task',
         id,
       ) as { rowid: number } | undefined;
       if (row === undefined) {
@@ -1040,25 +1054,32 @@ export class MemoryMemoStore {
     return row === undefined ? undefined : rowToMemo(row);
   }
 
-  private listAll(limit: number, offset: number, projectDir?: string): { rows: MemoryMemo[]; total: number } {
+  private listAll(
+    limit: number,
+    offset: number,
+    projectDir?: string,
+    kinds?: ReadonlySet<MemoryMemoKind>,
+  ): { rows: MemoryMemo[]; total: number } {
     if (this.db === undefined) return { rows: [], total: 0 };
-    const countStmt =
-      projectDir === undefined
-        ? this.db.prepare('SELECT COUNT(*) as total FROM memos')
-        : this.db.prepare("SELECT COUNT(*) as total FROM memos WHERE project_dir = ? OR project_dir = ''");
-    const countRow = (
-      projectDir === undefined ? countStmt.get() : countStmt.get(projectDir)
-    ) as { total: number } | undefined;
+    const clauses: string[] = [];
+    const params: string[] = [];
+    if (projectDir !== undefined) {
+      clauses.push("(project_dir = ? OR project_dir = '')");
+      params.push(projectDir);
+    }
+    if (kinds !== undefined) {
+      const list = [...kinds];
+      clauses.push(`kind IN (${list.map(() => '?').join(', ')})`);
+      params.push(...list);
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+    const countRow = this.db
+      .prepare(`SELECT COUNT(*) as total FROM memos${where}`)
+      .get(...params) as { total: number } | undefined;
     const total = countRow?.total ?? 0;
-    const stmt =
-      projectDir === undefined
-        ? this.db.prepare('SELECT * FROM memos ORDER BY recorded_at DESC LIMIT ? OFFSET ?')
-        : this.db.prepare(
-            "SELECT * FROM memos WHERE project_dir = ? OR project_dir = '' ORDER BY recorded_at DESC LIMIT ? OFFSET ?",
-          );
-    const rows = (
-      projectDir === undefined ? stmt.all(limit, offset) : stmt.all(projectDir, limit, offset)
-    ) as Array<Record<string, unknown>>;
+    const rows = this.db
+      .prepare(`SELECT * FROM memos${where} ORDER BY recorded_at DESC LIMIT ? OFFSET ?`)
+      .all(...params, limit, offset) as Array<Record<string, unknown>>;
     return { rows: rows.map(rowToMemo), total };
   }
 
@@ -1258,7 +1279,21 @@ function rowToMemo(row: Record<string, unknown>): MemoryMemo {
     recordedAt: Number(row['recorded_at']),
     projectDir: typeof projectDir === 'string' ? projectDir : '',
     tags: parseTags(row['tags']),
+    kind: normalizeMemoKind(row['kind']),
   };
+}
+
+function normalizeKindFilter(
+  kinds: readonly MemoryMemoKind[] | undefined,
+): ReadonlySet<MemoryMemoKind> | undefined {
+  return kinds === undefined || kinds.length === 0 ? undefined : new Set(kinds);
+}
+
+function matchesKindFilter(
+  memo: MemoryMemo,
+  kinds: ReadonlySet<MemoryMemoKind> | undefined,
+): boolean {
+  return kinds === undefined || kinds.has(normalizeMemoKind(memo.kind));
 }
 
 function parseTags(value: unknown): string[] | undefined {

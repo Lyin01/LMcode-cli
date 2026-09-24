@@ -109,6 +109,54 @@ describe('MemoryWriteTool', () => {
     expect(appended!.tags).toEqual(['auth', 'redis', 'jwt']);
   });
 
+  it('records a preference memo when kind is set', async () => {
+    let appended: { kind?: string; approach?: string; userNeed?: string } | undefined;
+
+    const { agent } = makeAgent({
+      append: async (memo) => {
+        appended = memo as unknown as typeof appended;
+      },
+    });
+    const tool = new MemoryWriteTool(agent);
+
+    const result = await executeTool(tool, {
+      turnId: 't1',
+      toolCallId: 'call_1',
+      args: {
+        kind: 'preference',
+        userNeed: '所有会话',
+        approach: '回复用中文，结论先行',
+        outcome: '已记录为长期偏好',
+      },
+      signal,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(appended).toBeDefined();
+    expect(appended!.kind).toBe('preference');
+    expect(appended!.approach).toBe('回复用中文，结论先行');
+  });
+
+  it('records a task memo when kind is omitted', async () => {
+    let appended: { kind?: string } | undefined;
+
+    const { agent } = makeAgent({
+      append: async (memo) => {
+        appended = memo as unknown as typeof appended;
+      },
+    });
+    const tool = new MemoryWriteTool(agent);
+
+    await executeTool(tool, {
+      turnId: 't1',
+      toolCallId: 'call_1',
+      args: { userNeed: 'Fix auth', approach: 'Add refresh logic', outcome: '完成' },
+      signal,
+    });
+
+    expect(appended!.kind).toBe('task');
+  });
+
   it('generates fallback tags when none are provided', async () => {
     let appended: { tags?: string[] } | undefined;
 
