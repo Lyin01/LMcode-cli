@@ -115,6 +115,7 @@ describe('PendingTasksInjector', () => {
     const first = await injector.collectInjection();
     expect(first).toContain('修复 flaky test');
     expect(first).toContain('MemoryEdit');
+    expect(first).toContain('销账');
 
     await expect(injector.collectInjection()).resolves.toBeUndefined();
   });

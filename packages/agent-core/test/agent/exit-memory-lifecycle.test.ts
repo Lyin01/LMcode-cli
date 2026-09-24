@@ -3,6 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import type { GenerateResult } from '@lmcode-cli/liumir';
+import {
+  createMemoryMemo,
+  toSummary,
+  type MemoryMemo,
+  type MemoryMemoStore,
+} from '@lmcode/memory';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentOptions } from '../../src/agent';
@@ -194,6 +200,146 @@ describe('exit memory extraction lifecycle', () => {
     expect(appendMemo).not.toHaveBeenCalled();
   });
 });
+
+describe('exit pending resolution', () => {
+  it('closes the pending memos the session finished while keeping the rest', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lmcode-exit-resolve-'));
+    tempDirs.push(root);
+    const prompts: string[] = [];
+    let response = '';
+    const generate: GenerateFn = (_provider, _system, _tools, history) => {
+      prompts.push(
+        history
+          .flatMap((message) => message.content)
+          .map((part) => (part.type === 'text' ? part.text : ''))
+          .join('\n'),
+      );
+      return Promise.resolve(textResult(response));
+    };
+    const ctx = testAgent({
+      generate,
+      homedir: join(root, 'sessions', 'session-1', 'agents', 'main'),
+      lmcodeHomeDir: root,
+    });
+    ctx.configure();
+    ctx.appendExchange(1, '继续修复 flaky test', '已修复并验证', 20);
+    ctx.appendExchange(2, '继续修复 flaky test', '测试全绿，确认完成', 40);
+    const store = ctx.agent.memoStore!;
+
+    try {
+      const finished = await seedPendingMemo(store, '修复 flaky test');
+      const stillOpen = await seedPendingMemo(store, '升级 CI 缓存');
+      // Simulate a bounded scan that offered only one of the two open memos:
+      // an id outside the offered list must never become closable.
+      const listSpy = vi
+        .spyOn(store, 'list')
+        .mockResolvedValue({ memos: [toSummary(finished)], total: 1 });
+      response =
+        '```memory-resolve\n' +
+        `{"resolved": ["${finished.id}", "${stillOpen.id}", "memo-invented"]}\n` +
+        '```\n\n' +
+        '```memory-memo\n' +
+        '{"userNeed": "修复 flaky test 的稳定性", "approach": "替换不稳断言", "outcome": "完成"}\n' +
+        '```';
+      const deleteSpy = vi.spyOn(store, 'delete');
+
+      await ctx.agent.extractMemoriesOnExit();
+
+      expect(prompts[0]).toContain(`- ${finished.id}｜修复 flaky test`);
+      expect(prompts[0]).not.toContain(stillOpen.id);
+
+      expect(await store.get(finished.id)).toBeUndefined();
+      expect(await store.get(stillOpen.id)).not.toBeUndefined();
+      // Only the offered id may resolve; the live-but-unoffered one and the
+      // invented one must never reach a delete.
+      expect(deleteSpy).toHaveBeenCalledTimes(1);
+      expect(deleteSpy).toHaveBeenCalledWith(finished.id);
+
+      listSpy.mockRestore();
+      const listed = await store.list({});
+      expect(listed.memos.some((memo) => memo.userNeed === '修复 flaky test 的稳定性')).toBe(true);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it('resolves pending memos even when the extraction adds no new memos', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lmcode-exit-resolve-only-'));
+    tempDirs.push(root);
+    let response = '';
+    const generate: GenerateFn = () => Promise.resolve(textResult(response));
+    const ctx = testAgent({
+      generate,
+      homedir: join(root, 'sessions', 'session-1', 'agents', 'main'),
+      lmcodeHomeDir: root,
+    });
+    ctx.configure();
+    ctx.appendExchange(1, '继续修复 flaky test', '完成', 20);
+    ctx.appendExchange(2, '继续修复 flaky test', '确认完成', 40);
+    const store = ctx.agent.memoStore!;
+
+    try {
+      const finished = await seedPendingMemo(store, '修复 flaky test');
+      response = '```memory-resolve\n' + `{"resolved": ["${finished.id}"]}\n` + '```';
+
+      await ctx.agent.extractMemoriesOnExit();
+
+      expect(await store.get(finished.id)).toBeUndefined();
+    } finally {
+      await store.close();
+    }
+  });
+
+  it('never deletes a memo whose kind is no longer pending', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lmcode-exit-resolve-kind-'));
+    tempDirs.push(root);
+    let response = '';
+    const generate: GenerateFn = () => Promise.resolve(textResult(response));
+    const ctx = testAgent({
+      generate,
+      homedir: join(root, 'sessions', 'session-1', 'agents', 'main'),
+      lmcodeHomeDir: root,
+    });
+    ctx.configure();
+    ctx.appendExchange(1, '继续修复 flaky test', '完成', 20);
+    ctx.appendExchange(2, '继续修复 flaky test', '确认完成', 40);
+    const store = ctx.agent.memoStore!;
+
+    try {
+      const finished = await seedPendingMemo(store, '修复 flaky test');
+      response = '```memory-resolve\n' + `{"resolved": ["${finished.id}"]}\n` + '```';
+      const real = await store.get(finished.id);
+      expect(real).toBeDefined();
+      // Simulate the memo being reclassified between listing and deletion.
+      const getSpy = vi.spyOn(store, 'get').mockResolvedValue({ ...real!, kind: 'preference' });
+      const deleteSpy = vi.spyOn(store, 'delete');
+
+      await ctx.agent.extractMemoriesOnExit();
+
+      expect(deleteSpy).not.toHaveBeenCalled();
+      getSpy.mockRestore();
+      expect(await store.get(finished.id)).toBeDefined();
+    } finally {
+      await store.close();
+    }
+  });
+});
+
+async function seedPendingMemo(store: MemoryMemoStore, userNeed: string): Promise<MemoryMemo> {
+  const memo = createMemoryMemo({
+    sourceSessionId: 'seed-session',
+    sourceSessionTitle: 'seed',
+    userNeed,
+    approach: 'progress so far',
+    outcome: '未完成',
+    whatFailed: 'none',
+    whatWorked: 'none',
+    extractionSource: 'exit',
+    kind: 'pending',
+  });
+  await store.append(memo);
+  return memo;
+}
 
 function textResult(text: string): GenerateResult {
   return {

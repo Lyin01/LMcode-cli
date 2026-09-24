@@ -63,7 +63,7 @@ import {
   USER_PREFERENCE_INJECTION_LIMIT,
   renderUserPreferenceLines,
 } from './injection/user-preferences';
-import { DreamTracker, EXIT_EXTRACTION_SYSTEM_PROMPT, MemoryMemoStore, buildExitExtractionPrompt, createFastEmbedEngine, parseMemoryMemos } from '@lmcode/memory';
+import { DreamTracker, EXIT_EXTRACTION_SYSTEM_PROMPT, MemoryMemoStore, buildExitExtractionPrompt, createFastEmbedEngine, normalizeMemoKind, parseMemoryMemos, parseResolvedPendingIds, type PendingTaskRef } from '@lmcode/memory';
 import { PermissionManager, type PermissionManagerOptions } from './permission';
 import { PlanMode } from './plan';
 import { WolfPackMode } from './wolfpack';
@@ -731,6 +731,11 @@ export class Agent {
     const sessionTitle = await this.getSessionTitle();
     signal.throwIfAborted();
 
+    // Offer the open pending list so the model can close items this session
+    // actually finished; a failed load degrades to plain extraction.
+    const pendingRefs = await this.loadPendingTaskRefs(signal);
+    signal.throwIfAborted();
+
     // Adaptive sampling: prioritize turns containing tool errors (pitfalls) and their surrounding context,
     // plus the latest 10 messages to keep the final output/summary.
     const recentCount = 10;
@@ -775,7 +780,7 @@ export class Agent {
       })
       .join('\n');
 
-    const userPrompt = buildExitExtractionPrompt(sessionId, history.length, sampleText);
+    const userPrompt = buildExitExtractionPrompt(sessionId, history.length, sampleText, pendingRefs);
 
     try {
       const utility = this.config.utility;
@@ -803,7 +808,8 @@ export class Agent {
         : response.message.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
 
       const memos = parseMemoryMemos(summary);
-      if (memos.length === 0) {
+      const resolvedIds = parseResolvedPendingIds(summary);
+      if (memos.length === 0 && resolvedIds.length === 0) {
         this.lastMemoryExtractionContextRevision = contextRevision;
         return;
       }
@@ -832,16 +838,110 @@ export class Agent {
         });
       }
 
-      this.log.info('Extracted memory memos on session exit', {
-        count: memos.length,
-        sessionId,
+      if (memos.length > 0) {
+        this.log.info('Extracted memory memos on session exit', {
+          count: memos.length,
+          sessionId,
+        });
+      }
+
+      active.writingMemo = true;
+      const resolution = await this.resolvePendingMemos(
+        store,
+        resolvedIds,
+        pendingRefs,
+        signal,
+      ).finally(() => {
+        active.writingMemo = false;
       });
+      if (resolution.resolved > 0) {
+        this.log.info('Resolved pending memos on session exit', {
+          resolved: resolution.resolved,
+          sessionId,
+        });
+      }
+      if (resolution.ignored > 0) {
+        this.log.warn('Ignored pending ids that no longer match a live pending memo', {
+          ignored: resolution.ignored,
+          sessionId,
+        });
+      }
+
       this.lastMemoryExtractionContextRevision = contextRevision;
     } catch (error) {
       if (!signal.aborted) {
         this.log.warn('Exit memory extraction failed', { error: String(error) });
       }
     }
+  }
+
+  /**
+   * Load the open pending memos to offer the exit extractor for closure.
+   * Loading is best-effort: extraction proceeds without a resolution list when
+   * the store cannot be read.
+   */
+  private async loadPendingTaskRefs(signal: AbortSignal): Promise<PendingTaskRef[]> {
+    const store = this.memoStore;
+    if (store === undefined) return [];
+    try {
+      const { memos } = await store.list({ kinds: ['pending'], limit: PENDING_TASK_SCAN_LIMIT });
+      signal.throwIfAborted();
+      return memos
+        .map((memo) => ({ id: memo.id, userNeed: memo.userNeed.trim() }))
+        .filter((ref) => ref.id.length > 0);
+    } catch (error) {
+      if (!signal.aborted) {
+        this.log.warn('Failed to load pending memos for exit extraction', {
+          error: String(error),
+        });
+      }
+      return [];
+    }
+  }
+
+  /**
+   * Delete the pending memos the extractor reported as completed. Only ids the
+   * model was actually offered may be touched, and each target is re-checked
+   * as still pending so a stale or invented id can never remove anything else.
+   */
+  private async resolvePendingMemos(
+    store: MemoryMemoStore,
+    ids: readonly string[],
+    refs: readonly PendingTaskRef[],
+    signal: AbortSignal,
+  ): Promise<{ resolved: number; ignored: number }> {
+    const result = { resolved: 0, ignored: 0 };
+    if (ids.length === 0) return result;
+    const offered = new Set(refs.map((ref) => ref.id));
+
+    for (const id of ids) {
+      signal.throwIfAborted();
+      if (!offered.has(id)) {
+        result.ignored += 1;
+        continue;
+      }
+      try {
+        const memo = await store.get(id);
+        if (memo === undefined || normalizeMemoKind(memo.kind) !== 'pending') {
+          result.ignored += 1;
+          continue;
+        }
+        if (await store.delete(id)) {
+          result.resolved += 1;
+        } else {
+          result.ignored += 1;
+        }
+      } catch (error) {
+        if (signal.aborted) throw error;
+        this.log.warn('Failed to resolve a pending memo on session exit', {
+          id,
+          error: String(error),
+        });
+        result.ignored += 1;
+      }
+    }
+
+    return result;
   }
 
   async sideQuestion(question: string): Promise<string> {

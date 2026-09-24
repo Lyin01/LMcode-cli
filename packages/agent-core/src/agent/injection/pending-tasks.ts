@@ -80,7 +80,7 @@ export class PendingTasksInjector extends DynamicInjector {
       '',
       rendered,
       '',
-      '如果用户提到"继续"或相关任务，可以直接从这里接着做。当用户确认某项已完成时，先调用 MemoryLookup 找到该条记录，再用 MemoryEdit 更新或删除它；与当前话题无关时忽略即可。',
+      '如果用户提到"继续"或相关任务，可以直接从这里接着做。某项完成（或用户确认不再需要）后记得销账：先用 MemoryLookup 找到该条记录，再用 MemoryEdit 删除或更新它；与当前话题无关时忽略即可。',
     ].join('\n');
   }
 }
