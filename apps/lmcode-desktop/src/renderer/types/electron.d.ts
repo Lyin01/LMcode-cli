@@ -76,6 +76,8 @@ interface MemorySummary {
   readonly recordedAt: number
   readonly projectDir: string
   readonly tags?: string[]
+  /** `'preference'` records a stable user habit; absent/`'task'` is an experience record. */
+  readonly kind?: 'task' | 'preference'
 }
 
 interface BackgroundTaskInfo {

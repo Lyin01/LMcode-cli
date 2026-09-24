@@ -20,6 +20,13 @@ import {
   ArrowLeft,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  countMemoriesByKind,
+  filterMemories,
+  memoryDisplay,
+  normalizeMemoryKind,
+  type MemoryKindFilter,
+} from '@/lib/memory-library'
 import { useSessionStore } from '@/stores/session-store'
 import { useConfigStore } from '@/stores/config-store'
 import type { ThemePref } from '@/lib/theme'
@@ -56,6 +63,13 @@ const SETTINGS_TABS: readonly SettingsNavTab[] = [
   { id: 'memory', label: '长期记忆库', icon: Brain },
   { id: 'remote', label: '局域网远程', icon: Wifi },
   { id: 'about', label: '关于', icon: Info },
+]
+
+/** Kind filter chips for the memory library. */
+const MEMORY_KIND_FILTERS: ReadonlyArray<{ readonly kind: MemoryKindFilter; readonly label: string }> = [
+  { kind: 'all', label: '全部' },
+  { kind: 'preference', label: '偏好' },
+  { kind: 'task', label: '经验' },
 ]
 
 const MCP_STATUS_DOT: Record<McpServerInfo['status'], string> = {
@@ -115,8 +129,18 @@ export function SettingsPanel({
   const [saving, setSaving] = useState<string | null>(null)
 
   // Memory state
-  const [memories, setMemories] = useState<Array<{ id: string; userNeed?: string; outcome?: string; tags?: string[] }>>([])
+  const [memories, setMemories] = useState<
+    Array<{
+      id: string
+      userNeed?: string
+      approach?: string
+      outcome?: string
+      tags?: string[]
+      kind?: string
+    }>
+  >([])
   const [memorySearch, setMemorySearch] = useState('')
+  const [memoryKindFilter, setMemoryKindFilter] = useState<MemoryKindFilter>('all')
   const [loadingMemories, setLoadingMemories] = useState(false)
 
   // MCP & Skills state
@@ -280,16 +304,11 @@ export function SettingsPanel({
     }
   }
 
-  const filteredMemories = useMemo(() => {
-    if (!memorySearch.trim()) return memories
-    const q = memorySearch.toLowerCase()
-    return memories.filter(
-      (m) =>
-        m.userNeed?.toLowerCase().includes(q) ||
-        m.outcome?.toLowerCase().includes(q) ||
-        m.tags?.some((t) => t.toLowerCase().includes(q)),
-    )
-  }, [memories, memorySearch])
+  const filteredMemories = useMemo(
+    () => filterMemories(memories, { query: memorySearch, kind: memoryKindFilter }),
+    [memories, memorySearch, memoryKindFilter],
+  )
+  const memoryCounts = useMemo(() => countMemoriesByKind(memories), [memories])
 
   if (!open) return null
 
@@ -649,7 +668,7 @@ export function SettingsPanel({
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">长期记忆库 (Semantic Memory)</h4>
-                    <p className="text-[11.5px] text-[var(--lm-text-muted)]">Agent 跨会话沉淀的项目架构经验与踩坑记录</p>
+                    <p className="text-[11.5px] text-[var(--lm-text-muted)]">任务经验供检索；<span className="text-[var(--lm-accent-text)]">偏好会自动注入每次会话</span>，让 Agent 从一开始就熟悉你的习惯</p>
                   </div>
                 </div>
 
@@ -658,17 +677,41 @@ export function SettingsPanel({
                   <input
                     value={memorySearch}
                     onChange={(e) => setMemorySearch(e.target.value)}
-                    placeholder="搜索沉淀的记忆..."
+                    placeholder="搜索记忆（偏好规则、经验、标签）..."
                     className="w-full rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] py-2 pl-9 pr-3 text-[12.5px] text-[var(--lm-text-primary)] outline-none focus:border-[var(--lm-accent)]"
                   />
                 </div>
 
+                <div className="flex items-center gap-1.5">
+                  {MEMORY_KIND_FILTERS.map((option) => (
+                    <button
+                      key={option.kind}
+                      onClick={() => setMemoryKindFilter(option.kind)}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                        memoryKindFilter === option.kind
+                          ? 'border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)]'
+                          : 'border-[var(--lm-border)] text-[var(--lm-text-muted)] hover:bg-[var(--lm-bg-hover)]',
+                      )}
+                    >
+                      {option.label} {memoryCounts[option.kind]}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="space-y-2 max-h-[360px] overflow-y-auto">
                   {filteredMemories.length > 0 ? (
-                    filteredMemories.map((m) => (
+                    filteredMemories.map((m) => {
+                      const display = memoryDisplay(m)
+                      return (
                       <div key={m.id} className="group rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-base)] p-3 hover:border-[var(--lm-border-strong)]">
                         <div className="flex items-start justify-between gap-2">
-                          <div className="text-[12.5px] font-medium text-[var(--lm-text-primary)]">{m.userNeed || '通用经验'}</div>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {normalizeMemoryKind(m.kind) === 'preference' && (
+                              <span className="shrink-0 rounded bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--lm-accent-text)]">偏好</span>
+                            )}
+                            <div className="text-[12.5px] font-medium text-[var(--lm-text-primary)]">{display.title}</div>
+                          </div>
                           <button
                             onClick={() => handleDeleteMemory(m.id)}
                             className="opacity-0 group-hover:opacity-100 p-1 text-[var(--lm-text-muted)] hover:text-[var(--lm-error)]"
@@ -677,7 +720,7 @@ export function SettingsPanel({
                             <Trash2 size={13} />
                           </button>
                         </div>
-                        {m.outcome && <p className="mt-1 text-[11.5px] text-[var(--lm-text-secondary)]">{m.outcome}</p>}
+                        {display.detail && <p className="mt-1 text-[11.5px] text-[var(--lm-text-secondary)]">{display.detail}</p>}
                         {m.tags && m.tags.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">
                             {m.tags.map((t) => (
@@ -688,14 +731,19 @@ export function SettingsPanel({
                           </div>
                         )}
                       </div>
-                    ))
+                      )
+                    })
                   ) : (
                     <div className="rounded-xl border border-dashed border-[var(--lm-border)] p-8 text-center text-[12px] text-[var(--lm-text-muted)]">
                       {loadingMemories
                         ? '正在读取本地向量记忆...'
                         : memoryError
                           ? memoryError
-                          : '暂无沉淀的记忆记录'}
+                          : memoryKindFilter === 'preference'
+                            ? '还没有学到偏好——在对话里明确说出习惯（如「以后都用 pnpm」），或在对话/会话结束时让它自动提炼'
+                            : memorySearch.trim()
+                              ? '没有匹配的记忆'
+                              : '暂无沉淀的记忆记录'}
                     </div>
                   )}
                 </div>
