@@ -11,6 +11,7 @@ import type {
 import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
+  CompactSessionOutcome,
   DesktopCreateSessionOptions,
   DesktopNotificationPayload,
   InteractionSettledPayload,
@@ -191,7 +192,7 @@ interface LmcodeAPI {
 
   setPlanMode: (sessionId: string, enabled: boolean) => Promise<void>
 
-  compactSession: (sessionId: string, instruction?: string) => Promise<void>
+  compactSession: (sessionId: string, instruction?: string) => Promise<CompactSessionOutcome>
 
   undoHistory: (sessionId: string, count?: number) => Promise<void>
 

@@ -67,3 +67,21 @@ export interface DesktopCreateSessionOptions {
 export type PendingInteraction =
   | { readonly kind: 'approval'; readonly payload: ApprovalRequestPayload }
   | { readonly kind: 'question'; readonly payload: QuestionRequestPayload }
+
+/**
+ * Outcome of `lmcode:compactSession`. A manual `/compact` only *starts* an
+ * asynchronous summarization worker inside the agent, so the main process waits
+ * for the session's compaction events and reports what actually happened
+ * instead of acknowledging the begin as if it were completion.
+ */
+export type CompactSessionOutcome =
+  | {
+      readonly outcome: 'completed'
+      readonly compactedCount: number
+      readonly tokensBefore: number
+      readonly tokensAfter: number
+      readonly elapsedMs: number
+    }
+  | { readonly outcome: 'cancelled'; readonly reason?: string; readonly elapsedMs: number }
+  | { readonly outcome: 'failed'; readonly message: string; readonly elapsedMs: number }
+  | { readonly outcome: 'pending'; readonly elapsedMs: number }

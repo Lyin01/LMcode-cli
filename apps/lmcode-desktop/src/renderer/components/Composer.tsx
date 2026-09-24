@@ -17,6 +17,7 @@ import { ProjectPicker } from '@/components/ProjectPicker'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
 import { SlashCommandsDialog, SLASH_COMMANDS, type SlashCommand } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
+import { compactionNotice } from '@/lib/compaction-notice'
 import {
   buildDesktopReviewPrompt,
   filterSlashCommands,
@@ -456,11 +457,18 @@ export function Composer({
             await window.lmcodeAPI.setPlanMode(currentSessionId, command.enabled)
             showNotice(command.enabled ? '规划模式已开启。' : '规划模式已关闭。')
             break
-          case 'compact':
+          case 'compact': {
             showNotice('正在压缩当前会话上下文…')
-            await window.lmcodeAPI.compactSession(currentSessionId, command.instruction)
-            showNotice('上下文压缩完成。')
+            // The main process only resolves this once the session reports the
+            // real outcome, so the notice never claims a false completion.
+            const outcome = await window.lmcodeAPI.compactSession(
+              currentSessionId,
+              command.instruction,
+            )
+            const notice = compactionNotice(outcome)
+            showNotice(notice.content, notice.variant)
             break
+          }
           case 'revoke': {
             await window.lmcodeAPI.undoHistory(currentSessionId, command.count)
             const history = await window.lmcodeAPI.getSessionHistory(currentSessionId)

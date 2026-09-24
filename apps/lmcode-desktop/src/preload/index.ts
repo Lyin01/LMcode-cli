@@ -10,6 +10,7 @@ import type {
 import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
+  CompactSessionOutcome,
   DesktopCreateSessionOptions,
   DesktopNotificationPayload,
   InteractionSettledPayload,
@@ -106,7 +107,7 @@ const lmcodeAPI = {
   setPlanMode: (sessionId: string, enabled: boolean) =>
     ipcRenderer.invoke('lmcode:setPlanMode', sessionId, enabled),
 
-  compactSession: (sessionId: string, instruction?: string) =>
+  compactSession: (sessionId: string, instruction?: string): Promise<CompactSessionOutcome> =>
     ipcRenderer.invoke('lmcode:compactSession', sessionId, instruction),
 
   undoHistory: (sessionId: string, count = 1) =>

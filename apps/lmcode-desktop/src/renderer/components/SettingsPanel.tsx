@@ -25,6 +25,7 @@ import { useConfigStore } from '@/stores/config-store'
 import type { ThemePref } from '@/lib/theme'
 import { THINKING_OPTIONS, type ThinkingEffort } from '@/lib/thinking'
 import type { PermissionMode } from '@lmcode-cli/lmcode-sdk'
+import type { CompactSessionOutcome } from '../../shared/ipc-types'
 import { ModelProvidersPanel } from '@/components/settings/ModelProvidersPanel'
 import { RemotePanel } from '@/components/settings/RemotePanel'
 import { ComputerUsePanel } from '@/components/settings/ComputerUsePanel'
@@ -128,7 +129,7 @@ export function SettingsPanel({
 
   // Maintenance state
   const [compacting, setCompacting] = useState(false)
-  const [compactSuccess, setCompactSuccess] = useState(false)
+  const [compactResult, setCompactResult] = useState<CompactSessionOutcome['outcome'] | null>(null)
   const [exportSuccess, setExportSuccess] = useState(false)
 
   const panelRef = useRef<HTMLDivElement>(null)
@@ -241,12 +242,19 @@ export function SettingsPanel({
   const handleCompact = async () => {
     if (!currentSessionId || compacting || useSessionStore.getState().isStreaming) return
     setCompacting(true)
+    setCompactResult(null)
     try {
-      await window.lmcodeAPI?.compactSession(currentSessionId)
-      setCompactSuccess(true)
-      setTimeout(() => setCompactSuccess(false), 2000)
+      // Resolves with the compaction's real outcome, not the begin-ack.
+      const result = await window.lmcodeAPI?.compactSession(currentSessionId)
+      if (result === undefined) return
+      const outcome = result.outcome
+      setCompactResult(outcome)
+      setTimeout(() => {
+        setCompactResult((previous) => (previous === outcome ? null : previous))
+      }, 3000)
     } catch (err) {
       console.error('Failed to compact session:', err)
+      setCompactResult('failed')
     } finally {
       setCompacting(false)
     }
@@ -716,12 +724,18 @@ export function SettingsPanel({
                         <Minimize2 size={15} className="text-[var(--lm-accent-text)]" />
                         <span>压缩当前会话上下文 (/compact)</span>
                       </span>
-                      {compactSuccess ? (
+                      {compactResult === 'completed' ? (
                         <span className="text-[11px] text-[var(--lm-success)] flex items-center gap-1">
                           <Check size={12} /> 已压缩
                         </span>
                       ) : compacting ? (
                         <span className="text-[11px] text-[var(--lm-text-muted)]">压缩中…</span>
+                      ) : compactResult === 'failed' ? (
+                        <span className="text-[11px] text-[var(--lm-error)]">压缩失败</span>
+                      ) : compactResult === 'cancelled' ? (
+                        <span className="text-[11px] text-[var(--lm-text-muted)]">已取消</span>
+                      ) : compactResult === 'pending' ? (
+                        <span className="text-[11px] text-[var(--lm-text-muted)]">仍在进行中</span>
                       ) : null}
                     </button>
 

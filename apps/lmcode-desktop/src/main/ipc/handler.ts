@@ -39,6 +39,7 @@ import type {
   ComputerUseInstallResult,
 } from '../../shared/computer-use-types.js'
 import type {
+  CompactSessionOutcome,
   DesktopCreateSessionOptions,
   DesktopNotificationPayload,
 } from '../../shared/ipc-types.js'
@@ -67,6 +68,7 @@ import {
   resolveGitWorktree,
 } from '../git-worktree.js'
 import { ProjectTerminalManager } from '../project-terminal.js'
+import { compactSessionAndWait } from '../compaction.js'
 import { isTrustedIpcSender } from '../security.js'
 import { checkShellOpenTarget } from '../shell-open-target.js'
 import {
@@ -728,9 +730,16 @@ export function registerAllHandlers(
 
   secureInvoke(
     'lmcode:compactSession',
-    async (_event, sessionId: string, instruction?: string): Promise<void> => {
+    async (
+      _event,
+      sessionId: string,
+      instruction?: string,
+    ): Promise<CompactSessionOutcome> => {
       const entry = await ensureActiveSession(sessionId)
-      await entry.session.compact({ instruction })
+      // `session.compact()` only acknowledges the *begin* of an asynchronous
+      // summarization worker; wait for the session's own events so the renderer
+      // never reports a completion that has not happened.
+      return await compactSessionAndWait(entry.session, instruction)
     },
     compactSessionArgsSchema,
   )

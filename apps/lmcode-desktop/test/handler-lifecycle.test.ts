@@ -348,10 +348,16 @@ describe('desktop handler lifecycle', () => {
       },
       notes: [],
     }
+    const sessionEventListeners = new Set<(event: unknown) => void>()
     const session = {
       id: 'session-controls',
       summary: { id: 'session-controls', workDir: 'C:/work' },
-      onEvent: vi.fn(() => vi.fn()),
+      onEvent: vi.fn((listener: (event: unknown) => void) => {
+        sessionEventListeners.add(listener)
+        return () => {
+          sessionEventListeners.delete(listener)
+        }
+      }),
       setApprovalHandler: vi.fn(),
       setQuestionHandler: vi.fn(),
       createGoal: vi.fn(async () => goal),
@@ -359,7 +365,18 @@ describe('desktop handler lifecycle', () => {
       updateGoalStatus: vi.fn(async () => ({ ...goal, status: 'paused' })),
       cancelGoal: vi.fn(async () => ({ ...goal, status: 'complete' })),
       setPlanMode: vi.fn(async () => undefined),
-      compact: vi.fn(async () => undefined),
+      // `compact()` is only the begin-ack; the real outcome arrives as a
+      // session event, which is what the IPC must resolve with.
+      compact: vi.fn(async () => {
+        for (const listener of Array.from(sessionEventListeners)) {
+          listener({
+            type: 'compaction.completed',
+            result: { summary: 'summary', compactedCount: 3, tokensBefore: 90, tokensAfter: 30 },
+            agentId: 'main',
+            sessionId: 'session-controls',
+          })
+        }
+      }),
       undoHistory: vi.fn(async () => undefined),
       steer: vi.fn(async () => undefined),
       listCronJobs: vi.fn(async () => []),
@@ -394,7 +411,15 @@ describe('desktop handler lifecycle', () => {
     await invoke('lmcode:updateGoalStatus', 'session-controls', 'paused')
     await invoke('lmcode:cancelGoal', 'session-controls')
     await invoke('lmcode:setPlanMode', 'session-controls', true)
-    await invoke('lmcode:compactSession', 'session-controls', 'retain decisions')
+    await expect(
+      invoke('lmcode:compactSession', 'session-controls', 'retain decisions'),
+    ).resolves.toEqual({
+      outcome: 'completed',
+      compactedCount: 3,
+      tokensBefore: 90,
+      tokensAfter: 30,
+      elapsedMs: expect.any(Number),
+    })
     await invoke('lmcode:undoHistory', 'session-controls', 2)
     await invoke('lmcode:steerMessage', 'session-controls', {
       text: 'focus on the failing test',
