@@ -69,6 +69,7 @@ const SETTINGS_TABS: readonly SettingsNavTab[] = [
 const MEMORY_KIND_FILTERS: ReadonlyArray<{ readonly kind: MemoryKindFilter; readonly label: string }> = [
   { kind: 'all', label: '全部' },
   { kind: 'preference', label: '偏好' },
+  { kind: 'pending', label: '待续' },
   { kind: 'task', label: '经验' },
 ]
 
@@ -668,7 +669,7 @@ export function SettingsPanel({
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-[13px] font-semibold text-[var(--lm-text-primary)]">长期记忆库 (Semantic Memory)</h4>
-                    <p className="text-[11.5px] text-[var(--lm-text-muted)]">任务经验供检索；<span className="text-[var(--lm-accent-text)]">偏好会自动注入每次会话</span>，让 Agent 从一开始就熟悉你的习惯</p>
+                    <p className="text-[11.5px] text-[var(--lm-text-muted)]">任务经验供检索；<span className="text-[var(--lm-accent-text)]">偏好自动注入每次会话、待续事项在新会话中提醒</span>，让 Agent 熟悉你，也接得上你</p>
                   </div>
                 </div>
 
@@ -710,6 +711,14 @@ export function SettingsPanel({
                             {normalizeMemoryKind(m.kind) === 'preference' && (
                               <span className="shrink-0 rounded bg-[var(--lm-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--lm-accent-text)]">偏好</span>
                             )}
+                            {normalizeMemoryKind(m.kind) === 'pending' && (
+                              <span
+                                className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-[var(--lm-warning)]"
+                                style={{ backgroundColor: 'color-mix(in srgb, var(--lm-warning) 14%, transparent)' }}
+                              >
+                                待续
+                              </span>
+                            )}
                             <div className="text-[12.5px] font-medium text-[var(--lm-text-primary)]">{display.title}</div>
                           </div>
                           <button
@@ -741,9 +750,11 @@ export function SettingsPanel({
                           ? memoryError
                           : memoryKindFilter === 'preference'
                             ? '还没有学到偏好——在对话里明确说出习惯（如「以后都用 pnpm」），或在对话/会话结束时让它自动提炼'
-                            : memorySearch.trim()
-                              ? '没有匹配的记忆'
-                              : '暂无沉淀的记忆记录'}
+                            : memoryKindFilter === 'pending'
+                              ? '没有待续的事项——当某次会话的工作明确还没做完时，它会出现在这里，并在新会话中提醒你'
+                              : memorySearch.trim()
+                                ? '没有匹配的记忆'
+                                : '暂无沉淀的记忆记录'}
                     </div>
                   )}
                 </div>

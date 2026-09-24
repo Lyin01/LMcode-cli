@@ -1,11 +1,12 @@
 /**
  * Long-term memory library helpers for the settings panel. A memory record is
- * either a task experience or a stable user preference (`kind`); preferences
- * are auto-injected into every session, so the library gives them their own
- * view, badge, and card text.
+ * a task experience, a stable user preference, or a pending task (`kind`);
+ * preferences are auto-injected into every session and pending tasks are
+ * surfaced in fresh sessions, so the library gives each its own view, badge,
+ * and card text.
  */
 
-export type MemoryKind = 'task' | 'preference'
+export type MemoryKind = 'task' | 'preference' | 'pending'
 export type MemoryKindFilter = 'all' | MemoryKind
 
 export interface MemoryRecordLike {
@@ -21,21 +22,25 @@ export interface MemoryRecordLike {
  * renderer bundle must stay free of the store's node-only modules.
  */
 export function normalizeMemoryKind(kind: unknown): MemoryKind {
-  return kind === 'preference' ? 'preference' : 'task'
+  return kind === 'preference' || kind === 'pending' ? kind : 'task'
 }
 
 export interface MemoryKindCounts {
   readonly all: number
   readonly preference: number
+  readonly pending: number
   readonly task: number
 }
 
 export function countMemoriesByKind(memories: readonly MemoryRecordLike[]): MemoryKindCounts {
   let preference = 0
+  let pending = 0
   for (const memory of memories) {
-    if (normalizeMemoryKind(memory.kind) === 'preference') preference += 1
+    const kind = normalizeMemoryKind(memory.kind)
+    if (kind === 'preference') preference += 1
+    else if (kind === 'pending') pending += 1
   }
-  return { all: memories.length, preference, task: memories.length - preference }
+  return { all: memories.length, preference, pending, task: memories.length - preference - pending }
 }
 
 /**
@@ -66,9 +71,19 @@ export interface MemoryDisplay {
 
 /**
  * Card text for one record. For a preference the *rule* is the headline (its
- * `userNeed` is only the scene it applies to); for a task the need is.
+ * `userNeed` is only the scene it applies to); for a pending task the task is
+ * the headline and the progress so far is the subtitle; for a task experience
+ * the need is the headline and the outcome the subtitle.
  */
 export function memoryDisplay(memory: MemoryRecordLike): MemoryDisplay {
+  if (normalizeMemoryKind(memory.kind) === 'pending') {
+    const task = memory.userNeed?.trim() ?? ''
+    const progress = memory.approach?.trim() ?? ''
+    return {
+      title: task.length > 0 ? task : '未完成的任务',
+      ...(progress.length > 0 ? { detail: `进度：${progress}` } : {}),
+    }
+  }
   if (normalizeMemoryKind(memory.kind) === 'preference') {
     const rule = memory.approach?.trim() ?? ''
     const scene = memory.userNeed?.trim() ?? ''

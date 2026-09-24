@@ -25,6 +25,15 @@ const task = {
   kind: 'task',
 }
 
+const pendingTask = {
+  id: 'n1',
+  userNeed: '修复 flaky test',
+  approach: '已定位到文件锁，下一步验证重试预算',
+  outcome: '未完成',
+  tags: ['测试'],
+  kind: 'pending',
+}
+
 /** Records written before the kind field existed. */
 const legacy = {
   id: 'l1',
@@ -46,6 +55,14 @@ describe('memory library filter', () => {
     ).toEqual(['t1', 'l1'])
   })
 
+  it('keeps pending tasks out of the preference and task views', () => {
+    const all = [preference, pendingTask, task, legacy]
+    expect(filterMemories(all, { kind: 'pending' })).toEqual([pendingTask])
+    expect(filterMemories(all, { kind: 'preference' })).toEqual([preference])
+    expect(filterMemories(all, { kind: 'task' }).map((m) => m.id)).toEqual(['t1', 'l1'])
+    expect(filterMemories(all)).toHaveLength(4)
+  })
+
   it('searches the rule text stored in approach', () => {
     // Regression: a preference's rule lives in `approach`; searching only
     // userNeed/outcome would silently hide it.
@@ -60,15 +77,17 @@ describe('memory library filter', () => {
 
 describe('memory library counts and labels', () => {
   it('counts each kind, treating legacy records as tasks', () => {
-    expect(countMemoriesByKind([preference, task, legacy])).toEqual({
-      all: 3,
+    expect(countMemoriesByKind([preference, pendingTask, task, legacy])).toEqual({
+      all: 4,
       preference: 1,
+      pending: 1,
       task: 2,
     })
   })
 
   it('normalizes unknown kinds to task', () => {
     expect(normalizeMemoryKind('preference')).toBe('preference')
+    expect(normalizeMemoryKind('pending')).toBe('pending')
     expect(normalizeMemoryKind('habit')).toBe('task')
     expect(normalizeMemoryKind(undefined)).toBe('task')
   })
@@ -80,5 +99,15 @@ describe('memory library counts and labels', () => {
     })
     expect(memoryDisplay(task)).toEqual({ title: '修复构建', detail: '完成' })
     expect(memoryDisplay({ userNeed: '', approach: '' })).toEqual({ title: '通用经验' })
+  })
+
+  it('headlines the task for pending records and the progress as detail', () => {
+    expect(memoryDisplay(pendingTask)).toEqual({
+      title: '修复 flaky test',
+      detail: '进度：已定位到文件锁，下一步验证重试预算',
+    })
+    expect(memoryDisplay({ userNeed: '', approach: '', kind: 'pending' })).toEqual({
+      title: '未完成的任务',
+    })
   })
 })
