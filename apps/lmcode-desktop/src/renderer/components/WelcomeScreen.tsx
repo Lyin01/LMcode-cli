@@ -16,6 +16,11 @@ import {
   projectDisplayName,
   truncateProjectPath,
 } from '@/lib/projects'
+import {
+  briefingSummary,
+  buildReturnBriefing,
+  type BriefingState,
+} from '@/lib/return-briefing'
 import { AgentWelcome } from '@/components/AgentWelcome'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
@@ -31,17 +36,34 @@ const NO_PROJECT_LABEL = '不关联项目'
 const targetMenuItemClass =
   'flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] text-[var(--lm-text-secondary)] outline-none data-[highlighted]:bg-[var(--lm-bg-hover)] data-[highlighted]:text-[var(--lm-text-primary)]'
 
+const BRIEFING_STATE_DOT: Record<BriefingState, string> = {
+  running: 'bg-[var(--lm-accent)]',
+  unread: 'bg-[var(--lm-success)]',
+  idle: 'bg-[var(--lm-border-strong)]',
+}
+
+const BRIEFING_STATE_LABEL: Record<Exclude<BriefingState, 'idle'>, string> = {
+  running: '运行中',
+  unread: '未读',
+}
+
 /**
  * Start surface for a new task. The project, model, prompt and submit action
  * live in one composition so the launch context is obvious before creation.
  */
 export function WelcomeScreen() {
   const sessions = useSessionStore((state) => state.sessions)
+  const background = useSessionStore((state) => state.bg)
+  const selectSession = useSessionStore((state) => state.selectSession)
   const noProjectWorkDir = useSessionStore((state) => state.noProjectWorkDir)
   const startSessionWithMessage = useSessionStore((state) => state.startSessionWithMessage)
   const projects = useMemo(
     () => collectProjects(sessions, noProjectWorkDir),
     [noProjectWorkDir, sessions],
+  )
+  const briefing = useMemo(
+    () => buildReturnBriefing({ sessions, background, noProjectWorkDir }),
+    [background, noProjectWorkDir, sessions],
   )
 
   const [chosenTarget, setChosenTarget] = useState<NewSessionTarget | null>(null)
@@ -352,6 +374,43 @@ export function WelcomeScreen() {
           <p className="mt-2 text-center text-[11px] text-[var(--lm-error)]">
             {attachmentError}
           </p>
+        )}
+
+        {briefing !== null && (
+          <section className="mt-4 rounded-2xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-3 text-left">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[11.5px] font-medium text-[var(--lm-text-secondary)]">欢迎回来</span>
+              <span className="text-[10.5px] text-[var(--lm-text-muted)]">{briefingSummary(briefing)}</span>
+            </div>
+            <ul className="mt-1.5 space-y-0.5">
+              {briefing.entries.map((entry) => (
+                <li key={entry.id}>
+                  <button
+                    type="button"
+                    onClick={() => selectSession(entry.id)}
+                    title={`${entry.title} · ${entry.project}`}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-[var(--lm-bg-hover)]"
+                  >
+                    <span
+                      className={cn('h-1.5 w-1.5 shrink-0 rounded-full', BRIEFING_STATE_DOT[entry.state])}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--lm-text-primary)]">
+                      {entry.title}
+                    </span>
+                    {entry.state !== 'idle' && (
+                      <span className="shrink-0 rounded bg-[var(--lm-bg-hover)] px-1.5 py-0.5 text-[9.5px] text-[var(--lm-text-secondary)]">
+                        {BRIEFING_STATE_LABEL[entry.state]}
+                      </span>
+                    )}
+                    <span className="shrink-0 text-[10px] text-[var(--lm-text-muted)]">
+                      {entry.project} · {entry.activity}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         <p className="mt-3 text-center text-[10px] text-[var(--lm-text-muted)]">
