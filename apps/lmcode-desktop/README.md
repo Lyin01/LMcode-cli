@@ -2,6 +2,16 @@
 
 LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 Agent，会话、目标、审批、MCP、记忆和后台任务与 CLI/TUI 使用同一套核心能力。
 
+## 0.9.10
+
+修一个会把长会话「锁死」的问题：连续读图的会话在发送请求时，历史里的图片会以 base64 原样全量重发——当截屏核对类工作把图片攒到几十 MB，模型网关会直接返回 `413 Request Entity Too Large`，而且此后**每一轮**（包括普通重试与压缩本身）都在发送同一份超大请求，会话永久卡死、无从恢复。实际案例：一个动画制作会话在半小时里读取了 14 张 1920×1080 截图，请求体涨到约 57 MB 后所有回合开始失败。
+
+现在每条请求在离开本机前都会执行**内联媒体预算**（默认 20 MiB）：按「最新优先」保留最近的图片/音视频，超出预算的旧媒体替换为一行占位文本——占位文本提示模型需要时可再用 ReadMediaFile 读取原文件，磁盘上的文件不受影响。token 估算不计图片字节（图片按 0 token 计），因此这份预算按字节独立核算、与上下文窗口无关；上限可在 `config.toml` 的 `[loop_control]` 用 `media_budget_bytes` 调整，设为 0 则完全不发送内联媒体。
+
+万一网关仍返回 413，客户端还会自动**瘦身重试**：先只保留最近一张图重试一次，仍失败则去掉全部内联媒体再试一次，并在会话里留一条提示；只有确实无图可裁时才把错误原样抛给用户。判定侧同时把 `Request Entity Too Large / Payload Too Large` 这类 413 单独归类（`APIRequestTooLargeError`），与「上下文超限」的判定明确区分——前者触发瘦身重试，后者仍走压缩恢复。
+
+验证：liumir 新增 413 分类映射测试（正文过大 → RequestTooLarge；token 超限 413 仍走 ContextOverflow）；agent-core 新增媒体预算单元测试（最新优先保留、预算为零全裁、https/blobref 不计入、输入不被改写）与自动瘦身集成测试（瘦身一次成功 / 两次仍失败则抛错 / 无图可裁不重试 / 其它错误不触发）。全量 liumir 与 agent-core 测试通过。
+
 ## 0.9.9
 
 修复「电脑操作 (Computer Use)」在“不受限”权限模式下无法启动：0.9.7 / 0.9.8 中选中该模式后，桌面控制状态会停在「失败」——失败原因 `permission mode unrestricted requires --dangerously-bypass-approvals at trusted daemon startup`。Cua Driver 0.28+ 要求以“不受限”模式启动时必须携带一份显式风险确认，而客户端此前只传了模式、没传这份确认，驱动在启动瞬间即退出，桌面工具一个也挂不上。现在启动驱动时会按官方要求附加确认变量（直连 MCP 场景对应 `CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS`）；「标准」模式行为不变。
