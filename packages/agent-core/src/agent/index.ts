@@ -14,6 +14,7 @@ import type {
   UsageStatus,
 } from '#/rpc';
 import {
+  APIRequestTooLargeError,
   generate,
   type ChatProvider,
   type GenerateResult,
@@ -47,6 +48,12 @@ import { FullCompaction, MicroCompaction, type CompactionStrategy } from './comp
 import { CronManager } from './cron';
 import { ConfigState } from './config';
 import { ContextMemory } from './context';
+import {
+  applyMediaBudget,
+  DEFAULT_MEDIA_BUDGET_BYTES,
+  mediaPayloadBytes,
+  REQUEST_TOO_LARGE_HEAL_BUDGET_BYTES,
+} from './context/media-budget';
 import { GoalMode, type GoalBudgetLimits } from './goal';
 import { HookEngine } from '../session/hooks';
 import { InjectionManager } from './injection/manager';
@@ -294,41 +301,85 @@ export class Agent {
 
   get generate(): typeof generate {
     return async (provider, systemPrompt, tools, history, callbacks, options) => {
-      if (options?.auth !== undefined) {
-        this.logLlmRequest(provider, systemPrompt, tools, history, options);
-        const result = await this.rawGenerate(
-          provider,
-          systemPrompt,
-          tools,
-          history,
-          callbacks,
-          options,
-        );
+      const run = async (messages: Message[]): Promise<GenerateResult> => {
+        if (options?.auth !== undefined) {
+          this.logLlmRequest(provider, systemPrompt, tools, messages, options);
+          const result = await this.rawGenerate(
+            provider,
+            systemPrompt,
+            tools,
+            messages,
+            callbacks,
+            options,
+          );
+          return normalizeGenerateResultUsage(result);
+        }
+        const modelAlias = this.config.modelAlias;
+        const withAuth =
+          modelAlias === undefined
+            ? undefined
+            : this.modelProvider?.resolveAuth?.(modelAlias, { log: this.log });
+        if (withAuth === undefined) {
+          this.logLlmRequest(provider, systemPrompt, tools, messages, options);
+          const result = await this.rawGenerate(
+            provider,
+            systemPrompt,
+            tools,
+            messages,
+            callbacks,
+            options,
+          );
+          return normalizeGenerateResultUsage(result);
+        }
+        const result = await withAuth((auth) => {
+          const requestOptions = { ...options, auth };
+          this.logLlmRequest(provider, systemPrompt, tools, messages, requestOptions);
+          return this.rawGenerate(provider, systemPrompt, tools, messages, callbacks, requestOptions);
+        });
         return normalizeGenerateResultUsage(result);
+      };
+
+      const mediaBudgetBytes =
+        this.lmcodeConfig?.loopControl?.mediaBudgetBytes ?? DEFAULT_MEDIA_BUDGET_BYTES;
+      const budgeted = applyMediaBudget(history, mediaBudgetBytes);
+      try {
+        return await run(budgeted);
+      } catch (error) {
+        if (!(error instanceof APIRequestTooLargeError)) throw error;
+        // The provider rejected the request body size — most often because
+        // too much inline media accumulated in the conversation. Retrying
+        // the identical payload cannot succeed, so trim media harder and
+        // retry: first keep only the most recent media, then drop it all.
+        let mediaBytes = mediaPayloadBytes(budgeted);
+        let lastError: APIRequestTooLargeError = error;
+        for (const healBudget of [
+          Math.min(mediaBudgetBytes, REQUEST_TOO_LARGE_HEAL_BUDGET_BYTES),
+          0,
+        ]) {
+          const candidate = applyMediaBudget(history, healBudget);
+          const candidateBytes = mediaPayloadBytes(candidate);
+          if (candidateBytes >= mediaBytes) continue;
+          this.log.warn('llm request body exceeds provider limit; retrying with media trimmed', {
+            mediaBytesBefore: mediaBytes,
+            mediaBytesAfter: candidateBytes,
+          });
+          this.emitEvent({
+            type: 'warning',
+            code: 'llm_request_media_trimmed',
+            message:
+              'Request body exceeded the model provider size limit. ' +
+              'Retrying with older conversation media trimmed.',
+          });
+          mediaBytes = candidateBytes;
+          try {
+            return await run(candidate);
+          } catch (retryError) {
+            if (!(retryError instanceof APIRequestTooLargeError)) throw retryError;
+            lastError = retryError;
+          }
+        }
+        throw lastError;
       }
-      const modelAlias = this.config.modelAlias;
-      const withAuth =
-        modelAlias === undefined
-          ? undefined
-          : this.modelProvider?.resolveAuth?.(modelAlias, { log: this.log });
-      if (withAuth === undefined) {
-        this.logLlmRequest(provider, systemPrompt, tools, history, options);
-        const result = await this.rawGenerate(
-          provider,
-          systemPrompt,
-          tools,
-          history,
-          callbacks,
-          options,
-        );
-        return normalizeGenerateResultUsage(result);
-      }
-      const result = await withAuth((auth) => {
-        const requestOptions = { ...options, auth };
-        this.logLlmRequest(provider, systemPrompt, tools, history, requestOptions);
-        return this.rawGenerate(provider, systemPrompt, tools, history, callbacks, requestOptions);
-      });
-      return normalizeGenerateResultUsage(result);
     };
   }
 

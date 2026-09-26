@@ -111,6 +111,11 @@ export const LoopControlSchema = z.object({
   maxPostWriteReviewsPerTurn: z.number().int().min(0).optional(),
   reservedContextSize: z.number().int().min(0).optional(),
   compactionTriggerRatio: z.number().min(0.5).max(0.99).optional(),
+  /** Per-request byte budget for inline media payloads (base64 data URLs)
+   *  in the outgoing message history. Older media beyond the budget is
+   *  replaced by a text placeholder so request bodies stay under provider
+   *  or gateway size limits. Defaults to 20 MiB; 0 drops all inline media. */
+  mediaBudgetBytes: z.number().int().min(0).optional(),
   /** Overrides the dynamic blocked-compaction timeout (base 60s, scaled
    *  up with context size, capped at 300s). */
   compactionBlockTimeoutMs: z.number().int().min(1000).optional(),
