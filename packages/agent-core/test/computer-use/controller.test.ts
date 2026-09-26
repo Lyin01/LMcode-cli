@@ -24,6 +24,19 @@ function activate(controller: ComputerUseController) {
   return controller.activate({ command: process.execPath, args: [driverFixture] });
 }
 
+/** Read the CUA_DRIVER_* environment the fixture process was launched with. */
+async function permissionEnv(
+  mcp: McpConnectionManager,
+): Promise<{ mode: string | null; bypass: string | null }> {
+  const client = mcp.resolved('cua-driver-mcp')?.client;
+  if (client === undefined) throw new Error('provider client is missing');
+  const result = (await client.callTool('permission_env', {})) as {
+    content?: readonly { type?: unknown; text?: unknown }[];
+  };
+  const text = result.content?.find((part) => part.type === 'text' && typeof part.text === 'string')?.text;
+  return JSON.parse(String(text)) as { mode: string | null; bypass: string | null };
+}
+
 describe('ComputerUseController activation', () => {
   it('reserves the slot, connects the provider, and reports its tools', async () => {
     const { mcp, controller: subject } = controller();
@@ -33,13 +46,45 @@ describe('ComputerUseController activation', () => {
       expect(status.phase).toBe('active');
       expect(status.providerId).toBe('cua-driver-mcp');
       expect(status.serverName).toBe('cua-driver-mcp');
-      expect(status.toolCount).toBe(3);
+      expect(status.toolCount).toBe(4);
       expect(subject.isActive()).toBe(true);
       expect(subject.providerName).toBe('cua-driver-mcp');
 
       const entry = mcp.get('cua-driver-mcp');
       expect(entry?.status).toBe('connected');
       expect(entry?.transport).toBe('stdio');
+    } finally {
+      await subject.dispose();
+      await mcp.shutdown();
+    }
+  });
+
+  it('acknowledges unrestricted mode with the driver bypass variable', async () => {
+    const { mcp, controller: subject } = controller();
+    try {
+      const status = await subject.activate({
+        command: process.execPath,
+        args: [driverFixture],
+        permissionMode: 'unrestricted',
+      });
+
+      expect(status.phase).toBe('active');
+      expect(status.permissionMode).toBe('unrestricted');
+      // The driver refuses to serve unrestricted without this acknowledgement;
+      // passing it is the whole difference between `active` and `failed` here.
+      expect(await permissionEnv(mcp)).toEqual({ mode: 'unrestricted', bypass: '1' });
+    } finally {
+      await subject.dispose();
+      await mcp.shutdown();
+    }
+  });
+
+  it('does not send the bypass acknowledgement in standard mode', async () => {
+    const { mcp, controller: subject } = controller();
+    try {
+      await activate(subject);
+
+      expect(await permissionEnv(mcp)).toEqual({ mode: 'standard', bypass: null });
     } finally {
       await subject.dispose();
       await mcp.shutdown();

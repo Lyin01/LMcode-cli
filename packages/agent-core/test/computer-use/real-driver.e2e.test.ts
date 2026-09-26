@@ -95,4 +95,19 @@ describe.runIf(driverPath !== undefined)('Cua Driver integration', () => {
       await mcp.shutdown();
     }
   }, 120_000);
+
+  it('serves unrestricted mode once the bypass acknowledgement is passed', async () => {
+    const mcp = new McpConnectionManager({ envLookup: (name) => process.env[name] });
+    const controller = new ComputerUseController({ mcp });
+    try {
+      const status = await controller.activate({ command: driverPath, permissionMode: 'unrestricted' });
+
+      expect(status.phase).toBe('active');
+      expect(status.permissionMode).toBe('unrestricted');
+      expect(status.toolCount).toBeGreaterThan(10);
+    } finally {
+      await controller.dispose();
+      await mcp.shutdown();
+    }
+  }, 120_000);
 });

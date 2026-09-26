@@ -4,6 +4,7 @@ import type { McpConnectionManager, McpServerEntry } from '#/mcp/connection-mana
 import type { Logger } from '#/logging/types';
 
 import {
+  COMPUTER_USE_DANGEROUSLY_BYPASS_APPROVALS_ENV,
   COMPUTER_USE_PERMISSION_MODE_ENV,
   DEFAULT_COMPUTER_USE_PERMISSION_MODE,
   DEFAULT_COMPUTER_USE_PROVIDER_ID,
@@ -312,7 +313,16 @@ export class ComputerUseController {
       transport: 'stdio',
       command: hold.command,
       args: [...hold.args],
-      env: { [COMPUTER_USE_PERMISSION_MODE_ENV]: hold.permissionMode },
+      env: {
+        [COMPUTER_USE_PERMISSION_MODE_ENV]: hold.permissionMode,
+        // Unrestricted is the one mode the driver will not serve on trust:
+        // without the acknowledgement variable it exits at startup
+        // ("permission mode unrestricted requires --dangerously-bypass-approvals")
+        // and the capability would read as a driver failure.
+        ...(hold.permissionMode === 'unrestricted'
+          ? { [COMPUTER_USE_DANGEROUSLY_BYPASS_APPROVALS_ENV]: '1' }
+          : {}),
+      },
       enabled: true,
     };
   }

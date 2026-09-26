@@ -16,6 +16,15 @@ export const DEFAULT_COMPUTER_USE_PERMISSION_MODE: ComputerUsePermissionMode = '
 /** Environment variable the driver reads to fix its permission mode at launch. */
 export const COMPUTER_USE_PERMISSION_MODE_ENV = 'CUA_DRIVER_PERMISSION_MODE';
 
+/**
+ * Acknowledgement the driver requires before it will serve in `unrestricted`
+ * mode. The CLI spells this as `--dangerously-bypass-approvals`, and only
+ * `serve` accepts the flag; direct `mcp` mode takes the environment
+ * equivalent, which is the path this capability launches. Without it the
+ * driver exits at startup and the capability reads as a driver failure.
+ */
+export const COMPUTER_USE_DANGEROUSLY_BYPASS_APPROVALS_ENV = 'CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS';
+
 const PROVIDER_DESCRIPTORS: Record<ComputerUseProviderId, ComputerUseProviderDescriptor> = {
   'cua-driver-mcp': {
     id: 'cua-driver-mcp',

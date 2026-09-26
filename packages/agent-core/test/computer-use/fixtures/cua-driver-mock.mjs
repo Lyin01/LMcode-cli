@@ -37,6 +37,25 @@ server.registerTool(
 );
 
 server.registerTool(
+  'permission_env',
+  {
+    description: 'Report the permission-related environment the driver was launched with.',
+    inputSchema: {},
+  },
+  () => ({
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          mode: process.env.CUA_DRIVER_PERMISSION_MODE ?? null,
+          bypass: process.env.CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS ?? null,
+        }),
+      },
+    ],
+  }),
+);
+
+server.registerTool(
   'disconnect',
   { description: 'Drop the connection, as when the driver dies.', inputSchema: {} },
   () => {
