@@ -1,6 +1,7 @@
 import {
   APIConnectionError,
   APIContextOverflowError,
+  APIRequestTooLargeError,
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
@@ -143,6 +144,28 @@ describe('convertOpenAIError: context overflow', () => {
     const result = convertOpenAIError(err);
     expect(result).toBeInstanceOf(APIContextOverflowError);
     expect((result as APIContextOverflowError).statusCode).toBe(413);
+  });
+});
+describe('convertOpenAIError: request payload too large', () => {
+  it('maps 413 Request Entity Too Large to APIRequestTooLargeError', () => {
+    const err = new OpenAIAPIError(413, undefined, 'Request Entity Too Large', undefined);
+    const result = convertOpenAIError(err);
+    expect(result).toBeInstanceOf(APIRequestTooLargeError);
+    expect((result as APIStatusError).statusCode).toBe(413);
+    // A payload-size failure must not blind-retry the identical body.
+    expect(isRetryableGenerateError(result)).toBe(false);
+  });
+
+  it('maps gateway JSON-wrapped payload messages', () => {
+    const message =
+      '413 {"error":{"message":"Request Entity Too Large","type":"AI_APICallError","statusCode":413}}';
+    const err = new OpenAIAPIError(413, undefined, message, undefined);
+    expect(convertOpenAIError(err)).toBeInstanceOf(APIRequestTooLargeError);
+  });
+
+  it('keeps token overflow 413 mapped to context overflow', () => {
+    const err = new OpenAIAPIError(413, undefined, 'Context length exceeded', undefined);
+    expect(convertOpenAIError(err)).toBeInstanceOf(APIContextOverflowError);
   });
 });
 describe('convertOpenAIError: subclass errors still match first', () => {

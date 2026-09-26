@@ -72,6 +72,20 @@ export class APIContextOverflowError extends APIStatusError {
 }
 
 /**
+ * HTTP status error that specifically means the request body exceeded the
+ * provider or gateway size limit — commonly caused by too much inline media
+ * accumulated in the conversation history. Retrying the identical payload
+ * cannot succeed; the payload has to be reduced (for example by trimming
+ * conversation media) before a retry is worthwhile.
+ */
+export class APIRequestTooLargeError extends APIStatusError {
+  constructor(message: string, requestId?: string | null, retryAfterMs?: number) {
+    super(413, message, requestId, retryAfterMs);
+    this.name = 'APIRequestTooLargeError';
+  }
+}
+
+/**
  * HTTP status error that specifically means the provider rate-limited the
  * request.
  */
@@ -145,6 +159,9 @@ export function normalizeAPIStatusError(
   if (isContextOverflowStatusError(statusCode, message)) {
     return new APIContextOverflowError(statusCode, message, requestId, retryAfterMs);
   }
+  if (isRequestTooLargeStatusError(statusCode, message)) {
+    return new APIRequestTooLargeError(message, requestId, retryAfterMs);
+  }
   return new APIStatusError(statusCode, message, requestId, retryAfterMs);
 }
 
@@ -152,6 +169,21 @@ export function isContextOverflowStatusError(statusCode: number, message: string
   if (statusCode !== 400 && statusCode !== 413 && statusCode !== 422) return false;
   const lowerMessage = message.toLowerCase();
   return CONTEXT_OVERFLOW_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage));
+}
+
+const REQUEST_TOO_LARGE_MESSAGE_PATTERNS = [
+  /request entity too large/,
+  /entity too large/,
+  /payload too large/,
+  /request body(?: is)? too large/,
+  /body (?:is )?too large/,
+  /content too large/,
+] as const;
+
+export function isRequestTooLargeStatusError(statusCode: number, message: string): boolean {
+  if (statusCode !== 400 && statusCode !== 413) return false;
+  const lowerMessage = message.toLowerCase();
+  return REQUEST_TOO_LARGE_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage));
 }
 
 export function isProviderRateLimitError(error: unknown): boolean {
