@@ -90,8 +90,14 @@ async function main(): Promise<void> {
   if (details) console.log(`${details}\n`);
   console.log(formatSummary(agg));
 
-  // Fail the process iff a non-skipped task failed.
-  process.exit(agg.allPassed ? 0 : 1);
+  // Fail the process iff a non-skipped task failed. Prefer a natural drain
+  // over process.exit(): hard-exiting while the harness's sockets are still
+  // closing has been observed to abort natively on Windows
+  // (`!(handle->flags & UV_HANDLE_CLOSING)` in libuv's win/async.c). The
+  // unref'd watchdog only fires if a leaked handle would otherwise hang us.
+  process.exitCode = agg.allPassed ? 0 : 1;
+  const watchdog = setTimeout(() => process.exit(agg.allPassed ? 0 : 1), 30_000);
+  watchdog.unref();
 }
 
 main().catch((error) => {
