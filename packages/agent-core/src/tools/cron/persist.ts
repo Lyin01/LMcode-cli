@@ -2,7 +2,7 @@
  * Cron task persistence.
  *
  * Thin wrapper over `createPerIdJsonStore` that pins the on-disk layout
- * (`<sessionDir>/cron/<task_id>.json`), the cron-id shape (8 lowercase
+ * (`<agentHome>/cron/<task_id>.json`), the cron-id shape (8 lowercase
  * hex chars — same shape `SessionCronStore` generates), and a shape
  * guard for `CronTask`.
  *
@@ -50,12 +50,13 @@ export function isValidCronTask(obj: unknown): obj is CronTask {
 }
 
 /**
- * Construct a per-id JSON store for cron tasks under `sessionDir`. The
- * store is stateless — callers can create it on demand.
+ * Construct a per-id JSON store for cron tasks under the main agent's
+ * home (`<sessionDir>/agents/main`) — pass `agent.homedir`, not the
+ * session root. The store is stateless — callers can create it on demand.
  */
-export function createCronPersistStore(sessionDir: string): PerIdJsonStore<CronTask> {
+export function createCronPersistStore(agentHome: string): PerIdJsonStore<CronTask> {
   return createPerIdJsonStore<CronTask>({
-    rootDir: sessionDir,
+    rootDir: agentHome,
     subdir: 'cron',
     idRegex: CRON_ID_REGEX,
     isValid: isValidCronTask,

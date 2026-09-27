@@ -12,11 +12,11 @@
  *     duplicate idle flag — the turn machinery already knows;
  *   - translate a fired `CronTask` into a `steer(...)` call carrying a
  *     `CronJobOrigin` and emitting a `cron.fired` event;
- *   - mirror every store mutation to `<sessionDir>/cron/<id>.json`
+ *   - mirror every store mutation to `<agentHome>/cron/<id>.json`
  *     (via {@link addTask} / {@link removeTasks}) so that `lm resume`
  *     can call {@link loadFromDisk} to rehydrate previously-scheduled
- *     tasks. When no `sessionDir` is supplied (subagents, tests,
- *     ephemeral sessions) the manager stays purely in-memory.
+ *     tasks. When `agent.homedir` is undefined (tests, ephemeral
+ *     sessions) the manager stays purely in-memory.
  *   - provide a `handleMissed(...)` entry point that future boot-time
  *     missed-task notification will call. Today the scheduler's
  *     `coalescedCount` semantics handle missed fires inline, so this
@@ -175,7 +175,7 @@ export class CronManager {
 
   /**
    * Add a fresh task to the in-memory store and, when persistence is
-   * attached, mirror the new record to `<sessionDir>/cron/<id>.json`.
+   * attached, mirror the new record to `<agentHome>/cron/<id>.json`.
    *
    * The store call is synchronous (CronCreate needs the id for its
    * response); the on-disk write is fire-and-forget so a slow disk
@@ -237,7 +237,7 @@ export class CronManager {
   }
 
   /**
-   * Rehydrate the in-memory store from `<sessionDir>/cron/` after
+   * Rehydrate the in-memory store from `<agentHome>/cron/` after
    * `lm resume`. No-op when persistence is not attached. Idempotent:
    * clears the in-memory map and re-inserts every record on disk.
    *
