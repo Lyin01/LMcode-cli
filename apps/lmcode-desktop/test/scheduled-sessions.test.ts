@@ -15,13 +15,19 @@ afterEach(async () => {
   )
 })
 
-async function sessionSummary(id: string, hasJob: boolean): Promise<SessionSummary> {
+type CronFixture = 'none' | 'jobs' | 'empty-dir'
+
+async function sessionSummary(id: string, cron: CronFixture): Promise<SessionSummary> {
   const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lmcode-scheduled-session-'))
   temporaryDirectories.push(sessionDir)
-  if (hasJob) {
-    const cronDir = path.join(sessionDir, 'cron')
-    await fs.mkdir(cronDir)
-    await fs.writeFile(path.join(cronDir, 'abc12345.json'), '{}', 'utf8')
+  if (cron !== 'none') {
+    // Real on-disk layout: only the main agent owns a cron manager, so
+    // persisted jobs land under `<sessionDir>/agents/main/cron/<id>.json`.
+    const cronDir = path.join(sessionDir, 'agents', 'main', 'cron')
+    await fs.mkdir(cronDir, { recursive: true })
+    if (cron === 'jobs') {
+      await fs.writeFile(path.join(cronDir, 'abc12345.json'), '{}', 'utf8')
+    }
   }
   return {
     id,
@@ -34,18 +40,25 @@ async function sessionSummary(id: string, hasJob: boolean): Promise<SessionSumma
 
 describe('desktop scheduled-session activation', () => {
   it('selects only sessions with persisted cron jobs for background resume', async () => {
-    const scheduled = await sessionSummary('scheduled', true)
-    const ordinary = await sessionSummary('ordinary', false)
+    const scheduled = await sessionSummary('scheduled', 'jobs')
+    const ordinary = await sessionSummary('ordinary', 'none')
 
     await expect(scheduledSessionIds([ordinary, scheduled])).resolves.toEqual(['scheduled'])
   })
 
+  it('does not select sessions whose main-agent cron directory holds no job files', async () => {
+    const empty = await sessionSummary('empty', 'empty-dir')
+    const ordinary = await sessionSummary('ordinary', 'none')
+
+    await expect(scheduledSessionIds([ordinary, empty])).resolves.toEqual([])
+  })
+
   it('skips a session whose cron directory cannot be read instead of failing the whole batch', async () => {
-    const scheduled = await sessionSummary('scheduled', true)
+    const scheduled = await sessionSummary('scheduled', 'jobs')
     // Corrupted session: sessionDir contains a NUL byte, so readdir on its
-    // cron directory rejects with ERR_INVALID_ARG_VALUE (not ENOENT) on every
-    // platform. One bad session must not silently prevent every other
-    // session's cron jobs from being resumed.
+    // main-agent cron directory rejects with ERR_INVALID_ARG_VALUE (not
+    // ENOENT) on every platform. One bad session must not silently prevent
+    // every other session's cron jobs from being resumed.
     const broken: SessionSummary = {
       id: 'broken',
       workDir: 'bad\0path',
