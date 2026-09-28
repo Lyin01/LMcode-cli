@@ -505,6 +505,149 @@ describe('Agent context', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('trims old tool results at the working-set cap before the window ratio fires', () => {
+    const ctx = testAgent({
+      initialConfig: { providers: {}, loopControl: { microCompactionWorkingSetTokens: 100 } },
+    });
+    ctx.configure({
+      modelCapabilities: {
+        image_in: false,
+        video_in: false,
+        audio_in: false,
+        thinking: false,
+        tool_use: true,
+        max_context_tokens: 1_000_000,
+      },
+    });
+
+    const bigOutput = `tool-output-${'x'.repeat(600)}`;
+    for (let i = 0; i < 11; i += 1) {
+      ctx.agent.context.appendUserMessage([{ type: 'text', text: `question ${String(i)}` }]);
+      ctx.agent.context.appendMessage(assistantToolMessage([`tc-${String(i)}`]));
+      ctx.dispatch({
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: `tc-${String(i)}`,
+          toolCallId: `tc-${String(i)}`,
+          result: { output: bigOutput },
+        },
+      });
+    }
+    ctx.appendAssistantTextWithUsage(99, 'usage carrier', 160);
+    ctx.agent.context.appendMessage(assistantToolMessage(['tc-last']));
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'tc-last',
+        toolCallId: 'tc-last',
+        result: { output: bigOutput },
+      },
+    });
+
+    // The 1M window ratio (0.5) would trim nothing near this estimate; the
+    // 100-token working set is what fires.
+    expect(JSON.stringify(ctx.agent.context.messages)).toContain(
+      '[Old tool result content cleared]',
+    );
+  });
+
+  it('does not trim when both the window ratio and the working set are above the estimate', () => {
+    const ctx = testAgent({
+      initialConfig: {
+        providers: {},
+        loopControl: { microCompactionWorkingSetTokens: 1_000_000 },
+      },
+    });
+    ctx.configure({
+      modelCapabilities: {
+        image_in: false,
+        video_in: false,
+        audio_in: false,
+        thinking: false,
+        tool_use: true,
+        max_context_tokens: 1_000_000,
+      },
+    });
+
+    const bigOutput = `tool-output-${'x'.repeat(600)}`;
+    for (let i = 0; i < 11; i += 1) {
+      ctx.agent.context.appendUserMessage([{ type: 'text', text: `question ${String(i)}` }]);
+      ctx.agent.context.appendMessage(assistantToolMessage([`tc-${String(i)}`]));
+      ctx.dispatch({
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: `tc-${String(i)}`,
+          toolCallId: `tc-${String(i)}`,
+          result: { output: bigOutput },
+        },
+      });
+    }
+    ctx.appendAssistantTextWithUsage(99, 'usage carrier', 160);
+    ctx.agent.context.appendMessage(assistantToolMessage(['tc-last']));
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'tc-last',
+        toolCallId: 'tc-last',
+        result: { output: bigOutput },
+      },
+    });
+
+    expect(JSON.stringify(ctx.agent.context.messages)).not.toContain(
+      '[Old tool result content cleared]',
+    );
+  });
+
+  it('uses the default working-set cap when the file config does not set one', () => {
+    const ctx = testAgent();
+    ctx.configure({
+      modelCapabilities: {
+        image_in: false,
+        video_in: false,
+        audio_in: false,
+        thinking: false,
+        tool_use: true,
+        max_context_tokens: 1_000_000,
+      },
+    });
+
+    const bigOutput = `tool-output-${'x'.repeat(600)}`;
+    for (let i = 0; i < 11; i += 1) {
+      ctx.agent.context.appendUserMessage([{ type: 'text', text: `question ${String(i)}` }]);
+      ctx.agent.context.appendMessage(assistantToolMessage([`tc-${String(i)}`]));
+      ctx.dispatch({
+        type: 'context.append_loop_event',
+        event: {
+          type: 'tool.result',
+          parentUuid: `tc-${String(i)}`,
+          toolCallId: `tc-${String(i)}`,
+          result: { output: bigOutput },
+        },
+      });
+    }
+    // 210k tokens is below the 1M-window ratio trigger (500k) but above the
+    // documented 200k default cap.
+    ctx.appendAssistantTextWithUsage(99, 'usage carrier', 210_000);
+    ctx.agent.context.appendMessage(assistantToolMessage(['tc-last']));
+    ctx.dispatch({
+      type: 'context.append_loop_event',
+      event: {
+        type: 'tool.result',
+        parentUuid: 'tc-last',
+        toolCallId: 'tc-last',
+        result: { output: bigOutput },
+      },
+    });
+
+    expect(JSON.stringify(ctx.agent.context.messages)).toContain(
+      '[Old tool result content cleared]',
+    );
+  });
+
   it('does not fail the turn when content.part arrives without a live step.begin', () => {
     const ctx = testAgent();
     ctx.configure();

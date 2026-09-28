@@ -406,7 +406,7 @@ LMcode 内置了 MCP 客户端。Agent 可以通过模型上下文协议（Model
 LMcode 拥有三级压缩管道，在 `packages/agent-core/src/agent/turn/index.ts` 的 `beforeStep` 钩子中协调。每一步在 LLM 调用之前执行：
 
 ```
-阶段 1：微压缩（零 LLM）→ 将旧的工具结果截断为占位符，始终启用，在 >= 50% 使用率时触发
+阶段 1：微压缩（零 LLM）→ 将旧的工具结果截断为占位符，始终启用，在 ≥ min(窗口 50%, 200k) 时触发（`loop_control.micro_compaction_working_set_tokens` 可调，0 关闭上限）
 阶段 2：完整压缩（一次 LLM）→ LLM 总结旧消息，在 >= 75% 使用率时触发
 阶段 3：阻塞压缩（安全网）→ 阻塞当前轮次直到压缩完成，在 >= 85% 使用率时触发
 ```

@@ -6,6 +6,10 @@ Ground every action on a fresh snapshot of one exact window.
 - Address the target either by an element handle from that snapshot (`element_token`, or `element_index` together with the matching `snapshot_id`) or by (x, y) pixel coordinates taken from that snapshot's screenshot.
 - A newer snapshot of the same (pid, window_id) replaces the index map. Handles from an earlier snapshot are stale and are rejected, so re-snapshot before acting after any change.
 
+Batch what is already planned.
+- When several actions are fully determined and independent — coordinates, keys, and arguments already known — send them together as multiple tool calls in one reply. They execute sequentially in the order you list them, so a sequence of steps (for example a series of drags) keeps its order while costing one round trip instead of many.
+- Do not batch an action with the snapshot it depends on: tool results only come back after the whole batch has run, so anything that needs a fresh `get_window_state` result must wait for the next step.
+
 Delivery order is not optional.
 - `delivery_mode: "background"` is the mandatory first attempt and never raises the window.
 - Do not pass `"foreground"` preemptively because a target looks like Chromium, Electron, or GTK. The driver decides when background delivery is impossible and reports it explicitly; only after such an error, or a verified no-op, re-issue that same action with `"foreground"`.

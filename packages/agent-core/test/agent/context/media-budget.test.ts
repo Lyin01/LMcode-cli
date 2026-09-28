@@ -9,6 +9,7 @@ import type { AgentOptions } from '../../../src/agent';
 import {
   applyMediaBudget,
   DEFAULT_MEDIA_BUDGET_BYTES,
+  DEFAULT_MEDIA_TOOL_RESULT_IMAGE_LIMIT,
   mediaPayloadBytes,
 } from '../../../src/agent/context/media-budget';
 import { testAgent } from '../harness/agent';
@@ -125,6 +126,53 @@ describe('applyMediaBudget', () => {
 
     expect(budgeted).toBe(messages);
     expect(budgeted[0]).toBe(https);
+  });
+});
+
+describe('applyMediaBudget tool-result image limit', () => {
+  it('keeps only the newest tool-result images and leaves user media alone', () => {
+    const messages = [
+      message('tool', imagePart('1')),
+      message('tool', imagePart('2')),
+      message('tool', imagePart('3')),
+      message('user', imagePart('u')),
+      message('tool', imagePart('4')),
+    ];
+
+    const budgeted = applyMediaBudget(messages, DEFAULT_MEDIA_BUDGET_BYTES, 2);
+
+    // Newest tool images (4, 3) stay inline; the older two are replaced.
+    expect(budgeted[4]).toBe(messages[4]);
+    expect(budgeted[2]).toBe(messages[2]);
+    expect(budgeted[1]!.content[0]!.type).toBe('text');
+    expect(budgeted[0]!.content[0]!.type).toBe('text');
+    // User-authored media is exempt from the count cap.
+    expect(budgeted[3]).toBe(messages[3]);
+  });
+
+  it('drops every tool-result image at a zero limit but keeps user images', () => {
+    const messages = [message('tool', imagePart('a')), message('user', imagePart('b'))];
+
+    const budgeted = applyMediaBudget(messages, DEFAULT_MEDIA_BUDGET_BYTES, 0);
+
+    expect(budgeted[0]!.content[0]!.type).toBe('text');
+    expect(budgeted[1]).toBe(messages[1]);
+  });
+
+  it('applies the default keep-newest limit when no explicit limit is given', () => {
+    const messages = Array.from({ length: DEFAULT_MEDIA_TOOL_RESULT_IMAGE_LIMIT + 3 }, () =>
+      message('tool', imagePart('x')),
+    );
+
+    const budgeted = applyMediaBudget(messages, DEFAULT_MEDIA_BUDGET_BYTES);
+
+    // The three oldest images are replaced; the newest default-limit stay.
+    for (let index = 0; index < 3; index += 1) {
+      expect(budgeted[index]!.content[0]!.type).toBe('text');
+    }
+    for (let index = 3; index < budgeted.length; index += 1) {
+      expect(budgeted[index]!.content[0]!.type).toBe('image_url');
+    }
   });
 });
 

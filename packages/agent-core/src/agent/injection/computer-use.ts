@@ -10,6 +10,8 @@ const SPARSE_REMINDER = [
   'Before acting on a window: re-read its state with get_window_state and use a handle from that',
   'snapshot. Keep background delivery as the first attempt, verify the outcome from fresh state,',
   'and remember that cancelled or delivered input is not rolled back.',
+  'Batch already-decided, independent actions in one reply (they run in order); never batch actions',
+  'that depend on a snapshot taken in the same batch.',
 ].join('\n');
 
 const EXIT_REMINDER = [

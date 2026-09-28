@@ -245,7 +245,9 @@ export class Agent {
           : undefined),
     );
     this.fullCompaction = new FullCompaction(this, options.compactionStrategy);
-    this.microCompaction = new MicroCompaction(this);
+    this.microCompaction = new MicroCompaction(this, {
+      workingSetTokens: this.lmcodeConfig?.loopControl?.microCompactionWorkingSetTokens,
+    });
     this.context = new ContextMemory(this);
     this.config = new ConfigState(this);
     this.turn = new TurnFlow(this);
@@ -341,7 +343,8 @@ export class Agent {
 
       const mediaBudgetBytes =
         this.lmcodeConfig?.loopControl?.mediaBudgetBytes ?? DEFAULT_MEDIA_BUDGET_BYTES;
-      const budgeted = applyMediaBudget(history, mediaBudgetBytes);
+      const mediaToolResultImageLimit = this.lmcodeConfig?.loopControl?.mediaToolResultImageLimit;
+      const budgeted = applyMediaBudget(history, mediaBudgetBytes, mediaToolResultImageLimit);
       try {
         return await run(budgeted);
       } catch (error) {
@@ -356,7 +359,7 @@ export class Agent {
           Math.min(mediaBudgetBytes, REQUEST_TOO_LARGE_HEAL_BUDGET_BYTES),
           0,
         ]) {
-          const candidate = applyMediaBudget(history, healBudget);
+          const candidate = applyMediaBudget(history, healBudget, mediaToolResultImageLimit);
           const candidateBytes = mediaPayloadBytes(candidate);
           if (candidateBytes >= mediaBytes) continue;
           this.log.warn('llm request body exceeds provider limit; retrying with media trimmed', {

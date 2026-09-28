@@ -110,12 +110,27 @@ export const LoopControlSchema = z.object({
    *  A pass can include browser keyframes plus visual and source-model review. */
   maxPostWriteReviewsPerTurn: z.number().int().min(0).optional(),
   reservedContextSize: z.number().int().min(0).optional(),
-  compactionTriggerRatio: z.number().min(0.5).max(0.99).optional(),
+  /** Full-compaction trigger as a fraction of the model context window
+   *  (0.1-0.99). The floor was lowered from 0.5 so that large-window models
+   *  can compact before provider-gateway latency degrades; defaults to 0.75. */
+  compactionTriggerRatio: z.number().min(0.1).max(0.99).optional(),
   /** Per-request byte budget for inline media payloads (base64 data URLs)
    *  in the outgoing message history. Older media beyond the budget is
    *  replaced by a text placeholder so request bodies stay under provider
    *  or gateway size limits. Defaults to 20 MiB; 0 drops all inline media. */
   mediaBudgetBytes: z.number().int().min(0).optional(),
+  /** Newest-first cap on inline image parts kept from tool results in the
+   *  outgoing request (computer-use screenshots accumulate fastest). Older
+   *  tool images are replaced by a text placeholder; user-authored media is
+   *  only subject to the byte budget. Defaults to 6; 0 drops all
+   *  tool-result images. */
+  mediaToolResultImageLimit: z.number().int().min(0).optional(),
+  /** Absolute working-set cap for free micro-compaction, in estimated
+   *  tokens. The effective trigger is min(window x 0.5, this cap), so
+   *  large-window models still trim old tool results early instead of
+   *  paying multi-second first-token latency on every step. Defaults to
+   *  200000; 0 disables the cap. */
+  microCompactionWorkingSetTokens: z.number().int().min(0).optional(),
   /** Overrides the dynamic blocked-compaction timeout (base 60s, scaled
    *  up with context size, capped at 300s). */
   compactionBlockTimeoutMs: z.number().int().min(1000).optional(),

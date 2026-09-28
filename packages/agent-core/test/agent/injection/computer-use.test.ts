@@ -53,6 +53,8 @@ describe('ComputerUseInjector', () => {
     expect(text).toContain('verify_state');
     // The contract must say that delivered input is irreversible.
     expect(text).toContain('not withdrawn');
+    // Batching guidance for already-decided action sequences.
+    expect(text).toContain('costing one round trip instead of many');
   });
 
   it('does not repeat the full contract on the next turn', async () => {
@@ -100,6 +102,23 @@ describe('ComputerUseInjector', () => {
     const refresh = injectionText(agent, afterFirst + 5);
     expect(agent.context.history.length).toBe(afterFirst + 6);
     expect(refresh).toContain('get_window_state');
+  });
+
+  it('repeats the batching guidance in the sparse reminder between full refreshes', async () => {
+    const stub: ComputerUseStub = { active: true };
+    const agent = computerUseAgent(stub);
+    const injector = new ComputerUseInjector(agent);
+
+    await injector.inject();
+    const afterFirst = agent.context.history.length;
+    assistantMessage(agent);
+    assistantMessage(agent);
+    await injector.inject();
+
+    const reminder = injectionText(agent, afterFirst + 2);
+    expect(agent.context.history.length).toBe(afterFirst + 3);
+    expect(reminder).toContain('still active');
+    expect(reminder).toContain('Batch already-decided');
   });
 
   it('stays silent when the capability was never active', async () => {

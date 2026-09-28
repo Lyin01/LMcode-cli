@@ -95,6 +95,8 @@ max_retries_per_step = 3
 max_post_write_reviews_per_turn = 2
 reserved_context_size = 50000
 compaction_trigger_ratio = 0.85
+media_tool_result_image_limit = 4
+micro_compaction_working_set_tokens = 150000
 
 [background]
 max_running_tasks = 4
@@ -174,6 +176,8 @@ describe('harness config TOML loader', () => {
       maxPostWriteReviewsPerTurn: 2,
       reservedContextSize: 50000,
       compactionTriggerRatio: 0.85,
+      mediaToolResultImageLimit: 4,
+      microCompactionWorkingSetTokens: 150000,
     });
     expect(config.background?.agentTaskTimeoutS).toBe(900);
     expect(config.hooks).toEqual([
@@ -226,6 +230,8 @@ describe('harness config TOML loader', () => {
     expect(text).not.toContain('[[permission.allow]]');
     expect(text).toContain('max_steps_per_turn = 7');
     expect(text).toContain('max_post_write_reviews_per_turn = 1');
+    expect(text).toContain('media_tool_result_image_limit = 4');
+    expect(text).toContain('micro_compaction_working_set_tokens = 150000');
     expect(text).toContain('GOOGLE_CLOUD_PROJECT = "project-1"');
     expect(text).toContain('theme = "dark"');
     expect(text).toContain('claim_stale_after_ms = 15000');
@@ -236,6 +242,8 @@ describe('harness config TOML loader', () => {
     const reloaded = readConfigFile(configPath);
     expect(reloaded.loopControl?.maxStepsPerTurn).toBe(7);
     expect(reloaded.loopControl?.maxPostWriteReviewsPerTurn).toBe(1);
+    expect(reloaded.loopControl?.mediaToolResultImageLimit).toBe(4);
+    expect(reloaded.loopControl?.microCompactionWorkingSetTokens).toBe(150000);
     expect(reloaded.hooks?.[0]?.event).toBe('PreToolUse');
     expect(reloaded.raw?.['theme']).toBe('dark');
   });

@@ -10,6 +10,18 @@ import type { ContentPart, Message } from '@lmcode-cli/liumir';
 export const DEFAULT_MEDIA_BUDGET_BYTES = 20 * 1024 * 1024;
 
 /**
+ * Newest-first cap on inline image parts kept from `tool` messages.
+ *
+ * Tool results are the volume driver in computer-use sessions — every
+ * snapshot is a fresh screenshot, and stale ones can be re-captured. A
+ * session that keeps every screenshot inflates each request body and its
+ * vision-token count, so only the newest few tool images stay inline.
+ * `0` drops all tool-result images. User-authored media is not capped by
+ * count (it is only subject to the byte budget).
+ */
+export const DEFAULT_MEDIA_TOOL_RESULT_IMAGE_LIMIT = 6;
+
+/**
  * Heal budget used to retry after a provider reports the request body is too
  * large: keep only the most recent inline media within this budget.
  */
@@ -61,10 +73,13 @@ interface MediaSlot {
   readonly messageIndex: number;
   readonly partIndex: number;
   readonly bytes: number;
+  readonly isImage: boolean;
+  readonly fromTool: boolean;
 }
 
 /**
- * Trim inline media so the payload fits `budgetBytes`.
+ * Trim inline media so the payload fits `budgetBytes`, keeping at most
+ * `toolResultImageLimit` inline images from tool results (newest first).
  *
  * Walks newest first: the most recent media part is always kept (it is the
  * visual context the model is most likely to need right now), and older
@@ -72,31 +87,47 @@ interface MediaSlot {
  * that is replaced with a text placeholder. Non-inline URLs (https,
  * `blobref:`) are left untouched — they add no payload bytes.
  *
- * A budget of zero or less drops every inline media part. Returns the input
- * array when nothing needs to change; never mutates the input.
+ * A budget of zero or less drops every inline media part; a tool-result
+ * image limit of zero drops every inline image that came from a tool.
+ * Returns the input array when nothing needs to change; never mutates the
+ * input.
  */
 export function applyMediaBudget(
   messages: Message[],
   budgetBytes: number,
+  toolResultImageLimit: number = DEFAULT_MEDIA_TOOL_RESULT_IMAGE_LIMIT,
 ): Message[] {
   const slots: MediaSlot[] = [];
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-    const content = messages[messageIndex]!.content;
+    const message = messages[messageIndex]!;
+    const content = message.content;
     for (let partIndex = content.length - 1; partIndex >= 0; partIndex -= 1) {
-      const url = mediaUrlOf(content[partIndex]!);
+      const part = content[partIndex]!;
+      const url = mediaUrlOf(part);
       if (url === undefined || !url.startsWith('data:')) continue;
-      slots.push({ messageIndex, partIndex, bytes: url.length });
+      slots.push({
+        messageIndex,
+        partIndex,
+        bytes: url.length,
+        isImage: part.type === 'image_url',
+        fromTool: message.role === 'tool',
+      });
     }
   }
   if (slots.length === 0) return messages;
 
   const dropped = new Map<number, Set<number>>();
   let remaining = budgetBytes;
+  let keptToolImages = 0;
   for (const [index, slot] of slots.entries()) {
     // The newest inline media is exempt from the budget so the model keeps
     // sight of the most recent visual state; every older part must fit.
-    const keep = budgetBytes > 0 && (index === 0 || slot.bytes <= remaining);
+    let keep = budgetBytes > 0 && (index === 0 || slot.bytes <= remaining);
+    if (keep && slot.fromTool && slot.isImage && keptToolImages >= toolResultImageLimit) {
+      keep = false;
+    }
     if (keep) {
+      if (slot.fromTool && slot.isImage) keptToolImages += 1;
       remaining = Math.max(0, remaining - slot.bytes);
       continue;
     }

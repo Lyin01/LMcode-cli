@@ -4,6 +4,17 @@ import type { Agent } from '..';
 import type { ContextMessage } from '../context';
 import { estimateTokens, estimateTokensForMessage } from '../../utils/tokens';
 
+/**
+ * Default absolute cap on micro-compaction's trigger, in estimated tokens.
+ *
+ * A ratio-only trigger is late on large-window models: with a 1M window the
+ * 0.5 ratio trims nothing until half a million tokens, while gateway
+ * first-token latency is already multi-second around 200k. The cap only ever
+ * lowers the trigger, so windows small enough for the ratio to fire earlier
+ * are unaffected. `0` disables the cap.
+ */
+export const DEFAULT_MICRO_COMPACTION_WORKING_SET_TOKENS = 200_000;
+
 export interface MicroCompactionConfig {
   /** Number of most recent messages to always keep untouched. */
   keepRecentMessages: number;
@@ -11,6 +22,8 @@ export interface MicroCompactionConfig {
   minContentTokens: number;
   /** Minimum context usage ratio (0-1) before micro-compaction triggers. */
   minContextUsageRatio: number;
+  /** Absolute working-set cap (estimated tokens); `0` disables the cap. */
+  workingSetTokens: number;
   /** Placeholder text for truncated tool results. */
   truncatedMarker: string;
 }
@@ -19,6 +32,7 @@ const DEFAULT_CONFIG: MicroCompactionConfig = {
   keepRecentMessages: 20,
   minContentTokens: 100,
   minContextUsageRatio: 0.5,
+  workingSetTokens: DEFAULT_MICRO_COMPACTION_WORKING_SET_TOKENS,
   truncatedMarker: '[Old tool result content cleared]',
 };
 
@@ -88,7 +102,13 @@ export class MicroCompaction {
     public readonly agent: Agent,
     config?: Partial<MicroCompactionConfig>,
   ) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    const merged = { ...DEFAULT_CONFIG, ...config };
+    this.config = {
+      ...merged,
+      // A forwarded `undefined` override must not erase the default: callers
+      // pass optional file-config values straight through.
+      workingSetTokens: merged.workingSetTokens ?? DEFAULT_MICRO_COMPACTION_WORKING_SET_TOKENS,
+    };
   }
 
   /** Reset the internal cutoff line (e.g. after a full compaction). */
@@ -120,11 +140,18 @@ export class MicroCompaction {
     const { history } = this.agent.context;
     const maxContextTokens = this.agent.config.modelCapabilities.max_context_tokens;
     const contextTokens = this.agent.context.tokenCountWithPending;
-    const contextUsageRatio =
+    // Trigger at the smaller of the window-ratio threshold and the absolute
+    // working-set cap. An unknown window keeps the historic behavior
+    // (the ratio trigger fires at zero tokens).
+    const ratioTriggerTokens =
       maxContextTokens !== undefined && maxContextTokens > 0
-        ? contextTokens / maxContextTokens
-        : 1;
-    if (contextUsageRatio < config.minContextUsageRatio) return;
+        ? maxContextTokens * config.minContextUsageRatio
+        : 0;
+    const triggerTokens =
+      config.workingSetTokens > 0
+        ? Math.min(ratioTriggerTokens, config.workingSetTokens)
+        : ratioTriggerTokens;
+    if (contextTokens < triggerTokens) return;
 
     const nextCutoff = Math.max(0, history.length - config.keepRecentMessages);
     this.apply(nextCutoff);
