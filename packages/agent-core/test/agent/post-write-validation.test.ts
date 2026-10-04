@@ -72,6 +72,89 @@ describe('post-write validation evidence', () => {
     expect(finalStepText).not.toContain("file's syntax passed");
   });
 
+  it('surfaces non-blocking source review notes to the model', async () => {
+    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
+      error: null,
+      syntax: { status: 'passed' },
+      runtime: { status: 'passed' },
+      screenshots: undefined,
+      keyframeTimesMs: undefined,
+    });
+    const ctx = await validationAgent();
+
+    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
+    ctx.mockNextResponse({
+      type: 'text',
+      text: 'APPROVE\nNOTES: extract the shared markup into a constant to avoid drift',
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
+    await ctx.untilTurnEnd();
+
+    // Notes are advisory: the write stays successful and no extra model work starts.
+    expect(ctx.llmCalls).toHaveLength(3);
+    const finalStepText = ctx.llmCalls.at(-1)?.history.map(messageText).join('\n') ?? '';
+    expect(finalStepText).toContain('non-blocking improvement notes');
+    expect(finalStepText).toContain('extract the shared markup into a constant to avoid drift');
+    const toolResults = ctx.allEvents.filter(
+      (event) => event.type === '[rpc]' && event.event === 'tool.result',
+    );
+    expect(toolResults).toHaveLength(1);
+    expect((toolResults[0]!.args as { isError?: boolean }).isError).not.toBe(true);
+  });
+
+  it('does not fabricate notes when the reviewer approves without a NOTES line', async () => {
+    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
+      error: null,
+      syntax: { status: 'passed' },
+      runtime: { status: 'passed' },
+      screenshots: undefined,
+      keyframeTimesMs: undefined,
+    });
+    const ctx = await validationAgent();
+
+    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
+    ctx.mockNextResponse({
+      type: 'text',
+      text: 'APPROVE\nNo notes: the implementation is clean.',
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
+    await ctx.untilTurnEnd();
+
+    const finalStepText = ctx.llmCalls.at(-1)?.history.map(messageText).join('\n') ?? '';
+    expect(finalStepText).not.toContain('non-blocking improvement notes');
+  });
+
+  it('surfaces non-blocking visual review notes to the model', async () => {
+    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
+      error: null,
+      syntax: { status: 'passed' },
+      runtime: { status: 'passed' },
+      screenshots: ['ZmFrZS1wbmc='],
+      keyframeTimesMs: [2000],
+    });
+    const ctx = await validationAgent(false, true);
+
+    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
+    ctx.mockNextResponse({
+      type: 'text',
+      text: 'VISUAL_APPROVE\nNOTES: enlarge the call-to-action button for touch targets',
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
+    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
+    await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls).toHaveLength(4);
+    const finalStepText = ctx.llmCalls.at(-1)?.history.map(messageText).join('\n') ?? '';
+    expect(finalStepText).toContain('non-blocking polish notes');
+    expect(finalStepText).toContain('enlarge the call-to-action button for touch targets');
+  });
+
   it('caps complete post-write reviews and keeps later writes successful', async () => {
     const validate = vi
       .spyOn(selfHealing, 'validateFileSyntaxWithScreenshots')

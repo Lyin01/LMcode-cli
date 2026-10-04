@@ -34,5 +34,5 @@ Otherwise reply starting with:
 
 VISUAL_APPROVE
 
-You may add one short `NOTES:` line after VISUAL_APPROVE for non-blocking polish. Never put a
-non-blocking suggestion in VISUAL_REJECT.
+If you noticed a concrete, worthwhile non-blocking polish point, add one short `NOTES:` line after
+VISUAL_APPROVE. Never put a non-blocking suggestion in VISUAL_REJECT.

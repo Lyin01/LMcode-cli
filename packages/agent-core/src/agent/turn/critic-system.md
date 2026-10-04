@@ -19,4 +19,4 @@ Otherwise reply starting with:
 
 APPROVE
 
-You may add one short `NOTES:` line after APPROVE for non-blocking improvements. Never put a non-blocking suggestion in REJECT.
+If you noticed a concrete, worthwhile non-blocking improvement, add one short `NOTES:` line after APPROVE. Never put a non-blocking suggestion in REJECT.

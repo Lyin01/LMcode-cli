@@ -1463,6 +1463,14 @@ export class TurnFlow {
                                 validationPathKey,
                                 'visual',
                               );
+                              const notes = extractReviewNotes(visualText);
+                              if (notes !== undefined) {
+                                validationNotices.push(
+                                  `File ${JSON.stringify(validationPath)}: Automatic visual review passed with non-blocking polish notes: ${notes}. ` +
+                                    'Treat them as optional: mention the worthwhile ones to the user in one line in your final reply; ' +
+                                    'apply them directly only when small and clearly correct.',
+                                );
+                              }
                             } else {
                               addValidationLimitation(
                                 validationNotices,
@@ -1586,6 +1594,14 @@ Reject only concrete blocking defects that make the file incorrect, broken, unsa
                               validationPathKey,
                               'source',
                             );
+                            const notes = extractReviewNotes(criticText);
+                            if (notes !== undefined) {
+                              validationNotices.push(
+                                `File ${JSON.stringify(validationPath)}: Automatic source review passed with non-blocking improvement notes: ${notes}. ` +
+                                  'Treat them as optional: complete small, clearly-correct improvements directly; mention the worthwhile ones ' +
+                                  'to the user in one line in your final reply; ignore the rest.',
+                              );
+                            }
                           } else {
                             addValidationLimitation(
                               validationNotices,
@@ -2053,6 +2069,14 @@ function clearValidationLimitation(
 function summarizeValidationFailure(error: string): string {
   const oneLine = error.replaceAll(/\s+/g, ' ').trim();
   return oneLine.length > 500 ? `${oneLine.slice(0, 497)}...` : oneLine;
+}
+
+/** The optional `NOTES:` line a reviewer appends after an approval; carries non-blocking improvement ideas. */
+function extractReviewNotes(text: string): string | undefined {
+  const match = /^\s*NOTES:\s*(.+)$/mu.exec(text);
+  if (match?.[1] === undefined) return undefined;
+  const note = summarizeValidationFailure(match[1]);
+  return note.length === 0 ? undefined : note;
 }
 
 function appendToolResultNotice(
