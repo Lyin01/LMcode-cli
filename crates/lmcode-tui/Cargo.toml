@@ -1,0 +1,19 @@
+[package]
+name = "lmcode-tui"
+description = "LMcode terminal UI — Rust port of apps/lmcode/src/tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+lmcode-core = { path = "../lmcode-core" }
+lmcode-llm = { path = "../lmcode-llm" }
+ratatui = "0.30"
+crossterm = { version = "0.29", features = ["event-stream"] }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+futures-util = { workspace = true }
+unicode-width = "0.2"
+serde_json = { workspace = true }

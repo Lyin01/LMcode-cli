@@ -1,0 +1,62 @@
+LMcode CLI (Rust rewrite)
+
+Usage: lm [OPTIONS] [PROMPT]... [COMMAND]
+
+Commands:
+  export   导出会话为 ZIP 压缩包。
+  channel  管理 cc-connect 消息平台通道。
+  migrate  将旧版 lmcode-cli 安装的数据迁移到 lmcode。（已停用）
+  help     Print this message or the help of the given subcommand(s)
+
+Arguments:
+  [PROMPT]...
+          One-shot prompt text (same as `-p`; quote multi-word prompts)
+
+Options:
+  -p, --prompt [<PROMPT>]
+          Run a single prompt non-interactively and exit. A bare `-p` still means prompt mode (validated as an empty prompt, like the legacy CLI)
+
+  -m, --model <MODEL>
+          Model alias from config.toml (defaults to `default_model`)
+
+      --config <CONFIG>
+          Path to config.toml (defaults to $LMCODE_HOME/config.toml or ~/.lmcode/config.toml)
+
+  -y, --yolo
+          Auto-approve every tool call (non-interactive / automation mode)
+
+      --auto
+          Start in auto permission mode: non-sensitive calls are approved without prompting; calls touching sensitive paths still ask
+
+  -C, --continue
+          Continue the most recent session for this directory
+          
+          [alias: -c]
+
+  -S, --session [<ID>]
+          Resume a session: with an ID, load that session; without one, the most recent session for this directory
+
+  -r, --resume [<ID>]
+          Alias of `-S/--session`
+
+      --plan
+          Start in plan mode
+
+      --skills-dir <DIR>
+          Load skills from these directories instead of auto-discovery (repeatable)
+
+      --output-format <OUTPUT_FORMAT>
+          Output format for prompt mode (defaults to text)
+
+          Possible values:
+          - text:        Plain text (default)
+          - stream-json: One JSON event per line (Claude Code stream-json compatible)
+
+      --tui
+          Launch the full-screen TUI (requires an interactive terminal)
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

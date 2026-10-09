@@ -24,7 +24,7 @@
 | --- | --- | --- |
 | `packages/liumir` | `crates/lmcode-llm` | 部分。六个 provider 都有流式实现和 e2e 测试，能力目录、catalog、工具结果里的图片折成下一条 user 消息还没有 |
 | `packages/agent-core` | `crates/lmcode-core` + `crates/lmcode-mcp` | 部分。轮次、会话、一批工具在；权限链、注入器、电脑操作、插件、OAuth、hooks、records 不在 |
-| `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在。Rust 轮次还不会在压缩或退出时调用提取器 |
+| `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在，压缩和退出会调用提取器。还没有 MemoryEdit |
 | `packages/config` | 没有独立 crate。身份头（device id、User-Agent）缺失。运行配置读在 `lmcode-core/src/config.rs` | 部分 |
 | `packages/jian` | 没有 crate。Read / Write / Bash 直接打本机文件系统和进程 | 部分。没有可替换的执行环境，也没有沙箱实现 |
 | `packages/node-sdk` | 没有。CLI 和 Tauri 直接链 `lmcode-core` | 缺失。这层就是要新做的 app-server |
@@ -56,12 +56,12 @@
 | TS | Rust | 状态 | 缺口 |
 | --- | --- | --- | --- |
 | `models.ts` | `memo.rs` | 已有 | kind 三态、id 形状 |
-| `store.ts` | `store.rs` | 已有 | CRUD、列迁移、级联删除有单测 |
+| `store.ts` | `store.rs` | 已有 | CRUD（含按字段 `update`：只改给出的列，同一次事务删掉该条向量；FTS 仍由 TS 维护，Rust 更新后 TS 全文索引可能是旧文本）、列迁移、级联删除有单测 |
 | `scoring.ts` | `scoring.rs` | 已有 | Jaccard + 衰减 + 项目 + 标签；有向量时 60/40 |
 | `embeddings.ts` | `embeddings.rs` | 已有 | OpenAI 兼容接口默认；`local-embeddings` feature 才走 ONNX |
 | `tags.ts` | `tags.rs` | 已有 | 小写、去重、上限 |
 | `consolidator.ts` `dream.ts` | `consolidator.rs` `dream.rs` | 已有 | 计划与应用、DreamTracker |
-| `extractor.ts` | `extractor.rs` | 已有 | 2026-10-09 移植。`parse_memory_memos`、`parse_resolved_pending_ids`、退出提取提示词与 TS 测试里的契约一致（CRLF、坏块跳过、`none`、kind、tags、待续销账）。缺省 tags 在内存里是空 `Vec`，写入 SQLite 时与 TS 的 `tags ?? []` 一样是 `[]`。Rust 的压缩和会话退出还没有调用它 |
+| `extractor.ts` | `extractor.rs` | 已有 | 2026-10-09 移植并接到 Rust。全量压缩在摘要落盘后解析 `memory-memo`（来源保持 `compaction`，补上会话 id / 标题 / 项目目录；写入失败只发通知，不回滚摘要）。会话退出走 `extract_memories_on_exit`：短于 4 条跳过，快照指纹未变则跳过，采样最近 10 条加坑窗口，`extraction_source=exit`，只销掉本次提供且仍为 pending 的 id。缺省 tags 在内存里是空 `Vec`，写入 SQLite 时与 TS 的 `tags ?? []` 一样是 `[]`。没有 `utility_model`，退出提取用当前会话的 provider。没有 TS 那种飞行中合并；指纹代替 context revision |
 
 ## `packages/config`
 
@@ -202,8 +202,8 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 每一项完成的定义：Rust 行为与对应 TS 测试所保护的契约一致，有 Rust 单测，`cargo build` 和相关 `cargo test` 通过，桌面现有 vitest 通过（这一项没碰到前端时也要跑，确认没有被连带弄坏），然后单独提交。TS 源码保留。
 
 1. 本清单。已写入。
-2. `packages/memory/src/extractor.ts` → `lmcode-memory`。解析已移植并通过 `cargo test -p lmcode-memory`（48 个库内测试 + 3 个嵌入 e2e）和桌面 vitest（110 个文件、625 个测试）。还没接到 Rust 压缩 / 退出流程。
-3. 把提取器接到压缩和退出，并补 MemoryEdit。同时补 TodoWrite、AskUser、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMedia。桌面提问弹窗卡在 AskUser。
+2. `packages/memory/src/extractor.ts` → `lmcode-memory`。解析已移植。压缩和退出已调用它。
+3. 补 MemoryEdit、TodoWrite、AskUser、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMedia。桌面提问弹窗卡在 AskUser。
 4. 权限策略链和文件沙箱，加上 config 里 `permission` / `loop_control` / `computer_use` 的读写。不写回的字段，设置面板会丢。
 5. 轮次缺口：重试与溢出、steer、undo、会话 delete / rename / fork。
 6. 电脑操作控制器，以及 MCP OAuth。
@@ -218,8 +218,8 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 
 写清单时就已经确定、还没动手的：
 
-- 除 `lmcode-memory` 外，Rust 树仍未提交。本轮跑过的是 `cargo test -p lmcode-memory` 和 `cargo build -p lmcode-memory`，不是 `cargo test --workspace`。文档里其它 crate 的测试数量不能当成现在的结果。
-- 提取器已经能解析模型输出，但 `lmcode-core` 的压缩和会话退出还没有调用它，所以 Rust 轮次仍然不会写出这类备忘录。
+- 接到压缩和退出的提交把原先未跟踪的 `lmcode-core`、`lmcode-llm`、`lmcode-mcp`、`lmcode-cli`、`lmcode-tui`、`lmcode-desktop` 一并记下来。这些 crate 里的大部分代码是接线之前就在工作区里的，不是这次新移植的。没有跑过 `cargo test --workspace`。这次跑的是 `cargo test -p lmcode-memory -p lmcode-core`，以及 `cargo check -p lmcode-cli -p lmcode-tui -p lmcode-desktop`。
+- 退出提取没有 `utility_model`，用的是当前会话 provider。没有把进行中的第二次提取并到同一次调用上。未变化判断用历史指纹，不是 TS 的 context revision。Rust `update` 不重写 FTS，TS 全文搜索在 Rust 改过一条备忘录后可能仍命中旧文本。
 - `config.rs` 会静默丢掉设置面板在写的字段。这是已知的数据丢失，优先级高于新功能。
 - OpenAI 兼容路径没有把工具结果里的图片折成 user 消息。电脑操作一旦接上，截图对 `type = "openai"` 的模型不可见。
 - 桌面仍然进程内调用 TS 核心。`crates/lmcode-desktop` 是平行的 Tauri 程序，不是这条切换。

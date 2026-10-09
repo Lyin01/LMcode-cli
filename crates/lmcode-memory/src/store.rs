@@ -45,6 +45,18 @@ CREATE INDEX IF NOT EXISTS idx_memos_project_dir ON memos(project_dir);
 CREATE INDEX IF NOT EXISTS idx_memory_embeddings_created_at ON memory_embeddings(created_at DESC);
 ";
 
+/// Fields a caller may change on an existing memo. `None` keeps the stored
+/// value. An empty `tags` vec is a real patch: it clears the tags.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MemoPatch {
+    pub user_need: Option<String>,
+    pub approach: Option<String>,
+    pub outcome: Option<String>,
+    pub what_failed: Option<String>,
+    pub what_worked: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
 /// A handle to the memo database. Cheap to clone via `Arc`; all operations
 /// take the internal lock.
 pub struct MemoStore {
@@ -197,6 +209,86 @@ impl MemoStore {
         Ok(removed > 0)
     }
 
+    /// Patch one memo. Returns `false` when the id is missing.
+    ///
+    /// Only the fields set on `patch` change. The row's embedding is deleted
+    /// in the same transaction so a stale vector cannot outrank the new text.
+    /// The FTS index is owned by the TypeScript store; this method does not
+    /// rewrite it.
+    pub fn update(&self, id: &str, patch: &MemoPatch) -> Result<bool, MemoryError> {
+        let mut connection = self.conn.lock().unwrap();
+        let transaction = connection.transaction()?;
+        let existing = {
+            let mut statement = transaction.prepare(
+                "SELECT id, source_session_id, source_session_title, user_need, approach,
+                        outcome, what_failed, what_worked, extraction_source, recorded_at,
+                        project_dir, tags, kind
+                 FROM memos WHERE id = ?1",
+            )?;
+            let mut rows = statement.query_map([id], row_to_memo)?;
+            match rows.next() {
+                Some(row) => Some(row?),
+                None => None,
+            }
+        };
+        let Some(mut memo) = existing else {
+            return Ok(false);
+        };
+        if let Some(value) = &patch.user_need {
+            memo.user_need.clone_from(value);
+        }
+        if let Some(value) = &patch.approach {
+            memo.approach.clone_from(value);
+        }
+        if let Some(value) = &patch.outcome {
+            memo.outcome.clone_from(value);
+        }
+        if let Some(value) = &patch.what_failed {
+            memo.what_failed.clone_from(value);
+        }
+        if let Some(value) = &patch.what_worked {
+            memo.what_worked.clone_from(value);
+        }
+        if let Some(tags) = &patch.tags {
+            memo.tags.clone_from(tags);
+        }
+        let tags_json = serde_json::to_string(&memo.tags)
+            .map_err(|error| MemoryError::Serialization(error.to_string()))?;
+        let changed = transaction.execute(
+            "UPDATE memos SET
+                user_need = ?1,
+                approach = ?2,
+                outcome = ?3,
+                what_failed = ?4,
+                what_worked = ?5,
+                tags = ?6
+             WHERE id = ?7",
+            params![
+                memo.user_need,
+                memo.approach,
+                memo.outcome,
+                memo.what_failed,
+                memo.what_worked,
+                tags_json,
+                id,
+            ],
+        )?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        transaction.execute("DELETE FROM memory_embeddings WHERE memory_id = ?1", [id])?;
+        transaction.commit()?;
+        Ok(true)
+    }
+
+    /// Make later writes fail. Compaction tests use this to prove a memo-store
+    /// error does not roll back a finished summary.
+    pub fn refuse_writes(&self) -> Result<(), MemoryError> {
+        let connection = self.conn.lock().unwrap();
+        connection.execute_batch("PRAGMA query_only = ON;")?;
+        Ok(())
+    }
+
     /// Store (or replace) the embedding for a memo.
     pub fn upsert_embedding(
         &self,
@@ -331,6 +423,71 @@ mod tests {
         assert!(store.delete(&memo.id).unwrap());
         assert!(!store.delete(&memo.id).unwrap());
         assert_eq!(store.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn update_patches_only_provided_fields_and_drops_the_embedding() {
+        let (_dir, store) = store();
+        let mut memo = MemoryMemo::new(
+            "Need",
+            "Approach",
+            "完成",
+            "session_1",
+            "/proj",
+            MemoKind::Task,
+            vec!["old".to_string()],
+        );
+        memo.what_failed = "none".to_string();
+        memo.what_worked = "none".to_string();
+        memo.extraction_source = "exit".to_string();
+        memo.source_session_title = Some("Session".to_string());
+        store.append(&memo).unwrap();
+        store
+            .upsert_embedding(&memo.id, "test-model", &[1.0, 0.0, 0.0])
+            .unwrap();
+
+        let updated = store
+            .update(
+                &memo.id,
+                &MemoPatch {
+                    outcome: Some("失败".to_string()),
+                    tags: Some(vec!["react".to_string(), "auth".to_string()]),
+                    ..MemoPatch::default()
+                },
+            )
+            .unwrap();
+        assert!(updated);
+
+        let loaded = store.find_by_id(&memo.id).unwrap().unwrap();
+        assert_eq!(loaded.outcome, "失败");
+        assert_eq!(loaded.user_need, "Need");
+        assert_eq!(loaded.approach, "Approach");
+        assert_eq!(loaded.what_failed, "none");
+        assert_eq!(loaded.what_worked, "none");
+        assert_eq!(loaded.tags, vec!["react", "auth"]);
+        assert_eq!(loaded.extraction_source, "exit");
+        assert_eq!(loaded.source_session_id, "session_1");
+        assert_eq!(loaded.source_session_title.as_deref(), Some("Session"));
+        assert_eq!(loaded.kind, MemoKind::Task);
+        assert_eq!(loaded.recorded_at, memo.recorded_at);
+        assert!(
+            store
+                .load_embeddings("test-model")
+                .unwrap()
+                .get(&memo.id)
+                .is_none(),
+            "a patched memo must not keep the embedding of the old text"
+        );
+
+        assert!(!store.update("missing", &MemoPatch::default()).unwrap());
+    }
+
+    #[test]
+    fn refuse_writes_makes_append_fail() {
+        let (_dir, store) = store();
+        store.refuse_writes().unwrap();
+        let memo = MemoryMemo::new("a", "b", "c", "s", "/p", MemoKind::Task, vec![]);
+        assert!(store.append(&memo).is_err());
     }
 
     #[test]

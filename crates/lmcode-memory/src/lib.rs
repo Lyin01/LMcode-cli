@@ -31,5 +31,5 @@ pub use extractor::{
 };
 pub use memo::{MemoKind, MemoryMemo};
 pub use scoring::{ScoredMemo, cosine_similarity, rank_memos};
-pub use store::MemoStore;
+pub use store::{MemoPatch, MemoStore};
 pub use tags::{generate_tags, normalize_tags};

@@ -1,0 +1,31 @@
+[package]
+name = "lmcode-cli"
+description = "LMcode CLI — Rust port of apps/lmcode (interactive `lm` command)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "lm"
+path = "src/main.rs"
+
+[features]
+local-embeddings = ["lmcode-memory/local-embeddings"]
+
+[dependencies]
+lmcode-llm = { path = "../lmcode-llm" }
+lmcode-core = { path = "../lmcode-core" }
+lmcode-mcp = { path = "../lmcode-mcp" }
+lmcode-memory = { path = "../lmcode-memory" }
+lmcode-tui = { path = "../lmcode-tui" }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+anstream = { workspace = true }
+anstyle = { workspace = true }
+async-trait = { workspace = true }
+zip = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+dirs = { workspace = true }

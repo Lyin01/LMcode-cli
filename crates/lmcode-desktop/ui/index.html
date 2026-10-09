@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LMcode</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- SVG icon sprite (stroke-based, Codex-style line icons) -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display: none">
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-memory" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+      <symbol id="i-git" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+      <symbol id="i-worktree" viewBox="0 0 24 24"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></symbol>
+      <symbol id="i-subagents" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+      <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+      <symbol id="i-artifact" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></symbol>
+      <symbol id="i-remote" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.2 2.2M16.9 16.9l2.2 2.2M19.1 4.9l-2.2 2.2M7.1 16.9l-2.2 2.2"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>
+      <symbol id="i-logo" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M8 12h3M13 9l3 3-3 3"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></symbol>
+      <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3Z"/></symbol>
+      <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="15" y1="3" x2="15" y2="21"/></symbol>
+    </svg>
+
+    <div id="shell">
+      <!-- Far-left icon rail -->
+      <nav id="rail">
+        <div class="rail-logo" title="LMcode">
+          <svg class="icon icon-logo"><use href="#i-logo" /></svg>
+        </div>
+        <button id="memory-btn" class="rail-btn" title="Memory">
+          <svg class="icon"><use href="#i-memory" /></svg>
+        </button>
+        <button id="git-btn" class="rail-btn" title="Git review">
+          <svg class="icon"><use href="#i-git" /></svg>
+        </button>
+        <button id="terminal-btn" class="rail-btn" title="Terminal">
+          <svg class="icon"><use href="#i-terminal" /></svg>
+        </button>
+        <button id="cron-btn" class="rail-btn" title="Automations">
+          <svg class="icon"><use href="#i-clock" /></svg>
+        </button>
+        <button id="worktree-btn" class="rail-btn" title="Worktrees">
+          <svg class="icon"><use href="#i-worktree" /></svg>
+        </button>
+        <button id="subagent-btn" class="rail-btn" title="Subagents">
+          <svg class="icon"><use href="#i-subagents" /></svg>
+        </button>
+        <button id="inbox-btn" class="rail-btn" title="Inbox">
+          <svg class="icon"><use href="#i-inbox" /></svg>
+        </button>
+        <button id="artifact-btn" class="rail-btn" title="Artifacts">
+          <svg class="icon"><use href="#i-artifact" /></svg>
+        </button>
+        <div class="rail-spacer"></div>
+        <button id="remote-btn" class="rail-btn" title="Remote access">
+          <svg class="icon"><use href="#i-remote" /></svg>
+        </button>
+        <button id="settings-btn" class="rail-btn" title="Settings">
+          <svg class="icon"><use href="#i-settings" /></svg>
+        </button>
+      </nav>
+
+      <!-- Sessions sidebar -->
+      <aside id="sidebar">
+        <div class="brand-row">
+          <div class="brand-left">
+            <div class="brand-tile">L</div>
+            <div class="brand-text">
+              <div class="brand-name">LMCODE</div>
+              <div class="brand-sub">Desktop</div>
+            </div>
+          </div>
+          <button class="ghost-btn" title="Notifications">
+            <svg class="icon icon-sm"><use href="#i-bell" /></svg>
+          </button>
+        </div>
+        <button id="new-session-btn" class="btn-new">
+          <svg class="icon icon-sm"><use href="#i-plus" /></svg>
+          <span>新建对话</span>
+        </button>
+        <div class="sidebar-search">
+          <svg class="icon icon-sm"><use href="#i-search" /></svg>
+          <input id="session-search" autocomplete="off" placeholder="搜索任务或项目" />
+        </div>
+        <div class="group-head">
+          <svg class="icon icon-xs"><use href="#i-folder" /></svg>
+          <span class="group-name" id="group-name">项目</span>
+          <span class="group-count" id="group-count">0</span>
+        </div>
+        <ul id="session-list"></ul>
+      </aside>
+
+      <!-- Main column -->
+      <div id="main-column">
+        <header id="status">
+          <span class="dot" id="status-dot"></span>
+          <span id="status-text">connecting…</span>
+          <span id="status-title" class="status-title"></span>
+          <span class="status-spacer"></span>
+          <span id="status-cwd" class="status-cwd"></span>
+        </header>
+
+        <main id="transcript"></main>
+
+        <form id="composer">
+          <div class="composer-chip">
+            <svg class="icon icon-xs"><use href="#i-folder" /></svg>
+            <span id="composer-cwd">workspace</span>
+          </div>
+          <div id="attach-preview" class="attach-preview hidden"></div>
+          <input
+            id="input"
+            autocomplete="off"
+            placeholder="描述你想交给 Agent 完成的任务…"
+          />
+          <div class="composer-row">
+            <button type="button" id="attach-btn" class="icon-btn" title="Attach image">
+              <svg class="icon icon-sm"><use href="#i-image" /></svg>
+            </button>
+            <span class="composer-perm" title="Tool permission mode">⚡ 完全访问</span>
+            <span class="composer-spacer"></span>
+            <select id="model-select" title="Model"></select>
+            <button type="submit" class="send-btn" title="Send">
+              <svg class="icon icon-sm"><use href="#i-send" /></svg>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="approval" class="hidden">
+      <div class="approval-card">
+        <div class="approval-title">Approve tool call</div>
+        <div class="approval-name" id="approval-name"></div>
+        <pre class="approval-args" id="approval-args"></pre>
+        <div class="approval-actions">
+          <button id="approve-btn" class="primary">Approve</button>
+          <button id="deny-btn">Deny</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settings" class="hidden">
+      <div class="settings-card">
+        <div class="settings-title">Settings</div>
+        <div class="settings-row">
+          <span>Session</span>
+          <code id="settings-session">—</code>
+        </div>
+        <div class="settings-row">
+          <span>Working dir</span>
+          <code id="settings-cwd">—</code>
+        </div>
+        <div class="settings-actions">
+          <button id="settings-close">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="memory" class="hidden">
+      <div class="memory-card">
+        <div class="memory-head">
+          <span class="settings-title">Memory</span>
+          <input id="memory-search" autocomplete="off" placeholder="filter…" />
+          <button id="memory-close">Close</button>
+        </div>
+        <ul id="memory-list"></ul>
+      </div>
+    </div>
+
+    <div id="git" class="hidden">
+      <div class="git-card">
+        <div class="memory-head">
+          <span class="settings-title">Git review</span>
+          <span id="git-summary" class="git-summary"></span>
+          <button id="git-refresh">Refresh</button>
+          <button id="git-close">Close</button>
+        </div>
+        <div class="git-body">
+          <ul id="git-list"></ul>
+          <pre id="git-diff">Select a file to view its diff.</pre>
+        </div>
+      </div>
+    </div>
+
+    <div id="terminal" class="hidden">
+      <div class="terminal-head">
+        <span class="settings-title">Terminal</span>
+        <span id="terminal-status" class="git-summary">stopped</span>
+        <button id="terminal-stop">Stop</button>
+        <button id="terminal-close">Close</button>
+      </div>
+      <pre id="terminal-output"></pre>
+      <form id="terminal-form">
+        <input
+          id="terminal-input"
+          autocomplete="off"
+          placeholder="Type a command and press Enter…"
+        />
+      </form>
+    </div>
+
+    <div id="cron" class="hidden">
+      <div class="cron-card">
+        <div class="memory-head">
+          <span class="settings-title">Automations</span>
+          <span id="cron-summary" class="git-summary"></span>
+          <button id="cron-close">Close</button>
+        </div>
+        <ul id="cron-list"></ul>
+        <form id="cron-form">
+          <input id="cron-expr" autocomplete="off" placeholder="cron (e.g. */30 * * * *)" />
+          <input id="cron-prompt" autocomplete="off" placeholder="prompt to run" />
+          <label class="cron-recurring">
+            <input id="cron-recurring" type="checkbox" checked /> recurring
+          </label>
+          <button type="submit">Add</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="worktrees" class="hidden">
+      <div class="cron-card">
+        <div class="memory-head">
+          <span class="settings-title">Worktrees</span>
+          <span id="worktree-summary" class="git-summary"></span>
+          <button id="worktree-close">Close</button>
+        </div>
+        <ul id="worktree-list"></ul>
+        <form id="worktree-form">
+          <input id="worktree-path" autocomplete="off" placeholder="path (e.g. ../repo-feature)" />
+          <input id="worktree-branch" autocomplete="off" placeholder="new branch (optional)" />
+          <button type="submit">Add</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="subagents" class="hidden">
+      <div class="cron-card">
+        <div class="memory-head">
+          <span class="settings-title">Subagents</span>
+          <span id="subagent-summary" class="git-summary"></span>
+          <button id="subagent-refresh">Refresh</button>
+          <button id="subagent-close">Close</button>
+        </div>
+        <ul id="subagent-list"></ul>
+      </div>
+    </div>
+
+    <div id="inbox" class="hidden">
+      <div class="cron-card">
+        <div class="memory-head">
+          <span class="settings-title">Inbox</span>
+          <span id="inbox-summary" class="git-summary"></span>
+          <button id="inbox-mark-read">Mark read</button>
+          <button id="inbox-clear">Clear</button>
+          <button id="inbox-close">Close</button>
+        </div>
+        <ul id="inbox-list"></ul>
+      </div>
+    </div>
+
+    <div id="artifacts" class="hidden">
+      <div class="git-card">
+        <div class="memory-head">
+          <span class="settings-title">Artifacts</span>
+          <span id="artifact-summary" class="git-summary"></span>
+          <button id="artifact-refresh">Refresh</button>
+          <button id="artifact-close">Close</button>
+        </div>
+        <div class="git-body">
+          <ul id="artifact-list"></ul>
+          <div id="artifact-content" class="artifact-content">
+            Select a plan to preview it.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="remote" class="hidden">
+      <div class="cron-card">
+        <div class="memory-head">
+          <span class="settings-title">Remote access</span>
+          <span id="remote-summary" class="git-summary">stopped</span>
+          <button id="remote-start">Start</button>
+          <button id="remote-stop">Stop</button>
+          <button id="remote-close">Close</button>
+        </div>
+        <ul id="remote-list"></ul>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

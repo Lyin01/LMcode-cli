@@ -1,0 +1,35 @@
+# Legacy option vectors — recorded from the live legacy CLI
+# (`pnpm -C apps/lmcode run dev -- …`) during the parity session.
+# Rust must reproduce these byte-for-byte (stderr/stdout content + exit code).
+#
+# Format (args separated by `|`; empty segments are preserved):
+#   CASE|<arg1>|<arg2>|…
+#   STDERR|<exact legacy stderr line>   (optional)
+#   STDOUT|<exact legacy stdout line>   (optional)
+#   EXIT|<exit code>
+CASE|--yolo|--auto
+STDERR|错误：--yolo 不能与 --auto 同时使用。
+EXIT|1
+CASE|-p|
+STDERR|错误：提示不能为空。
+EXIT|1
+CASE|-p|x|--plan
+STDERR|错误：--prompt 不能与 --plan 同时使用。
+EXIT|1
+CASE|-p|x|-S|
+STDERR|在提示模式下不能使用不带 ID 的 --session。
+EXIT|1
+CASE|--output-format|stream-json
+STDERR|输出格式仅在提示模式下支持。
+EXIT|1
+CASE|-m|||-p|x
+STDERR|模型不能为空。
+EXIT|1
+CASE|--continue|--session|abc
+STDERR|错误：--continue 和 --session 不能同时使用。
+EXIT|1
+CASE|--print|x
+EXIT|1
+CASE|migrate
+STDOUT|迁移功能已取消，不再支持从 lmcode-cli 导入数据。
+EXIT|0

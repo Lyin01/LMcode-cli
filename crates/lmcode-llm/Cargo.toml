@@ -1,0 +1,18 @@
+[package]
+name = "lmcode-llm"
+description = "Multi-provider LLM client with streaming — Rust port of packages/liumir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures-util = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+bytes = "1"
+jsonwebtoken = "9"
