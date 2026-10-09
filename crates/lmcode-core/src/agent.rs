@@ -44,6 +44,14 @@ pub trait TurnUi: Send {
     async fn tool_end(&mut self, name: &str, ok: bool, result: &str);
     /// Ask the user to approve a tool call. Returning `false` denies it.
     async fn approve(&mut self, name: &str, arguments: &str) -> bool;
+    /// Ask a structured question. The default client cannot show one.
+    async fn ask_user(
+        &mut self,
+        questions: &[crate::tools::ask_user::UserQuestion],
+    ) -> crate::tools::ask_user::AskUserAnswer {
+        let _ = questions;
+        crate::tools::ask_user::AskUserAnswer::Unsupported
+    }
     /// A short informational notice (compaction, session events).
     async fn notice(&mut self, message: &str);
 }
@@ -76,6 +84,14 @@ pub struct TurnOutcome {
     pub interrupted: bool,
     /// The step limit was reached while the model still wanted tools.
     pub hit_step_limit: bool,
+}
+
+/// One tool call inside a turn. Cancellation while waiting is not a tool error.
+enum ToolExec {
+    /// Output the model should see. `ok` is false when the call failed.
+    Finished(String, bool),
+    /// The user cancelled while the tool was waiting. The turn rolls back.
+    Interrupted,
 }
 
 /// The agent: conversation history + provider + tools.
@@ -491,18 +507,30 @@ impl Agent {
                 let arguments = call.arguments.clone().unwrap_or_else(|| "{}".to_string());
                 self.usage.record_tool_call(&call.name);
                 ui.tool_start(&call.name, &arguments).await;
-                let (output, ok) = self.execute_tool(call, &arguments, ui).await;
-                ui.tool_end(&call.name, ok, &truncate_for_ui(&output)).await;
-                // Session running notes (post-compaction context retention).
-                let args_summary: String = arguments.chars().take(80).collect();
-                self.session_memory
-                    .record_tool_execution(&call.name, &args_summary, !ok);
-                self.history
-                    .push(Message::tool_result(call.id.clone(), output));
-                // Keep the grader's evidence snapshot current mid-turn: the
-                // model may call UpdateGoal(complete) before the turn ends.
-                let evidence = crate::grader::recent_evidence(&self.history, 8000);
-                *self.evidence_snapshot.lock().await = evidence;
+                match self.execute_tool(call, &arguments, ui).await {
+                    ToolExec::Interrupted => {
+                        ui.tool_end(&call.name, false, "interrupted").await;
+                        self.history.truncate(checkpoint);
+                        return Ok(TurnOutcome {
+                            steps,
+                            interrupted: true,
+                            hit_step_limit: false,
+                        });
+                    }
+                    ToolExec::Finished(output, ok) => {
+                        ui.tool_end(&call.name, ok, &truncate_for_ui(&output)).await;
+                        // Session running notes (post-compaction context retention).
+                        let args_summary: String = arguments.chars().take(80).collect();
+                        self.session_memory
+                            .record_tool_execution(&call.name, &args_summary, !ok);
+                        self.history
+                            .push(Message::tool_result(call.id.clone(), output));
+                        // Keep the grader's evidence snapshot current mid-turn: the
+                        // model may call UpdateGoal(complete) before the turn ends.
+                        let evidence = crate::grader::recent_evidence(&self.history, 8000);
+                        *self.evidence_snapshot.lock().await = evidence;
+                    }
+                }
             }
         }
     }
@@ -769,24 +797,29 @@ impl Agent {
         call: &ToolCall,
         arguments: &str,
         ui: &mut dyn TurnUi,
-    ) -> (String, bool) {
+    ) -> ToolExec {
         let Some(tool) = self
             .tools
             .iter()
             .find(|tool| tool.name() == call.name)
             .cloned()
         else {
-            return (format!("error: unknown tool `{}`", call.name), false);
+            return ToolExec::Finished(format!("error: unknown tool `{}`", call.name), false);
         };
         let parsed: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(value) => value,
             Err(error) => {
-                return (
+                return ToolExec::Finished(
                     format!("error: invalid tool arguments JSON: {error}"),
                     false,
                 );
             }
         };
+        // Questions are asked before plan-mode and approval checks. Plan mode
+        // still needs them, and a question is not a write the user approves.
+        if call.name == "AskUserQuestion" {
+            return self.ask_user_question(&parsed, ui).await;
+        }
         // Plan mode: writes are limited to the plan file.
         {
             let plan = self.plan.lock().await;
@@ -798,7 +831,7 @@ impl Agent {
                 for declared in tool.declared_write_paths(&parsed) {
                     let resolved = resolve_against(&self.cwd, &declared);
                     if Some(&resolved) != allowed_path.as_ref() {
-                        return (
+                        return ToolExec::Finished(
                             format!(
                                 "error: plan mode is active — writes are limited to the plan \
                                  file (`{}`). Explore with read-only tools and record the \
@@ -821,13 +854,38 @@ impl Agent {
             if !self.approvals.is_approved(&call.name, arguments)
                 && !ui.approve(&call.name, arguments).await
             {
-                return ("error: denied by user".to_string(), false);
+                return ToolExec::Finished("error: denied by user".to_string(), false);
             }
             self.approvals.record(&call.name, arguments);
         }
         match tool.execute(&parsed, &self.cwd).await {
-            Ok(output) => (output, true),
-            Err(error) => (format!("error: {error}"), false),
+            Ok(output) => ToolExec::Finished(output, true),
+            Err(error) => ToolExec::Finished(format!("error: {error}"), false),
+        }
+    }
+
+    /// Validate, ask the UI, and shape the tool result.
+    /// Cancel and Ctrl+C abort the turn instead of feeding the model an error.
+    async fn ask_user_question(
+        &mut self,
+        arguments: &serde_json::Value,
+        ui: &mut dyn TurnUi,
+    ) -> ToolExec {
+        let questions = match crate::tools::ask_user::parse_questions(arguments) {
+            Ok(questions) => questions,
+            Err(error) => return ToolExec::Finished(format!("error: {error}"), false),
+        };
+        let answer = tokio::select! {
+            biased;
+            () = self.wait_cancel() => return ToolExec::Interrupted,
+            () = wait_for_ctrl_c() => return ToolExec::Interrupted,
+            answer = ui.ask_user(&questions) => answer,
+        };
+        let (output, ok) = crate::tools::ask_user::format_ask_user_result(answer);
+        if ok {
+            ToolExec::Finished(output, true)
+        } else {
+            ToolExec::Finished(format!("error: {output}"), false)
         }
     }
 }
@@ -1651,5 +1709,198 @@ mod tests {
 
         agent.extract_memories_on_exit().await;
         assert_eq!(provider.prompts.lock().unwrap().len(), 2);
+    }
+
+    const QUESTION_ARGS: &str = r#"{"questions":[{"question":"Which database?","header":"Storage","options":[{"label":"Postgres","description":"Relational storage"},{"label":"SQLite","description":"Embedded storage"}]}]}"#;
+
+    fn agent_asking(turns: Vec<Vec<StreamedMessagePart>>) -> Agent {
+        let provider = Arc::new(MockProvider {
+            turns: Mutex::new(VecDeque::from(turns)),
+            seen: Mutex::new(Vec::new()),
+        });
+        Agent::new(
+            provider,
+            vec![Arc::new(crate::tools::AskUserQuestionTool::new())],
+            "system prompt",
+            PathBuf::from("."),
+        )
+    }
+
+    struct QuestionUi {
+        answer: crate::tools::ask_user::AskUserAnswer,
+        asks: usize,
+        approvals: usize,
+        /// Notified from inside `ask_user`, after the turn is waiting on it.
+        cancel_on_ask: Option<Arc<tokio::sync::Notify>>,
+    }
+
+    #[async_trait]
+    impl TurnUi for QuestionUi {
+        async fn text_delta(&mut self, _text: &str) {}
+        async fn think_delta(&mut self, _text: &str) {}
+        async fn tool_start(&mut self, _name: &str, _arguments: &str) {}
+        async fn tool_end(&mut self, _name: &str, _ok: bool, _result: &str) {}
+        async fn approve(&mut self, _name: &str, _arguments: &str) -> bool {
+            self.approvals += 1;
+            false
+        }
+        async fn ask_user(
+            &mut self,
+            _questions: &[crate::tools::ask_user::UserQuestion],
+        ) -> crate::tools::ask_user::AskUserAnswer {
+            self.asks += 1;
+            if let Some(cancel) = &self.cancel_on_ask {
+                cancel.notify_waiters();
+                std::future::pending().await
+            }
+            self.answer.clone()
+        }
+        async fn notice(&mut self, _message: &str) {}
+    }
+
+    #[tokio::test]
+    async fn ask_user_returns_answers_without_approval_or_the_method() {
+        let mut agent = agent_asking(vec![
+            vec![tool_call_part("call_q", "AskUserQuestion", QUESTION_ARGS)],
+            vec![text_part("using sqlite")],
+        ]);
+        let mut ui = QuestionUi {
+            answer: crate::tools::ask_user::AskUserAnswer::Payload(serde_json::json!({
+                "answers": {"Which database?": "SQLite"},
+                "method": "number_key"
+            })),
+            asks: 0,
+            approvals: 0,
+            cancel_on_ask: None,
+        };
+
+        let outcome = agent.run_turn("pick one", &mut ui).await.unwrap();
+
+        assert_eq!(outcome.steps, 2);
+        assert!(!outcome.interrupted);
+        assert_eq!(ui.asks, 1);
+        assert_eq!(ui.approvals, 0);
+        assert_eq!(
+            agent.history()[2].text(),
+            r#"{"answers":{"Which database?":"SQLite"}}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn ask_user_dismissal_is_a_successful_tool_result() {
+        let mut agent = agent_asking(vec![
+            vec![tool_call_part("call_q", "AskUserQuestion", QUESTION_ARGS)],
+            vec![text_part("ok")],
+        ]);
+        let mut ui = QuestionUi {
+            answer: crate::tools::ask_user::AskUserAnswer::Payload(serde_json::Value::Null),
+            asks: 0,
+            approvals: 0,
+            cancel_on_ask: None,
+        };
+
+        agent.run_turn("pick one", &mut ui).await.unwrap();
+
+        let result = agent.history()[2].text();
+        assert!(result.contains("dismissed"), "{result}");
+        assert!(result.contains("answers"), "{result}");
+        assert!(!result.starts_with("error:"), "{result}");
+    }
+
+    #[tokio::test]
+    async fn ask_user_unsupported_client_is_an_error_the_model_sees() {
+        let mut agent = agent_asking(vec![
+            vec![tool_call_part("call_q", "AskUserQuestion", QUESTION_ARGS)],
+            vec![text_part("asked in text")],
+        ]);
+        let mut ui = MockUi::default();
+
+        agent.run_turn("pick one", &mut ui).await.unwrap();
+
+        assert_eq!(ui.approvals_requested, 0);
+        let result = agent.history()[2].text();
+        assert!(result.starts_with("error: "), "{result}");
+        assert!(result.contains("connected client"), "{result}");
+        assert!(
+            result.contains("does not support interactive questions"),
+            "{result}"
+        );
+        assert!(result.contains("Do NOT call this tool again"), "{result}");
+        assert!(
+            result.contains("Ask the user directly in your text response instead"),
+            "{result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ask_user_transport_failure_is_an_error() {
+        let mut agent = agent_asking(vec![
+            vec![tool_call_part("call_q", "AskUserQuestion", QUESTION_ARGS)],
+            vec![text_part("ok")],
+        ]);
+        let mut ui = QuestionUi {
+            answer: crate::tools::ask_user::AskUserAnswer::Failed(
+                "JSON-RPC question error response".to_string(),
+            ),
+            asks: 0,
+            approvals: 0,
+            cancel_on_ask: None,
+        };
+
+        agent.run_turn("pick one", &mut ui).await.unwrap();
+
+        let result = agent.history()[2].text();
+        assert!(result.starts_with("error: "), "{result}");
+        assert!(result.contains("Failed to ask the user"), "{result}");
+        assert!(
+            result.contains("JSON-RPC question error response"),
+            "{result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ask_user_rejects_invalid_questions_without_asking() {
+        let mut agent = agent_asking(vec![
+            vec![tool_call_part(
+                "call_q",
+                "AskUserQuestion",
+                r#"{"questions":[]}"#,
+            )],
+            vec![text_part("ok")],
+        ]);
+        let mut ui = QuestionUi {
+            answer: crate::tools::ask_user::AskUserAnswer::Unsupported,
+            asks: 0,
+            approvals: 0,
+            cancel_on_ask: None,
+        };
+
+        agent.run_turn("pick one", &mut ui).await.unwrap();
+
+        assert_eq!(ui.asks, 0);
+        assert!(agent.history()[2].text().starts_with("error: "));
+    }
+
+    #[tokio::test]
+    async fn ask_user_cancel_interrupts_the_turn_and_rolls_back() {
+        let mut agent = agent_asking(vec![vec![tool_call_part(
+            "call_q",
+            "AskUserQuestion",
+            QUESTION_ARGS,
+        )]]);
+        let cancel = Arc::new(tokio::sync::Notify::new());
+        agent.set_cancel_signal(Arc::clone(&cancel));
+        let mut ui = QuestionUi {
+            answer: crate::tools::ask_user::AskUserAnswer::Unsupported,
+            asks: 0,
+            approvals: 0,
+            cancel_on_ask: Some(cancel),
+        };
+
+        let outcome = agent.run_turn("pick one", &mut ui).await.unwrap();
+
+        assert!(outcome.interrupted);
+        assert_eq!(ui.asks, 1);
+        assert!(agent.history().is_empty());
     }
 }

@@ -8,9 +8,9 @@ use lmcode_core::agent::{Agent, TurnUi};
 use lmcode_core::config::{load_config, resolve_model};
 use lmcode_core::session::SessionStore;
 use lmcode_core::tools::{
-    BashTool, EditTool, GlobTool, GrepTool, McpToolAdapter, MemoryConsolidateApplyTool,
-    MemoryConsolidatePlanTool, MemoryEditTool, MemoryLookupTool, MemoryWriteTool, ReadTool,
-    SkillTool, Tool, WriteTool,
+    AskUserQuestionTool, BashTool, EditTool, GlobTool, GrepTool, McpToolAdapter,
+    MemoryConsolidateApplyTool, MemoryConsolidatePlanTool, MemoryEditTool, MemoryLookupTool,
+    MemoryWriteTool, ReadTool, SkillTool, Tool, WriteTool,
 };
 use lmcode_llm::providers::create_provider;
 use lmcode_memory::MemoStore;
@@ -556,6 +556,7 @@ pub async fn start_agent(
     tools.push(Arc::new(
         lmcode_core::tools::collaboration::WolfPackTool::new(Arc::clone(&subagent_runner)),
     ));
+    tools.push(Arc::new(AskUserQuestionTool::new()));
 
     let mut agent = Agent::new(provider, tools, system_prompt, cwd.clone());
     agent.set_compaction_limits(

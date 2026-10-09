@@ -1,5 +1,6 @@
 //! Built-in tools — the Rust seed of `packages/agent-core/src/tools/builtin`.
 
+pub mod ask_user;
 pub mod bash;
 pub mod collaboration;
 pub mod cron;
@@ -21,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 
+pub use ask_user::AskUserQuestionTool;
 pub use bash::BashTool;
 pub use edit::EditTool;
 pub use glob::GlobTool;

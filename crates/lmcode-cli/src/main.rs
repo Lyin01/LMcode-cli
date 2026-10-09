@@ -16,8 +16,9 @@ use lmcode_core::agent::{Agent, wait_for_ctrl_c};
 use lmcode_core::config::{load_config, resolve_model};
 use lmcode_core::session::SessionStore;
 use lmcode_core::tools::{
-    BashTool, EditTool, GlobTool, GrepTool, MemoryConsolidateApplyTool, MemoryConsolidatePlanTool,
-    MemoryEditTool, MemoryLookupTool, MemoryWriteTool, ReadTool, SkillTool, Tool, WriteTool,
+    AskUserQuestionTool, BashTool, EditTool, GlobTool, GrepTool, MemoryConsolidateApplyTool,
+    MemoryConsolidatePlanTool, MemoryEditTool, MemoryLookupTool, MemoryWriteTool, ReadTool,
+    SkillTool, Tool, WriteTool,
 };
 use lmcode_llm::providers::create_provider;
 use lmcode_memory::MemoStore;
@@ -525,6 +526,7 @@ async fn main() -> anyhow::Result<()> {
     tools.push(Arc::new(
         lmcode_core::tools::collaboration::WolfPackTool::new(Arc::clone(&subagent_runner)),
     ));
+    tools.push(Arc::new(AskUserQuestionTool::new()));
     let mut memo_store_for_agent = None;
     match MemoStore::open(&MemoStore::default_path()) {
         Ok(memo_store) => {

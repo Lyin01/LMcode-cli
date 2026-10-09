@@ -127,7 +127,7 @@ TS 注册表在 `tools/builtin/index.ts`。
 | CreateGoal GetGoal UpdateGoal SetGoalBudget WriteGoalNote | `tools/goal.rs` | 已有 |
 | MemoryLookup MemoryWrite MemoryEdit MemoryConsolidatePlan MemoryConsolidateApply | `tools/memory.rs` | 已有。MemoryEdit 按 id 局部更新或删除，不需要审批；省略的字段保留，tags 走 normalize |
 | Skill Agent WolfPack | `tools/skill.rs` `tools/collaboration.rs` | 已有 |
-| AskUser | 无 | 缺失。桌面问题弹窗靠这个工具把 `QuestionRequest` 送上来 |
+| AskUserQuestion | `tools/ask_user.rs` | 已有。1–4 个问题，每个 2–4 个选项；不需要审批；取消会中断本轮。CLI 把编号读成选项，其余文本当 Other。TUI、Tauri、stream-json 仍回复不支持 |
 | TodoWrite | 无 | 缺失 |
 | FetchURL WebSearch | `tools/web.rs` | 部分。HTML 抽取和错误分类有 mock 测试。TS 的 DuckDuckGo / lmcode-cli / 缓存回退链没有按 `services` 配置接上 |
 | CronCreate CronDelete CronList | `tools/cron.rs` | 已有 |
@@ -202,7 +202,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 
 1. 本清单。已写入。
 2. `packages/memory/src/extractor.ts` → `lmcode-memory`。解析已移植。压缩和退出已调用它。
-3. 补 TodoWrite、AskUser、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMedia。桌面提问弹窗卡在 AskUser。MemoryEdit 已接到 CLI 和 Tauri 的工具表。
+3. 补 TodoWrite、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMedia。AskUserQuestion 已接到轮次循环和 CLI readline。TUI、Tauri、stream-json 仍回复不支持，Electron 提问弹窗还没接上。
 4. 权限策略链和文件沙箱，加上 config 里 `permission` / `loop_control` / `computer_use` 的读写。不写回的字段，设置面板会丢。
 5. 轮次缺口：重试与溢出、steer、undo、会话 delete / rename / fork。
 6. 电脑操作控制器，以及 MCP OAuth。
@@ -224,3 +224,4 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 - 桌面仍然进程内调用 TS 核心。`crates/lmcode-desktop` 是平行的 Tauri 程序，不是这条切换。
 - `packages/ltod` 没有源码，不用迁。
 - `records/replay` 不按原事件日志移植；会话 JSON 必须仍能恢复消息、goal 和 cron，这件事要用测试钉住，而不是写在注释里。
+- AskUserQuestion 的 CLI 会真正提问。TUI、Tauri 桌面和 stream-json 还是「客户端不支持」，模型应改在正文里问。Electron 的提问弹窗没有接到这个工具。

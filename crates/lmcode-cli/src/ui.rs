@@ -185,10 +185,93 @@ impl TurnUi for TerminalUi {
         }
     }
 
+    async fn ask_user(
+        &mut self,
+        questions: &[lmcode_core::tools::ask_user::UserQuestion],
+    ) -> lmcode_core::tools::ask_user::AskUserAnswer {
+        // A question is the interaction. Auto-approve does not skip it.
+        let mut answers = serde_json::Map::new();
+        for (index, question) in questions.iter().enumerate() {
+            let accent = accent();
+            let dim = dim();
+            println!();
+            println!("{accent}Q{}{accent:#} {}", index + 1, question.question);
+            if !question.header.is_empty() {
+                println!("{dim}  {}{dim:#}", question.header);
+            }
+            for (option_index, option) in question.options.iter().enumerate() {
+                println!("  {accent}{}{accent:#} {}", option_index + 1, option.label);
+                if !option.description.is_empty() {
+                    println!("{dim}     {}{dim:#}", option.description);
+                }
+            }
+            let hint = if question.multi_select {
+                "numbers separated by commas, or type your own answer"
+            } else {
+                "a number, or type your own answer"
+            };
+            print!("{dim}  {hint} (blank to dismiss): {dim:#}");
+            flush_stdout();
+            let line = match read_line_async().await {
+                Ok(Some(line)) => line,
+                Ok(None) => {
+                    return lmcode_core::tools::ask_user::AskUserAnswer::Payload(
+                        serde_json::Value::Null,
+                    );
+                }
+                Err(error) => {
+                    return lmcode_core::tools::ask_user::AskUserAnswer::Failed(error.to_string());
+                }
+            };
+            if line.trim().is_empty() {
+                return lmcode_core::tools::ask_user::AskUserAnswer::Payload(
+                    serde_json::Value::Null,
+                );
+            }
+            answers.insert(
+                question.question.clone(),
+                answer_value(line.trim(), question),
+            );
+        }
+        lmcode_core::tools::ask_user::AskUserAnswer::Payload(serde_json::Value::Object(answers))
+    }
+
     async fn notice(&mut self, message: &str) {
         let dim = dim();
         eprintln!("{dim}{message}{dim:#}");
     }
+}
+
+/// Map one readline onto an option label, a list of labels, or free text.
+fn answer_value(
+    line: &str,
+    question: &lmcode_core::tools::ask_user::UserQuestion,
+) -> serde_json::Value {
+    let parts: Vec<&str> = line
+        .split(|character: char| character == ',' || character.is_whitespace())
+        .filter(|part| !part.is_empty())
+        .collect();
+    let indexes: Option<Vec<usize>> = parts
+        .iter()
+        .map(|part| part.parse::<usize>().ok())
+        .collect();
+    if let Some(indexes) = indexes {
+        let in_range = |index: usize| (1..=question.options.len()).contains(&index);
+        if question.multi_select && !indexes.is_empty() && indexes.iter().copied().all(in_range) {
+            return serde_json::Value::Array(
+                indexes
+                    .into_iter()
+                    .map(|index| {
+                        serde_json::Value::String(question.options[index - 1].label.clone())
+                    })
+                    .collect(),
+            );
+        }
+        if !question.multi_select && indexes.len() == 1 && in_range(indexes[0]) {
+            return serde_json::Value::String(question.options[indexes[0] - 1].label.clone());
+        }
+    }
+    serde_json::Value::String(line.to_string())
 }
 
 /// Read one line from stdin on a blocking thread (async-safe).
@@ -214,4 +297,53 @@ fn truncate(text: &str, max_chars: usize) -> String {
     let mut truncated: String = text.chars().take(max_chars).collect();
     truncated.push('…');
     truncated
+}
+
+#[cfg(test)]
+mod tests {
+    use super::answer_value;
+    use lmcode_core::tools::ask_user::{UserQuestion, UserQuestionOption};
+
+    fn question(multi_select: bool) -> UserQuestion {
+        UserQuestion {
+            question: "Which database?".to_string(),
+            header: String::new(),
+            options: vec![
+                UserQuestionOption {
+                    label: "Postgres".to_string(),
+                    description: String::new(),
+                },
+                UserQuestionOption {
+                    label: "SQLite".to_string(),
+                    description: String::new(),
+                },
+            ],
+            multi_select,
+        }
+    }
+
+    #[test]
+    fn numbered_answers_map_to_labels_and_other_text_passes_through() {
+        let single = question(false);
+        assert_eq!(answer_value("2", &single), serde_json::json!("SQLite"));
+        assert_eq!(answer_value("9", &single), serde_json::json!("9"));
+        assert_eq!(
+            answer_value("sqlite on disk", &single),
+            serde_json::json!("sqlite on disk")
+        );
+
+        let multi = question(true);
+        assert_eq!(
+            answer_value("1, 2", &multi),
+            serde_json::json!(["Postgres", "SQLite"])
+        );
+        assert_eq!(
+            answer_value("1 2", &multi),
+            serde_json::json!(["Postgres", "SQLite"])
+        );
+        assert_eq!(
+            answer_value("both, please", &multi),
+            serde_json::json!("both, please")
+        );
+    }
 }
