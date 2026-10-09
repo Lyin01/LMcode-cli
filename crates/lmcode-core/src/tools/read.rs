@@ -63,28 +63,33 @@ impl Tool for ReadTool {
             .as_u64()
             .unwrap_or(DEFAULT_LIMIT)
             .min(MAX_LIMIT) as usize;
-        let total_lines = text.lines().count();
-
-        let mut output = String::new();
-        let mut emitted = 0usize;
-        for (index, line) in text.lines().enumerate() {
-            let line_number = index + 1;
-            if line_number < offset {
-                continue;
-            }
-            if emitted >= limit {
-                output.push_str(&format!(
-                    "... (truncated: showing {emitted} of {total_lines} lines)\n"
-                ));
-                break;
-            }
-            let rendered: String = line.chars().take(MAX_LINE_CHARS).collect();
-            output.push_str(&format!("{line_number}\t{rendered}\n"));
-            emitted += 1;
-        }
-        if output.is_empty() {
-            output.push_str("(file is empty)\n");
-        }
-        Ok(output)
+        Ok(render_numbered(&text, offset, limit))
     }
+}
+
+/// Numbered file view shared by Read and ReadGroup.
+/// `offset` is the 1-based first line. `limit` is the maximum line count.
+pub(crate) fn render_numbered(text: &str, offset: usize, limit: usize) -> String {
+    let total_lines = text.lines().count();
+    let mut output = String::new();
+    let mut emitted = 0usize;
+    for (index, line) in text.lines().enumerate() {
+        let line_number = index + 1;
+        if line_number < offset {
+            continue;
+        }
+        if emitted >= limit {
+            output.push_str(&format!(
+                "... (truncated: showing {emitted} of {total_lines} lines)\n"
+            ));
+            break;
+        }
+        let rendered: String = line.chars().take(MAX_LINE_CHARS).collect();
+        output.push_str(&format!("{line_number}\t{rendered}\n"));
+        emitted += 1;
+    }
+    if output.is_empty() {
+        output.push_str("(file is empty)\n");
+    }
+    output
 }

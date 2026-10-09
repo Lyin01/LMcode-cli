@@ -47,8 +47,13 @@ impl BackgroundStatus {
 pub struct BackgroundTaskInfo {
     pub id: String,
     pub command: String,
+    /// Short label recorded at spawn. Defaults to the command.
+    pub description: String,
     pub status: BackgroundStatus,
     pub exit_code: Option<i32>,
+    pub pid: Option<u32>,
+    /// Set when `TaskStop` ends the task.
+    pub stop_reason: Option<String>,
     pub output_path: String,
     /// Tail of the combined stdout/stderr.
     pub output: String,
@@ -58,6 +63,7 @@ pub struct BackgroundTaskInfo {
 
 struct TaskEntry {
     command: String,
+    description: String,
     status: BackgroundStatus,
     exit_code: Option<i32>,
     output: String,
@@ -65,6 +71,7 @@ struct TaskEntry {
     started_at: u64,
     finished_at: Option<u64>,
     pid: Option<u32>,
+    stop_reason: Option<String>,
 }
 
 impl TaskEntry {
@@ -72,8 +79,11 @@ impl TaskEntry {
         BackgroundTaskInfo {
             id: id.to_string(),
             command: self.command.clone(),
+            description: self.description.clone(),
             status: self.status,
             exit_code: self.exit_code,
+            pid: self.pid,
+            stop_reason: self.stop_reason.clone(),
             output_path: self.output_path.display().to_string(),
             output: self.output.clone(),
             started_at: self.started_at,
@@ -139,6 +149,7 @@ impl BackgroundTaskManager {
 
         let entry = TaskEntry {
             command: command.to_string(),
+            description: command.to_string(),
             status: BackgroundStatus::Running,
             exit_code: None,
             output: String::new(),
@@ -146,6 +157,7 @@ impl BackgroundTaskManager {
             started_at: now_secs(),
             finished_at: None,
             pid,
+            stop_reason: None,
         };
         self.tasks
             .lock()
@@ -210,6 +222,25 @@ impl BackgroundTaskManager {
                 .then_with(|| a.id.cmp(&b.id))
         });
         infos
+    }
+
+    /// Stop a running task and record why. Already-terminal tasks are an error;
+    /// the caller reports their current state instead.
+    pub fn stop(&self, id: &str, reason: &str) -> Result<BackgroundTaskInfo, String> {
+        let mut tasks = self.tasks.lock().expect("background tasks lock");
+        let entry = tasks
+            .get_mut(id)
+            .ok_or_else(|| format!("unknown background task `{id}`"))?;
+        if entry.status != BackgroundStatus::Running {
+            return Err(format!("task `{id}` is not running"));
+        }
+        if let Some(pid) = entry.pid {
+            kill_process_tree(pid);
+        }
+        entry.status = BackgroundStatus::Killed;
+        entry.stop_reason = Some(reason.to_string());
+        entry.finished_at = Some(now_secs());
+        Ok(entry.info(id))
     }
 
     /// Kill a running task (process tree included).

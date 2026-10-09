@@ -129,13 +129,13 @@ fn not_found_message(path: &str) -> String {
 
 /// A file is treated as pure CRLF only when every `\n` belongs to a `\r\n`
 /// pair; mixed endings are left untouched on write-back.
-fn is_pure_crlf(raw: &str) -> bool {
+pub(crate) fn is_pure_crlf(raw: &str) -> bool {
     let crlf = raw.matches("\r\n").count();
     let total_lf = raw.matches('\n').count();
     crlf > 0 && crlf == total_lf
 }
 
-async fn write_back(path: &Path, view: &str, uses_crlf: bool) -> Result<(), String> {
+pub(crate) async fn write_back(path: &Path, view: &str, uses_crlf: bool) -> Result<(), String> {
     let content = if uses_crlf {
         view.replace('\n', "\r\n")
     } else {

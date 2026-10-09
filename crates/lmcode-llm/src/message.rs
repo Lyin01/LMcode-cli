@@ -146,12 +146,20 @@ impl Message {
 
     /// Create a tool-result message answering the given tool call.
     pub fn tool_result(tool_call_id: impl Into<String>, output: impl Into<String>) -> Self {
+        Self::tool_result_parts(
+            tool_call_id,
+            vec![ContentPart::Text {
+                text: output.into(),
+            }],
+        )
+    }
+
+    /// Create a tool-result message that may include image or video parts.
+    pub fn tool_result_parts(tool_call_id: impl Into<String>, content: Vec<ContentPart>) -> Self {
         Self {
             role: Role::Tool,
             name: None,
-            content: vec![ContentPart::Text {
-                text: output.into(),
-            }],
+            content,
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
             partial: None,

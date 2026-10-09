@@ -11,16 +11,23 @@ pub mod grep;
 pub mod lsp;
 pub mod mcp;
 pub mod memory;
+pub mod multi_edit;
 pub mod planning;
 pub mod read;
+pub mod read_group;
+pub mod read_media;
 pub mod skill;
+pub mod task_list;
 pub mod task_output;
+pub mod task_stop;
+pub mod todo;
 pub mod web;
 pub mod write;
 
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use lmcode_llm::message::ContentPart;
 
 pub use ask_user::AskUserQuestionTool;
 pub use bash::BashTool;
@@ -32,8 +39,14 @@ pub use memory::{
     MemoryConsolidateApplyTool, MemoryConsolidatePlanTool, MemoryEditTool, MemoryLookupTool,
     MemoryWriteTool,
 };
+pub use multi_edit::MultiEditTool;
 pub use read::ReadTool;
+pub use read_group::ReadGroupTool;
+pub use read_media::ReadMediaFileTool;
 pub use skill::SkillTool;
+pub use task_list::TaskListTool;
+pub use task_stop::TaskStopTool;
+pub use todo::{TodoList, TodoListTool};
 pub use write::WriteTool;
 
 /// Resolve a tool path argument: absolute paths pass through, relative paths
@@ -69,4 +82,63 @@ pub trait Tool: Send + Sync {
     }
     /// Execute the tool. `Err` is fed back to the model as a tool-result error.
     async fn execute(&self, arguments: &serde_json::Value, cwd: &Path) -> Result<String, String>;
+
+    /// Rich result used by the turn loop. The default wraps [`Tool::execute`].
+    /// Override this when the result carries image or video parts, or when a
+    /// failure still has a body the model should read (`ok` is false).
+    async fn execute_rich(
+        &self,
+        arguments: &serde_json::Value,
+        cwd: &Path,
+    ) -> Result<ToolResult, String> {
+        match self.execute(arguments, cwd).await {
+            Ok(text) => Ok(ToolResult::success(text)),
+            Err(message) => Ok(ToolResult::failure(format!("error: {message}"))),
+        }
+    }
+}
+
+/// What a tool returns to the turn loop.
+pub struct ToolResult {
+    /// Text shown in the UI and stored as the text parts of `content`.
+    pub text: String,
+    /// False when the call failed. The model still receives `text`.
+    pub ok: bool,
+    /// Parts written onto the tool-result message. Includes images.
+    pub content: Vec<ContentPart>,
+}
+
+impl ToolResult {
+    pub fn success(text: impl Into<String>) -> Self {
+        Self::from_text(text, true)
+    }
+
+    pub fn failure(text: impl Into<String>) -> Self {
+        Self::from_text(text, false)
+    }
+
+    pub fn reported(text: impl Into<String>, ok: bool) -> Self {
+        Self::from_text(text, ok)
+    }
+
+    pub fn parts(content: Vec<ContentPart>, ok: bool) -> Self {
+        let text = content
+            .iter()
+            .filter_map(|part| match part {
+                ContentPart::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        Self { text, ok, content }
+    }
+
+    fn from_text(text: impl Into<String>, ok: bool) -> Self {
+        let text = text.into();
+        Self {
+            content: vec![ContentPart::Text { text: text.clone() }],
+            text,
+            ok,
+        }
+    }
 }

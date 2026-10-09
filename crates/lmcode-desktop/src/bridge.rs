@@ -10,7 +10,8 @@ use lmcode_core::session::SessionStore;
 use lmcode_core::tools::{
     AskUserQuestionTool, BashTool, EditTool, GlobTool, GrepTool, McpToolAdapter,
     MemoryConsolidateApplyTool, MemoryConsolidatePlanTool, MemoryEditTool, MemoryLookupTool,
-    MemoryWriteTool, ReadTool, SkillTool, Tool, WriteTool,
+    MemoryWriteTool, MultiEditTool, ReadGroupTool, ReadMediaFileTool, ReadTool, SkillTool,
+    TaskListTool, TaskStopTool, TodoList, TodoListTool, Tool, WriteTool,
 };
 use lmcode_llm::providers::create_provider;
 use lmcode_memory::MemoStore;
@@ -417,7 +418,15 @@ pub async fn start_agent(
         Arc::new(EditTool),
         Arc::new(GrepTool),
         Arc::new(GlobTool),
+        Arc::new(MultiEditTool),
+        Arc::new(ReadGroupTool),
+        Arc::new(TodoListTool::new(TodoList::new())),
+        Arc::new(TaskListTool::new(Arc::clone(&background))),
+        Arc::new(TaskStopTool::new(Arc::clone(&background))),
     ];
+    if let Some(media) = ReadMediaFileTool::new(true, false) {
+        tools.push(Arc::new(media));
+    }
     let mut memo_store_for_agent = None;
     if let Ok(memo_store) = MemoStore::open(&MemoStore::default_path()) {
         let memo_store = Arc::new(memo_store);

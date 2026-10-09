@@ -122,13 +122,13 @@ TS 注册表在 `tools/builtin/index.ts`。
 | 工具 | Rust | 状态 |
 | --- | --- | --- |
 | Read Write Edit Glob Grep Bash | `tools/read.rs` `write.rs` `edit.rs` `glob.rs` `grep.rs` `bash.rs` | 已有。Glob/Grep 是原生实现，不调 `rg` 二进制 |
-| MultiEdit ReadGroup ReadMedia | 无 | 缺失 |
+| MultiEdit ReadGroup ReadMediaFile | `tools/multi_edit.rs` `read_group.rs` `read_media.rs` | 已有。MultiEdit 整批原子替换并校验 anchor。ReadGroup 一次读 1–10 个文件，失败的文件标 `[ERROR]`。ReadMediaFile 把图片放进工具结果的 image part；没有 image/video 能力时不注册 |
 | EnterPlanMode ExitPlanMode | `tools/planning.rs` | 已有 |
 | CreateGoal GetGoal UpdateGoal SetGoalBudget WriteGoalNote | `tools/goal.rs` | 已有 |
 | MemoryLookup MemoryWrite MemoryEdit MemoryConsolidatePlan MemoryConsolidateApply | `tools/memory.rs` | 已有。MemoryEdit 按 id 局部更新或删除，不需要审批；省略的字段保留，tags 走 normalize |
 | Skill Agent WolfPack | `tools/skill.rs` `tools/collaboration.rs` | 已有 |
 | AskUserQuestion | `tools/ask_user.rs` | 已有。1–4 个问题，每个 2–4 个选项；不需要审批；取消会中断本轮。CLI 把编号读成选项，其余文本当 Other。TUI、Tauri、stream-json 仍回复不支持 |
-| TodoWrite | 无 | 缺失 |
+| TodoList TaskList TaskStop | `tools/todo.rs` `task_list.rs` `task_stop.rs` | 已有。清单里的 TodoWrite 就是 TS 的 TodoList。TaskList 默认只列未结束任务；TaskStop 记下原因，空原因写成 Stopped by TaskStop |
 | FetchURL WebSearch | `tools/web.rs` | 部分。HTML 抽取和错误分类有 mock 测试。TS 的 DuckDuckGo / lmcode-cli / 缓存回退链没有按 `services` 配置接上 |
 | CronCreate CronDelete CronList | `tools/cron.rs` | 已有 |
 | TaskOutput | `tools/task_output.rs` | 已有 |
@@ -202,7 +202,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 
 1. 本清单。已写入。
 2. `packages/memory/src/extractor.ts` → `lmcode-memory`。解析已移植。压缩和退出已调用它。
-3. 补 TodoWrite、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMedia。AskUserQuestion 已接到轮次循环和 CLI readline。TUI、Tauri、stream-json 仍回复不支持，Electron 提问弹窗还没接上。
+3. TodoList、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMediaFile 已接到 CLI 和 Tauri。AskUserQuestion 已接到轮次循环和 CLI readline。TUI、Tauri、stream-json 的提问仍回复不支持，Electron 提问弹窗还没接上。模型能力位还没从配置读出，ReadMediaFile 默认只开图片。
 4. 权限策略链和文件沙箱，加上 config 里 `permission` / `loop_control` / `computer_use` 的读写。不写回的字段，设置面板会丢。
 5. 轮次缺口：重试与溢出、steer、undo、会话 delete / rename / fork。
 6. 电脑操作控制器，以及 MCP OAuth。

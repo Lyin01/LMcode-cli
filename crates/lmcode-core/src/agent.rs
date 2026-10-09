@@ -25,7 +25,7 @@ use crate::compaction::{
 use crate::error::CoreError;
 use crate::permission::{SessionApprovals, call_touches_sensitive_path};
 use crate::session::Session;
-use crate::tools::Tool;
+use crate::tools::{Tool, ToolResult};
 
 const DEFAULT_MAX_STEPS: usize = 50;
 
@@ -89,7 +89,7 @@ pub struct TurnOutcome {
 /// One tool call inside a turn. Cancellation while waiting is not a tool error.
 enum ToolExec {
     /// Output the model should see. `ok` is false when the call failed.
-    Finished(String, bool),
+    Finished(ToolResult),
     /// The user cancelled while the tool was waiting. The turn rolls back.
     Interrupted,
 }
@@ -517,14 +517,18 @@ impl Agent {
                             hit_step_limit: false,
                         });
                     }
-                    ToolExec::Finished(output, ok) => {
-                        ui.tool_end(&call.name, ok, &truncate_for_ui(&output)).await;
+                    ToolExec::Finished(result) => {
+                        ui.tool_end(&call.name, result.ok, &truncate_for_ui(&result.text))
+                            .await;
                         // Session running notes (post-compaction context retention).
                         let args_summary: String = arguments.chars().take(80).collect();
-                        self.session_memory
-                            .record_tool_execution(&call.name, &args_summary, !ok);
+                        self.session_memory.record_tool_execution(
+                            &call.name,
+                            &args_summary,
+                            !result.ok,
+                        );
                         self.history
-                            .push(Message::tool_result(call.id.clone(), output));
+                            .push(Message::tool_result_parts(call.id.clone(), result.content));
                         // Keep the grader's evidence snapshot current mid-turn: the
                         // model may call UpdateGoal(complete) before the turn ends.
                         let evidence = crate::grader::recent_evidence(&self.history, 8000);
@@ -804,15 +808,17 @@ impl Agent {
             .find(|tool| tool.name() == call.name)
             .cloned()
         else {
-            return ToolExec::Finished(format!("error: unknown tool `{}`", call.name), false);
+            return ToolExec::Finished(ToolResult::failure(format!(
+                "error: unknown tool `{}`",
+                call.name
+            )));
         };
         let parsed: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(value) => value,
             Err(error) => {
-                return ToolExec::Finished(
-                    format!("error: invalid tool arguments JSON: {error}"),
-                    false,
-                );
+                return ToolExec::Finished(ToolResult::failure(format!(
+                    "error: invalid tool arguments JSON: {error}"
+                )));
             }
         };
         // Questions are asked before plan-mode and approval checks. Plan mode
@@ -831,18 +837,15 @@ impl Agent {
                 for declared in tool.declared_write_paths(&parsed) {
                     let resolved = resolve_against(&self.cwd, &declared);
                     if Some(&resolved) != allowed_path.as_ref() {
-                        return ToolExec::Finished(
-                            format!(
-                                "error: plan mode is active — writes are limited to the plan \
-                                 file (`{}`). Explore with read-only tools and record the \
-                                 plan there.",
-                                plan_path
-                                    .as_ref()
-                                    .map(|path| path.display().to_string())
-                                    .unwrap_or_default()
-                            ),
-                            false,
-                        );
+                        return ToolExec::Finished(ToolResult::failure(format!(
+                            "error: plan mode is active — writes are limited to the plan \
+                             file (`{}`). Explore with read-only tools and record the \
+                             plan there.",
+                            plan_path
+                                .as_ref()
+                                .map(|path| path.display().to_string())
+                                .unwrap_or_default()
+                        )));
                     }
                 }
             }
@@ -854,13 +857,13 @@ impl Agent {
             if !self.approvals.is_approved(&call.name, arguments)
                 && !ui.approve(&call.name, arguments).await
             {
-                return ToolExec::Finished("error: denied by user".to_string(), false);
+                return ToolExec::Finished(ToolResult::failure("error: denied by user"));
             }
             self.approvals.record(&call.name, arguments);
         }
-        match tool.execute(&parsed, &self.cwd).await {
-            Ok(output) => ToolExec::Finished(output, true),
-            Err(error) => ToolExec::Finished(format!("error: {error}"), false),
+        match tool.execute_rich(&parsed, &self.cwd).await {
+            Ok(result) => ToolExec::Finished(result),
+            Err(error) => ToolExec::Finished(ToolResult::failure(format!("error: {error}"))),
         }
     }
 
@@ -873,7 +876,9 @@ impl Agent {
     ) -> ToolExec {
         let questions = match crate::tools::ask_user::parse_questions(arguments) {
             Ok(questions) => questions,
-            Err(error) => return ToolExec::Finished(format!("error: {error}"), false),
+            Err(error) => {
+                return ToolExec::Finished(ToolResult::failure(format!("error: {error}")));
+            }
         };
         let answer = tokio::select! {
             biased;
@@ -883,9 +888,9 @@ impl Agent {
         };
         let (output, ok) = crate::tools::ask_user::format_ask_user_result(answer);
         if ok {
-            ToolExec::Finished(output, true)
+            ToolExec::Finished(ToolResult::success(output))
         } else {
-            ToolExec::Finished(format!("error: {output}"), false)
+            ToolExec::Finished(ToolResult::failure(format!("error: {output}")))
         }
     }
 }
@@ -1902,5 +1907,78 @@ mod tests {
         assert!(outcome.interrupted);
         assert_eq!(ui.asks, 1);
         assert!(agent.history().is_empty());
+    }
+
+    struct ImageTool;
+
+    #[async_trait]
+    impl Tool for ImageTool {
+        fn name(&self) -> &str {
+            "ShowImage"
+        }
+        fn description(&self) -> &str {
+            "Return one image part"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object", "properties": {}})
+        }
+        fn requires_approval(&self) -> bool {
+            false
+        }
+        async fn execute(
+            &self,
+            _arguments: &serde_json::Value,
+            _cwd: &Path,
+        ) -> Result<String, String> {
+            Ok("see image".to_string())
+        }
+        async fn execute_rich(
+            &self,
+            _arguments: &serde_json::Value,
+            _cwd: &Path,
+        ) -> Result<crate::tools::ToolResult, String> {
+            use lmcode_llm::message::{ContentPart, ImageUrl};
+            Ok(crate::tools::ToolResult::parts(
+                vec![
+                    ContentPart::Text {
+                        text: "<system>Read image file.</system>".to_string(),
+                    },
+                    ContentPart::ImageUrl {
+                        image_url: ImageUrl {
+                            url: "data:image/png;base64,aaaa".to_string(),
+                            id: None,
+                        },
+                    },
+                ],
+                true,
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_image_parts_stay_on_the_tool_result_message() {
+        let provider = Arc::new(MockProvider {
+            turns: Mutex::new(VecDeque::from(vec![
+                vec![tool_call_part("call_img", "ShowImage", "{}")],
+                vec![text_part("saw it")],
+            ])),
+            seen: Mutex::new(Vec::new()),
+        });
+        let mut agent = Agent::new(
+            provider,
+            vec![Arc::new(ImageTool)],
+            "system prompt",
+            PathBuf::from("."),
+        );
+        let mut ui = MockUi::default();
+        agent.run_turn("look", &mut ui).await.unwrap();
+        let result = &agent.history()[2];
+        assert_eq!(result.role, Role::Tool);
+        assert!(result.text().contains("<system>Read image file.</system>"));
+        assert!(result.content.iter().any(|part| matches!(
+            part,
+            lmcode_llm::message::ContentPart::ImageUrl { image_url }
+                if image_url.url == "data:image/png;base64,aaaa"
+        )));
     }
 }

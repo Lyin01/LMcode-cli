@@ -17,8 +17,9 @@ use lmcode_core::config::{load_config, resolve_model};
 use lmcode_core::session::SessionStore;
 use lmcode_core::tools::{
     AskUserQuestionTool, BashTool, EditTool, GlobTool, GrepTool, MemoryConsolidateApplyTool,
-    MemoryConsolidatePlanTool, MemoryEditTool, MemoryLookupTool, MemoryWriteTool, ReadTool,
-    SkillTool, Tool, WriteTool,
+    MemoryConsolidatePlanTool, MemoryEditTool, MemoryLookupTool, MemoryWriteTool, MultiEditTool,
+    ReadGroupTool, ReadMediaFileTool, ReadTool, SkillTool, TaskListTool, TaskStopTool, TodoList,
+    TodoListTool, Tool, WriteTool,
 };
 use lmcode_llm::providers::create_provider;
 use lmcode_memory::MemoStore;
@@ -451,6 +452,11 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(lmcode_core::tools::task_output::TaskOutputTool::new(
             Arc::clone(&background),
         )),
+        Arc::new(TaskListTool::new(Arc::clone(&background))),
+        Arc::new(TaskStopTool::new(Arc::clone(&background))),
+        Arc::new(MultiEditTool),
+        Arc::new(ReadGroupTool),
+        Arc::new(TodoListTool::new(TodoList::new())),
         // FetchURL ships a real fetcher; WebSearch needs a provider and is
         // registered only when the host supplies one (mirrors the TS
         // host-injection contract).
@@ -459,6 +465,9 @@ async fn main() -> anyhow::Result<()> {
             &lsp_registry,
         ))),
     ];
+    if let Some(media) = ReadMediaFileTool::new(true, false) {
+        tools.push(Arc::new(media));
+    }
     // Plan mode: the handle is shared between the plan tools and the agent.
     let plan_handle: lmcode_core::tools::planning::PlanHandle = Arc::new(tokio::sync::Mutex::new(
         lmcode_core::plan::PlanMode::default(),
