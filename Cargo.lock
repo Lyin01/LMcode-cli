@@ -2638,6 +2638,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "lmcode-app-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures-util",
+ "lmcode-core",
+ "lmcode-llm",
+ "lmcode-mcp",
+ "lmcode-memory",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "lmcode-cli"
 version = "0.1.0"
 dependencies = [
@@ -2648,6 +2664,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs 6.0.0",
+ "lmcode-app-server",
  "lmcode-core",
  "lmcode-llm",
  "lmcode-mcp",

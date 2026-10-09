@@ -16,6 +16,7 @@ local-embeddings = ["lmcode-memory/local-embeddings"]
 [dependencies]
 lmcode-llm = { path = "../lmcode-llm" }
 lmcode-core = { path = "../lmcode-core" }
+lmcode-app-server = { path = "../lmcode-app-server" }
 lmcode-mcp = { path = "../lmcode-mcp" }
 lmcode-memory = { path = "../lmcode-memory" }
 lmcode-tui = { path = "../lmcode-tui" }

@@ -139,6 +139,9 @@ enum CliCommand {
     /// 将旧版 lmcode-cli 安装的数据迁移到 lmcode。（已停用）
     Migrate,
 
+    /// Serve the desktop over stdio JSON-RPC.
+    AppServer,
+
     /// Hidden sub-command for the cc-connect / Claude Code stream-json
     /// protocol: reads user messages on stdin, emits NDJSON events.
     #[command(hide = true)]
@@ -314,6 +317,10 @@ async fn main() -> anyhow::Result<()> {
                 // (same notice and exit code as the legacy CLI).
                 println!("迁移功能已取消，不再支持从 lmcode-cli 导入数据。");
                 std::process::exit(0);
+            }
+            CliCommand::AppServer => {
+                lmcode_app_server::serve_stdio().await?;
+                return Ok(());
             }
             CliCommand::StreamJson {
                 resume,

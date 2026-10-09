@@ -27,7 +27,7 @@
 | `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在，压缩和退出会调用提取器。MemoryEdit 在 `lmcode-core` |
 | `packages/config` | 没有独立 crate。身份头（device id、User-Agent）缺失。运行配置读在 `lmcode-core/src/config.rs` | 部分 |
 | `packages/jian` | 没有 crate。Read / Write / Bash 直接打本机文件系统和进程 | 部分。没有可替换的执行环境，也没有沙箱实现 |
-| `packages/node-sdk` | 没有。CLI 和 Tauri 直接链 `lmcode-core` | 缺失。这层就是要新做的 app-server |
+| `packages/node-sdk` | `crates/lmcode-app-server`，由 `lm app-server` 拉起 | 部分。协议进程已经能开会话、跑回合、审批、提问，并读写面板。Electron 主进程仍进程内调用 TS SDK |
 | `packages/migration-legacy` | 无 | 不移植。包自己的 README 写了 v1.0 移除 |
 | `packages/ltod` | 无 | 不移植。目录里只有 `dist/` 和 `node_modules/`，没有源码 |
 | `apps/lmcode`（CLI / TUI） | `crates/lmcode-cli` + `crates/lmcode-tui` | 部分。CLI 选项面有契约测试；TUI 是另一套 ratatui，不是 TS 组件的逐个移植 |
@@ -113,7 +113,7 @@
 | `lsp/*` + `lsp-tool` | `lsp/*` `tools/lsp.rs` | 已有 | mock 语言服务器有单测 |
 | `mcp/*`（stdio、HTTP、命名） | `lmcode-mcp` + `mcp_manager.rs` + `tools/mcp.rs` | 部分 | stdio、Streamable HTTP、工具名前缀、配置写回有测试 |
 | `mcp/oauth/*` | `lmcode-mcp` 的 `oauth.rs` | 部分 | 存储键、JSON 文件、回调服务器、授权 URL 只取一次、authenticate 工具的成功/已授权/失败输出有单测。RFC 9728/8414/7591 发现和 token 端点交换还不在 |
-| `rpc/*`（CoreAPI / SDKAPI，进程内） | 无 JSON-RPC 服务 | 缺失 | 见文末协议。Tauri 命令只覆盖桌面 IPC 的一个子集 |
+| `rpc/*`（CoreAPI / SDKAPI，进程内） | `lmcode-app-server`，子命令 `lm app-server` | 部分 | stdio JSONL：`initialize`，`thread/start\|resume\|list\|fork\|delete\|rename`，`turn/start\|steer\|interrupt`，审批与提问的反向请求，以及 `goal` / `cron` / `mcp` / `memory` / `config` / `computerUse`。第二次启动能恢复消息、goal 和 cron。MCP 方法只读写 `mcp.json`，不拉起服务器进程；电脑操作不启动驱动。Electron 主进程还没改成这个客户端。Tauri 仍是进程内调用 |
 
 ### 工具
 
@@ -206,7 +206,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 5. 轮次重试、溢出后压缩、steer、undo、会话 delete / rename / fork、OpenAI 工具结果图片折进下一条 user 消息。已接到轮次循环。spec-critic、visual auditor、anchored bootstrap、工具去重、流式中途重试仍然没有。
 6. 电脑操作控制器的决策（占槽、失败回滚、驱动解析、安装配方）和 MCP OAuth 的存储、回调、授权 URL 事件已有契约测试。真实驱动进程还没接到 `McpManager`。授权服务器的 HTTP 发现和换 token 还不在。
 7. 电脑操作契约、待办提醒、用户偏好、pending tasks 已在 `Agent::apply_desktop_injections` 里、每次模型请求前注入。权限模式、近期会话、working set、插件 session-start 还没有。
-8. `lmcode-app-server`：先覆盖 thread + turn + approval，再补 goal / cron / mcp / memory / config。
+8. `lmcode-app-server` 已由 `lm app-server` 拉起。真实进程测试覆盖 thread、turn、审批、提问，以及 goal、cron、mcp、memory、config、computerUse。第二次启动能恢复消息、goal 和 cron。MCP 与驱动进程不在这个进程里拉起。Electron 主进程还没有改成这个客户端。
 9. Electron 主进程改走该客户端。渲染层不动。依赖切完之后再从桌面 `package.json` 去掉 `@lmcode-cli/lmcode-sdk` 和 `@lmcode/memory`。
 10. 回到本文件「剩余问题」，把没做完的和有意留下的分开写清。
 
@@ -225,3 +225,4 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 - `records/replay` 不按原事件日志移植；会话 JSON 必须仍能恢复消息、goal 和 cron，这件事要用测试钉住，而不是写在注释里。
 - AskUserQuestion 的 CLI 会真正提问。TUI、Tauri 桌面和 stream-json 还是「客户端不支持」，模型应改在正文里问。Electron 的提问弹窗没有接到这个工具。
 - 电脑操作的进程适配器还没接到 `McpManager`，单测用 `ComputerUseHost`。MCP OAuth 还没有授权服务器发现和 token 端点的 HTTP 交换。
+- `lm app-server` 能开会话、跑回合、审批、提问，并读写 goal、cron、`mcp.json`、记忆和 config。它不 spawn MCP 服务器，也不启动 cua-driver。桌面主进程仍走 TS SDK。

@@ -124,6 +124,11 @@ impl Session {
         &self.state.id
     }
 
+    /// Directory that holds `state.json`, `messages.jsonl`, `goal.json`, and `cron/`.
+    pub fn directory(&self) -> &Path {
+        &self.dir
+    }
+
     /// Persist metadata and history to disk.
     pub fn save(&mut self, messages: &[Message]) -> Result<(), CoreError> {
         self.messages = messages.to_vec();

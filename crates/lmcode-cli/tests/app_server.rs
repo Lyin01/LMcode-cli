@@ -1,0 +1,445 @@
+//! Drive the real `lm app-server` process.
+//!
+//! Two launches against one home must agree on initialize, config, and memory
+//! reads. The second launch reloads the first launch's messages, goal, and cron.
+
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{self, Receiver};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use serde_json::{Value, json};
+
+struct Client {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    lines: Receiver<String>,
+    stderr: Receiver<String>,
+    next_id: u64,
+    notes: Vec<Value>,
+}
+
+impl Client {
+    fn launch(home: &std::path::Path) -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_lm"))
+            .arg("app-server")
+            .env("LMCODE_HOME", home)
+            .current_dir(home)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn lm app-server");
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take().expect("stdout");
+        let stderr = child.stderr.take().expect("stderr");
+        let (line_tx, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        if line_tx.send(line).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let (err_tx, err_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            let mut text = String::new();
+            let _ = std::io::Read::read_to_string(&mut reader, &mut text);
+            let _ = err_tx.send(text);
+        });
+        Self {
+            child,
+            stdin,
+            lines,
+            stderr: err_rx,
+            next_id: 0,
+            notes: Vec::new(),
+        }
+    }
+
+    fn send(&mut self, value: &Value) {
+        let stdin = self.stdin.as_mut().expect("stdin");
+        writeln!(stdin, "{value}").expect("write request");
+        stdin.flush().expect("flush request");
+    }
+
+    fn read(&mut self) -> Value {
+        let line = self
+            .lines
+            .recv_timeout(Duration::from_secs(20))
+            .unwrap_or_else(|_| panic!("app-server stalled\nstderr:\n{}", self.stderr_now()));
+        serde_json::from_str(&line).unwrap_or_else(|error| {
+            panic!(
+                "stdout was not json ({error}): {line}\nstderr:\n{}",
+                self.stderr_now()
+            )
+        })
+    }
+
+    fn call(&mut self, method: &str, params: Value) -> Value {
+        self.next_id += 1;
+        let id = self.next_id;
+        self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
+        loop {
+            let value = self.read();
+            let matches = value.get("method").is_none()
+                && value.get("id").and_then(Value::as_u64) == Some(id);
+            if matches {
+                if let Some(error) = value.get("error") {
+                    panic!("{method} failed: {error}\nstderr:\n{}", self.stderr_now());
+                }
+                return value.get("result").cloned().unwrap_or(Value::Null);
+            }
+            self.notes.push(value);
+        }
+    }
+
+    fn notify(&mut self, method: &str) {
+        self.send(&json!({"jsonrpc": "2.0", "method": method}));
+    }
+
+    fn respond(&mut self, id: &Value, result: Value) {
+        self.send(&json!({"jsonrpc": "2.0", "id": id, "result": result}));
+    }
+
+    fn take_method(&mut self, method: &str) -> Value {
+        let started = Instant::now();
+        loop {
+            if let Some(index) = self
+                .notes
+                .iter()
+                .position(|value| value.get("method").and_then(Value::as_str) == Some(method))
+            {
+                return self.notes.remove(index);
+            }
+            if started.elapsed() > Duration::from_secs(20) {
+                panic!(
+                    "timed out waiting for {method}\nstderr:\n{}",
+                    self.stderr_now()
+                );
+            }
+            let value = self.read();
+            if value.get("method").and_then(Value::as_str) == Some(method) {
+                return value;
+            }
+            self.notes.push(value);
+        }
+    }
+
+    fn close(mut self) -> String {
+        drop(self.stdin.take());
+        let started = Instant::now();
+        loop {
+            if self.child.try_wait().ok().flatten().is_some() {
+                break;
+            }
+            if started.elapsed() > Duration::from_secs(5) {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        self.stderr
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap_or_default()
+    }
+
+    fn stderr_now(&self) -> String {
+        String::new()
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn home(name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "lmcode-app-server-{name}-{nanos}-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(path.join("work")).expect("home");
+    std::fs::write(
+        path.join("config.toml"),
+        "\
+default_provider = \"local\"
+default_model = \"script\"
+
+[providers.local]
+type = \"openai\"
+api_key = \"test\"
+base_url = \"http://127.0.0.1:9/v1\"
+",
+    )
+    .expect("config");
+    path
+}
+
+fn texts(thread: &Value) -> Vec<String> {
+    thread["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .map(|message| {
+            message["content"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .collect()
+}
+
+#[test]
+fn two_launches_agree_and_the_second_reloads_messages_goal_and_cron() {
+    let home = home("restore");
+    let work = home.join("work");
+    let cwd = work.to_string_lossy().to_string();
+    let config_text = std::fs::read_to_string(home.join("config.toml")).unwrap();
+
+    let mut first = Client::launch(&home);
+    let init = first.call("initialize", json!({}));
+    first.notify("initialized");
+    assert_eq!(init["protocolVersion"], 1);
+    assert_eq!(init["capabilities"]["computerUse"], true);
+    assert_eq!(init["capabilities"]["approval"], true);
+    let config = first.call("config/read", json!({}));
+    assert_eq!(config["text"], config_text);
+    let memories = first.call("memory/list", json!({}));
+    assert_eq!(memories["memories"].as_array().unwrap().len(), 0);
+    let searched = first.call("memory/search", json!({"query": "rust"}));
+    assert_eq!(searched["memories"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        first.call("memory/delete", json!({"id": "missing"}))["deleted"],
+        false
+    );
+    assert_eq!(
+        first.call("mcp/list", json!({}))["servers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    let added = first.call(
+        "mcp/add",
+        json!({"name": "demo", "config": {"command": "demo-mcp"}}),
+    );
+    assert_eq!(added["name"], "demo");
+    assert_eq!(
+        first.call("mcp/list", json!({}))["servers"][0]["name"],
+        "demo"
+    );
+    assert_eq!(
+        first.call("mcp/reconnect", json!({"name": "demo"}))["connected"],
+        false
+    );
+    assert_eq!(
+        first.call("mcp/remove", json!({"name": "demo"}))["removed"],
+        true
+    );
+
+    let started = first.call("thread/start", json!({"cwd": cwd, "model": "script"}));
+    let thread_id = started["thread"]["id"].as_str().unwrap().to_string();
+    assert_eq!(started["thread"]["messages"].as_array().unwrap().len(), 0);
+    let status = first.call("computerUse/status", json!({}));
+    assert_eq!(status["phase"], "idle");
+    assert_eq!(status["providerId"], "cua-driver-mcp");
+
+    let goal = first.call("goal/create", json!({"objective": "ship the rust core"}));
+    assert_eq!(goal["goal"]["objective"], "ship the rust core");
+    assert_eq!(goal["goal"]["status"], "active");
+    let task = first.call(
+        "cron/create",
+        json!({"cron": "* * * * *", "prompt": "ping the build", "recurring": true}),
+    );
+    assert_eq!(task["task"]["prompt"], "ping the build");
+
+    let turn = first.call(
+        "turn/start",
+        json!({"threadId": thread_id, "text": "hello"}),
+    );
+    assert_eq!(turn["status"], "started");
+    let completed = first.take_method("turn/completed");
+    assert_eq!(completed["params"]["status"], "completed");
+    assert_eq!(completed["params"]["text"], "script: hello");
+
+    let renamed = first.call(
+        "thread/rename",
+        json!({"cwd": cwd, "threadId": thread_id, "title": "kept"}),
+    );
+    assert_eq!(renamed["thread"]["title"], "kept");
+    let forked = first.call("thread/fork", json!({"cwd": cwd, "threadId": thread_id}));
+    let fork_id = forked["thread"]["id"].as_str().unwrap().to_string();
+    assert_eq!(forked["thread"]["forkedFrom"], thread_id);
+    assert_eq!(forked["goal"]["objective"], "ship the rust core");
+    assert_eq!(forked["tasks"][0]["prompt"], "ping the build");
+    assert!(texts(&forked["thread"]).iter().any(|text| text == "hello"));
+    assert!(
+        texts(&forked["thread"])
+            .iter()
+            .any(|text| text == "script: hello")
+    );
+
+    let stderr = first.close();
+    assert!(stderr.is_empty(), "first launch wrote to stderr:\n{stderr}");
+
+    let mut second = Client::launch(&home);
+    let init_again = second.call("initialize", json!({}));
+    assert_eq!(init_again, init);
+    let config_again = second.call("config/read", json!({}));
+    assert_eq!(config_again["text"], config["text"]);
+    let memories_again = second.call("memory/list", json!({}));
+    assert_eq!(memories_again, memories);
+    assert_eq!(
+        second.call("computerUse/status", json!({}))["phase"],
+        "idle"
+    );
+
+    let resumed = second.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    assert_eq!(resumed["thread"]["title"], "kept");
+    let restored = texts(&resumed["thread"]);
+    assert!(restored.iter().any(|text| text == "hello"), "{restored:?}");
+    assert!(
+        restored.iter().any(|text| text == "script: hello"),
+        "{restored:?}"
+    );
+    let goal_again = second.call("goal/get", json!({}));
+    assert_eq!(goal_again["goal"]["objective"], "ship the rust core");
+    assert_eq!(goal_again["goal"]["status"], "active");
+    let tasks = second.call("cron/list", json!({}));
+    assert_eq!(tasks["tasks"][0]["prompt"], "ping the build");
+    assert_eq!(tasks["tasks"][0]["cron"], "* * * * *");
+
+    let forked_again = second.call("thread/resume", json!({"cwd": cwd, "threadId": fork_id}));
+    assert_eq!(forked_again["thread"]["forkedFrom"], thread_id);
+    assert_eq!(
+        second.call("goal/get", json!({}))["goal"]["objective"],
+        "ship the rust core"
+    );
+    let listed = second.call("thread/list", json!({"cwd": cwd}));
+    assert_eq!(listed["threads"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        second.call("thread/delete", json!({"cwd": cwd, "threadId": fork_id}))["deleted"],
+        true
+    );
+    let listed = second.call("thread/list", json!({"cwd": cwd}));
+    assert_eq!(listed["threads"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["threads"][0]["id"], thread_id);
+
+    let stderr = second.close();
+    assert!(
+        stderr.is_empty(),
+        "second launch wrote to stderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn approval_question_steer_and_interrupt_round_trip() {
+    let home = home("turn");
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let mut client = Client::launch(&home);
+    client.call("initialize", json!({}));
+
+    client.call("thread/start", json!({"cwd": cwd, "model": "script-bash"}));
+    client.call("turn/start", json!({"text": "run"}));
+    let approval = client.take_method("item/commandExecution/requestApproval");
+    assert_eq!(approval["params"]["tool"], "Bash");
+    client.respond(&approval["id"], json!({"approved": false}));
+    let completed = client.take_method("turn/completed");
+    assert_eq!(completed["params"]["status"], "completed");
+    assert!(
+        client.notes.iter().any(|note| {
+            note["method"] == "item/tool/completed" && note["params"]["ok"] == false
+        }),
+        "{:?}",
+        client.notes
+    );
+
+    client.call("thread/start", json!({"cwd": cwd, "model": "script-ask"}));
+    client.call("turn/start", json!({"text": "ask"}));
+    let question = client.take_method("item/tool/requestUserInput");
+    assert_eq!(question["params"]["questions"][0]["question"], "Which?");
+    client.respond(&question["id"], json!({"answers": {"A": true}}));
+    let completed = client.take_method("turn/completed");
+    assert_eq!(completed["params"]["status"], "completed");
+    assert!(
+        completed["params"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("script:")
+    );
+
+    client.call("thread/start", json!({"cwd": cwd, "model": "script-pause"}));
+    let steer_thread = client.call("turn/start", json!({"text": "hello"}));
+    client.take_method("turn/started");
+    let steered = client.call("turn/steer", json!({"text": "extra"}));
+    assert_eq!(steered["accepted"], true);
+    let completed = client.take_method("turn/completed");
+    let text = completed["params"]["text"].as_str().unwrap();
+    assert!(text.contains("script: hello"), "{text}");
+    assert!(text.contains("script: extra"), "{text}");
+    let _ = steer_thread;
+
+    client.call("thread/start", json!({"cwd": cwd, "model": "script-pause"}));
+    let paused = client.call("turn/start", json!({"text": "please-stop"}));
+    let paused_id = paused["threadId"].as_str().unwrap().to_string();
+    client.take_method("turn/started");
+    let interrupted = client.call("turn/interrupt", json!({}));
+    assert_eq!(interrupted["interrupted"], true);
+    let completed = client.take_method("turn/completed");
+    assert_eq!(completed["params"]["status"], "interrupted");
+    let resumed = client.call("thread/resume", json!({"cwd": cwd, "threadId": paused_id}));
+    let restored = texts(&resumed["thread"]);
+    assert!(
+        restored.iter().all(|text| !text.contains("please-stop")),
+        "{restored:?}"
+    );
+
+    let idle = client.call("turn/steer", json!({"text": "too late"}));
+    assert_eq!(idle["accepted"], false);
+    let idle = client.call("turn/interrupt", json!({}));
+    assert_eq!(idle["interrupted"], false);
+
+    let stderr = client.close();
+    assert!(stderr.is_empty(), "turn launch wrote to stderr:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn enabling_computer_use_reports_that_the_driver_is_not_launched() {
+    let home = home("computer");
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let mut client = Client::launch(&home);
+    client.call("initialize", json!({}));
+    client.call("thread/start", json!({"cwd": cwd, "model": "script"}));
+    let failed = client.call("computerUse/setEnabled", json!({"enabled": true}));
+    assert_eq!(failed["phase"], "failed");
+    assert!(
+        failed["error"].as_str().unwrap().contains("not launched"),
+        "{failed}"
+    );
+    let idle = client.call("computerUse/setEnabled", json!({"enabled": false}));
+    assert_eq!(idle["phase"], "idle");
+    assert!(idle.get("error").is_none(), "{idle}");
+    let stderr = client.close();
+    assert!(stderr.is_empty(), "{stderr}");
+    let _ = std::fs::remove_dir_all(&home);
+}

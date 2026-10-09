@@ -3,10 +3,11 @@ LMcode CLI (Rust rewrite)
 Usage: lm [OPTIONS] [PROMPT]... [COMMAND]
 
 Commands:
-  export   导出会话为 ZIP 压缩包。
-  channel  管理 cc-connect 消息平台通道。
-  migrate  将旧版 lmcode-cli 安装的数据迁移到 lmcode。（已停用）
-  help     Print this message or the help of the given subcommand(s)
+  export      导出会话为 ZIP 压缩包。
+  channel     管理 cc-connect 消息平台通道。
+  migrate     将旧版 lmcode-cli 安装的数据迁移到 lmcode。（已停用）
+  app-server  Serve the desktop over stdio JSON-RPC
+  help        Print this message or the help of the given subcommand(s)
 
 Arguments:
   [PROMPT]...
