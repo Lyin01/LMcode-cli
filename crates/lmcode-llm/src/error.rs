@@ -7,8 +7,15 @@ pub enum LlmError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
     /// Non-2xx API response.
+    ///
+    /// `retry_after_ms` is the server `Retry-After` hint, when one was parsed.
+    /// Callers that do not have a hint leave it `None`.
     #[error("API error ({status}): {message}")]
-    Api { status: u16, message: String },
+    Api {
+        status: u16,
+        message: String,
+        retry_after_ms: Option<u64>,
+    },
     /// A 2xx response that could not be understood (bad JSON, missing fields).
     #[error("invalid API response: {0}")]
     InvalidResponse(String),

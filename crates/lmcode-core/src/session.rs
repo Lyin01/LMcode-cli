@@ -11,7 +11,7 @@ use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use lmcode_llm::message::{Message, Role};
+use lmcode_llm::message::Message;
 
 use crate::error::CoreError;
 
@@ -94,6 +94,17 @@ pub struct SessionState {
     pub model: String,
     #[serde(default)]
     pub title: Option<String>,
+    /// Set by rename. While this is false, save refreshes the title from the
+    /// first real user prompt. A custom title is left alone.
+    #[serde(default, rename = "isCustomTitle")]
+    pub is_custom_title: bool,
+    /// Source session id when this session was produced by [`SessionStore::fork`].
+    #[serde(
+        default,
+        rename = "forkedFrom",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub forked_from: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "updatedAt")]
@@ -117,8 +128,10 @@ impl Session {
     pub fn save(&mut self, messages: &[Message]) -> Result<(), CoreError> {
         self.messages = messages.to_vec();
         self.state.updated_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-        if self.state.title.is_none()
-            && let Some(first_user) = messages.iter().find(|message| message.role == Role::User)
+        if !self.state.is_custom_title
+            && let Some(first_user) = messages
+                .iter()
+                .find(|message| message.is_real_user_prompt())
         {
             let text = first_user.text();
             if !text.trim().is_empty() {
@@ -189,6 +202,8 @@ impl SessionStore {
             work_dir: work_dir.to_string_lossy().replace('\\', "/"),
             model: model.to_string(),
             title: None,
+            is_custom_title: false,
+            forked_from: None,
             created_at: now.clone(),
             updated_at: now,
         };
@@ -253,6 +268,97 @@ impl SessionStore {
         states.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(states)
     }
+
+    /// Remove the session directory. A session that is already gone is success.
+    pub fn delete(&self, work_dir: &Path, id: &str) -> Result<(), CoreError> {
+        let dir = self.bucket_dir(work_dir).join(id);
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(CoreError::Session(format!(
+                "failed to delete session `{id}`: {error}"
+            ))),
+        }
+    }
+
+    /// Set a custom title. Blank titles are rejected and the file is left as it was.
+    pub fn rename(&self, work_dir: &Path, id: &str, title: &str) -> Result<(), CoreError> {
+        let normalized = title.trim();
+        if normalized.is_empty() {
+            return Err(CoreError::Session(
+                "Session title cannot be empty".to_string(),
+            ));
+        }
+        let mut session = self.load(work_dir, id)?;
+        session.state.title = Some(normalized.to_string());
+        session.state.is_custom_title = true;
+        let messages = session.messages.clone();
+        session.save(&messages)
+    }
+
+    /// Copy `source_id` to a new session id in the same workdir bucket.
+    ///
+    /// The source directory is not modified. The copy gets a new id, fresh
+    /// timestamps, and `forkedFrom` pointing at the source. Messages are the
+    /// source messages.
+    pub fn fork(
+        &self,
+        work_dir: &Path,
+        source_id: &str,
+        target_id: &str,
+    ) -> Result<Session, CoreError> {
+        if target_id.trim().is_empty() {
+            return Err(CoreError::Session("Session id cannot be empty".to_string()));
+        }
+        let source = self.load(work_dir, source_id)?;
+        let dir = self.bucket_dir(work_dir).join(target_id);
+        if dir.exists() {
+            return Err(CoreError::Session(format!(
+                "Session \"{target_id}\" already exists"
+            )));
+        }
+        if let Some(parent) = dir.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                CoreError::Session(format!("failed to create session bucket: {error}"))
+            })?;
+        }
+        if let Err(error) = copy_dir(&source.dir, &dir) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(CoreError::Session(format!(
+                "failed to copy session `{source_id}`: {error}"
+            )));
+        }
+        let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let mut forked = Session {
+            state: source.state.clone(),
+            messages: source.messages.clone(),
+            dir,
+        };
+        forked.state.id = target_id.to_string();
+        forked.state.created_at.clone_from(&now);
+        forked.state.updated_at = now;
+        forked.state.forked_from = Some(source_id.to_string());
+        let messages = forked.messages.clone();
+        if let Err(error) = forked.save(&messages) {
+            let _ = std::fs::remove_dir_all(&forked.dir);
+            return Err(error);
+        }
+        Ok(forked)
+    }
+}
+
+fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 fn read_messages(dir: &Path) -> Result<Vec<Message>, CoreError> {
@@ -335,5 +441,91 @@ mod tests {
         let store = SessionStore::with_root(root.path());
         assert!(store.list(work_dir.path()).unwrap().is_empty());
         assert!(store.latest(work_dir.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn rename_rejects_a_blank_title_and_a_custom_title_survives_later_saves() {
+        let root = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::with_root(root.path());
+        let mut session = store.create(work_dir.path(), "test/model").unwrap();
+        let id = session.id().to_string();
+        session.save(&[Message::user("hello world")]).unwrap();
+
+        let blank = store.rename(work_dir.path(), &id, "   ").unwrap_err();
+        assert!(
+            blank.to_string().contains("Session title cannot be empty"),
+            "{blank}"
+        );
+        let unchanged = store.load(work_dir.path(), &id).unwrap();
+        assert_eq!(unchanged.state.title.as_deref(), Some("hello world"));
+        assert!(!unchanged.state.is_custom_title);
+
+        store.rename(work_dir.path(), &id, " Keep me ").unwrap();
+        let mut renamed = store.load(work_dir.path(), &id).unwrap();
+        assert_eq!(renamed.state.title.as_deref(), Some("Keep me"));
+        assert!(renamed.state.is_custom_title);
+        renamed
+            .save(&[Message::user("a different first prompt")])
+            .unwrap();
+        let reloaded = store.load(work_dir.path(), &id).unwrap();
+        assert_eq!(reloaded.state.title.as_deref(), Some("Keep me"));
+        assert_eq!(reloaded.messages[0].text(), "a different first prompt");
+    }
+
+    #[test]
+    fn delete_removes_the_session_and_ignores_a_missing_one() {
+        let root = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::with_root(root.path());
+        let session = store.create(work_dir.path(), "test/model").unwrap();
+        let id = session.id().to_string();
+
+        store.delete(work_dir.path(), &id).unwrap();
+        assert!(store.load(work_dir.path(), &id).is_err());
+        assert!(store.list(work_dir.path()).unwrap().is_empty());
+        store.delete(work_dir.path(), &id).unwrap();
+    }
+
+    #[test]
+    fn fork_copies_messages_and_leaves_the_source_unchanged() {
+        let root = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::with_root(root.path());
+        let mut source = store.create(work_dir.path(), "test/model").unwrap();
+        let source_id = source.id().to_string();
+        let messages = vec![
+            Message::user("original prompt"),
+            Message::assistant(vec![], vec![]),
+        ];
+        source.save(&messages).unwrap();
+        store
+            .rename(work_dir.path(), &source_id, "Original")
+            .unwrap();
+
+        let forked = store.fork(work_dir.path(), &source_id, "forked-1").unwrap();
+        assert_eq!(forked.id(), "forked-1");
+        assert_eq!(
+            forked.state.forked_from.as_deref(),
+            Some(source_id.as_str())
+        );
+        assert_eq!(forked.state.title.as_deref(), Some("Original"));
+        assert!(forked.state.is_custom_title);
+        assert_eq!(forked.messages.len(), 2);
+        assert_eq!(forked.messages[0].text(), "original prompt");
+
+        let source_after = store.load(work_dir.path(), &source_id).unwrap();
+        assert_eq!(source_after.id(), source_id);
+        assert_eq!(source_after.state.title.as_deref(), Some("Original"));
+        assert!(source_after.state.forked_from.is_none());
+        assert_eq!(source_after.messages.len(), 2);
+        assert_eq!(source_after.messages[0].text(), "original prompt");
+
+        let again = store
+            .fork(work_dir.path(), &source_id, "forked-1")
+            .unwrap_err();
+        assert!(again.to_string().contains("already exists"), "{again}");
+        let listed = store.list(work_dir.path()).unwrap();
+        assert_eq!(listed.len(), 2);
     }
 }

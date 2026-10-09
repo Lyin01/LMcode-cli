@@ -20,6 +20,7 @@ pub mod mcp_manager;
 pub mod permission;
 pub mod permission_chain;
 pub mod plan;
+pub mod retry;
 pub mod session;
 pub mod session_memory;
 pub mod skill;

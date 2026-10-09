@@ -7,12 +7,16 @@
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use lmcode_llm::LlmError;
 use lmcode_llm::generate::assemble_parts;
-use lmcode_llm::message::{ContentPart, Message, Role, StreamedMessagePart, ToolCall};
-use lmcode_llm::provider::{ChatProvider, GenerateOptions};
+use lmcode_llm::message::{
+    ContentPart, Message, MessageOrigin, Role, StreamedMessagePart, ToolCall,
+};
+use lmcode_llm::provider::{ChatProvider, GenerateOptions, StreamedMessage};
 use lmcode_llm::tool::Tool as ToolDefinition;
 use lmcode_memory::{
     EXIT_EXTRACTION_SYSTEM_PROMPT, MemoKind, MemoStore, PendingTaskRef,
@@ -26,10 +30,82 @@ use crate::config::{FileSandboxMode, PermissionMode, RawConfig};
 use crate::error::CoreError;
 use crate::permission::SessionApprovals;
 use crate::permission_chain::{PermissionRequest, PermissionState, decide};
+use crate::retry::{
+    DEFAULT_MAX_RETRY_ATTEMPTS, chat_with_retry, is_context_overflow, is_retryable_llm_error,
+};
 use crate::session::Session;
 use crate::tools::{Tool, ToolResult};
 
 const DEFAULT_MAX_STEPS: usize = 50;
+
+/// Buffer for text steered into an active turn.
+///
+/// `submit` returns false when no turn is running, so the caller can start
+/// one. While a turn is running, the text waits here and the loop appends it
+/// before the next model call.
+pub struct SteerSlot {
+    active: AtomicBool,
+    pending: std::sync::Mutex<Vec<Message>>,
+}
+
+impl SteerSlot {
+    fn new() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            pending: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Queue `text` as a user prompt. Returns false when the agent is idle.
+    pub fn submit(&self, text: &str) -> bool {
+        if !self.active.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.pending
+            .lock()
+            .expect("steer lock")
+            .push(user_prompt(text));
+        true
+    }
+
+    fn activate(&self) {
+        self.active.store(true, Ordering::SeqCst);
+    }
+
+    fn deactivate(&self) {
+        self.active.store(false, Ordering::SeqCst);
+    }
+
+    fn take(&self) -> Vec<Message> {
+        std::mem::take(&mut *self.pending.lock().expect("steer lock"))
+    }
+
+    fn clear(&self) {
+        self.pending.lock().expect("steer lock").clear();
+    }
+}
+
+struct TurnActiveGuard(Arc<SteerSlot>);
+
+impl Drop for TurnActiveGuard {
+    fn drop(&mut self) {
+        self.0.deactivate();
+    }
+}
+
+fn user_prompt(text: impl Into<String>) -> Message {
+    Message::user(text).with_origin(MessageOrigin::User)
+}
+
+fn user_prompt_with_images(text: &str, images: &[String]) -> Message {
+    Message::user_with_images(text, images).with_origin(MessageOrigin::User)
+}
+
+fn injection_message(text: impl Into<String>) -> Message {
+    Message::user(text).with_origin(MessageOrigin::Injection {
+        variant: Some("host".to_string()),
+    })
+}
 
 /// UI sink the turn loop reports progress to.
 #[async_trait]
@@ -152,6 +228,10 @@ pub struct Agent {
     last_exit_fingerprint: Option<u64>,
     /// Set when a finished compaction could not store every parsed memo.
     compaction_memo_warning: Option<String>,
+    /// Attempts per model call, including the first. Overflow is not retried.
+    max_retries: u32,
+    /// Shared with anything that needs to steer while `run_turn` holds `&mut self`.
+    steer: Arc<SteerSlot>,
 }
 
 impl Agent {
@@ -184,6 +264,58 @@ impl Agent {
             memo_store: None,
             last_exit_fingerprint: None,
             compaction_memo_warning: None,
+            max_retries: DEFAULT_MAX_RETRY_ATTEMPTS,
+            steer: Arc::new(SteerSlot::new()),
+        }
+    }
+
+    /// Slot a concurrent caller can [`SteerSlot::submit`] into while a turn runs.
+    pub fn steer_slot(&self) -> Arc<SteerSlot> {
+        Arc::clone(&self.steer)
+    }
+
+    /// Steer `text` into the active turn, or start a turn when the agent is idle.
+    ///
+    /// An active turn returns `Ok(None)` and the text shows up on the next
+    /// model request. An idle agent runs the text as a normal turn.
+    pub async fn steer(
+        &mut self,
+        text: &str,
+        ui: &mut dyn TurnUi,
+    ) -> Result<Option<TurnOutcome>, CoreError> {
+        if self.steer.submit(text) {
+            return Ok(None);
+        }
+        self.run_turn(text, ui).await.map(Some)
+    }
+
+    /// Remove the last `count` real user prompts and the messages that belong
+    /// to them.
+    ///
+    /// Injections are left in place. A compaction summary is a hard stop: it
+    /// stays, and nothing before it is removed. `count == 0` and an empty
+    /// history do nothing. Fewer prompts than `count` removes what it can.
+    pub fn undo(&mut self, count: usize) {
+        if count == 0 || self.history.is_empty() {
+            return;
+        }
+        let mut removed_users = 0usize;
+        let mut index = self.history.len();
+        while index > 0 {
+            index -= 1;
+            match &self.history[index].origin {
+                Some(MessageOrigin::Injection { .. }) => continue,
+                Some(MessageOrigin::CompactionSummary) => break,
+                _ => {}
+            }
+            let counts = self.history[index].is_real_user_prompt();
+            self.history.remove(index);
+            if counts {
+                removed_users += 1;
+                if removed_users >= count {
+                    break;
+                }
+            }
         }
     }
 
@@ -252,6 +384,12 @@ impl Agent {
     /// Override the per-turn model-step limit (tests use small values).
     pub fn set_max_steps(&mut self, max_steps: usize) {
         self.max_steps = max_steps;
+    }
+
+    /// Override how many times one model call is tried. Overflow still stops
+    /// on the first attempt. Values below 1 are treated as one attempt.
+    pub fn set_max_retries(&mut self, max_retries: u32) {
+        self.max_retries = max_retries.max(1);
     }
 
     /// Enable compaction with the model's context window and output budget.
@@ -470,15 +608,20 @@ impl Agent {
         ui: &mut dyn TurnUi,
     ) -> Result<TurnOutcome, CoreError> {
         let checkpoint = self.history.len();
+        self.steer.activate();
+        let _active = TurnActiveGuard(Arc::clone(&self.steer));
         // Flush queued injections (cron fires) before the user input.
         let injections = std::mem::take(&mut self.injections);
         for injection in injections {
-            self.history.push(Message::user(&injection));
+            self.history.push(injection_message(injection));
         }
-        self.history.push(Message::user_with_images(input, images));
+        self.history.push(user_prompt_with_images(input, images));
 
         let mut steps = 0usize;
         loop {
+            // A steer that arrived during the previous step joins the history
+            // before the next model call.
+            self.flush_steers();
             if steps >= self.max_steps {
                 return Ok(TurnOutcome {
                     steps,
@@ -502,18 +645,39 @@ impl Agent {
             let projected = self.prepare_history(ui).await?;
 
             let stream = match self
-                .provider
-                .generate(
+                .generate_with_retry(
                     &self.system_prompt_with_injections().await,
                     &tool_definitions,
                     &projected,
-                    GenerateOptions::default(),
                 )
                 .await
             {
                 Ok(stream) => stream,
+                Err(error) if is_context_overflow(&error) => {
+                    // One attempt was enough. Compact and continue, or surface
+                    // the overflow when there is nothing safe to summarize.
+                    match self.run_full_compaction().await {
+                        Ok(true) => {
+                            self.usage.record_compaction();
+                            ui.notice("compacted conversation after context overflow")
+                                .await;
+                            continue;
+                        }
+                        Ok(false) => {
+                            self.steer.clear();
+                            self.history.truncate(checkpoint);
+                            return Err(error.into());
+                        }
+                        Err(compact_error) => {
+                            self.steer.clear();
+                            self.history.truncate(checkpoint);
+                            return Err(compact_error);
+                        }
+                    }
+                }
                 Err(error) => {
                     self.session_memory.record_error(&error.to_string());
+                    self.steer.clear();
                     self.history.truncate(checkpoint);
                     return Err(error.into());
                 }
@@ -556,6 +720,7 @@ impl Agent {
             }
 
             if interrupted {
+                self.steer.clear();
                 self.history.truncate(checkpoint);
                 return Ok(TurnOutcome {
                     steps: steps - 1,
@@ -575,6 +740,11 @@ impl Agent {
                 .push(Message::assistant(content, tool_calls.clone()));
 
             if tool_calls.is_empty() {
+                // A steer that landed while this reply was streaming keeps
+                // the turn going so the model sees it.
+                if self.flush_steers() {
+                    continue;
+                }
                 return Ok(TurnOutcome {
                     steps,
                     interrupted: false,
@@ -589,6 +759,7 @@ impl Agent {
                 match self.execute_tool(call, &arguments, ui).await {
                     ToolExec::Interrupted => {
                         ui.tool_end(&call.name, false, "interrupted").await;
+                        self.steer.clear();
                         self.history.truncate(checkpoint);
                         return Ok(TurnOutcome {
                             steps,
@@ -705,9 +876,12 @@ impl Agent {
 
         let summary = self.collect_completion(&prompt).await?;
         let mut new_history = Vec::with_capacity(self.history.len() - split + 1);
-        new_history.push(Message::user(format!(
-            "[Context compaction] The earlier conversation was summarized:\n\n{summary}"
-        )));
+        new_history.push(
+            Message::user(format!(
+                "[Context compaction] The earlier conversation was summarized:\n\n{summary}"
+            ))
+            .with_origin(MessageOrigin::CompactionSummary),
+        );
         new_history.extend_from_slice(&self.history[split..]);
         self.history = new_history;
         self.pipeline.reset_micro();
@@ -773,13 +947,7 @@ impl Agent {
     /// Empty text is returned as an empty string.
     async fn collect_text(&self, system: &str, prompt: &str) -> Result<String, CoreError> {
         let stream = self
-            .provider
-            .generate(
-                system,
-                &[],
-                &[Message::user(prompt)],
-                GenerateOptions::default(),
-            )
+            .generate_with_retry(system, &[], &[Message::user(prompt)])
             .await?;
         let mut parts = Vec::new();
         let mut parts_stream = stream.into_parts();
@@ -873,6 +1041,55 @@ impl Agent {
             }
         }
         self.last_exit_fingerprint = Some(fingerprint);
+    }
+
+    /// One model call, retried when the error is transient.
+    ///
+    /// Context overflow returns on the first attempt so the turn can compact
+    /// instead of sending the same overflowing request again.
+    async fn generate_with_retry(
+        &self,
+        system_prompt: &str,
+        tools: &[ToolDefinition],
+        history: &[Message],
+    ) -> Result<StreamedMessage, LlmError> {
+        let max_attempts = self.max_retries;
+        let provider = Arc::clone(&self.provider);
+        let system_prompt = system_prompt.to_string();
+        let tools = tools.to_vec();
+        let history = history.to_vec();
+        chat_with_retry(
+            max_attempts,
+            true,
+            is_retryable_llm_error,
+            move |_attempt| {
+                let provider = Arc::clone(&provider);
+                let system_prompt = system_prompt.clone();
+                let tools = tools.clone();
+                let history = history.clone();
+                async move {
+                    provider
+                        .generate(&system_prompt, &tools, &history, GenerateOptions::default())
+                        .await
+                }
+            },
+            |delay_ms| async move {
+                if delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+            },
+        )
+        .await
+    }
+
+    /// Append steered user prompts. Returns true when at least one was added.
+    fn flush_steers(&mut self) -> bool {
+        let pending = self.steer.take();
+        if pending.is_empty() {
+            return false;
+        }
+        self.history.extend(pending);
+        true
     }
 
     async fn execute_tool(
@@ -2124,5 +2341,443 @@ mod tests {
             lmcode_llm::message::ContentPart::ImageUrl { image_url }
                 if image_url.url == "data:image/png;base64,aaaa"
         )));
+    }
+
+    fn overflow_error() -> LlmError {
+        LlmError::Api {
+            status: 400,
+            message: "Context length exceeded".to_string(),
+            retry_after_ms: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn context_overflow_compacts_once_instead_of_retrying_three_times() {
+        let overflows = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let seen = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+        let overflows_call = Arc::clone(&overflows);
+        let seen_call = Arc::clone(&seen);
+        let provider = Arc::new(OverflowProvider {
+            overflows: overflows_call,
+            seen: seen_call,
+        });
+        let mut agent = Agent::new(
+            provider,
+            vec![Arc::new(EchoTool {
+                requires_approval: false,
+            })],
+            "system prompt",
+            PathBuf::from("."),
+        );
+        agent.history = vec![
+            Message::user("old user one"),
+            Message::assistant(
+                vec![ContentPart::Text {
+                    text: "old assistant one".to_string(),
+                }],
+                vec![],
+            ),
+        ];
+        let mut ui = MockUi::default();
+        let outcome = agent
+            .run_turn("Retry after provider overflow", &mut ui)
+            .await
+            .unwrap();
+
+        assert!(!outcome.interrupted);
+        assert_eq!(overflows.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let seen = seen.lock().unwrap();
+        assert!(
+            seen.iter().any(|history| {
+                history.iter().any(|text| text.contains("direct task"))
+                    && history.iter().any(|text| text.contains("old user one"))
+            }),
+            "compaction call missing: {seen:?}"
+        );
+        assert!(
+            seen.last().is_some_and(|history| {
+                history
+                    .iter()
+                    .any(|text| text.contains("Overflow compacted summary."))
+                    && history
+                        .iter()
+                        .any(|text| text.contains("Retry after provider overflow"))
+            }),
+            "recovery call missing: {seen:?}"
+        );
+        assert!(agent.history().iter().any(|message| {
+            message
+                .text()
+                .contains("Recovered after overflow compaction.")
+        }));
+        agent.undo(10);
+        assert_eq!(agent.history().len(), 1);
+        assert!(
+            agent.history()[0]
+                .text()
+                .contains("Overflow compacted summary.")
+        );
+        assert!(matches!(
+            agent.history()[0].origin,
+            Some(MessageOrigin::CompactionSummary)
+        ));
+    }
+
+    struct OverflowProvider {
+        overflows: Arc<std::sync::atomic::AtomicU32>,
+        seen: Arc<Mutex<Vec<Vec<String>>>>,
+    }
+
+    #[async_trait]
+    impl ChatProvider for OverflowProvider {
+        fn name(&self) -> &str {
+            "overflow"
+        }
+        fn model_name(&self) -> &str {
+            "overflow-model"
+        }
+        async fn generate(
+            &self,
+            _system_prompt: &str,
+            _tools: &[ToolDefinition],
+            history: &[Message],
+            _options: GenerateOptions,
+        ) -> Result<StreamedMessage, LlmError> {
+            let texts: Vec<String> = history.iter().map(|message| message.text()).collect();
+            self.seen.lock().unwrap().push(texts.clone());
+            let blob = texts.join("\n");
+            let parts = if blob.contains("direct task") {
+                vec![text_part("Overflow compacted summary.")]
+            } else if blob.contains("Overflow compacted summary.") {
+                vec![text_part("Recovered after overflow compaction.")]
+            } else if blob.contains("Retry after provider overflow") {
+                self.overflows
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                return Err(overflow_error());
+            } else {
+                return Err(LlmError::Api {
+                    status: 400,
+                    message: format!("unexpected history: {blob}"),
+                    retry_after_ms: None,
+                });
+            };
+            let stream: BoxStream<Result<StreamedMessagePart, LlmError>> =
+                Box::pin(futures_util::stream::iter(parts.into_iter().map(Ok)));
+            Ok(StreamedMessage::new(
+                stream,
+                Arc::new(Mutex::new(StreamSummary {
+                    finish_reason: Some(FinishReason::Completed),
+                    ..StreamSummary::default()
+                })),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn context_overflow_surfaces_when_there_is_nothing_to_compact() {
+        let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let calls_for_provider = Arc::clone(&calls);
+        let provider = Arc::new(FailProvider {
+            calls: calls_for_provider,
+        });
+        let mut agent = Agent::new(provider, Vec::new(), "system prompt", PathBuf::from("."));
+        let mut ui = MockUi::default();
+        let error = agent
+            .run_turn("only one message", &mut ui)
+            .await
+            .unwrap_err();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let CoreError::Llm(error) = error else {
+            panic!("expected the overflow to surface");
+        };
+        assert!(is_context_overflow(&error));
+        assert!(agent.history().is_empty());
+    }
+
+    #[tokio::test]
+    async fn retries_a_transient_error_once_and_keeps_the_turn() {
+        let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let calls_for_provider = Arc::clone(&calls);
+        let provider = Arc::new(FailThenText {
+            calls: calls_for_provider,
+        });
+        let mut agent = Agent::new(provider, Vec::new(), "system prompt", PathBuf::from("."));
+        let mut ui = MockUi::default();
+        let outcome = agent.run_turn("please retry", &mut ui).await.unwrap();
+        assert_eq!(outcome.steps, 1);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert!(
+            agent
+                .history()
+                .iter()
+                .any(|message| message.text() == "please retry")
+        );
+        assert!(
+            agent
+                .history()
+                .iter()
+                .any(|message| message.text() == "second try")
+        );
+    }
+
+    struct FailProvider {
+        calls: Arc<std::sync::atomic::AtomicU32>,
+    }
+
+    #[async_trait]
+    impl ChatProvider for FailProvider {
+        fn name(&self) -> &str {
+            "fail"
+        }
+        fn model_name(&self) -> &str {
+            "fail-model"
+        }
+        async fn generate(
+            &self,
+            _system_prompt: &str,
+            _tools: &[ToolDefinition],
+            _history: &[Message],
+            _options: GenerateOptions,
+        ) -> Result<StreamedMessage, LlmError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(overflow_error())
+        }
+    }
+
+    struct FailThenText {
+        calls: Arc<std::sync::atomic::AtomicU32>,
+    }
+
+    #[async_trait]
+    impl ChatProvider for FailThenText {
+        fn name(&self) -> &str {
+            "fail-then"
+        }
+        fn model_name(&self) -> &str {
+            "fail-then-model"
+        }
+        async fn generate(
+            &self,
+            _system_prompt: &str,
+            _tools: &[ToolDefinition],
+            _history: &[Message],
+            _options: GenerateOptions,
+        ) -> Result<StreamedMessage, LlmError> {
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n == 0 {
+                return Err(LlmError::Api {
+                    status: 503,
+                    message: "unavailable".to_string(),
+                    retry_after_ms: Some(0),
+                });
+            }
+            let stream: BoxStream<Result<StreamedMessagePart, LlmError>> = Box::pin(
+                futures_util::stream::iter(vec![text_part("second try")].into_iter().map(Ok)),
+            );
+            Ok(StreamedMessage::new(
+                stream,
+                Arc::new(Mutex::new(StreamSummary {
+                    finish_reason: Some(FinishReason::Completed),
+                    ..StreamSummary::default()
+                })),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn steer_during_a_turn_reaches_the_next_model_request() {
+        let provider = Arc::new(SteerProvider {
+            slot: Mutex::new(None),
+            seen: Mutex::new(Vec::new()),
+        });
+        let mut agent = Agent::new(
+            provider.clone(),
+            vec![Arc::new(EchoTool {
+                requires_approval: false,
+            })],
+            "system prompt",
+            PathBuf::from("."),
+        );
+        *provider.slot.lock().unwrap() = Some(agent.steer_slot());
+        let mut ui = MockUi::default();
+        agent.run_turn("look", &mut ui).await.unwrap();
+        let seen = provider.seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen[1].iter().any(|text| text == "Also mention the steer."));
+        assert!(
+            agent
+                .history()
+                .iter()
+                .any(|message| message.text() == "Also mention the steer.")
+        );
+    }
+
+    struct SteerProvider {
+        slot: Mutex<Option<Arc<SteerSlot>>>,
+        seen: Mutex<Vec<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl ChatProvider for SteerProvider {
+        fn name(&self) -> &str {
+            "steer"
+        }
+        fn model_name(&self) -> &str {
+            "steer-model"
+        }
+        async fn generate(
+            &self,
+            _system_prompt: &str,
+            _tools: &[ToolDefinition],
+            history: &[Message],
+            _options: GenerateOptions,
+        ) -> Result<StreamedMessage, LlmError> {
+            let texts: Vec<String> = history.iter().map(|message| message.text()).collect();
+            let first = self.seen.lock().unwrap().is_empty();
+            self.seen.lock().unwrap().push(texts);
+            let reply = if first {
+                if let Some(slot) = self.slot.lock().unwrap().clone() {
+                    assert!(slot.submit("Also mention the steer."));
+                }
+                "Capturing."
+            } else {
+                "Approved, and I saw the steer."
+            };
+            let stream: BoxStream<Result<StreamedMessagePart, LlmError>> = Box::pin(
+                futures_util::stream::iter(vec![text_part(reply)].into_iter().map(Ok)),
+            );
+            Ok(StreamedMessage::new(
+                stream,
+                Arc::new(Mutex::new(StreamSummary {
+                    finish_reason: Some(FinishReason::Completed),
+                    ..StreamSummary::default()
+                })),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn steer_while_idle_starts_a_turn_and_an_active_steer_does_not() {
+        let mut agent = agent_with(
+            vec![vec![text_part("done")]],
+            EchoTool {
+                requires_approval: false,
+            },
+            4,
+        );
+        let mut ui = MockUi::default();
+        let started = agent.steer("hello", &mut ui).await.unwrap();
+        assert!(started.is_some());
+        assert!(
+            agent
+                .history()
+                .iter()
+                .any(|message| message.text() == "hello")
+        );
+
+        agent.steer.active.store(true, Ordering::SeqCst);
+        let buffered = agent.steer("later", &mut ui).await.unwrap();
+        assert!(buffered.is_none());
+        assert!(
+            !agent
+                .history()
+                .iter()
+                .any(|message| message.text() == "later")
+        );
+        assert_eq!(agent.steer.pending.lock().unwrap()[0].text(), "later");
+    }
+
+    #[tokio::test]
+    async fn queued_injection_is_skipped_by_undo() {
+        let mut agent = agent_with(
+            vec![vec![text_part("done")]],
+            EchoTool {
+                requires_approval: false,
+            },
+            4,
+        );
+        agent.queue_injection("remember this".to_string());
+        let mut ui = MockUi::default();
+        agent.run_turn("real prompt", &mut ui).await.unwrap();
+        agent.undo(1);
+        assert_eq!(agent.history().len(), 1);
+        assert_eq!(agent.history()[0].text(), "remember this");
+        assert!(matches!(
+            agent.history()[0].origin,
+            Some(MessageOrigin::Injection { .. })
+        ));
+    }
+
+    #[test]
+    fn undo_stops_at_a_compaction_summary_and_counts_user_slash_skills() {
+        let mut agent = agent_with(
+            vec![],
+            EchoTool {
+                requires_approval: false,
+            },
+            4,
+        );
+        agent.history = vec![
+            user_prompt("ancient"),
+            Message::assistant(vec![text_content("old")], vec![])
+                .with_origin(MessageOrigin::CompactionSummary),
+            user_prompt("turn one"),
+            Message::assistant(vec![text_content("answer one")], vec![]),
+            injection_message("injected"),
+            Message::user("slash skill").with_origin(MessageOrigin::SkillActivation {
+                trigger: "user-slash".to_string(),
+            }),
+            Message::assistant(vec![text_content("answer slash")], vec![]),
+            Message::user("model skill").with_origin(MessageOrigin::SkillActivation {
+                trigger: "model".to_string(),
+            }),
+            user_prompt("turn latest"),
+            Message::assistant(vec![text_content("answer latest")], vec![]),
+        ];
+
+        agent.undo(0);
+        assert_eq!(agent.history().len(), 10);
+
+        agent.undo(1);
+        assert_eq!(agent.history().last().unwrap().text(), "model skill");
+
+        agent.undo(1);
+        assert_eq!(agent.history().last().unwrap().text(), "injected");
+        assert!(
+            agent
+                .history()
+                .iter()
+                .any(|message| message.text() == "turn one")
+        );
+
+        agent.undo(1);
+        assert_eq!(
+            agent
+                .history()
+                .iter()
+                .map(|message| message.text())
+                .collect::<Vec<_>>(),
+            vec!["ancient", "old", "injected"]
+        );
+        assert!(matches!(
+            agent.history()[1].origin,
+            Some(MessageOrigin::CompactionSummary)
+        ));
+
+        agent.undo(5);
+        assert_eq!(
+            agent
+                .history()
+                .iter()
+                .map(|message| message.text())
+                .collect::<Vec<_>>(),
+            vec!["ancient", "old", "injected"]
+        );
+    }
+
+    fn text_content(text: &str) -> ContentPart {
+        ContentPart::Text {
+            text: text.to_string(),
+        }
     }
 }

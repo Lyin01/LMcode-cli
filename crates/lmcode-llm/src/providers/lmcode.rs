@@ -165,6 +165,7 @@ impl LmcodeProvider {
             return Err(LlmError::Api {
                 status: status.as_u16(),
                 message: openai::extract_error_message(&body),
+                retry_after_ms: None,
             });
         }
         #[derive(serde::Deserialize)]
@@ -174,6 +175,7 @@ impl LmcodeProvider {
         let file: FileObject = response.json().await.map_err(|source| LlmError::Api {
             status: status.as_u16(),
             message: format!("file upload response parse failed: {source}"),
+            retry_after_ms: None,
         })?;
         Ok(ContentPart::VideoUrl {
             video_url: crate::message::ImageUrl {
@@ -231,6 +233,7 @@ impl ChatProvider for LmcodeProvider {
             return Err(LlmError::Api {
                 status: status.as_u16(),
                 message: openai::extract_error_message(&body),
+                retry_after_ms: None,
             });
         }
 

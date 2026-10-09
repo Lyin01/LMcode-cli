@@ -16,7 +16,8 @@ pub mod usage;
 
 pub use error::LlmError;
 pub use message::{
-    ContentPart, ImageUrl, Message, Role, StreamedMessagePart, ToolCall, merge_in_place,
+    ContentPart, ImageUrl, Message, MessageOrigin, Role, StreamedMessagePart, ToolCall,
+    merge_in_place,
 };
 pub use provider::{
     BoxStream, ChatProvider, FinishReason, GenerateOptions, StreamSummary, StreamedMessage,

@@ -22,7 +22,7 @@
 
 | TS | Rust | 总状态 |
 | --- | --- | --- |
-| `packages/liumir` | `crates/lmcode-llm` | 部分。六个 provider 都有流式实现和 e2e 测试，能力目录、catalog、工具结果里的图片折成下一条 user 消息还没有 |
+| `packages/liumir` | `crates/lmcode-llm` | 部分。六个 provider 都有流式实现和 e2e 测试。OpenAI Chat Completions 会把工具结果里的图片、音频、视频折成紧随其后的 user 消息。能力目录和 catalog 还没有 |
 | `packages/agent-core` | `crates/lmcode-core` + `crates/lmcode-mcp` | 部分。轮次、会话、一批工具、权限链在；注入器、电脑操作控制器、插件、OAuth、hooks、records 不在 |
 | `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在，压缩和退出会调用提取器。MemoryEdit 在 `lmcode-core` |
 | `packages/config` | 没有独立 crate。身份头（device id、User-Agent）缺失。运行配置读在 `lmcode-core/src/config.rs` | 部分 |
@@ -40,7 +40,7 @@
 | TS | Rust | 状态 | 缺口 |
 | --- | --- | --- | --- |
 | `message.ts` / `generate.ts` / `provider.ts` / `tool.ts` / `usage.ts` / `sse`（在 provider 流里） | `message.rs` `generate.rs` `provider.rs` `tool.rs` `usage.rs` `sse.rs` | 已有 | 流式组装有单测 |
-| `providers/openai.ts` + `openai-legacy.ts` + `chat-completions-stream.ts` | `providers/openai.rs` | 部分 | 文本、工具、媒体数组有测试。TS 会把 tool 消息里的图片折成紧随其后的 user 消息，否则 Chat Completions 会把截图降级成文本。Rust 这条路径没有 |
+| `providers/openai.ts` + `openai-legacy.ts` + `chat-completions-stream.ts` | `providers/openai.rs` | 已有 | 文本、工具、媒体数组有测试。工具结果里的图片、音频、视频留在存储的 tool 消息上，写到请求里时文本仍挂在 `tool`，媒体折成该组工具消息之后的一条 user 消息 |
 | `providers/anthropic.ts` | `providers/anthropic.rs` | 已有 | e2e |
 | `providers/openai-responses.ts` | `providers/responses.rs` | 已有 | e2e |
 | `providers/google-genai.ts` | `providers/genai.rs` | 已有 | thought / thoughtSignature、functionCall 有测试 |
@@ -78,12 +78,12 @@
 
 | TS | Rust | 状态 | 缺口 |
 | --- | --- | --- | --- |
-| `agent/turn` + `loop/run-turn.ts` `loop/turn-step.ts` | `agent.rs` 的 `run_turn` | 部分 | 有工具循环、取消、步数上限、用量累计。没有溢出后的 `chatWithRetry`、steer、spec-critic、visual auditor、anchored bootstrap、工具去重 |
-| `loop/retry.ts` | 无 | 缺失 | 上下文溢出应立刻暴露给压缩，而不是重试三次 |
+| `agent/turn` + `loop/run-turn.ts` `loop/turn-step.ts` | `agent.rs` 的 `run_turn` | 部分 | 有工具循环、取消、步数上限、用量累计、溢出后压缩、steer。没有 spec-critic、visual auditor、anchored bootstrap、工具去重。流式中途断开不重试 |
+| `loop/retry.ts` | `retry.rs`，由 `generate_with_retry` 调用 | 已有 | 上下文溢出第一次就返回，轮次接着压缩；压不出安全切分时错误交回调用方。503 这类可重试错误会再试，`retry_after_ms` 为 0 时不等待。没有 TS 的随机抖动 |
 | `agent/compaction/*` | `compaction.rs` | 部分 | micro + full 有单测。触发比例、工作集上限、阻塞压缩超时、连续失败断路器没有按 TS 的 50% / 75% / 85% 和 `loop_control` 配齐 |
 | `agent/context/*`（media-budget、projector、tool-output-limits） | 压缩投影里有一块 | 部分 | 工具图数量上限、媒体预算没有独立实现 |
 | `agent/session-memory.ts` | `session_memory.rs` | 已有 | 压缩后注入有单测 |
-| `session/store/*` | `session.rs` | 部分 | create / load / latest / list / save。没有 delete、rename、fork、metadata、undo |
+| `session/store/*` | `session.rs` | 部分 | create / load / latest / list / save / delete / rename / fork。rename 拒绝空白标题，并写 `isCustomTitle`，之后的 save 不再用第一条用户消息覆盖标题。fork 复制消息、换新 id、写 `forkedFrom`，源会话不动。delete 对已经不存在的会话也成功。没有 lastPrompt、agents 元数据。undo 在 `agent.rs`：跳过 injection，停在 compaction summary，`user-slash` 的技能激活算一次用户提示 |
 | `session/export/*` | `lmcode-cli/src/export.rs` | 部分 | CLI 能打 ZIP。字段是否与 legacy manifest 逐字节一致，以 `docs/CLI_PARITY.md` 为准，本清单没有复跑 |
 | `session/hooks/*` `session/git-context.ts` `session/subagent-host.ts` | 无 | 缺失 | 用户 hooks、git 上下文注入、子代理宿主 |
 | `agent/records/*` `agent/replay/*` | 无独立事件日志 | 不移植为原样 | 目标语义是会话 JSON 能恢复 goal / cron / 消息。TS 的 record migration v1.1–v1.3 没有 Rust 版 |
@@ -203,7 +203,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 2. `packages/memory/src/extractor.ts` → `lmcode-memory`。解析已移植。压缩和退出已调用它。
 3. TodoList、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMediaFile 已接到 CLI 和 Tauri。AskUserQuestion 已接到轮次循环和 CLI readline。TUI、Tauri、stream-json 的提问仍回复不支持，Electron 提问弹窗还没接上。模型能力位还没从配置读出，ReadMediaFile 默认只开图片。
 4. 权限策略链和文件沙箱已接到轮次循环。`permission` / `loop_control` / `computer_use` 写回后再读是同一份。其余配置节仍会在整文件重写时留在 `extra` 里；没建模的字段不会变成类型化配置。
-5. 轮次缺口：重试与溢出、steer、undo、会话 delete / rename / fork。
+5. 轮次重试、溢出后压缩、steer、undo、会话 delete / rename / fork、OpenAI 工具结果图片折进下一条 user 消息。已接到轮次循环。spec-critic、visual auditor、anchored bootstrap、工具去重、流式中途重试仍然没有。
 6. 电脑操作控制器，以及 MCP OAuth。
 7. 注入器里桌面会看见的那几条：电脑操作契约、待办、偏好、pending tasks。
 8. `lmcode-app-server`：先覆盖 thread + turn + approval，再补 goal / cron / mcp / memory / config。
@@ -219,7 +219,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 - 接到压缩和退出的提交把原先未跟踪的 `lmcode-core`、`lmcode-llm`、`lmcode-mcp`、`lmcode-cli`、`lmcode-tui`、`lmcode-desktop` 一并记下来。这些 crate 里的大部分代码是接线之前就在工作区里的，不是这次新移植的。没有跑过 `cargo test --workspace`。这次跑的是 `cargo test -p lmcode-memory -p lmcode-core`，以及 `cargo check -p lmcode-cli -p lmcode-tui -p lmcode-desktop`。
 - 退出提取没有 `utility_model`，用的是当前会话 provider。没有把进行中的第二次提取并到同一次调用上。未变化判断用历史指纹，不是 TS 的 context revision。Rust `update` 不重写 FTS，TS 全文搜索在 Rust 改过一条备忘录后可能仍命中旧文本。
 - `permission`、`loop_control`、`computer_use` 已能写回。`utility_model`、`thinking`、`hooks`、`services`、`background`、模型 capabilities 仍然不是类型化字段；未知顶层表会原样保留。
-- OpenAI 兼容路径没有把工具结果里的图片折成 user 消息。电脑操作一旦接上，截图对 `type = "openai"` 的模型不可见。
+- OpenAI 兼容路径会把工具结果里的图片折成下一条 user 消息。存储的 tool 消息仍保留 image part。
 - 桌面仍然进程内调用 TS 核心。`crates/lmcode-desktop` 是平行的 Tauri 程序，不是这条切换。
 - `packages/ltod` 没有源码，不用迁。
 - `records/replay` 不按原事件日志移植；会话 JSON 必须仍能恢复消息、goal 和 cron，这件事要用测试钉住，而不是写在注释里。

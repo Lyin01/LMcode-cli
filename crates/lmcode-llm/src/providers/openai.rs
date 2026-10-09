@@ -94,6 +94,7 @@ impl ChatProvider for OpenAiChatProvider {
             return Err(LlmError::Api {
                 status: status.as_u16(),
                 message: extract_error_message(&body),
+                retry_after_ms: None,
             });
         }
 
@@ -284,7 +285,7 @@ pub(crate) fn build_request_body(
     if !system_prompt.is_empty() {
         messages.push(json!({ "role": "system", "content": system_prompt }));
     }
-    messages.extend(history.iter().map(message_to_wire));
+    messages.extend(history_to_wire(history));
 
     let mut body = json!({
         "model": model,
@@ -309,6 +310,56 @@ pub(crate) fn build_request_body(
         );
     }
     body
+}
+
+/// Chat Completions rejects media on a `tool` message. The text stays on
+/// the tool message so every `tool_call_id` is answered in place, and the
+/// images (plus audio and video) are re-sent as one user message after the
+/// tool group — the role this API accepts media on.
+fn history_to_wire(history: &[Message]) -> Vec<Value> {
+    let mut messages = Vec::with_capacity(history.len());
+    let mut pending_media = Vec::new();
+    for message in history {
+        if message.role != Role::Tool {
+            flush_tool_media(&mut messages, &mut pending_media);
+            messages.push(message_to_wire(message));
+            continue;
+        }
+        messages.push(message_to_wire(message));
+        pending_media.extend(media_wire_parts(message));
+    }
+    flush_tool_media(&mut messages, &mut pending_media);
+    messages
+}
+
+fn flush_tool_media(messages: &mut Vec<Value>, pending_media: &mut Vec<Value>) {
+    if pending_media.is_empty() {
+        return;
+    }
+    let parts = std::mem::take(pending_media);
+    messages.push(json!({ "role": "user", "content": parts }));
+}
+
+fn media_wire_parts(message: &Message) -> Vec<Value> {
+    message
+        .content
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::ImageUrl { image_url } => Some(json!({
+                "type": "image_url",
+                "image_url": media_url_value(image_url),
+            })),
+            ContentPart::VideoUrl { video_url } => Some(json!({
+                "type": "video_url",
+                "video_url": media_url_value(video_url),
+            })),
+            ContentPart::AudioUrl { audio_url } => Some(json!({
+                "type": "audio_url",
+                "audio_url": media_url_value(audio_url),
+            })),
+            ContentPart::Text { .. } | ContentPart::Think { .. } => None,
+        })
+        .collect()
 }
 
 fn message_to_wire(message: &Message) -> Value {
@@ -579,6 +630,7 @@ mod tests {
             tool_calls: Vec::new(),
             tool_call_id: None,
             partial: None,
+            origin: None,
         };
         let wire = message_to_wire(&message);
         assert_eq!(wire["role"], "user");
@@ -604,6 +656,7 @@ mod tests {
             tool_calls: Vec::new(),
             tool_call_id: None,
             partial: None,
+            origin: None,
         };
         let wire = message_to_wire(&audio);
         assert_eq!(
@@ -614,5 +667,84 @@ mod tests {
         // Plain text messages keep the string form.
         let plain = message_to_wire(&Message::user("hi"));
         assert_eq!(plain["content"], "hi");
+    }
+
+    #[test]
+    fn tool_result_images_are_redelivered_as_the_following_user_message() {
+        // A screenshot has to reach the model, but Chat Completions refuses
+        // media on `tool` messages. The text stays on the tool message and
+        // the images follow the whole tool group as one user message.
+        let history = vec![
+            Message::user("Look at the window"),
+            Message::assistant(
+                vec![ContentPart::Text {
+                    text: "Capturing.".to_string(),
+                }],
+                vec![
+                    ToolCall::new("call_1", "add", Some("{}".to_string())),
+                    ToolCall::new("call_2", "multiply", Some("{}".to_string())),
+                ],
+            ),
+            Message::tool_result_parts(
+                "call_1",
+                vec![
+                    ContentPart::Text {
+                        text: "first".to_string(),
+                    },
+                    ContentPart::ImageUrl {
+                        image_url: crate::message::ImageUrl {
+                            url: "https://example.com/first.png".to_string(),
+                            id: None,
+                        },
+                    },
+                ],
+            ),
+            Message::tool_result_parts(
+                "call_2",
+                vec![
+                    ContentPart::Text {
+                        text: "second".to_string(),
+                    },
+                    ContentPart::ImageUrl {
+                        image_url: crate::message::ImageUrl {
+                            url: "https://example.com/second.png".to_string(),
+                            id: None,
+                        },
+                    },
+                    ContentPart::AudioUrl {
+                        audio_url: crate::message::ImageUrl {
+                            url: "https://example.com/second.mp3".to_string(),
+                            id: None,
+                        },
+                    },
+                ],
+            ),
+        ];
+        let body = build_request_body("gpt-4o", "", &[], &history);
+        let messages = body["messages"].as_array().unwrap();
+        let roles: Vec<&str> = messages
+            .iter()
+            .map(|message| message["role"].as_str().unwrap())
+            .collect();
+        assert_eq!(roles, ["user", "assistant", "tool", "tool", "user"]);
+        assert_eq!(messages[2]["content"], "first");
+        assert_eq!(messages[2]["tool_call_id"], "call_1");
+        assert!(messages[2]["content"].is_string());
+        assert_eq!(messages[3]["content"], "second");
+        assert_eq!(messages[3]["tool_call_id"], "call_2");
+        assert_eq!(
+            messages[4]["content"],
+            json!([
+                { "type": "image_url", "image_url": { "url": "https://example.com/first.png" } },
+                { "type": "image_url", "image_url": { "url": "https://example.com/second.png" } },
+                { "type": "audio_url", "audio_url": { "url": "https://example.com/second.mp3" } }
+            ])
+        );
+        // The stored tool result still carries the image. Folding is a wire
+        // conversion, not a rewrite of the conversation.
+        assert!(matches!(
+            history[2].content[1],
+            ContentPart::ImageUrl { .. }
+        ));
     }
 }

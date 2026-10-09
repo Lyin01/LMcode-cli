@@ -189,7 +189,9 @@ async fn surfaces_api_errors() {
         Ok(_) => panic!("expected an API error"),
     };
     match error {
-        lmcode_llm::LlmError::Api { status, message } => {
+        lmcode_llm::LlmError::Api {
+            status, message, ..
+        } => {
             assert_eq!(status, 401);
             assert_eq!(message, "invalid x-api-key");
         }

@@ -99,6 +99,7 @@ impl ChatProvider for GenaiProvider {
             return Err(LlmError::Api {
                 status: status.as_u16(),
                 message: extract_error_message(&body),
+                retry_after_ms: None,
             });
         }
 
@@ -586,6 +587,7 @@ mod tests {
             tool_calls: Vec::new(),
             tool_call_id: None,
             partial: None,
+            origin: None,
         };
         let contents = build_contents(std::slice::from_ref(&message));
         let parts = contents[0]["parts"].as_array().unwrap();

@@ -171,6 +171,7 @@ impl ChatProvider for VertexProvider {
             return Err(LlmError::Api {
                 status: status.as_u16(),
                 message: genai::extract_error_message(&body),
+                retry_after_ms: None,
             });
         }
 
@@ -246,11 +247,13 @@ async fn fetch_service_account_token(
         return Err(LlmError::Api {
             status: status.as_u16(),
             message: format!("vertex token exchange failed: {body}"),
+            retry_after_ms: None,
         });
     }
     let token: TokenResponse = response.json().await.map_err(|source| LlmError::Api {
         status: status.as_u16(),
         message: format!("vertex token response parse failed: {source}"),
+        retry_after_ms: None,
     })?;
     Ok(CachedToken {
         access_token: token.access_token,

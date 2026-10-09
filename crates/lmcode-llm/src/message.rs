@@ -16,6 +16,25 @@ pub enum Role {
     Tool,
 }
 
+/// Why a message is in the history.
+///
+/// Undo uses this to tell a real user prompt from an injection, and to stop
+/// at a compaction summary instead of walking through it. Field names match
+/// the TypeScript `origin.kind` tags.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MessageOrigin {
+    User,
+    Injection {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        variant: Option<String>,
+    },
+    CompactionSummary,
+    SkillActivation {
+        trigger: String,
+    },
+}
+
 /// Payload of an `image_url` content part.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageUrl {
@@ -96,6 +115,10 @@ pub struct Message {
     pub tool_call_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partial: Option<bool>,
+    /// Absent on messages written before origins existed. Those still count
+    /// as ordinary user prompts when the role is `user`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<MessageOrigin>,
 }
 
 impl Message {
@@ -108,6 +131,7 @@ impl Message {
             tool_calls: Vec::new(),
             tool_call_id: None,
             partial: None,
+            origin: None,
         }
     }
 
@@ -129,6 +153,7 @@ impl Message {
             tool_calls: Vec::new(),
             tool_call_id: None,
             partial: None,
+            origin: None,
         }
     }
 
@@ -141,6 +166,7 @@ impl Message {
             tool_calls,
             tool_call_id: None,
             partial: None,
+            origin: None,
         }
     }
 
@@ -163,6 +189,28 @@ impl Message {
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
             partial: None,
+            origin: None,
+        }
+    }
+
+    /// Attach an origin marker (user prompt, injection, compaction summary).
+    pub fn with_origin(mut self, origin: MessageOrigin) -> Self {
+        self.origin = Some(origin);
+        self
+    }
+
+    /// Whether undo should count this message as one user prompt.
+    ///
+    /// Plain user messages count. So do user-typed skill activations.
+    /// Injections, compaction summaries, and model-triggered skills do not.
+    pub fn is_real_user_prompt(&self) -> bool {
+        if self.role != Role::User {
+            return false;
+        }
+        match &self.origin {
+            None | Some(MessageOrigin::User) => true,
+            Some(MessageOrigin::SkillActivation { trigger }) => trigger == "user-slash",
+            Some(MessageOrigin::Injection { .. } | MessageOrigin::CompactionSummary) => false,
         }
     }
 

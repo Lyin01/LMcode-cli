@@ -94,6 +94,7 @@ impl ChatProvider for AnthropicProvider {
             return Err(LlmError::Api {
                 status: status.as_u16(),
                 message: extract_error_message(&body),
+                retry_after_ms: None,
             });
         }
 
