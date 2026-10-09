@@ -24,7 +24,7 @@
 | --- | --- | --- |
 | `packages/liumir` | `crates/lmcode-llm` | 部分。六个 provider 都有流式实现和 e2e 测试，能力目录、catalog、工具结果里的图片折成下一条 user 消息还没有 |
 | `packages/agent-core` | `crates/lmcode-core` + `crates/lmcode-mcp` | 部分。轮次、会话、一批工具在；权限链、注入器、电脑操作、插件、OAuth、hooks、records 不在 |
-| `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在，压缩和退出会调用提取器。还没有 MemoryEdit |
+| `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在，压缩和退出会调用提取器。MemoryEdit 在 `lmcode-core` |
 | `packages/config` | 没有独立 crate。身份头（device id、User-Agent）缺失。运行配置读在 `lmcode-core/src/config.rs` | 部分 |
 | `packages/jian` | 没有 crate。Read / Write / Bash 直接打本机文件系统和进程 | 部分。没有可替换的执行环境，也没有沙箱实现 |
 | `packages/node-sdk` | 没有。CLI 和 Tauri 直接链 `lmcode-core` | 缺失。这层就是要新做的 app-server |
@@ -125,8 +125,7 @@ TS 注册表在 `tools/builtin/index.ts`。
 | MultiEdit ReadGroup ReadMedia | 无 | 缺失 |
 | EnterPlanMode ExitPlanMode | `tools/planning.rs` | 已有 |
 | CreateGoal GetGoal UpdateGoal SetGoalBudget WriteGoalNote | `tools/goal.rs` | 已有 |
-| MemoryLookup MemoryWrite MemoryConsolidatePlan MemoryConsolidateApply | `tools/memory.rs` | 已有 |
-| MemoryEdit | 无 | 缺失 |
+| MemoryLookup MemoryWrite MemoryEdit MemoryConsolidatePlan MemoryConsolidateApply | `tools/memory.rs` | 已有。MemoryEdit 按 id 局部更新或删除，不需要审批；省略的字段保留，tags 走 normalize |
 | Skill Agent WolfPack | `tools/skill.rs` `tools/collaboration.rs` | 已有 |
 | AskUser | 无 | 缺失。桌面问题弹窗靠这个工具把 `QuestionRequest` 送上来 |
 | TodoWrite | 无 | 缺失 |
@@ -203,7 +202,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 
 1. 本清单。已写入。
 2. `packages/memory/src/extractor.ts` → `lmcode-memory`。解析已移植。压缩和退出已调用它。
-3. 补 MemoryEdit、TodoWrite、AskUser、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMedia。桌面提问弹窗卡在 AskUser。
+3. 补 TodoWrite、AskUser、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMedia。桌面提问弹窗卡在 AskUser。MemoryEdit 已接到 CLI 和 Tauri 的工具表。
 4. 权限策略链和文件沙箱，加上 config 里 `permission` / `loop_control` / `computer_use` 的读写。不写回的字段，设置面板会丢。
 5. 轮次缺口：重试与溢出、steer、undo、会话 delete / rename / fork。
 6. 电脑操作控制器，以及 MCP OAuth。

@@ -27,7 +27,8 @@ pub use glob::GlobTool;
 pub use grep::GrepTool;
 pub use mcp::McpToolAdapter;
 pub use memory::{
-    MemoryConsolidateApplyTool, MemoryConsolidatePlanTool, MemoryLookupTool, MemoryWriteTool,
+    MemoryConsolidateApplyTool, MemoryConsolidatePlanTool, MemoryEditTool, MemoryLookupTool,
+    MemoryWriteTool,
 };
 pub use read::ReadTool;
 pub use skill::SkillTool;

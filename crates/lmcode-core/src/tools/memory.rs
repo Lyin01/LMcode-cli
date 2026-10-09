@@ -1,4 +1,4 @@
-//! Memory tools — `MemoryLookup` and `MemoryWrite` — backed by `lmcode-memory`.
+//! Memory tools — lookup, write, edit, and consolidation — backed by `lmcode-memory`.
 //!
 //! Mirrors the observable contract of `tools/builtin/memory/*.ts`: the same
 //! parameter names, defaults, and output formats.
@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use lmcode_memory::{
-    ConsolidationPlan, EmbeddingEngine, MemoKind, MemoStore, ScoredMemo, build_embedding_text,
-    cosine_similarity, generate_tags, normalize_tags, rank_memos,
+    ConsolidationPlan, EmbeddingEngine, MemoKind, MemoPatch, MemoStore, ScoredMemo,
+    build_embedding_text, cosine_similarity, generate_tags, normalize_tags, rank_memos,
 };
 use serde_json::json;
 
@@ -502,5 +502,332 @@ impl Tool for MemoryConsolidateApplyTool {
         })
         .await
         .map_err(|error| format!("memory consolidation task failed: {error}"))?
+    }
+}
+
+/// `MemoryEdit` — correct or delete one memo by id.
+pub struct MemoryEditTool {
+    store: Option<Arc<MemoStore>>,
+}
+
+impl MemoryEditTool {
+    pub fn new(store: Arc<MemoStore>) -> Self {
+        Self { store: Some(store) }
+    }
+
+    #[cfg(test)]
+    fn without_store() -> Self {
+        Self { store: None }
+    }
+}
+
+#[async_trait]
+impl Tool for MemoryEditTool {
+    fn name(&self) -> &str {
+        "MemoryEdit"
+    }
+
+    fn description(&self) -> &str {
+        "Update or delete a single memory memo by id. \
+         Use this when the user says a memory is wrong, outdated, or should be removed, \
+         or when you need to correct a specific memo after reviewing it. \
+         For updates, only the fields provided are changed; omitted fields are preserved. \
+         Deletion is permanent."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The id of the memory memo to edit or delete."
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["update", "delete"],
+                    "description": "'update' modifies the memo; 'delete' removes it permanently."
+                },
+                "updates": {
+                    "type": "object",
+                    "description": "Fields to update when action is update.",
+                    "properties": {
+                        "userNeed": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Updated user need or goal."
+                        },
+                        "approach": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Updated approach taken."
+                        },
+                        "outcome": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Updated outcome."
+                        },
+                        "whatFailed": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Updated dead-ends notes."
+                        },
+                        "whatWorked": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Updated successful actions."
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Updated semantic tags (e.g. [\"react\", \"auth\", \"部署\"])."
+                        }
+                    }
+                }
+            },
+            "required": ["id", "action"]
+        })
+    }
+
+    fn requires_approval(&self) -> bool {
+        false
+    }
+
+    async fn execute(&self, arguments: &serde_json::Value, _cwd: &Path) -> Result<String, String> {
+        let Some(store) = self.store.clone() else {
+            return Err("Memory memo store is not available.".to_string());
+        };
+        let id = arguments["id"].as_str().unwrap_or("").to_string();
+        let action = arguments["action"]
+            .as_str()
+            .ok_or("action must be update or delete")?
+            .to_string();
+        let updates = arguments.get("updates").cloned();
+        tokio::task::spawn_blocking(move || edit_memo(&store, &id, &action, updates.as_ref()))
+            .await
+            .map_err(|error| format!("memory edit task failed: {error}"))?
+    }
+}
+
+fn edit_memo(
+    store: &MemoStore,
+    id: &str,
+    action: &str,
+    updates: Option<&serde_json::Value>,
+) -> Result<String, String> {
+    let existing = store.find_by_id(id).map_err(|error| error.to_string())?;
+    if existing.is_none() {
+        return Err(format!("Memory memo \"{id}\" not found."));
+    }
+
+    if action == "delete" {
+        store.delete(id).map_err(|error| error.to_string())?;
+        return Ok(format!("Deleted memory memo \"{id}\"."));
+    }
+    if action != "update" {
+        return Err("action must be update or delete".to_string());
+    }
+
+    let patch = match updates {
+        Some(value) => memo_patch(value)?,
+        None => return Err("No updates provided.".to_string()),
+    };
+    let updated = store
+        .update(id, &patch)
+        .map_err(|error| error.to_string())?;
+    if !updated {
+        return Err(format!("Memory memo \"{id}\" not found."));
+    }
+    Ok(format!("Updated memory memo \"{id}\"."))
+}
+
+/// Build a patch from the `updates` object. An empty object is "No updates".
+/// A present `tags` array is a patch even when it is empty.
+fn memo_patch(updates: &serde_json::Value) -> Result<MemoPatch, String> {
+    let object = updates.as_object().ok_or("updates must be an object")?;
+    let mut patch = MemoPatch::default();
+    let mut any = false;
+    patch.user_need = required_text(object, "userNeed", &mut any)?;
+    patch.approach = required_text(object, "approach", &mut any)?;
+    patch.outcome = required_text(object, "outcome", &mut any)?;
+    patch.what_failed = required_text(object, "whatFailed", &mut any)?;
+    patch.what_worked = required_text(object, "whatWorked", &mut any)?;
+    if let Some(value) = object.get("tags") {
+        let items = value.as_array().ok_or("tags must be an array")?;
+        let mut raw = Vec::with_capacity(items.len());
+        for item in items {
+            let tag = item.as_str().ok_or("tags must be an array of strings")?;
+            raw.push(tag.to_string());
+        }
+        patch.tags = Some(normalize_tags(raw, 5));
+        any = true;
+    }
+    if !any {
+        return Err("No updates provided.".to_string());
+    }
+    Ok(patch)
+}
+
+fn required_text(
+    object: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    any: &mut bool,
+) -> Result<Option<String>, String> {
+    let Some(value) = object.get(key) else {
+        return Ok(None);
+    };
+    let Some(text) = value.as_str() else {
+        return Err(format!("{key} must be a non-empty string"));
+    };
+    if text.is_empty() {
+        return Err(format!("{key} must be a non-empty string"));
+    }
+    *any = true;
+    Ok(Some(text.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use serde_json::json;
+
+    fn open_store() -> (tempfile::TempDir, Arc<MemoStore>) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MemoStore::open(&dir.path().join("memos.sqlite")).unwrap());
+        (dir, store)
+    }
+
+    fn remember(store: &MemoStore, id: &str) {
+        let mut memo = lmcode_memory::MemoryMemo::new(
+            "Need",
+            "Approach",
+            "完成",
+            "s1",
+            "/proj",
+            MemoKind::Task,
+            vec!["old".to_string()],
+        );
+        memo.id = id.to_string();
+        memo.what_failed = "none".to_string();
+        memo.what_worked = "none".to_string();
+        memo.extraction_source = "exit".to_string();
+        store.append(&memo).unwrap();
+    }
+
+    #[test]
+    fn exposes_name_description_and_action_enum() {
+        let tool = MemoryEditTool::without_store();
+        assert_eq!(tool.name(), "MemoryEdit");
+        assert!(tool.description().contains("Update or delete"));
+        assert!(tool.description().contains("id"));
+        assert!(!tool.requires_approval());
+        let schema = tool.parameters_schema();
+        let actions = schema["properties"]["action"]["enum"].as_array().unwrap();
+        assert!(actions.iter().any(|value| value == "update"));
+        assert!(actions.iter().any(|value| value == "delete"));
+        assert!(actions.iter().all(|value| value != "bad"));
+    }
+
+    #[tokio::test]
+    async fn updates_selected_fields_while_preserving_others() {
+        let (_dir, store) = open_store();
+        remember(&store, "m1");
+        let tool = MemoryEditTool::new(Arc::clone(&store));
+        let output = tool
+            .execute(
+                &json!({"id": "m1", "action": "update", "updates": {"outcome": "失败"}}),
+                Path::new("."),
+            )
+            .await
+            .unwrap();
+        assert!(output.contains("Updated"));
+        let loaded = store.find_by_id("m1").unwrap().unwrap();
+        assert_eq!(loaded.outcome, "失败");
+        assert_eq!(loaded.user_need, "Need");
+        assert_eq!(loaded.tags, vec!["old"]);
+        assert_eq!(loaded.approach, "Approach");
+    }
+
+    #[tokio::test]
+    async fn updates_tags_and_accepts_an_empty_tag_list() {
+        let (_dir, store) = open_store();
+        remember(&store, "m1");
+        let tool = MemoryEditTool::new(Arc::clone(&store));
+        let output = tool
+            .execute(
+                &json!({"id": "m1", "action": "update", "updates": {"tags": ["React", "Auth"]}}),
+                Path::new("."),
+            )
+            .await
+            .unwrap();
+        assert!(output.contains("Updated"));
+        assert_eq!(
+            store.find_by_id("m1").unwrap().unwrap().tags,
+            vec!["react", "auth"]
+        );
+
+        tool.execute(
+            &json!({"id": "m1", "action": "update", "updates": {"tags": []}}),
+            Path::new("."),
+        )
+        .await
+        .unwrap();
+        assert!(store.find_by_id("m1").unwrap().unwrap().tags.is_empty());
+    }
+
+    #[tokio::test]
+    async fn deletes_a_memo_by_id() {
+        let (_dir, store) = open_store();
+        remember(&store, "m1");
+        let tool = MemoryEditTool::new(store.clone());
+        let output = tool
+            .execute(&json!({"id": "m1", "action": "delete"}), Path::new("."))
+            .await
+            .unwrap();
+        assert!(output.contains("Deleted"));
+        assert!(store.find_by_id("m1").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn missing_memo_and_omitted_updates_are_errors() {
+        let (_dir, store) = open_store();
+        remember(&store, "m1");
+        let tool = MemoryEditTool::new(Arc::clone(&store));
+
+        let missing = tool
+            .execute(
+                &json!({"id": "missing", "action": "update", "updates": {"outcome": "失败"}}),
+                Path::new("."),
+            )
+            .await
+            .unwrap_err();
+        assert!(missing.contains("not found"), "{missing}");
+
+        let omitted = tool
+            .execute(&json!({"id": "m1", "action": "update"}), Path::new("."))
+            .await
+            .unwrap_err();
+        assert!(omitted.contains("No updates"), "{omitted}");
+
+        let empty = tool
+            .execute(
+                &json!({"id": "m1", "action": "update", "updates": {}}),
+                Path::new("."),
+            )
+            .await
+            .unwrap_err();
+        assert!(empty.contains("No updates"), "{empty}");
+        assert_eq!(store.find_by_id("m1").unwrap().unwrap().outcome, "完成");
+    }
+
+    #[tokio::test]
+    async fn missing_store_is_unavailable() {
+        let tool = MemoryEditTool::without_store();
+        let error = tool
+            .execute(&json!({"id": "x", "action": "delete"}), Path::new("."))
+            .await
+            .unwrap_err();
+        assert!(error.contains("not available"), "{error}");
     }
 }

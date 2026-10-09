@@ -17,7 +17,7 @@ use lmcode_core::config::{load_config, resolve_model};
 use lmcode_core::session::SessionStore;
 use lmcode_core::tools::{
     BashTool, EditTool, GlobTool, GrepTool, MemoryConsolidateApplyTool, MemoryConsolidatePlanTool,
-    MemoryLookupTool, MemoryWriteTool, ReadTool, SkillTool, Tool, WriteTool,
+    MemoryEditTool, MemoryLookupTool, MemoryWriteTool, ReadTool, SkillTool, Tool, WriteTool,
 };
 use lmcode_llm::providers::create_provider;
 use lmcode_memory::MemoStore;
@@ -541,6 +541,7 @@ async fn main() -> anyhow::Result<()> {
                 session_id,
                 embedding_engine.clone(),
             )));
+            tools.push(Arc::new(MemoryEditTool::new(Arc::clone(&memo_store))));
             tools.push(Arc::new(MemoryConsolidatePlanTool::new(Arc::clone(
                 &memo_store,
             ))));
