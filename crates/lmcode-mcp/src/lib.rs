@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod http;
 pub mod naming;
+pub mod oauth;
 
 pub use client::{McpClient, McpToolDefinition, StdioMcpClient};
 pub use config::{McpServerConfig, load_servers};

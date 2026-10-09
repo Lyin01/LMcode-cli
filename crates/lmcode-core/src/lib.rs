@@ -9,12 +9,14 @@
 pub mod agent;
 pub mod background;
 pub mod compaction;
+pub mod computer_use;
 pub mod config;
 pub mod cron;
 pub mod cron_expr;
 pub mod error;
 pub mod goal;
 pub mod grader;
+pub mod injection;
 pub mod lsp;
 pub mod mcp_manager;
 pub mod permission;

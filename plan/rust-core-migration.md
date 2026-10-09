@@ -23,7 +23,7 @@
 | TS | Rust | 总状态 |
 | --- | --- | --- |
 | `packages/liumir` | `crates/lmcode-llm` | 部分。六个 provider 都有流式实现和 e2e 测试。OpenAI Chat Completions 会把工具结果里的图片、音频、视频折成紧随其后的 user 消息。能力目录和 catalog 还没有 |
-| `packages/agent-core` | `crates/lmcode-core` + `crates/lmcode-mcp` | 部分。轮次、会话、一批工具、权限链在；注入器、电脑操作控制器、插件、OAuth、hooks、records 不在 |
+| `packages/agent-core` | `crates/lmcode-core` + `crates/lmcode-mcp` | 部分。轮次、会话、工具、权限链、电脑操作控制器、桌面可见的四条注入器在。插件、hooks、records 不在。OAuth 的存储、回调和授权 URL 事件在 `lmcode-mcp`；发现和换 token 的 HTTP 交换还不在 |
 | `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在，压缩和退出会调用提取器。MemoryEdit 在 `lmcode-core` |
 | `packages/config` | 没有独立 crate。身份头（device id、User-Agent）缺失。运行配置读在 `lmcode-core/src/config.rs` | 部分 |
 | `packages/jian` | 没有 crate。Read / Write / Bash 直接打本机文件系统和进程 | 部分。没有可替换的执行环境，也没有沙箱实现 |
@@ -105,14 +105,14 @@
 | `agent/wolfpack/*` + Agent / WolfPack 工具 | `subagent.rs` `tools/collaboration.rs` | 部分 | profile 过滤、禁止再委托有单测。权限链在 wolfpack 激活时批准普通调用，且不绕过文件沙箱。模式开关本身还没有 |
 | `agent/background/*` + TaskOutput | `background.rs` `tools/task_output.rs` `tools/task_list.rs` `tools/task_stop.rs` | 已有 | 输出捕获、列表、停止有单测 |
 | `agent/permission/policies/*`（15 个策略） | `permission.rs` `permission_chain.rs` | 已有 | 链的顺序与 TS 一致，yolo 不绕过沙箱。敏感文件在工具层直接拒绝。路径里的 `.git` 段会询问。PreToolCallHook 是用户 hook，不在这条链里。分离式 gitdir 控制目录没有单独解析 |
-| `agent/injection/*` | `agent.rs` 的 `queue_injection` + goal/plan/cron 文本 | 部分 | 没有电脑操作契约、待办、权限模式、近期会话、用户偏好、working set、插件 session-start、pending tasks |
+| `agent/injection/*` | `injection.rs`，由 `Agent::apply_desktop_injections` 在每次模型请求前调用 | 部分 | 电脑操作契约、待办提醒、用户偏好、pending tasks 有契约测试。权限模式、近期会话、working set、插件 session-start 还没有 |
 | `agent/usage/*` | `usage.rs` | 已有 | 按模型累计 |
 | `skill/*` | `skill.rs` `tools/skill.rs` | 部分 | 扫描与注入有单测。没有 dream 内置技能的注册表对齐检查 |
 | `plugin/*` | 无 | 缺失 | 安装、启停、从 GitHub 拉、插件自带 MCP。桌面 CoreAPI 有一整组 plugin 方法；当前 Electron 主进程的 IPC 列表里没有直接露出，CLI 会用到 |
-| `computer-use/*` | 配置节在 `config.rs` | 部分 | `[computer_use]` 能写回再读出。注册槽、激活失败回滚、驱动描述符还没有。桌面有 `getComputerUseStatus` / `setComputerUseEnabled` / 安装驱动 |
+| `computer-use/*` | `computer_use.rs` + `config.rs` 的 `[computer_use]` | 部分 | 独占注册槽、激活前占槽、启动失败回滚、掉线保留槽位、驱动路径和安装配方有单测。进程拉起走 `ComputerUseHost`，还没接到 `McpManager`。`Agent::set_computer_use_active` 是注入器读的开关。桌面 IPC `getComputerUseStatus` / `setComputerUseEnabled` / 安装驱动仍在 Electron 壳 |
 | `lsp/*` + `lsp-tool` | `lsp/*` `tools/lsp.rs` | 已有 | mock 语言服务器有单测 |
 | `mcp/*`（stdio、HTTP、命名） | `lmcode-mcp` + `mcp_manager.rs` + `tools/mcp.rs` | 部分 | stdio、Streamable HTTP、工具名前缀、配置写回有测试 |
-| `mcp/oauth/*` | 无 | 缺失 | 回调服务器、token 存储、授权 URL 事件 |
+| `mcp/oauth/*` | `lmcode-mcp` 的 `oauth.rs` | 部分 | 存储键、JSON 文件、回调服务器、授权 URL 只取一次、authenticate 工具的成功/已授权/失败输出有单测。RFC 9728/8414/7591 发现和 token 端点交换还不在 |
 | `rpc/*`（CoreAPI / SDKAPI，进程内） | 无 JSON-RPC 服务 | 缺失 | 见文末协议。Tauri 命令只覆盖桌面 IPC 的一个子集 |
 
 ### 工具
@@ -204,8 +204,8 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 3. TodoList、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMediaFile 已接到 CLI 和 Tauri。AskUserQuestion 已接到轮次循环和 CLI readline。TUI、Tauri、stream-json 的提问仍回复不支持，Electron 提问弹窗还没接上。模型能力位还没从配置读出，ReadMediaFile 默认只开图片。
 4. 权限策略链和文件沙箱已接到轮次循环。`permission` / `loop_control` / `computer_use` 写回后再读是同一份。其余配置节仍会在整文件重写时留在 `extra` 里；没建模的字段不会变成类型化配置。
 5. 轮次重试、溢出后压缩、steer、undo、会话 delete / rename / fork、OpenAI 工具结果图片折进下一条 user 消息。已接到轮次循环。spec-critic、visual auditor、anchored bootstrap、工具去重、流式中途重试仍然没有。
-6. 电脑操作控制器，以及 MCP OAuth。
-7. 注入器里桌面会看见的那几条：电脑操作契约、待办、偏好、pending tasks。
+6. 电脑操作控制器的决策（占槽、失败回滚、驱动解析、安装配方）和 MCP OAuth 的存储、回调、授权 URL 事件已有契约测试。真实驱动进程还没接到 `McpManager`。授权服务器的 HTTP 发现和换 token 还不在。
+7. 电脑操作契约、待办提醒、用户偏好、pending tasks 已在 `Agent::apply_desktop_injections` 里、每次模型请求前注入。权限模式、近期会话、working set、插件 session-start 还没有。
 8. `lmcode-app-server`：先覆盖 thread + turn + approval，再补 goal / cron / mcp / memory / config。
 9. Electron 主进程改走该客户端。渲染层不动。依赖切完之后再从桌面 `package.json` 去掉 `@lmcode-cli/lmcode-sdk` 和 `@lmcode/memory`。
 10. 回到本文件「剩余问题」，把没做完的和有意留下的分开写清。
@@ -224,3 +224,4 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 - `packages/ltod` 没有源码，不用迁。
 - `records/replay` 不按原事件日志移植；会话 JSON 必须仍能恢复消息、goal 和 cron，这件事要用测试钉住，而不是写在注释里。
 - AskUserQuestion 的 CLI 会真正提问。TUI、Tauri 桌面和 stream-json 还是「客户端不支持」，模型应改在正文里问。Electron 的提问弹窗没有接到这个工具。
+- 电脑操作的进程适配器还没接到 `McpManager`，单测用 `ComputerUseHost`。MCP OAuth 还没有授权服务器发现和 token 端点的 HTTP 交换。

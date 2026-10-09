@@ -102,8 +102,12 @@ fn user_prompt_with_images(text: &str, images: &[String]) -> Message {
 }
 
 fn injection_message(text: impl Into<String>) -> Message {
+    variant_injection(text, "host")
+}
+
+fn variant_injection(text: impl Into<String>, variant: &str) -> Message {
     Message::user(text).with_origin(MessageOrigin::Injection {
-        variant: Some("host".to_string()),
+        variant: Some(variant.to_string()),
     })
 }
 
@@ -232,6 +236,11 @@ pub struct Agent {
     max_retries: u32,
     /// Shared with anything that needs to steer while `run_turn` holds `&mut self`.
     steer: Arc<SteerSlot>,
+    /// When true, the turn restates the desktop operating contract.
+    computer_use_active: bool,
+    computer_use_injector: crate::injection::ComputerUseInjector,
+    preferences_injector: crate::injection::UserPreferencesInjector,
+    pending_injector: crate::injection::PendingTasksInjector,
 }
 
 impl Agent {
@@ -266,7 +275,89 @@ impl Agent {
             compaction_memo_warning: None,
             max_retries: DEFAULT_MAX_RETRY_ATTEMPTS,
             steer: Arc::new(SteerSlot::new()),
+            computer_use_active: false,
+            computer_use_injector: crate::injection::ComputerUseInjector::new(),
+            preferences_injector: crate::injection::UserPreferencesInjector::new(),
+            pending_injector: crate::injection::PendingTasksInjector::new(),
         }
+    }
+
+    /// The desktop turns this on when the computer-use capability is serving tools.
+    pub fn set_computer_use_active(&mut self, active: bool) {
+        self.computer_use_active = active;
+    }
+
+    /// Preferences, pending tasks, the todo nudge, and the computer-use contract.
+    ///
+    /// Called before each model request. A missing memo store or a lookup error
+    /// publishes nothing, so memory trouble cannot fail the turn.
+    fn apply_desktop_injections(&mut self) {
+        if !self.pending_injector.has_published()
+            && self.history.len() <= crate::injection::FRESH_SESSION_MAX_HISTORY
+        {
+            let rendered = self.pending_lines();
+            let len = self.history.len();
+            if let Some(text) =
+                self.pending_injector
+                    .collect(crate::injection::AgentKind::Main, len, || rendered)
+            {
+                self.history.push(variant_injection(text, "pending_tasks"));
+            }
+        }
+
+        let preferences = self.preference_lines();
+        self.preferences_injector.inject(
+            crate::injection::AgentKind::Main,
+            &mut self.history,
+            preferences,
+        );
+
+        let todo_active = self.tools.iter().any(|tool| tool.name() == "TodoList");
+        let todos = self
+            .tools
+            .iter()
+            .find_map(|tool| tool.todo_items())
+            .unwrap_or_default();
+        let views = todos
+            .into_iter()
+            .map(|item| crate::injection::TodoView {
+                title: item.title,
+                status: item.status,
+            })
+            .collect::<Vec<_>>();
+        if let Some(text) = crate::injection::todo_list_reminder(&self.history, todo_active, &views)
+        {
+            self.history
+                .push(variant_injection(text, "todo_list_reminder"));
+        }
+
+        let computer_use_active = self.computer_use_active;
+        self.computer_use_injector
+            .inject(computer_use_active, &mut self.history);
+    }
+
+    fn preference_lines(&self) -> Result<String, ()> {
+        let Some(store) = &self.memo_store else {
+            return Ok(String::new());
+        };
+        let memos = store.all().map_err(|_| ())?;
+        Ok(crate::injection::render_user_preference_lines(&memos))
+    }
+
+    fn pending_lines(&self) -> Result<String, ()> {
+        let Some(store) = &self.memo_store else {
+            return Ok(String::new());
+        };
+        let memos = store.all().map_err(|_| ())?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as i64)
+            .unwrap_or(0);
+        Ok(crate::injection::render_pending_task_lines(
+            &memos,
+            now,
+            crate::injection::PENDING_TASK_INJECTION_LIMIT,
+        ))
     }
 
     /// Slot a concurrent caller can [`SteerSlot::submit`] into while a turn runs.
@@ -622,6 +713,7 @@ impl Agent {
             // A steer that arrived during the previous step joins the history
             // before the next model call.
             self.flush_steers();
+            self.apply_desktop_injections();
             if steps >= self.max_steps {
                 return Ok(TurnOutcome {
                     steps,
@@ -884,6 +976,8 @@ impl Agent {
         );
         new_history.extend_from_slice(&self.history[split..]);
         self.history = new_history;
+        self.preferences_injector.on_context_compacted(split);
+        self.computer_use_injector.on_context_compacted();
         self.pipeline.reset_micro();
         // Memo extraction must not sink a summary that is already committed.
         self.compaction_memo_warning = self.store_compaction_memos(&summary);
@@ -2779,5 +2873,83 @@ mod tests {
         ContentPart::Text {
             text: text.to_string(),
         }
+    }
+
+    #[tokio::test]
+    async fn a_turn_injects_the_computer_use_contract_preferences_and_pending_tasks() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(lmcode_memory::MemoStore::open(&dir.path().join("memos.sqlite")).unwrap());
+        let preference = lmcode_memory::MemoryMemo::new(
+            "所有会话",
+            "回复用中文",
+            "已记录为长期偏好",
+            "session-1",
+            "",
+            MemoKind::Preference,
+            vec!["偏好".to_string(), "沟通".to_string()],
+        );
+        let pending = lmcode_memory::MemoryMemo::new(
+            "修复 flaky test",
+            "已定位到文件锁",
+            "未完成",
+            "session-1",
+            "",
+            MemoKind::Pending,
+            Vec::new(),
+        );
+        store.append(&preference).unwrap();
+        store.append(&pending).unwrap();
+
+        let mut agent = agent_with(
+            vec![vec![text_part("done")], vec![text_part("still done")]],
+            EchoTool {
+                requires_approval: false,
+            },
+            4,
+        );
+        agent.attach_memo_store(Arc::clone(&store));
+        agent.set_computer_use_active(true);
+        let mut ui = MockUi::default();
+        agent.run_turn("look at the window", &mut ui).await.unwrap();
+
+        let texts: Vec<String> = agent.history().iter().map(Message::text).collect();
+        let contract = texts
+            .iter()
+            .filter(|text| text.contains("get_window_state"))
+            .count();
+        assert_eq!(contract, 1, "{texts:?}");
+        assert!(texts.iter().any(|text| text.contains("not withdrawn")));
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("回复用中文") && text.contains("MemoryWrite"))
+        );
+        assert!(
+            texts
+                .iter()
+                .any(|text| text.contains("修复 flaky test") && text.contains("销账"))
+        );
+
+        agent.run_turn("again", &mut ui).await.unwrap();
+        let texts: Vec<String> = agent.history().iter().map(Message::text).collect();
+        // A new user message restates the operating contract. The preference
+        // list and the pending briefing stay as they were.
+        assert_eq!(
+            texts
+                .iter()
+                .filter(|text| text.contains("get_window_state"))
+                .count(),
+            2,
+            "{texts:?}"
+        );
+        assert_eq!(texts.iter().filter(|text| text.contains("销账")).count(), 1);
+        assert_eq!(
+            texts
+                .iter()
+                .filter(|text| text.contains("MemoryWrite"))
+                .count(),
+            1
+        );
     }
 }

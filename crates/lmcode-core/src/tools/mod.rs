@@ -107,6 +107,10 @@ pub trait Tool: Send + Sync {
     fn unrestricted(&self) -> bool {
         false
     }
+    /// Current todo rows, when this tool owns the session list.
+    fn todo_items(&self) -> Option<Vec<todo::TodoItem>> {
+        None
+    }
     /// Execute the tool. `Err` is fed back to the model as a tool-result error.
     async fn execute(&self, arguments: &serde_json::Value, cwd: &Path) -> Result<String, String>;
 

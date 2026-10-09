@@ -123,6 +123,10 @@ impl Tool for TodoListTool {
         false
     }
 
+    fn todo_items(&self) -> Option<Vec<TodoItem>> {
+        Some(self.list.items())
+    }
+
     async fn execute(&self, arguments: &Value, _cwd: &Path) -> Result<String, String> {
         if !arguments
             .as_object()
