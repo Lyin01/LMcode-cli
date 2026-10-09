@@ -66,6 +66,9 @@ impl Tool for WriteTool {
                 "invalid `mode` {mode:?}: expected \"overwrite\" or \"append\""
             ));
         }
+        if let Some(message) = crate::permission::sensitive_file_block(path) {
+            return Err(message);
+        }
         let resolved = resolve_path(path, cwd);
 
         // Create missing parent directories so a single call can write to a
@@ -114,5 +117,35 @@ impl Tool for WriteTool {
                 Ok(format!("Wrote {bytes_written} bytes to {path}"))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn refuses_a_sensitive_file_before_writing_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = WriteTool
+            .execute(
+                &serde_json::json!({"path": ".env", "content": "SECRET=1"}),
+                dir.path(),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.contains("sensitive-file pattern"));
+        assert!(error.contains("Access is blocked to protect secrets."));
+        assert!(!dir.path().join(".env").exists());
+
+        let example = WriteTool
+            .execute(
+                &serde_json::json!({"path": ".env.example", "content": "SECRET=\n"}),
+                dir.path(),
+            )
+            .await
+            .unwrap();
+        assert!(example.contains("Wrote"));
+        assert!(dir.path().join(".env.example").exists());
     }
 }

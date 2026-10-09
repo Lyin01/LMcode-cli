@@ -68,6 +68,9 @@ impl Tool for EditTool {
         let new_string = arguments["new_string"]
             .as_str()
             .ok_or("missing `new_string` argument")?;
+        if let Some(message) = crate::permission::sensitive_file_block(path) {
+            return Err(message);
+        }
         let replace_all = arguments["replace_all"].as_bool().unwrap_or(false);
 
         if old_string.is_empty() {

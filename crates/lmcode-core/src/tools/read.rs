@@ -49,10 +49,20 @@ impl Tool for ReadTool {
         false
     }
 
+    fn declared_file_accesses(
+        &self,
+        arguments: &serde_json::Value,
+    ) -> Vec<crate::permission::FileAccess> {
+        super::path_access(arguments, "path", crate::permission::FileOperation::Read)
+    }
+
     async fn execute(&self, arguments: &serde_json::Value, cwd: &Path) -> Result<String, String> {
         let path = arguments["path"]
             .as_str()
             .ok_or("missing `path` argument")?;
+        if let Some(message) = crate::permission::sensitive_file_block(path) {
+            return Err(message);
+        }
         let resolved = resolve_path(path, cwd);
         let text = tokio::fs::read_to_string(&resolved)
             .await

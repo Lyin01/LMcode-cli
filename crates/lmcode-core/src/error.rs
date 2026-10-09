@@ -19,6 +19,12 @@ pub enum CoreError {
         #[source]
         source: Box<toml::de::Error>,
     },
+    #[error("failed to write config `{path}`: {source}")]
+    ConfigWrite {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("configuration error: {0}")]
     Config(String),
     #[error("no model selected: pass --model or set `default_model` in config.toml")]

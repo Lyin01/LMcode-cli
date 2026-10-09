@@ -120,6 +120,10 @@ impl Tool for WolfPackTool {
         })
     }
 
+    fn unrestricted(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, arguments: &Value, _cwd: &Path) -> Result<String, String> {
         let template = arguments["prompt_template"]
             .as_str()

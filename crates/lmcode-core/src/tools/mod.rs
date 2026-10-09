@@ -29,6 +29,8 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use lmcode_llm::message::ContentPart;
 
+use crate::permission::{FileAccess, FileOperation};
+
 pub use ask_user::AskUserQuestionTool;
 pub use bash::BashTool;
 pub use edit::EditTool;
@@ -48,6 +50,19 @@ pub use task_list::TaskListTool;
 pub use task_stop::TaskStopTool;
 pub use todo::{TodoList, TodoListTool};
 pub use write::WriteTool;
+
+pub(crate) fn path_access(
+    arguments: &serde_json::Value,
+    key: &str,
+    operation: FileOperation,
+) -> Vec<FileAccess> {
+    arguments
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .filter(|path| !path.is_empty())
+        .map(|path| vec![FileAccess::new(path, operation)])
+        .unwrap_or_default()
+}
 
 /// Resolve a tool path argument: absolute paths pass through, relative paths
 /// join the working directory.
@@ -79,6 +94,18 @@ pub trait Tool: Send + Sync {
     /// writes outside the plan file (mirrors the TS `writeFileAccesses`).
     fn declared_write_paths(&self, _arguments: &serde_json::Value) -> Vec<String> {
         Vec::new()
+    }
+    /// File accesses the permission chain sees. Defaults to the write paths.
+    fn declared_file_accesses(&self, arguments: &serde_json::Value) -> Vec<FileAccess> {
+        self.declared_write_paths(arguments)
+            .into_iter()
+            .map(|path| FileAccess::new(path, FileOperation::Write))
+            .collect()
+    }
+    /// Bash and WolfPack declare no path, so a workspace-write sandbox cannot
+    /// prove they stay inside the cwd.
+    fn unrestricted(&self) -> bool {
+        false
     }
     /// Execute the tool. `Err` is fed back to the model as a tool-result error.
     async fn execute(&self, arguments: &serde_json::Value, cwd: &Path) -> Result<String, String>;

@@ -149,6 +149,9 @@ impl Tool for MultiEditTool {
             .as_str()
             .filter(|path| !path.is_empty())
             .ok_or("missing `path` argument")?;
+        if let Some(message) = crate::permission::sensitive_file_block(path) {
+            return Err(message);
+        }
         let edits = parse_edits(arguments)?;
         let resolved = resolve_path(path, cwd);
         let raw = match tokio::fs::read_to_string(&resolved).await {

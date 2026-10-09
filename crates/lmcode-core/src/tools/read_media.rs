@@ -207,6 +207,10 @@ impl Tool for ReadMediaFileTool {
         true
     }
 
+    fn declared_file_accesses(&self, arguments: &Value) -> Vec<crate::permission::FileAccess> {
+        super::path_access(arguments, "path", crate::permission::FileOperation::Read)
+    }
+
     async fn execute(&self, arguments: &Value, cwd: &Path) -> Result<String, String> {
         let result = self.execute_rich(arguments, cwd).await?;
         if result.ok {
@@ -221,6 +225,9 @@ impl Tool for ReadMediaFileTool {
             .as_str()
             .filter(|path| !path.is_empty())
             .ok_or("File path cannot be empty.")?;
+        if let Some(message) = crate::permission::sensitive_file_block(path) {
+            return Ok(ToolResult::failure(message));
+        }
         let resolved = resolve_path(path, cwd);
         let data = match tokio::fs::read(&resolved).await {
             Ok(data) => data,

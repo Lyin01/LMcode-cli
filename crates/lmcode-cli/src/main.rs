@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 use lmcode_core::agent::{Agent, wait_for_ctrl_c};
-use lmcode_core::config::{load_config, resolve_model};
+use lmcode_core::config::{PermissionMode, load_config, resolve_model};
 use lmcode_core::session::SessionStore;
 use lmcode_core::tools::{
     AskUserQuestionTool, BashTool, EditTool, GlobTool, GrepTool, MemoryConsolidateApplyTool,
@@ -607,6 +607,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut agent = Agent::new(provider, tools, system_prompt, cwd.clone());
+    agent.apply_permission_config(&config);
+    if cli.yolo_requested() {
+        agent.set_permission_mode(PermissionMode::Yolo);
+    } else if cli.auto {
+        agent.set_permission_mode(PermissionMode::Auto);
+    }
     agent.attach_plan(Arc::clone(&plan_handle));
     agent.attach_goal(goal_handle);
     agent.attach_cron(cron_handle);

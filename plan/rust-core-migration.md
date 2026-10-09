@@ -23,7 +23,7 @@
 | TS | Rust | 总状态 |
 | --- | --- | --- |
 | `packages/liumir` | `crates/lmcode-llm` | 部分。六个 provider 都有流式实现和 e2e 测试，能力目录、catalog、工具结果里的图片折成下一条 user 消息还没有 |
-| `packages/agent-core` | `crates/lmcode-core` + `crates/lmcode-mcp` | 部分。轮次、会话、一批工具在；权限链、注入器、电脑操作、插件、OAuth、hooks、records 不在 |
+| `packages/agent-core` | `crates/lmcode-core` + `crates/lmcode-mcp` | 部分。轮次、会话、一批工具、权限链在；注入器、电脑操作控制器、插件、OAuth、hooks、records 不在 |
 | `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在，压缩和退出会调用提取器。MemoryEdit 在 `lmcode-core` |
 | `packages/config` | 没有独立 crate。身份头（device id、User-Agent）缺失。运行配置读在 `lmcode-core/src/config.rs` | 部分 |
 | `packages/jian` | 没有 crate。Read / Write / Bash 直接打本机文件系统和进程 | 部分。没有可替换的执行环境，也没有沙箱实现 |
@@ -87,7 +87,7 @@
 | `session/export/*` | `lmcode-cli/src/export.rs` | 部分 | CLI 能打 ZIP。字段是否与 legacy manifest 逐字节一致，以 `docs/CLI_PARITY.md` 为准，本清单没有复跑 |
 | `session/hooks/*` `session/git-context.ts` `session/subagent-host.ts` | 无 | 缺失 | 用户 hooks、git 上下文注入、子代理宿主 |
 | `agent/records/*` `agent/replay/*` | 无独立事件日志 | 不移植为原样 | 目标语义是会话 JSON 能恢复 goal / cron / 消息。TS 的 record migration v1.1–v1.3 没有 Rust 版 |
-| `config/schema.ts` + `config/toml.ts` | `config.rs` 的 `RawConfig` | 部分 | 只读 providers、default_provider、default_model、models、default_thinking，以及 Vertex 的 project / location / credentials。不读也不写：`utility_model`、`thinking`、`permission`、`hooks`、`services`、`loop_control`、`background`、`computer_use`、`anchored_bootstrap`、`extra_skill_dirs`、`enable_spec_critic`、模型的 capabilities / pricing / reasoning。没有写回 |
+| `config/schema.ts` + `config/toml.ts` | `config.rs` 的 `RawConfig` | 部分 | 读写 providers、模型、`default_permission_mode`、`default_file_sandbox`、`permission`、`loop_control`、`computer_use`。`max_steps_per_run` 读入后写成 `max_steps_per_turn`。旧的 `[[permission.allow]]` 折成 `rules`。未知顶层表在 `save_config` 里保留。仍不读写：`utility_model`、`thinking`、`hooks`、`services`、`background`、`anchored_bootstrap`、`extra_skill_dirs`、`enable_spec_critic`、模型 capabilities / pricing |
 | `config/env-model.ts` | 无 | 缺失 | `LMCODE_MODEL_*` 合成模型 |
 | `flags/*` | 无 | 缺失 | `getExperimentalFlags` |
 | `logging/*` | 无 | 缺失 | 桌面 `log` 与诊断日志路径来自 SDK |
@@ -102,14 +102,14 @@
 | `agent/goal/*` + goal 工具 + grader | `goal.rs` `grader.rs` `tools/goal.rs` | 已有 | 创建、笔记上限、预算、持久化、注入、grader 解析有单测 |
 | `agent/plan/*` + Enter/ExitPlanMode | `plan.rs` `tools/planning.rs` | 已有 | 状态机有单测 |
 | `agent/cron/*` + cron 工具 | `cron.rs` `cron_expr.rs` `tools/cron.rs` | 已有 | 解析、调度、一次性、过期有单测 |
-| `agent/wolfpack/*` + Agent / WolfPack 工具 | `subagent.rs` `tools/collaboration.rs` | 部分 | profile 过滤、禁止再委托有单测。没有 TS 那份 wolfpack 权限策略 |
-| `agent/background/*` + TaskOutput | `background.rs` `tools/task_output.rs` | 部分 | 输出捕获有单测。TaskList / TaskStop 工具没有 |
-| `agent/permission/policies/*`（15 个策略） | `permission.rs` | 部分 | 敏感路径（`.env`、密钥、`.git`）和会话内相同调用不再询问。没有：用户规则、plan 模式拒绝写、文件沙箱、auto / yolo 分层、wolfpack 自动批准、exit-plan 复查、pre-tool hook |
+| `agent/wolfpack/*` + Agent / WolfPack 工具 | `subagent.rs` `tools/collaboration.rs` | 部分 | profile 过滤、禁止再委托有单测。权限链在 wolfpack 激活时批准普通调用，且不绕过文件沙箱。模式开关本身还没有 |
+| `agent/background/*` + TaskOutput | `background.rs` `tools/task_output.rs` `tools/task_list.rs` `tools/task_stop.rs` | 已有 | 输出捕获、列表、停止有单测 |
+| `agent/permission/policies/*`（15 个策略） | `permission.rs` `permission_chain.rs` | 已有 | 链的顺序与 TS 一致，yolo 不绕过沙箱。敏感文件在工具层直接拒绝。路径里的 `.git` 段会询问。PreToolCallHook 是用户 hook，不在这条链里。分离式 gitdir 控制目录没有单独解析 |
 | `agent/injection/*` | `agent.rs` 的 `queue_injection` + goal/plan/cron 文本 | 部分 | 没有电脑操作契约、待办、权限模式、近期会话、用户偏好、working set、插件 session-start、pending tasks |
 | `agent/usage/*` | `usage.rs` | 已有 | 按模型累计 |
 | `skill/*` | `skill.rs` `tools/skill.rs` | 部分 | 扫描与注入有单测。没有 dream 内置技能的注册表对齐检查 |
 | `plugin/*` | 无 | 缺失 | 安装、启停、从 GitHub 拉、插件自带 MCP。桌面 CoreAPI 有一整组 plugin 方法；当前 Electron 主进程的 IPC 列表里没有直接露出，CLI 会用到 |
-| `computer-use/*` | 无 | 缺失 | 注册槽、激活失败回滚、驱动描述符、`[computer_use]` 配置。桌面有 `getComputerUseStatus` / `setComputerUseEnabled` / 安装驱动 |
+| `computer-use/*` | 配置节在 `config.rs` | 部分 | `[computer_use]` 能写回再读出。注册槽、激活失败回滚、驱动描述符还没有。桌面有 `getComputerUseStatus` / `setComputerUseEnabled` / 安装驱动 |
 | `lsp/*` + `lsp-tool` | `lsp/*` `tools/lsp.rs` | 已有 | mock 语言服务器有单测 |
 | `mcp/*`（stdio、HTTP、命名） | `lmcode-mcp` + `mcp_manager.rs` + `tools/mcp.rs` | 部分 | stdio、Streamable HTTP、工具名前缀、配置写回有测试 |
 | `mcp/oauth/*` | 无 | 缺失 | 回调服务器、token 存储、授权 URL 事件 |
@@ -132,7 +132,6 @@ TS 注册表在 `tools/builtin/index.ts`。
 | FetchURL WebSearch | `tools/web.rs` | 部分。HTML 抽取和错误分类有 mock 测试。TS 的 DuckDuckGo / lmcode-cli / 缓存回退链没有按 `services` 配置接上 |
 | CronCreate CronDelete CronList | `tools/cron.rs` | 已有 |
 | TaskOutput | `tools/task_output.rs` | 已有 |
-| TaskList TaskStop | 无 | 缺失 |
 | LSP | `tools/lsp.rs` | 已有 |
 | MCP 动态工具 | `tools/mcp.rs` | 已有 |
 
@@ -140,7 +139,7 @@ TS 注册表在 `tools/builtin/index.ts`。
 
 ## `packages/jian`
 
-不单建 crate。Read / Write / Edit / Glob / Grep / Bash 在工具里直接访问本机。TS 的 `Jian` 是为了换沙箱实现。Rust 侧要补的是权限层里的文件沙箱（`read-only` / `workspace-write` / `full-access`），不是把每个 `fs` 调用再包一层。
+不单建 crate。Read / Write / Edit / Glob / Grep / Bash 在工具里直接访问本机。TS 的 `Jian` 是为了换沙箱实现。文件沙箱（`read-only` / `workspace-write` / `full-access`）在 `permission_chain.rs`，yolo 也不绕过。
 
 ## `apps/lmcode` → `lmcode-cli` + `lmcode-tui`
 
@@ -203,7 +202,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 1. 本清单。已写入。
 2. `packages/memory/src/extractor.ts` → `lmcode-memory`。解析已移植。压缩和退出已调用它。
 3. TodoList、TaskList、TaskStop、MultiEdit、ReadGroup、ReadMediaFile 已接到 CLI 和 Tauri。AskUserQuestion 已接到轮次循环和 CLI readline。TUI、Tauri、stream-json 的提问仍回复不支持，Electron 提问弹窗还没接上。模型能力位还没从配置读出，ReadMediaFile 默认只开图片。
-4. 权限策略链和文件沙箱，加上 config 里 `permission` / `loop_control` / `computer_use` 的读写。不写回的字段，设置面板会丢。
+4. 权限策略链和文件沙箱已接到轮次循环。`permission` / `loop_control` / `computer_use` 写回后再读是同一份。其余配置节仍会在整文件重写时留在 `extra` 里；没建模的字段不会变成类型化配置。
 5. 轮次缺口：重试与溢出、steer、undo、会话 delete / rename / fork。
 6. 电脑操作控制器，以及 MCP OAuth。
 7. 注入器里桌面会看见的那几条：电脑操作契约、待办、偏好、pending tasks。
@@ -219,7 +218,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 
 - 接到压缩和退出的提交把原先未跟踪的 `lmcode-core`、`lmcode-llm`、`lmcode-mcp`、`lmcode-cli`、`lmcode-tui`、`lmcode-desktop` 一并记下来。这些 crate 里的大部分代码是接线之前就在工作区里的，不是这次新移植的。没有跑过 `cargo test --workspace`。这次跑的是 `cargo test -p lmcode-memory -p lmcode-core`，以及 `cargo check -p lmcode-cli -p lmcode-tui -p lmcode-desktop`。
 - 退出提取没有 `utility_model`，用的是当前会话 provider。没有把进行中的第二次提取并到同一次调用上。未变化判断用历史指纹，不是 TS 的 context revision。Rust `update` 不重写 FTS，TS 全文搜索在 Rust 改过一条备忘录后可能仍命中旧文本。
-- `config.rs` 会静默丢掉设置面板在写的字段。这是已知的数据丢失，优先级高于新功能。
+- `permission`、`loop_control`、`computer_use` 已能写回。`utility_model`、`thinking`、`hooks`、`services`、`background`、模型 capabilities 仍然不是类型化字段；未知顶层表会原样保留。
 - OpenAI 兼容路径没有把工具结果里的图片折成 user 消息。电脑操作一旦接上，截图对 `type = "openai"` 的模型不可见。
 - 桌面仍然进程内调用 TS 核心。`crates/lmcode-desktop` 是平行的 Tauri 程序，不是这条切换。
 - `packages/ltod` 没有源码，不用迁。

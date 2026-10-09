@@ -57,6 +57,13 @@ impl Tool for GlobTool {
         false
     }
 
+    fn declared_file_accesses(
+        &self,
+        arguments: &serde_json::Value,
+    ) -> Vec<crate::permission::FileAccess> {
+        super::path_access(arguments, "path", crate::permission::FileOperation::Search)
+    }
+
     async fn execute(&self, arguments: &serde_json::Value, cwd: &Path) -> Result<String, String> {
         let pattern = arguments["pattern"]
             .as_str()

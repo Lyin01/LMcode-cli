@@ -68,6 +68,25 @@ impl Tool for ReadGroupTool {
         true
     }
 
+    fn declared_file_accesses(&self, arguments: &Value) -> Vec<crate::permission::FileAccess> {
+        arguments["paths"]
+            .as_array()
+            .map(|paths| {
+                paths
+                    .iter()
+                    .filter_map(|path| path.as_str())
+                    .filter(|path| !path.is_empty())
+                    .map(|path| {
+                        crate::permission::FileAccess::new(
+                            path,
+                            crate::permission::FileOperation::Read,
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     async fn execute(&self, arguments: &Value, cwd: &Path) -> Result<String, String> {
         let result = self.execute_rich(arguments, cwd).await?;
         if result.ok {
@@ -117,6 +136,11 @@ impl Tool for ReadGroupTool {
                 sections.push(String::new());
             }
             sections.push(format!("--- {path} ---"));
+            if let Some(message) = crate::permission::sensitive_file_block(path) {
+                has_error = true;
+                sections.push(format!("[ERROR] {message}"));
+                continue;
+            }
             let resolved = resolve_path(path, cwd);
             match tokio::fs::read_to_string(&resolved).await {
                 Ok(text) => sections.push(read_window(&text, line_offset, n_lines)),

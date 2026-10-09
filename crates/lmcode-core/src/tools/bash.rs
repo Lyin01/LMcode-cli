@@ -72,6 +72,10 @@ impl Tool for BashTool {
         })
     }
 
+    fn unrestricted(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, arguments: &serde_json::Value, cwd: &Path) -> Result<String, String> {
         let command = arguments["command"]
             .as_str()

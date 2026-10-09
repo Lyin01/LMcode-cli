@@ -22,8 +22,10 @@ use lmcode_memory::{
 use crate::compaction::{
     CompactionPipeline, estimate_tokens, estimate_tokens_for_messages, render_messages,
 };
+use crate::config::{FileSandboxMode, PermissionMode, RawConfig};
 use crate::error::CoreError;
-use crate::permission::{SessionApprovals, call_touches_sensitive_path};
+use crate::permission::SessionApprovals;
+use crate::permission_chain::{PermissionRequest, PermissionState, decide};
 use crate::session::Session;
 use crate::tools::{Tool, ToolResult};
 
@@ -94,6 +96,30 @@ enum ToolExec {
     Interrupted,
 }
 
+/// Session permission posture consumed by [`decide`](crate::permission_chain::decide).
+#[derive(Debug, Clone)]
+struct PermissionRuntime {
+    mode: PermissionMode,
+    sandbox: FileSandboxMode,
+    rules: Vec<crate::config::StoredPermissionRule>,
+    session_patterns: Vec<String>,
+    wolfpack_active: bool,
+    subagent: bool,
+}
+
+impl Default for PermissionRuntime {
+    fn default() -> Self {
+        Self {
+            mode: PermissionMode::Manual,
+            sandbox: FileSandboxMode::FullAccess,
+            rules: Vec::new(),
+            session_patterns: Vec::new(),
+            wolfpack_active: false,
+            subagent: false,
+        }
+    }
+}
+
 /// The agent: conversation history + provider + tools.
 pub struct Agent {
     provider: Arc<dyn ChatProvider>,
@@ -118,6 +144,8 @@ pub struct Agent {
     session: Option<Session>,
     cancel: Option<Arc<tokio::sync::Notify>>,
     approvals: SessionApprovals,
+    /// Permission posture. The chain reads this on every tool call.
+    permission: PermissionRuntime,
     /// Memo database shared with the memory tools. Absent when it failed to open.
     memo_store: Option<Arc<MemoStore>>,
     /// Fingerprint of the history snapshot last scanned by exit extraction.
@@ -152,6 +180,7 @@ impl Agent {
             session: None,
             cancel: None,
             approvals: SessionApprovals::default(),
+            permission: PermissionRuntime::default(),
             memo_store: None,
             last_exit_fingerprint: None,
             compaction_memo_warning: None,
@@ -167,7 +196,57 @@ impl Agent {
     pub fn clear_history(&mut self) {
         self.history.clear();
         self.approvals.clear();
+        self.permission.session_patterns.clear();
         self.last_exit_fingerprint = None;
+    }
+
+    /// Apply `default_permission_mode`, `default_file_sandbox`, and `[permission]`
+    /// from a config file. CLI flags override the mode after this.
+    pub fn apply_permission_config(&mut self, config: &RawConfig) {
+        if let Some(mode) = config.default_permission_mode {
+            self.permission.mode = mode;
+        }
+        if let Some(sandbox) = config.default_file_sandbox {
+            self.permission.sandbox = sandbox;
+        }
+        if let Some(permission) = &config.permission {
+            self.permission.rules = permission.rules.clone();
+        }
+    }
+
+    /// `manual`, `yolo`, or `auto`. Yolo does not bypass the file sandbox.
+    pub fn set_permission_mode(&mut self, mode: PermissionMode) {
+        self.permission.mode = mode;
+    }
+
+    pub fn set_file_sandbox(&mut self, sandbox: FileSandboxMode) {
+        self.permission.sandbox = sandbox;
+    }
+
+    pub fn set_wolfpack_active(&mut self, active: bool) {
+        self.permission.wolfpack_active = active;
+    }
+
+    fn permission_state(
+        &self,
+        plan_active: bool,
+        plan_file: Option<String>,
+        plan_review: Option<String>,
+    ) -> PermissionState {
+        PermissionState {
+            mode: self.permission.mode,
+            sandbox: self.permission.sandbox,
+            cwd: self.cwd.display().to_string(),
+            rules: self.permission.rules.clone(),
+            session_patterns: self.permission.session_patterns.clone(),
+            plan_active,
+            plan_file,
+            wolfpack_active: self.permission.wolfpack_active,
+            plan_review,
+            subagent: self.permission.subagent,
+            windows_paths: cfg!(windows),
+            inside_git_work_tree: self.cwd.join(".git").exists(),
+        }
     }
 
     /// Override the per-turn model-step limit (tests use small values).
@@ -821,45 +900,53 @@ impl Agent {
                 )));
             }
         };
-        // Questions are asked before plan-mode and approval checks. Plan mode
-        // still needs them, and a question is not a write the user approves.
+        let (plan_active, plan_file) = {
+            let plan = self.plan.lock().await;
+            (
+                plan.is_active(),
+                plan.plan_path().map(|path| path.display().to_string()),
+            )
+        };
+        let accesses = tool.declared_file_accesses(&parsed);
+        let session_approved = self.approvals.is_approved(&call.name, arguments);
+        let plan_review = if call.name == "ExitPlanMode" {
+            plan_file
+                .as_deref()
+                .and_then(|path| std::fs::read_to_string(path).ok())
+                .filter(|text| !text.trim().is_empty())
+        } else {
+            None
+        };
+        let decision = decide(
+            &PermissionRequest {
+                tool_name: call.name.as_str(),
+                accesses: &accesses,
+                unrestricted: tool.unrestricted(),
+                declares_no_approval: !tool.requires_approval(),
+                session_approved,
+                matches_rule: None,
+            },
+            &self.permission_state(plan_active, plan_file, plan_review),
+        );
+        match decision.kind {
+            crate::permission_chain::PermissionOutcome::Deny => {
+                let message = decision.message.unwrap_or_else(|| {
+                    format!("Tool \"{}\" was denied by permission rule.", call.name)
+                });
+                return ToolExec::Finished(ToolResult::failure(format!("error: {message}")));
+            }
+            crate::permission_chain::PermissionOutcome::Ask => {
+                if !session_approved && !ui.approve(&call.name, arguments).await {
+                    return ToolExec::Finished(ToolResult::failure("error: denied by user"));
+                }
+                self.approvals.record(&call.name, arguments);
+            }
+            crate::permission_chain::PermissionOutcome::Approve => {}
+        }
+        // Questions are asked after the chain so auto mode can deny them,
+        // and before execution because a question is not a file write.
         if call.name == "AskUserQuestion" {
             return self.ask_user_question(&parsed, ui).await;
-        }
-        // Plan mode: writes are limited to the plan file.
-        {
-            let plan = self.plan.lock().await;
-            if plan.is_active() {
-                let plan_path = plan.plan_path().map(|path| path.to_path_buf());
-                let allowed_path = plan_path
-                    .as_ref()
-                    .map(|path| resolve_against(&self.cwd, &path.to_string_lossy()));
-                for declared in tool.declared_write_paths(&parsed) {
-                    let resolved = resolve_against(&self.cwd, &declared);
-                    if Some(&resolved) != allowed_path.as_ref() {
-                        return ToolExec::Finished(ToolResult::failure(format!(
-                            "error: plan mode is active — writes are limited to the plan \
-                             file (`{}`). Explore with read-only tools and record the \
-                             plan there.",
-                            plan_path
-                                .as_ref()
-                                .map(|path| path.display().to_string())
-                                .unwrap_or_default()
-                        )));
-                    }
-                }
-            }
-        }
-        // Approval: the tool's own requirement plus the sensitive-path hard
-        // boundary; identical calls approved earlier this session are memoized.
-        let needs_approval = tool.requires_approval() || call_touches_sensitive_path(&parsed);
-        if needs_approval {
-            if !self.approvals.is_approved(&call.name, arguments)
-                && !ui.approve(&call.name, arguments).await
-            {
-                return ToolExec::Finished(ToolResult::failure("error: denied by user"));
-            }
-            self.approvals.record(&call.name, arguments);
         }
         match tool.execute_rich(&parsed, &self.cwd).await {
             Ok(result) => ToolExec::Finished(result),
@@ -892,17 +979,6 @@ impl Agent {
         } else {
             ToolExec::Finished(ToolResult::failure(format!("error: {output}")))
         }
-    }
-}
-
-/// Resolve a declared path against the working directory (both sides of the
-/// plan-mode comparison go through this, so relative plan paths match).
-fn resolve_against(cwd: &std::path::Path, path: &str) -> std::path::PathBuf {
-    let path = std::path::Path::new(path);
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        cwd.join(path)
     }
 }
 
@@ -1205,6 +1281,74 @@ mod tests {
         assert_eq!(outcome.steps, 2);
         assert_eq!(ui.approvals_requested, 1);
         assert!(agent.history()[2].text().contains("denied"));
+    }
+
+    #[tokio::test]
+    async fn workspace_write_sandbox_denies_before_the_tool_runs() {
+        struct OutsideWrite {
+            ran: Arc<std::sync::atomic::AtomicBool>,
+        }
+
+        #[async_trait]
+        impl Tool for OutsideWrite {
+            fn name(&self) -> &str {
+                "Write"
+            }
+            fn description(&self) -> &str {
+                "probe"
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
+            fn declared_file_accesses(
+                &self,
+                _arguments: &serde_json::Value,
+            ) -> Vec<crate::permission::FileAccess> {
+                vec![crate::permission::FileAccess::new(
+                    "/tmp/outside.ts",
+                    crate::permission::FileOperation::Write,
+                )]
+            }
+            async fn execute(
+                &self,
+                _arguments: &serde_json::Value,
+                _cwd: &Path,
+            ) -> Result<String, String> {
+                self.ran.store(true, std::sync::atomic::Ordering::Relaxed);
+                Ok("wrote".to_string())
+            }
+        }
+
+        let ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let provider = Arc::new(MockProvider {
+            turns: Mutex::new(VecDeque::from(vec![
+                vec![tool_call_part("call_1", "Write", "{}")],
+                vec![text_part("stopped")],
+            ])),
+            seen: Mutex::new(Vec::new()),
+        });
+        let mut agent = Agent::new(
+            provider,
+            vec![Arc::new(OutsideWrite {
+                ran: Arc::clone(&ran),
+            })],
+            "system",
+            PathBuf::from("/workspace"),
+        );
+        agent.set_permission_mode(crate::config::PermissionMode::Yolo);
+        agent.set_file_sandbox(crate::config::FileSandboxMode::WorkspaceWrite);
+        let mut ui = MockUi {
+            approve_result: true,
+            ..MockUi::default()
+        };
+
+        agent.run_turn("write outside", &mut ui).await.unwrap();
+
+        assert!(!ran.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(ui.approvals_requested, 0);
+        assert!(agent.history()[2].text().contains(
+            "File writes outside the workspace are disabled by the workspace-write file sandbox."
+        ));
     }
 
     #[tokio::test]

@@ -1,9 +1,9 @@
 //! Permission helpers — sensitive-path detection and session approval memory.
 //!
-//! Mirrors the hard-boundary idea of `agent/permission/policies/file-access-ask.ts`:
-//! sensitive paths always require confirmation even when the tool itself is
-//! auto-approved. `--yolo` (auto-approve) still bypasses everything, matching
-//! the TS yolo policy.
+//! The decision chain lives in [`crate::permission_chain`]. Sensitive files
+//! (`.env`, cloud credentials, SSH private keys) are rejected by the file
+//! tools themselves, in every mode including yolo. `.git` paths are not
+//! sensitive files; the chain asks about them unless the mode is yolo.
 
 use std::collections::HashSet;
 
@@ -39,6 +39,108 @@ pub fn is_sensitive_path(path: &str) -> bool {
         return true;
     }
     false
+}
+
+/// File access declared by a tool, in the shape the permission chain consumes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileAccess {
+    pub path: String,
+    pub operation: FileOperation,
+    pub recursive: bool,
+}
+
+/// What a tool said it will do with [`FileAccess::path`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileOperation {
+    Read,
+    Write,
+    ReadWrite,
+    Search,
+}
+
+impl FileOperation {
+    pub fn is_write(self) -> bool {
+        matches!(self, Self::Write | Self::ReadWrite)
+    }
+}
+
+impl FileAccess {
+    pub fn new(path: impl Into<String>, operation: FileOperation) -> Self {
+        Self {
+            path: path.into(),
+            operation,
+            recursive: matches!(operation, FileOperation::Search),
+        }
+    }
+}
+
+/// Tool-layer rejection message. `None` when the path is not a sensitive file.
+///
+/// Matches `resolvePathAccess` in `tools/policies/path-access.ts`: there is
+/// no approval channel for these paths, including yolo.
+pub fn sensitive_file_block(path: &str) -> Option<String> {
+    if !is_sensitive_file(path) {
+        return None;
+    }
+    Some(format!(
+        "\"{path}\" matches a sensitive-file pattern (env / credential / SSH key). \
+         Access is blocked to protect secrets."
+    ))
+}
+
+/// `tools/policies/sensitive.ts` — narrower than [`is_sensitive_path`].
+///
+/// `.env.example` and public keys are allowed. `.git` is not a sensitive
+/// file; git control paths have their own ask policy.
+pub fn is_sensitive_file(path: &str) -> bool {
+    const BASENAMES: &[&str] = &[".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
+    const PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
+    const DOT_SUFFIXES: &[&str] = &[
+        ".bak",
+        ".backup",
+        ".copy",
+        ".disabled",
+        ".key",
+        ".old",
+        ".orig",
+        ".pem",
+        ".save",
+        ".tmp",
+    ];
+    const EXEMPT: &[&str] = &[".env.example", ".env.sample", ".env.template"];
+    const PUBLIC_KEYS: &[&str] = &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
+
+    let name = basename(path);
+    let name = name.trim_end_matches([' ', '.']);
+    let name = name.to_lowercase();
+    if EXEMPT.contains(&name.as_str()) || PUBLIC_KEYS.contains(&name.as_str()) {
+        return false;
+    }
+    if BASENAMES.contains(&name.as_str()) || name.starts_with(".env.") {
+        return true;
+    }
+    for prefix in PREFIXES {
+        if name.len() > prefix.len() && name.starts_with(prefix) {
+            let suffix = &name[prefix.len()..];
+            let next = suffix.chars().next().unwrap_or('\0');
+            if next == '-' || next == '_' || (next == '.' && DOT_SUFFIXES.contains(&suffix)) {
+                return true;
+            }
+        }
+    }
+    let comparable = path.replace('\\', "/").to_lowercase();
+    for suffix in [".aws/credentials", ".gcp/credentials"] {
+        if comparable.ends_with(&format!("/{suffix}"))
+            || comparable.contains(&format!("/{suffix}/"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn basename(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 /// Whether a tool call's arguments point at a sensitive path (checked for the
@@ -108,6 +210,24 @@ mod tests {
         ] {
             assert!(is_sensitive_path(path), "expected sensitive: {path}");
         }
+    }
+
+    #[test]
+    fn sensitive_file_block_matches_the_tool_layer_contract() {
+        let blocked = sensitive_file_block(".env").unwrap();
+        assert!(blocked.contains("sensitive-file pattern"));
+        assert!(blocked.contains("Access is blocked to protect secrets."));
+        assert!(is_sensitive_file(".env.local"));
+        assert!(is_sensitive_file("secrets/id_rsa"));
+        assert!(is_sensitive_file("keys/id_ed25519.bak"));
+        assert!(is_sensitive_file("C:/Users/me/.aws/credentials"));
+        assert!(is_sensitive_file(".env "));
+        assert!(!is_sensitive_file(".env.example"));
+        assert!(!is_sensitive_file(".env.sample"));
+        assert!(!is_sensitive_file("id_rsa.pub"));
+        assert!(!is_sensitive_file("credentials.json"));
+        assert!(!is_sensitive_file("repo/.git/config"));
+        assert!(sensitive_file_block("src/main.rs").is_none());
     }
 
     #[test]

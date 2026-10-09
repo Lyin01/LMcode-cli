@@ -568,6 +568,7 @@ pub async fn start_agent(
     tools.push(Arc::new(AskUserQuestionTool::new()));
 
     let mut agent = Agent::new(provider, tools, system_prompt, cwd.clone());
+    agent.apply_permission_config(&config);
     agent.set_compaction_limits(
         max_context_size.unwrap_or(0),
         max_output_size.unwrap_or(8192),

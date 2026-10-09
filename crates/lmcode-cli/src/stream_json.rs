@@ -177,6 +177,7 @@ pub async fn run_stream_json(command: StreamJsonCommand) -> anyhow::Result<()> {
     }
 
     let mut agent = lmcode_core::agent::Agent::new(provider, tools, system_prompt, cwd.clone());
+    agent.apply_permission_config(&config);
     if let Some(id) = &command.resume {
         let store = lmcode_core::session::SessionStore::new();
         match store.load(&cwd, id) {
