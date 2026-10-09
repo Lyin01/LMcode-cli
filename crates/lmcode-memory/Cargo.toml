@@ -1,0 +1,26 @@
+[package]
+name = "lmcode-memory"
+description = "Cross-session memory memo store — Rust port of packages/memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "2"
+dirs = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+reqwest = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+fastembed = { version = "7", default-features = false, features = ["hf-hub", "ort-download-binaries-native-tls"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+local-embeddings = ["dep:fastembed"]

@@ -1,0 +1,51 @@
+# Rust workspace for the LMcode rewrite.
+#
+# Maps the TypeScript monorepo layout to crates:
+#   crates/lmcode-llm   <- packages/liumir      (multi-provider LLM client)
+#   crates/lmcode-core  <- packages/agent-core  (agent runtime; minimal loop first)
+#   crates/lmcode-cli   <- apps/lmcode          (CLI/TUI application; `lm` binary)
+#
+# The TypeScript tree (packages/, apps/) stays in place during the migration and
+# is retired once the Rust implementation reaches feature parity.
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Lyin01/LMcode-cli"
+
+[workspace.dependencies]
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "signal",
+    "io-util",
+    "io-std",
+    "process",
+    "fs",
+    "net",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "stream",
+    "rustls-tls",
+    "multipart",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+thiserror = "2"
+anyhow = "1"
+toml = "0.8"
+async-trait = "0.1"
+dirs = "6"
+clap = { version = "4", features = ["derive"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+anstream = "0.6"
+anstyle = "1"

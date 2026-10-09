@@ -30,3 +30,6 @@ local_cache/
 .env
 .env.*
 !.env.example
+
+# Rust build output (crates/ workspace)
+/target
