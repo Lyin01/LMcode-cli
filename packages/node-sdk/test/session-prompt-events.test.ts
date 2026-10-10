@@ -366,7 +366,7 @@ function waitForEvent(
     const timeout = setTimeout(() => {
       unsubscribe();
       reject(new Error('Timed out waiting for session event'));
-    }, 1_000);
+    }, 15_000);
     const unsubscribe = session.onEvent((event) => {
       if (!predicate(event)) return;
       clearTimeout(timeout);

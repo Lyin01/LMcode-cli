@@ -1,7 +1,7 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'pathe';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -16,8 +16,14 @@ afterEach(async () => {
   }
 });
 
+// Windows temp lives under the user profile, and the loader walks parent
+// directories for `.lmcode/mcp.json`. Keep these fixtures on the repo drive
+// so that walk does not read the developer's real config.
+const tempBase = fileURLToPath(new URL('../../../../target/mcp-loader/', import.meta.url));
+
 function makeTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'lmcode-mcp-loader-'));
+  mkdirSync(tempBase, { recursive: true });
+  const dir = mkdtempSync(join(tempBase, 'lmcode-mcp-loader-'));
   tempDirs.push(dir);
   return dir;
 }

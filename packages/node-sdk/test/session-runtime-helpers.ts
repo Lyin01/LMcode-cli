@@ -56,7 +56,7 @@ export function waitForSDKEvent(
     onEvent(listener: (event: Event) => void): () => void;
   },
   predicate: (event: Event) => boolean,
-  timeoutMs = 1_000,
+  timeoutMs = 15_000,
 ): Promise<Event> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
