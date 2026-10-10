@@ -762,6 +762,88 @@ fn undo_and_compact_shorten_history_for_the_next_process() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+fn assert_millis_near_now(stamp: u64, label: &str) {
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    assert!(
+        stamp >= 1_000_000_000_000,
+        "{label} {stamp} is not millisecond scale"
+    );
+    let delta = now_ms.abs_diff(stamp);
+    assert!(delta < 60_000, "{label} {stamp} is {delta}ms from {now_ms}");
+}
+
+fn active_ids(client: &mut Client) -> Vec<String> {
+    client.call("background/list", json!({"activeOnly": true}))["tasks"]
+        .as_array()
+        .expect("tasks")
+        .iter()
+        .filter_map(|task| task["id"].as_str().map(str::to_string))
+        .collect()
+}
+
+fn listed_started_at(client: &mut Client, task_id: &str) -> u64 {
+    let listed = client.call("background/list", json!({"activeOnly": false}));
+    listed["tasks"]
+        .as_array()
+        .expect("tasks")
+        .iter()
+        .find(|task| task["id"] == task_id)
+        .unwrap_or_else(|| panic!("task {task_id} missing: {listed}"))["startedAt"]
+        .as_u64()
+        .expect("startedAt")
+}
+
+fn assert_running_ping(client: &mut Client, task_id: &str) {
+    let listed = client.call("background/list", json!({"activeOnly": true}));
+    let task = listed["tasks"]
+        .as_array()
+        .expect("tasks")
+        .iter()
+        .find(|task| task["id"] == task_id)
+        .unwrap_or_else(|| panic!("task {task_id} not running after resume: {listed}"));
+    assert_eq!(task["status"], "running");
+    let output = client.call("background/output", json!({"taskId": task_id}))["output"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        output.contains("127.0.0.1"),
+        "task {task_id} output was {output:?}"
+    );
+}
+
+fn wait_for_running_ping(client: &mut Client, except: Option<&str>) -> (String, u64) {
+    let started_wait = Instant::now();
+    while started_wait.elapsed() < Duration::from_secs(8) {
+        let listed = client.call("background/list", json!({"activeOnly": false}));
+        if let Some(task) = listed["tasks"]
+            .as_array()
+            .expect("tasks")
+            .iter()
+            .find(|task| {
+                task["status"] == "running"
+                    && task["command"].as_str().unwrap_or("").contains("127.0.0.1")
+                    && task["id"].as_str() != except
+            })
+        {
+            let task_id = task["id"].as_str().unwrap().to_string();
+            let started_at = task["startedAt"].as_u64().expect("startedAt");
+            let output = client.call("background/output", json!({"taskId": task_id}))["output"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            if output.contains("127.0.0.1") {
+                return (task_id, started_at);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("running ping did not appear");
+}
+
 #[test]
 fn skill_on_disk_activates_and_a_background_command_can_be_stopped() {
     let home = home("skills");
@@ -833,19 +915,51 @@ fn skill_on_disk_activates_and_a_background_command_can_be_stopped() {
         output.contains("127.0.0.1"),
         "task {task_id} output was {output:?}"
     );
+    let started_at = listed_started_at(&mut client, &task_id);
+    assert_millis_near_now(started_at, "startedAt");
+
+    client.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    assert_running_ping(&mut client, &task_id);
+
     let stopped = client.call(
         "background/stop",
         json!({"taskId": task_id, "reason": "test stop"}),
     );
     assert_eq!(stopped["task"]["status"], "killed");
     assert_eq!(stopped["task"]["stopReason"], "test stop");
-    let active = client.call("background/list", json!({"activeOnly": true}));
-    let still_active = active["tasks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|task| task["id"] == task_id);
-    assert!(!still_active, "stopped task still listed as active");
+    let finished_at = stopped["task"]["finishedAt"].as_u64().expect("finishedAt");
+    assert!(finished_at >= started_at, "{finished_at} < {started_at}");
+    assert_millis_near_now(finished_at, "finishedAt");
+    assert!(
+        !active_ids(&mut client).iter().any(|id| id == &task_id),
+        "stopped task still listed as active"
+    );
+
+    client.call("thread/setModel", json!({"model": "script-bg"}));
+    run_script_turn(&mut client, "start the second background command");
+    let (second_id, second_started) = wait_for_running_ping(&mut client, Some(&task_id));
+    assert_millis_near_now(second_started, "second startedAt");
+    let other = home.join("other");
+    std::fs::create_dir_all(&other).expect("other work");
+    let other_cwd = other.to_string_lossy().to_string();
+    client.call("thread/start", json!({"cwd": other_cwd, "model": "script"}));
+    client.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    assert_running_ping(&mut client, &second_id);
+    let second_stopped = client.call(
+        "background/stop",
+        json!({"taskId": second_id, "reason": "second stop"}),
+    );
+    assert_eq!(second_stopped["task"]["status"], "killed");
+    assert_eq!(second_stopped["task"]["stopReason"], "second stop");
+    let second_finished = second_stopped["task"]["finishedAt"]
+        .as_u64()
+        .expect("second finishedAt");
+    assert!(second_finished >= second_started);
+    assert_millis_near_now(second_finished, "second finishedAt");
+    assert!(
+        !active_ids(&mut client).iter().any(|id| id == &second_id),
+        "second task still listed as active"
+    );
 
     let stderr = client.close();
     assert!(stderr.is_empty(), "app-server wrote to stderr:\n{stderr}");

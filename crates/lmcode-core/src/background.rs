@@ -57,7 +57,9 @@ pub struct BackgroundTaskInfo {
     pub output_path: String,
     /// Tail of the combined stdout/stderr.
     pub output: String,
+    /// Unix epoch milliseconds, the same scale as `Date.now()`.
     pub started_at: u64,
+    /// Unix epoch milliseconds, the same scale as `Date.now()`.
     pub finished_at: Option<u64>,
 }
 
@@ -154,7 +156,7 @@ impl BackgroundTaskManager {
             exit_code: None,
             output: String::new(),
             output_path: output_path.clone(),
-            started_at: now_secs(),
+            started_at: now_millis(),
             finished_at: None,
             pid,
             stop_reason: None,
@@ -188,7 +190,7 @@ impl BackgroundTaskManager {
                         entry.status = BackgroundStatus::Failed;
                     }
                 }
-                entry.finished_at = Some(now_secs());
+                entry.finished_at = Some(now_millis());
             }
         });
 
@@ -239,7 +241,7 @@ impl BackgroundTaskManager {
         }
         entry.status = BackgroundStatus::Killed;
         entry.stop_reason = Some(reason.to_string());
-        entry.finished_at = Some(now_secs());
+        entry.finished_at = Some(now_millis());
         Ok(entry.info(id))
     }
 
@@ -256,7 +258,7 @@ impl BackgroundTaskManager {
             kill_process_tree(pid);
         }
         entry.status = BackgroundStatus::Killed;
-        entry.finished_at = Some(now_secs());
+        entry.finished_at = Some(now_millis());
         Ok(())
     }
 }
@@ -338,10 +340,10 @@ fn next_task_id() -> String {
     format!("task-{millis:x}-{counter:x}")
 }
 
-fn now_secs() -> u64 {
+fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
+        .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
 }
 
@@ -383,6 +385,12 @@ mod tests {
         let manager = Arc::new(BackgroundTaskManager::new(dir.join("tasks")));
         let info = manager.spawn("echo hello-bg", &dir).unwrap();
         assert_eq!(info.status, BackgroundStatus::Running);
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert!(info.started_at >= 1_000_000_000_000);
+        assert!(now_ms.abs_diff(info.started_at) < 60_000);
 
         let done = wait_terminal(&manager, &info.id).await;
         assert_eq!(done.status, BackgroundStatus::Completed);

@@ -273,6 +273,9 @@ struct Server {
     pending: Pending,
     next_server_id: Arc<AtomicU64>,
     active: Option<ActiveThread>,
+    /// Live background processes, keyed by session id. Resume rebinds this
+    /// manager instead of allocating an empty one.
+    backgrounds: HashMap<String, Arc<BackgroundTaskManager>>,
     computer: ComputerUseController<UnspawnedHost>,
 }
 
@@ -294,8 +297,23 @@ impl Server {
             pending,
             next_server_id: Arc::new(AtomicU64::new(1)),
             active: None,
+            backgrounds: HashMap::new(),
             computer,
         }
+    }
+
+    /// The manager that already owns this session's live processes, or a new
+    /// one the first time the session is opened in this process.
+    fn background_for(&mut self, session: &Session) -> Arc<BackgroundTaskManager> {
+        let id = session.id().to_string();
+        if let Some(existing) = self.backgrounds.get(&id) {
+            return Arc::clone(existing);
+        }
+        let manager = Arc::new(BackgroundTaskManager::new(
+            session.directory().join("tasks"),
+        ));
+        self.backgrounds.insert(id, Arc::clone(&manager));
+        manager
     }
 
     async fn handle(&mut self, message: Value) {
@@ -411,7 +429,8 @@ impl Server {
             .create(Path::new(cwd), model)
             .map_err(failed)?;
         apply_start_controls(&mut session, params)?;
-        let active = open_thread(Path::new(cwd), model, session).await?;
+        let background = self.background_for(&session);
+        let active = open_thread(Path::new(cwd), model, session, background).await?;
         let view = load_thread(&active.cwd, &active.id)?;
         self.active = Some(active);
         Ok(json!({"thread": view}))
@@ -423,7 +442,8 @@ impl Server {
         let id = require_str(params, "threadId")?;
         let session = SessionStore::new().load(&cwd, id).map_err(failed)?;
         let model = session.state.model.clone();
-        let active = open_thread(&cwd, &model, session).await?;
+        let background = self.background_for(&session);
+        let active = open_thread(&cwd, &model, session, background).await?;
         let view = load_thread(&cwd, id)?;
         self.active = Some(active);
         Ok(json!({"thread": view}))
@@ -498,7 +518,8 @@ impl Server {
         if self.active.as_ref().is_some_and(|active| active.id == id) {
             let session = SessionStore::new().load(&cwd, &id).map_err(failed)?;
             let model = session.state.model.clone();
-            self.active = Some(open_thread(&cwd, &model, session).await?);
+            let background = self.background_for(&session);
+            self.active = Some(open_thread(&cwd, &model, session, background).await?);
         }
         let session = SessionStore::new().load(&cwd, &id).map_err(failed)?;
         Ok(json!({"thread": session_value(&session)?}))
@@ -1160,10 +1181,14 @@ impl Server {
     }
 }
 
-async fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<ActiveThread, RpcError> {
+async fn open_thread(
+    cwd: &Path,
+    model: &str,
+    session: Session,
+    background: Arc<BackgroundTaskManager>,
+) -> Result<ActiveThread, RpcError> {
     let provider = build_provider(model)?;
     let directory = session.directory().to_path_buf();
-    let background = Arc::new(BackgroundTaskManager::new(directory.join("tasks")));
     let tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(BashTool::with_background(Arc::clone(&background))),
         Arc::new(AskUserQuestionTool::new()),

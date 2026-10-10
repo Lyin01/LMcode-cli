@@ -72,6 +72,30 @@ async function startHarness(home: string): Promise<RustHarness> {
   return harness
 }
 
+async function waitForPing(
+  session: DesktopSession,
+  exceptTaskId?: string,
+): Promise<{ taskId: string; startedAt: number }> {
+  const deadline = Date.now() + 8_000
+  while (Date.now() < deadline) {
+    const tasks = await session.listBackgroundTasks({ activeOnly: false })
+    const task = tasks.find(
+      (item) =>
+        item.status === 'running' &&
+        item.command.includes('127.0.0.1') &&
+        item.taskId !== exceptTaskId,
+    )
+    if (task !== undefined) {
+      const output = await session.getBackgroundTaskOutput(task.taskId)
+      if (output.includes('127.0.0.1')) {
+        return { taskId: task.taskId, startedAt: task.startedAt }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error('running ping did not appear')
+}
+
 function waitForTurnEnd(session: DesktopSession): Promise<{ type: string; reason: string }> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('turn did not end')), 40_000)
@@ -423,26 +447,52 @@ describe('desktop client of lm app-server', () => {
     await session.prompt('start the background command')
     await backgroundEnded
 
-    const deadline = Date.now() + 8_000
-    let taskId = ''
-    let output = ''
-    while (Date.now() < deadline) {
-      const tasks = await session.listBackgroundTasks({ activeOnly: false })
-      const task = tasks.find((item) => item.command.includes('127.0.0.1'))
-      if (task !== undefined) {
-        taskId = task.taskId
-        output = await session.getBackgroundTaskOutput(task.taskId)
-        if (output.includes('127.0.0.1')) break
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-    expect(output).toContain('127.0.0.1')
-    await session.stopBackgroundTask(taskId, { reason: 'test stop' })
+    const first = await waitForPing(session)
+    expect(Math.abs(first.startedAt - Date.now())).toBeLessThan(60_000)
+    expect(first.startedAt).toBeGreaterThanOrEqual(1_000_000_000_000)
+    await session.getContext()
+    const still = (await session.listBackgroundTasks({ activeOnly: true })).find(
+      (item) => item.taskId === first.taskId,
+    )
+    expect(still?.status).toBe('running')
+    expect(Math.abs((still?.startedAt ?? 0) - Date.now())).toBeLessThan(60_000)
+    expect(await session.getBackgroundTaskOutput(first.taskId)).toContain('127.0.0.1')
+    await session.stopBackgroundTask(first.taskId, { reason: 'test stop' })
     const active = await session.listBackgroundTasks({ activeOnly: true })
-    expect(active.some((item) => item.taskId === taskId)).toBe(false)
-    const all = await session.listBackgroundTasks({ activeOnly: false })
-    expect(all.find((item) => item.taskId === taskId)?.status).toBe('killed')
-  }, 60_000)
+    expect(active.some((item) => item.taskId === first.taskId)).toBe(false)
+    const killed = (await session.listBackgroundTasks({ activeOnly: false })).find(
+      (item) => item.taskId === first.taskId,
+    )
+    expect(killed?.status).toBe('killed')
+    expect(killed?.endedAt).not.toBeNull()
+    expect(killed?.endedAt ?? 0).toBeGreaterThanOrEqual(first.startedAt)
+    expect(Math.abs((killed?.endedAt ?? 0) - Date.now())).toBeLessThan(60_000)
+
+    await session.setModel('script-bg')
+    const secondEnded = waitForTurnEnd(session)
+    await session.prompt('start the second background command')
+    await secondEnded
+    const second = await waitForPing(session, first.taskId)
+    const otherWork = await tempDir('lmcode-desktop-work-')
+    await harness.createSession({ workDir: otherWork, model: 'script' })
+    const back = await harness.resumeSession({ id: session.id })
+    const resumed = (await back.listBackgroundTasks({ activeOnly: true })).find(
+      (item) => item.taskId === second.taskId,
+    )
+    expect(resumed?.status).toBe('running')
+    expect(await back.getBackgroundTaskOutput(second.taskId)).toContain('127.0.0.1')
+    expect(Math.abs(second.startedAt - Date.now())).toBeLessThan(60_000)
+    await back.stopBackgroundTask(second.taskId, { reason: 'second stop' })
+    const secondActive = await back.listBackgroundTasks({ activeOnly: true })
+    expect(secondActive.some((item) => item.taskId === second.taskId)).toBe(false)
+    const secondKilled = (await back.listBackgroundTasks({ activeOnly: false })).find(
+      (item) => item.taskId === second.taskId,
+    )
+    expect(secondKilled?.status).toBe('killed')
+    expect(secondKilled?.endedAt).not.toBeNull()
+    expect(secondKilled?.endedAt ?? 0).toBeGreaterThanOrEqual(second.startedAt)
+    expect(Math.abs((secondKilled?.endedAt ?? 0) - Date.now())).toBeLessThan(60_000)
+  }, 90_000)
 
   it('exports a zip, reports the context window, and keeps image parts', async () => {
     const home = await tempDir('lmcode-desktop-home-')
