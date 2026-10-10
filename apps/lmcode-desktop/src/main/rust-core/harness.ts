@@ -227,7 +227,8 @@ export class RustHarness implements DesktopHarness, CoreHost {
     session.applyThread(result.thread)
   }
 
-  async close(): Promise<void> {
+  // Shutdown asks to skip exit extraction. This process does not extract on close.
+  async close(_options?: { readonly extractMemories?: boolean }): Promise<void> {
     this.running = false
     this.turnOwner = undefined
     await this.client.close()

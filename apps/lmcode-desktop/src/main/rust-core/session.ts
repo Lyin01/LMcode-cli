@@ -234,7 +234,7 @@ export class RustSession implements DesktopSession, ThreadBinding {
     if (method === 'turn/started') this.host.noteTurnRunning(true)
     const event = translateNotification(method, params, this.translate, this.id)
     if (event === undefined) return
-    this.publish(event as Event)
+    this.publish(event as unknown as Event)
   }
 
   private publish(event: Event): void {

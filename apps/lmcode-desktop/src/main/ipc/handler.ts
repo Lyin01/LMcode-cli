@@ -1252,12 +1252,12 @@ export function registerAllHandlers(
     return memoryStore
   }
 
-  secureInvoke('lmcode:listMemories', async (): Promise<MemoryMemoSummary[]> => {
+  secureInvoke('lmcode:listMemories', async (): Promise<readonly MemoryMemoSummary[]> => {
     const result = await requireMemoryStore().list({ limit: 100 })
     return result.memos
   })
 
-  secureInvoke('lmcode:searchMemories', async (_event, query: string): Promise<MemoryMemoSummary[]> => {
+  secureInvoke('lmcode:searchMemories', async (_event, query: string): Promise<readonly MemoryMemoSummary[]> => {
     const result = await requireMemoryStore().list({ search: query, limit: 20 })
     return result.memos
   }, searchMemoriesArgsSchema)

@@ -118,7 +118,7 @@ function waitForEvents(
       reject(new Error(`missing events ${types.join(', ')}; saw ${seen.map((event) => event.type).join(', ')}`))
     }, 40_000)
     session.onEvent((event) => {
-      seen.push(event as { readonly type: string } & Record<string, unknown>)
+      seen.push(event as unknown as { readonly type: string } & Record<string, unknown>)
       const ready = types.every((type) => seen.some((item) => item.type === type))
       if (!ready) return
       clearTimeout(timer)
