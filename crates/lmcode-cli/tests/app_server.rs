@@ -267,7 +267,7 @@ fn two_launches_agree_and_the_second_reloads_messages_goal_and_cron() {
     assert_eq!(goal["goal"]["status"], "active");
     let task = first.call(
         "cron/create",
-        json!({"cron": "* * * * *", "prompt": "ping the build", "recurring": true}),
+        json!({"cron": "0 0 * * *", "prompt": "ping the build", "recurring": true}),
     );
     assert_eq!(task["task"]["prompt"], "ping the build");
 
@@ -325,7 +325,7 @@ fn two_launches_agree_and_the_second_reloads_messages_goal_and_cron() {
     assert_eq!(goal_again["goal"]["status"], "active");
     let tasks = second.call("cron/list", json!({}));
     assert_eq!(tasks["tasks"][0]["prompt"], "ping the build");
-    assert_eq!(tasks["tasks"][0]["cron"], "* * * * *");
+    assert_eq!(tasks["tasks"][0]["cron"], "0 0 * * *");
 
     let forked_again = second.call("thread/resume", json!({"cwd": cwd, "threadId": fork_id}));
     assert_eq!(forked_again["thread"]["forkedFrom"], thread_id);
@@ -348,6 +348,60 @@ fn two_launches_agree_and_the_second_reloads_messages_goal_and_cron() {
         stderr.is_empty(),
         "second launch wrote to stderr:\n{stderr}"
     );
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn due_cron_fires_into_a_turn_and_notifies() {
+    let home = home("cron-fire");
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let mut client = Client::launch(&home);
+    client.call("initialize", json!({}));
+    let started = client.call("thread/start", json!({"cwd": cwd, "model": "script"}));
+    let thread_id = started["thread"]["id"].as_str().unwrap().to_string();
+    let session_dir = PathBuf::from(started["thread"]["sessionDir"].as_str().unwrap());
+    let cron_dir = session_dir.join("cron");
+    std::fs::create_dir_all(&cron_dir).expect("cron dir");
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64
+        - 10 * 60_000;
+    std::fs::write(
+        cron_dir.join("duejob01.json"),
+        serde_json::to_string(&json!({
+            "id": "duejob01",
+            "cron": "* * * * *",
+            "prompt": "ping the build",
+            "createdAt": created_at,
+            "recurring": true,
+        }))
+        .unwrap(),
+    )
+    .expect("cron file");
+
+    // Resume reloads the on-disk job. The server tick then delivers it.
+    client.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    let fired = client.take_method("cron/fired");
+    assert_eq!(fired["params"]["threadId"], thread_id);
+    assert_eq!(fired["params"]["prompt"], "ping the build");
+    assert_eq!(fired["params"]["origin"]["kind"], "cron_job");
+    assert_eq!(fired["params"]["origin"]["jobId"], "duejob01");
+    assert_eq!(fired["params"]["origin"]["cron"], "* * * * *");
+    assert_eq!(fired["params"]["origin"]["recurring"], true);
+    assert_eq!(fired["params"]["origin"]["coalescedCount"], 1);
+    assert_eq!(fired["params"]["origin"]["stale"], false);
+    let completed = client.take_method("turn/completed");
+    assert_eq!(completed["params"]["status"], "completed");
+    assert_eq!(
+        completed["params"]["text"],
+        "script: A scheduled task has fired — handle it."
+    );
+    let tasks = client.call("cron/list", json!({}));
+    assert_eq!(tasks["tasks"][0]["id"], "duejob01");
+    assert!(tasks["tasks"][0]["lastFiredAt"].as_u64().is_some());
+    let stderr = client.close();
+    assert!(stderr.is_empty(), "cron fire wrote to stderr:\n{stderr}");
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -380,7 +434,10 @@ fn list_all_sessions_and_config_patch_round_trip() {
     let config = client.call("config/get", json!({}));
     assert_eq!(config["defaultModel"], "script");
     assert_eq!(config["providers"]["local"]["apiKey"], "test");
-    assert_eq!(config["providers"]["local"]["baseUrl"], "http://127.0.0.1:9/v1");
+    assert_eq!(
+        config["providers"]["local"]["baseUrl"],
+        "http://127.0.0.1:9/v1"
+    );
     let patched = client.call(
         "config/patch",
         json!({

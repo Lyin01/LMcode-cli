@@ -140,6 +140,22 @@ export function translateNotification(
   if (method === 'turn/notice') {
     return stamp(sessionId, { type: 'warning', message: asString(body['message']) })
   }
+  if (method === 'cron/fired') {
+    const origin = asRecord(body['origin'])
+    const coalesced = origin['coalescedCount']
+    return stamp(sessionId, {
+      type: 'cron.fired',
+      prompt: asString(body['prompt']),
+      origin: {
+        kind: 'cron_job',
+        jobId: asString(origin['jobId']),
+        cron: asString(origin['cron']),
+        recurring: origin['recurring'] !== false,
+        coalescedCount: typeof coalesced === 'number' ? coalesced : 1,
+        stale: origin['stale'] === true,
+      },
+    })
+  }
   if (method === 'turn/completed') {
     const status = asString(body['status'])
     const errorText = asString(body['error'])

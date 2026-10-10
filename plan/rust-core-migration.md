@@ -113,7 +113,7 @@
 | `lsp/*` + `lsp-tool` | `lsp/*` `tools/lsp.rs` | 已有 | mock 语言服务器有单测 |
 | `mcp/*`（stdio、HTTP、命名） | `lmcode-mcp` + `mcp_manager.rs` + `tools/mcp.rs` | 部分 | stdio、Streamable HTTP、工具名前缀、配置写回有测试 |
 | `mcp/oauth/*` | `lmcode-mcp` 的 `oauth.rs` | 部分 | 存储键、JSON 文件、回调服务器、授权 URL 只取一次、authenticate 工具的成功/已授权/失败输出有单测。RFC 9728/8414/7591 发现和 token 端点交换还不在 |
-| `rpc/*`（CoreAPI / SDKAPI，进程内） | `lmcode-app-server`，子命令 `lm app-server` | 已有 | stdio JSONL：`initialize`，`thread/start\|resume\|list\|fork\|delete\|rename`，`turn/start\|steer\|interrupt`，审批与提问的反向请求，以及 `goal` / `cron` / `mcp` / `memory` / `config/read\|write\|get\|patch` / `computerUse`。`thread/list` 不带 cwd 时列出全部会话。`thread/fork` 接受 `targetCwd` 和 `title`。第二次启动能恢复消息、goal 和 cron。Electron 主进程已经改成这个客户端，整个桌面共用一个进程。MCP 方法只读写 `mcp.json`，不拉起服务器进程；电脑操作不启动驱动。Tauri 仍是进程内调用 |
+| `rpc/*`（CoreAPI / SDKAPI，进程内） | `lmcode-app-server`，子命令 `lm app-server` | 已有 | stdio JSONL：`initialize`，`thread/start\|resume\|list\|fork\|delete\|rename`，`turn/start\|steer\|interrupt`，审批与提问的反向请求，以及 `goal` / `cron` / `mcp` / `memory` / `config/read\|write\|get\|patch` / `computerUse`。`thread/list` 不带 cwd 时列出全部会话。`thread/fork` 接受 `targetCwd` 和 `title`。当前线程大约每秒检查一次到点的 cron：空闲时注入 `<cron-fire>` 并开一轮，通知 `cron/fired`。第二次启动能恢复消息、goal 和 cron。Electron 主进程已经改成这个客户端，整个桌面共用一个进程。MCP 方法只读写 `mcp.json`，不拉起服务器进程；电脑操作不启动驱动。Tauri 仍是进程内调用 |
 
 ### 工具
 
@@ -204,7 +204,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 5. 轮次重试、溢出后压缩、steer、undo、会话 delete / rename / fork、OpenAI 工具结果图片折进下一条 user 消息。已接到轮次循环。spec-critic、visual auditor、anchored bootstrap、工具去重、流式中途重试仍然没有。
 6. 电脑操作控制器的决策（占槽、失败回滚、驱动解析、安装配方）和 MCP OAuth 的存储、回调、授权 URL 事件已有契约测试。真实驱动进程还没接到 `McpManager`。授权服务器的 HTTP 发现和换 token 还不在。
 7. 电脑操作契约、待办提醒、用户偏好、pending tasks 已在 `Agent::apply_desktop_injections` 里、每次模型请求前注入。权限模式、近期会话、working set、插件 session-start 还没有。
-8. `lmcode-app-server` 已由 `lm app-server` 拉起。真实进程测试覆盖 thread、turn、审批、提问，以及 goal、cron、mcp、memory、config、computerUse。第二次启动能恢复消息、goal 和 cron。MCP 与驱动进程不在这个进程里拉起。
+8. `lmcode-app-server` 已由 `lm app-server` 拉起。真实进程测试覆盖 thread、turn、审批、提问，以及 goal、cron、mcp、memory、config、computerUse。到点的 cron 会在当前线程开一轮，并发出 `cron/fired`。第二次启动能恢复消息、goal 和 cron。MCP 与驱动进程不在这个进程里拉起。
 9. Electron 主进程已改走该客户端。渲染层不动。桌面 `package.json` 已去掉 `@lmcode-cli/lmcode-sdk` 和 `@lmcode/memory`。
 10. 本文件把已完成的切换和有意留下的缺口分开写在下面。`packages/` 仍在树里。
 
@@ -214,7 +214,7 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 
 Electron 主进程通过真实的 `lm app-server` 进程驱动 Rust 核心。一个进程服务整个桌面：空闲时先 `thread/resume` 再调用，已有回合在跑时第二次 `turn/start` 以 “a turn is already running” 拒绝。审批和提问的反向请求会等到桌面对话框回答，客户端等待上限是 600 秒。
 
-渲染层能看到的会话、回合、审批、提问，以及 goal、cron、mcp、memory、config、computer use，都走这条协议。goal 和 cron 按会话文件存放，fork 会复制它们。cron 的 `humanSchedule` 就是原始表达式，同时带 `nextFireAt` 和 `stale`。mcp 列表只反映 `mcp.json`：有 url 视为 http，否则 stdio；禁用为 disabled，否则 pending，并说明进程没有拉起。computer use 的 `setEnabled(true)` 返回 phase `failed`，错误文本包含 “not launched”；`setEnabled(false)` 回到 idle。配置面板用 `config/get` 和 `config/patch`（camelCase，未知键进 extra，`null` 删除 provider 或 model）。`anchoredBootstrap` 没有单独建模，桌面启动时写入 extra，能随文件往返。`packages/` 下的 TypeScript 还在。`crates/lmcode-desktop` 没有被改成产品壳。
+渲染层能看到的会话、回合、审批、提问，以及 goal、cron、mcp、memory、config、computer use，都走这条协议。goal 和 cron 按会话文件存放，fork 会复制它们。`goal/create`、`goal/update`、`goal/cancel` 的结果会在会话事件流上变成 `goal.updated`，目标芯片不用等切换会话。cron 的 `humanSchedule` 就是原始表达式，同时带 `nextFireAt` 和 `stale`。当前线程大约每秒做一次 `due_fires`：到点的任务发 `cron/fired`（客户端翻成 `cron.fired`，自动化面板据此刷新），把 `<cron-fire>` 注入历史，并在空闲时开一轮去处理。已有回合在跑时这一拍跳过，任务留到下一拍。其它会话要等被 resume 成当前线程之后才会触发。mcp 列表只反映 `mcp.json`：有 url 视为 http，否则 stdio；禁用为 disabled，否则 pending，并说明进程没有拉起。computer use 的 `setEnabled(true)` 返回 phase `failed`，错误文本包含 “not launched”；`setEnabled(false)` 回到 idle。配置面板用 `config/get` 和 `config/patch`（camelCase，未知键进 extra，`null` 删除 provider 或 model）。`anchoredBootstrap` 没有单独建模，桌面启动时写入 extra，能随文件往返。`packages/` 下的 TypeScript 还在。`crates/lmcode-desktop` 没有被改成产品壳。
 
 ## 有意留下
 

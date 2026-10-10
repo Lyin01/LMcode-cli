@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -55,6 +55,25 @@ function waitForTurnEnd(session: DesktopSession): Promise<{ type: string; reason
   })
 }
 
+function waitForEvents(
+  session: DesktopSession,
+  types: readonly string[],
+): Promise<Array<{ readonly type: string } & Record<string, unknown>>> {
+  return new Promise((resolve, reject) => {
+    const seen: Array<{ readonly type: string } & Record<string, unknown>> = []
+    const timer = setTimeout(() => {
+      reject(new Error(`missing events ${types.join(', ')}; saw ${seen.map((event) => event.type).join(', ')}`))
+    }, 40_000)
+    session.onEvent((event) => {
+      seen.push(event as { readonly type: string } & Record<string, unknown>)
+      const ready = types.every((type) => seen.some((item) => item.type === type))
+      if (!ready) return
+      clearTimeout(timer)
+      resolve(seen)
+    })
+  })
+}
+
 describe('desktop client of lm app-server', () => {
   it('launches the real binary twice and the turn plus panel reads agree', async () => {
     const home = await tempDir('lmcode-desktop-home-')
@@ -80,20 +99,114 @@ describe('desktop client of lm app-server', () => {
     const listed = await second.listSessions()
     expect(listed.map((item) => item.id)).toContain(session.id)
     const resumed = await second.resumeSession({ id: session.id })
+    const endedAgain = waitForTurnEnd(resumed)
+    await resumed.prompt('again')
+    const turnAgain = await endedAgain
     const again = await resumed.getContext()
     const configAgain = await second.getConfig()
     const memoriesAgain = await second.memoryStore().list({ limit: 20 })
-    expect(again.history).toEqual(context.history)
+    expect(turnAgain).toEqual({ type: 'turn.ended', reason: 'completed' })
+    expect(JSON.stringify(again.history)).toContain('hello')
+    expect(JSON.stringify(again.history)).toContain('script: hello')
+    expect(JSON.stringify(again.history)).toContain('again')
+    expect(JSON.stringify(again.history)).toContain('script: again')
     expect(configAgain).toEqual(config)
     expect(memoriesAgain).toEqual(memories)
     expect(second.capturedStderr()).toBe('')
     console.log(JSON.stringify({
-      turn,
-      history: again.history,
-      config: configAgain,
-      memories: memoriesAgain.memos,
+      runs: [
+        { turn, history: context.history, config, memories: memories.memos },
+        { turn: turnAgain, history: again.history, config: configAgain, memories: memoriesAgain.memos },
+      ],
     }))
     await second.close()
+  }, 90_000)
+
+  it('emits goal.updated for create, pause, and cancel', async () => {
+    const home = await tempDir('lmcode-desktop-home-')
+    const work = await tempDir('lmcode-desktop-work-')
+    const harness = await startHarness(home)
+    await harness.ensureConfigFile()
+    const session = await harness.createSession({ workDir: work, model: 'script' })
+    const seen: Array<{ readonly type: string; readonly snapshot: unknown; readonly change?: unknown }> = []
+    session.onEvent((event) => {
+      if (event.type === 'goal.updated') {
+        seen.push(event as { readonly type: string; readonly snapshot: unknown; readonly change?: unknown })
+      }
+    })
+
+    const created = await session.createGoal('ship the rust core')
+    expect(seen.at(-1)).toMatchObject({
+      type: 'goal.updated',
+      agentId: 'main',
+      sessionId: session.id,
+      change: { kind: 'lifecycle', status: 'active', actor: 'user' },
+    })
+    expect(seen.at(-1)?.snapshot).toEqual(created)
+
+    const paused = await session.updateGoalStatus('paused')
+    expect(seen.at(-1)).toMatchObject({
+      type: 'goal.updated',
+      change: { kind: 'lifecycle', status: 'paused', actor: 'user' },
+    })
+    expect(seen.at(-1)?.snapshot).toEqual(paused)
+
+    const cancelled = await session.cancelGoal()
+    expect(seen.at(-1)).toMatchObject({
+      type: 'goal.updated',
+      change: { kind: 'completion', status: 'complete', reason: 'cancelled', actor: 'user' },
+    })
+    expect(seen.at(-1)?.snapshot).toEqual(cancelled)
+    expect(harness.capturedStderr()).toBe('')
+  }, 60_000)
+
+  it('runs a due cron job and emits cron.fired', async () => {
+    const home = await tempDir('lmcode-desktop-home-')
+    const work = await tempDir('lmcode-desktop-work-')
+    const harness = await startHarness(home)
+    await harness.ensureConfigFile()
+    const session = await harness.createSession({ workDir: work, model: 'script' })
+    const sessionDir = session.summary?.sessionDir
+    if (sessionDir === undefined || sessionDir.length === 0) {
+      throw new Error('sessionDir missing')
+    }
+    await harness.close()
+
+    await mkdir(join(sessionDir, 'cron'), { recursive: true })
+    await writeFile(join(sessionDir, 'cron', 'duejob01.json'), JSON.stringify({
+      id: 'duejob01',
+      cron: '* * * * *',
+      prompt: 'ping the build',
+      createdAt: Date.now() - 10 * 60_000,
+      recurring: true,
+    }))
+
+    const again = await startHarness(home)
+    const resumed = await again.resumeSession({ id: session.id })
+    const events = await waitForEvents(resumed, ['cron.fired', 'turn.ended'])
+    const fired = events.find((event) => event.type === 'cron.fired')
+    expect(fired).toMatchObject({
+      type: 'cron.fired',
+      agentId: 'main',
+      sessionId: session.id,
+      prompt: 'ping the build',
+      origin: {
+        kind: 'cron_job',
+        jobId: 'duejob01',
+        cron: '* * * * *',
+        recurring: true,
+        coalescedCount: 1,
+        stale: false,
+      },
+    })
+    expect(events.find((event) => event.type === 'turn.ended')).toMatchObject({
+      type: 'turn.ended',
+      reason: 'completed',
+    })
+    const jobs = await resumed.listCronJobs()
+    expect(jobs.map((job) => job.id)).toContain('duejob01')
+    expect(jobs.find((job) => job.id === 'duejob01')?.lastFiredAt).toEqual(expect.any(Number))
+    expect(again.capturedStderr()).toBe('')
   }, 60_000)
 
   it('forwards bash approval and question reverse requests', async () => {

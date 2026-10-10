@@ -23,7 +23,7 @@ use lmcode_core::config::{
     PermissionConfig, PermissionMode, RawConfig, RawModelAlias, RawProvider, default_config_path,
     load_config, resolve_model, save_config,
 };
-use lmcode_core::cron::{CronStore, CronTask};
+use lmcode_core::cron::{CronStore, CronTask, render_cron_fire_xml};
 use lmcode_core::goal::{GoalMode, GoalStatus};
 use lmcode_core::session::{Session, SessionStore};
 use lmcode_core::tools::ask_user::{AskUserAnswer, UserQuestion};
@@ -409,7 +409,10 @@ impl Server {
 
     fn thread_list(&self, params: &Value) -> Result<Value, RpcError> {
         let store = SessionStore::new();
-        let cwd = params.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
+        let cwd = params
+            .get("cwd")
+            .and_then(Value::as_str)
+            .filter(|cwd| !cwd.is_empty());
         let states = match cwd {
             Some(cwd) => store.list(Path::new(cwd)).map_err(failed)?,
             None => store.list_all().map_err(failed)?,
@@ -500,6 +503,21 @@ impl Server {
         if active.running.swap(true, Ordering::SeqCst) {
             return Err(RpcError::failed("a turn is already running"));
         }
+        let thread_id = active.id.clone();
+        let turn_id = self.spawn_turn(text);
+        Ok(json!({
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "status": "started",
+        }))
+    }
+
+    /// `running` is already true. The turn task clears it when the model returns.
+    fn spawn_turn(&mut self, text: String) -> String {
+        let active = self
+            .active
+            .as_ref()
+            .expect("spawn_turn requires an active thread");
         let turn_id = format!("turn_{}", uuid::Uuid::new_v4());
         let thread_id = active.id.clone();
         let agent = Arc::clone(&active.agent);
@@ -549,11 +567,7 @@ impl Server {
             };
             ui.notify("turn/completed", params).await;
         });
-        Ok(json!({
-            "threadId": thread_id,
-            "turnId": turn_id,
-            "status": "started",
-        }))
+        turn_id
     }
 
     fn turn_steer(&self, params: &Value) -> Result<Value, RpcError> {
@@ -650,6 +664,86 @@ impl Server {
         let id = require_str(params, "id")?;
         let deleted = cron.lock().await.remove(id);
         Ok(json!({"deleted": deleted}))
+    }
+
+    async fn notify(&self, method: &str, params: Value) {
+        let _ = send_value(
+            &self.out,
+            &json!({"jsonrpc": "2.0", "method": method, "params": params}),
+        )
+        .await;
+    }
+
+    /// Deliver due jobs on the active thread. A running turn keeps the jobs
+    /// due so the next idle beat can start them. Matches the TUI tick:
+    /// inject `<cron-fire>` and run one turn.
+    async fn cron_tick(&mut self) {
+        let (thread_id, cron, running, agent) = {
+            let Some(active) = self.active.as_ref() else {
+                return;
+            };
+            if active.running.load(Ordering::SeqCst) {
+                return;
+            }
+            (
+                active.id.clone(),
+                Arc::clone(&active.cron),
+                Arc::clone(&active.running),
+                Arc::clone(&active.agent),
+            )
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        let fires = cron.lock().await.due_fires(now_ms);
+        if fires.is_empty() {
+            return;
+        }
+        // The request loop cannot start a turn while this beat is in progress.
+        // If a turn is still marked running, leave the prompts on the steer
+        // slot and do not start a second one. due_fires already consumed them,
+        // so they have to be delivered here.
+        if running.swap(true, Ordering::SeqCst) {
+            if let Some(active) = self.active.as_ref() {
+                for fire in &fires {
+                    let _ = active.steer.submit(&render_cron_fire_xml(fire));
+                }
+            }
+            for fire in &fires {
+                self.notify_cron(&thread_id, fire).await;
+            }
+            return;
+        }
+        for fire in &fires {
+            self.notify_cron(&thread_id, fire).await;
+        }
+        {
+            let mut agent = agent.lock().await;
+            for fire in &fires {
+                agent.queue_injection(render_cron_fire_xml(fire));
+            }
+        }
+        self.spawn_turn("A scheduled task has fired — handle it.".to_string());
+    }
+
+    async fn notify_cron(&self, thread_id: &str, fire: &lmcode_core::cron::CronFire) {
+        self.notify(
+            "cron/fired",
+            json!({
+                "threadId": thread_id,
+                "prompt": fire.prompt,
+                "origin": {
+                    "kind": "cron_job",
+                    "jobId": fire.task_id,
+                    "cron": fire.cron,
+                    "recurring": fire.recurring,
+                    "coalescedCount": 1,
+                    "stale": fire.stale,
+                },
+            }),
+        )
+        .await;
     }
 
     fn mcp_list(&self) -> Result<Value, RpcError> {
@@ -885,7 +979,10 @@ fn config_get(params: &Value) -> Result<Value, RpcError> {
 /// such as `anchoredBootstrap` round-trips.
 fn config_patch(params: &Value) -> Result<Value, RpcError> {
     let path = config_path(params);
-    let patch = params.get("patch").cloned().unwrap_or_else(|| params.clone());
+    let patch = params
+        .get("patch")
+        .cloned()
+        .unwrap_or_else(|| params.clone());
     let patch = patch
         .as_object()
         .ok_or_else(|| RpcError::params("config patch must be an object"))?;
@@ -913,7 +1010,11 @@ fn config_patch(params: &Value) -> Result<Value, RpcError> {
 fn config_to_json(config: &RawConfig) -> Result<Value, RpcError> {
     let mut value = serde_json::Map::new();
     value.insert("providers".to_string(), providers_json(&config.providers));
-    insert_json_string(&mut value, "defaultProvider", config.default_provider.as_deref());
+    insert_json_string(
+        &mut value,
+        "defaultProvider",
+        config.default_provider.as_deref(),
+    );
     insert_json_string(&mut value, "defaultModel", config.default_model.as_deref());
     if !config.models.is_empty() {
         value.insert("models".to_string(), models_json(&config.models));
@@ -948,10 +1049,7 @@ fn config_to_json(config: &RawConfig) -> Result<Value, RpcError> {
         }
     }
     if let Some(computer_use) = &config.computer_use {
-        value.insert(
-            "computerUse".to_string(),
-            computer_use_json(computer_use)?,
-        );
+        value.insert("computerUse".to_string(), computer_use_json(computer_use)?);
     }
     for (key, extra) in &config.extra {
         if value.contains_key(key) {
@@ -997,7 +1095,10 @@ fn apply_config_patch(
             "permission" => {
                 config.permission = match value {
                     Value::Null => None,
-                    other => Some(serde_json::from_value::<PermissionConfig>(other.clone()).map_err(failed)?),
+                    other => Some(
+                        serde_json::from_value::<PermissionConfig>(other.clone())
+                            .map_err(failed)?,
+                    ),
                 }
             }
             "loopControl" => merge_loop_control(config, value)?,
@@ -1029,7 +1130,11 @@ fn provider_json(provider: &RawProvider) -> Value {
     }
     insert_json_string(&mut value, "apiKey", provider.api_key.as_deref());
     insert_json_string(&mut value, "baseUrl", provider.base_url.as_deref());
-    insert_json_string(&mut value, "defaultModel", provider.default_model.as_deref());
+    insert_json_string(
+        &mut value,
+        "defaultModel",
+        provider.default_model.as_deref(),
+    );
     if !provider.custom_headers.is_empty() {
         value.insert(
             "customHeaders".to_string(),
@@ -1065,8 +1170,16 @@ fn models_json(models: &HashMap<String, RawModelAlias>) -> Value {
 
 fn loop_control_json(loop_control: &LoopControlConfig) -> Value {
     let mut value = serde_json::Map::new();
-    insert_json_u64(&mut value, "maxStepsPerTurn", loop_control.max_steps_per_turn);
-    insert_json_u64(&mut value, "maxRetriesPerStep", loop_control.max_retries_per_step);
+    insert_json_u64(
+        &mut value,
+        "maxStepsPerTurn",
+        loop_control.max_steps_per_turn,
+    );
+    insert_json_u64(
+        &mut value,
+        "maxRetriesPerStep",
+        loop_control.max_retries_per_step,
+    );
     if let Some(iterations) = loop_control.max_ralph_iterations {
         value.insert("maxRalphIterations".to_string(), json!(iterations));
     }
@@ -1075,11 +1188,19 @@ fn loop_control_json(loop_control: &LoopControlConfig) -> Value {
         "maxPostWriteReviewsPerTurn",
         loop_control.max_post_write_reviews_per_turn,
     );
-    insert_json_u64(&mut value, "reservedContextSize", loop_control.reserved_context_size);
+    insert_json_u64(
+        &mut value,
+        "reservedContextSize",
+        loop_control.reserved_context_size,
+    );
     if let Some(ratio) = loop_control.compaction_trigger_ratio {
         value.insert("compactionTriggerRatio".to_string(), json!(ratio));
     }
-    insert_json_u64(&mut value, "mediaBudgetBytes", loop_control.media_budget_bytes);
+    insert_json_u64(
+        &mut value,
+        "mediaBudgetBytes",
+        loop_control.media_budget_bytes,
+    );
     insert_json_u64(
         &mut value,
         "mediaToolResultImageLimit",
@@ -1198,8 +1319,14 @@ fn merge_loop_control(config: &mut RawConfig, value: &Value) -> Result<(), RpcEr
         .as_object()
         .ok_or_else(|| RpcError::params("loopControl must be an object"))?;
     let mut section = config.loop_control.clone().unwrap_or_default();
-    assign_optional_u64(&mut section.max_steps_per_turn, object.get("maxStepsPerTurn"))?;
-    assign_optional_u64(&mut section.max_retries_per_step, object.get("maxRetriesPerStep"))?;
+    assign_optional_u64(
+        &mut section.max_steps_per_turn,
+        object.get("maxStepsPerTurn"),
+    )?;
+    assign_optional_u64(
+        &mut section.max_retries_per_step,
+        object.get("maxRetriesPerStep"),
+    )?;
     if let Some(iterations) = object.get("maxRalphIterations") {
         section.max_ralph_iterations = match iterations {
             Value::Null => None,
@@ -1215,7 +1342,10 @@ fn merge_loop_control(config: &mut RawConfig, value: &Value) -> Result<(), RpcEr
         &mut section.max_post_write_reviews_per_turn,
         object.get("maxPostWriteReviewsPerTurn"),
     )?;
-    assign_optional_u64(&mut section.reserved_context_size, object.get("reservedContextSize"))?;
+    assign_optional_u64(
+        &mut section.reserved_context_size,
+        object.get("reservedContextSize"),
+    )?;
     if let Some(ratio) = object.get("compactionTriggerRatio") {
         section.compaction_trigger_ratio = match ratio {
             Value::Null => None,
@@ -1227,7 +1357,10 @@ fn merge_loop_control(config: &mut RawConfig, value: &Value) -> Result<(), RpcEr
             _ => return Err(RpcError::params("compactionTriggerRatio must be a number")),
         };
     }
-    assign_optional_u64(&mut section.media_budget_bytes, object.get("mediaBudgetBytes"))?;
+    assign_optional_u64(
+        &mut section.media_budget_bytes,
+        object.get("mediaBudgetBytes"),
+    )?;
     assign_optional_u64(
         &mut section.media_tool_result_image_limit,
         object.get("mediaToolResultImageLimit"),
@@ -1273,7 +1406,11 @@ fn merge_computer_use(config: &mut RawConfig, value: &Value) -> Result<(), RpcEr
         section.permission_mode = match mode {
             Value::Null => None,
             Value::String(name) => Some(parse_computer_use_mode(name)?),
-            _ => return Err(RpcError::params("computerUse.permissionMode must be a string")),
+            _ => {
+                return Err(RpcError::params(
+                    "computerUse.permissionMode must be a string",
+                ));
+            }
         };
     }
     config.computer_use = Some(section);
@@ -1285,7 +1422,9 @@ fn parse_permission_mode(name: &str) -> Result<PermissionMode, RpcError> {
         "manual" => Ok(PermissionMode::Manual),
         "yolo" => Ok(PermissionMode::Yolo),
         "auto" => Ok(PermissionMode::Auto),
-        other => Err(RpcError::params(format!("unknown permission mode `{other}`"))),
+        other => Err(RpcError::params(format!(
+            "unknown permission mode `{other}`"
+        ))),
     }
 }
 
@@ -1317,7 +1456,10 @@ fn optional_string(value: &Value) -> Result<Option<String>, RpcError> {
     }
 }
 
-fn assign_optional_string(slot: &mut Option<String>, value: Option<&Value>) -> Result<(), RpcError> {
+fn assign_optional_string(
+    slot: &mut Option<String>,
+    value: Option<&Value>,
+) -> Result<(), RpcError> {
     let Some(value) = value else {
         return Ok(());
     };
@@ -1375,7 +1517,10 @@ fn json_to_toml(value: &Value) -> Result<toml::Value, RpcError> {
         }
         Value::String(text) => Ok(toml::Value::String(text.clone())),
         Value::Array(items) => Ok(toml::Value::Array(
-            items.iter().map(json_to_toml).collect::<Result<Vec<_>, _>>()?,
+            items
+                .iter()
+                .map(json_to_toml)
+                .collect::<Result<Vec<_>, _>>()?,
         )),
         Value::Object(object) => {
             let mut table = toml::map::Map::new();
@@ -1533,8 +1678,21 @@ pub async fn serve_stdio() -> anyhow::Result<()> {
         }
     });
     let mut server = Server::new(stdout, pending);
-    while let Some(message) = rx.recv().await {
-        server.handle(message).await;
+    let mut cron_tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    cron_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            biased;
+            message = rx.recv() => {
+                let Some(message) = message else {
+                    break;
+                };
+                server.handle(message).await;
+            }
+            _ = cron_tick.tick() => {
+                server.cron_tick().await;
+            }
+        }
     }
     Ok(())
 }

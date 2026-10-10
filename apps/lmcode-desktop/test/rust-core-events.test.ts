@@ -62,6 +62,38 @@ describe('app-server notification translation', () => {
       reason: 'cancelled',
       error: { code: 'UNKNOWN', message: 'stopped', retryable: false },
     })
+
+    const fired = translateNotification(
+      'cron/fired',
+      {
+        threadId: 'sess',
+        prompt: 'ping the build',
+        origin: {
+          kind: 'cron_job',
+          jobId: 'duejob01',
+          cron: '* * * * *',
+          recurring: true,
+          coalescedCount: 1,
+          stale: false,
+        },
+      },
+      state,
+      'sess',
+    )
+    expect(fired).toEqual({
+      type: 'cron.fired',
+      prompt: 'ping the build',
+      origin: {
+        kind: 'cron_job',
+        jobId: 'duejob01',
+        cron: '* * * * *',
+        recurring: true,
+        coalescedCount: 1,
+        stale: false,
+      },
+      agentId: 'main',
+      sessionId: 'sess',
+    })
   })
 
   it('maps bash approval and question reverse requests', () => {

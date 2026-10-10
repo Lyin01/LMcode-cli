@@ -94,9 +94,27 @@ function unsupported(name: string): Promise<never> {
   return Promise.reject(new Error(`${name} is not available through lm app-server`))
 }
 
+const QUEUED_EVENT_LIMIT = 100
+
+function goalChange(snapshot: GoalSnapshotData | null): {
+  readonly kind: 'lifecycle' | 'completion'
+  readonly status: string
+  readonly reason: string | undefined
+  readonly actor: 'user'
+} | undefined {
+  if (snapshot === null) return undefined
+  const reason = typeof snapshot.terminalReason === 'string' ? snapshot.terminalReason : undefined
+  if (snapshot.status === 'complete') {
+    return { kind: 'completion', status: snapshot.status, reason, actor: 'user' }
+  }
+  return { kind: 'lifecycle', status: snapshot.status, reason, actor: 'user' }
+}
+
 export class RustSession implements DesktopSession, ThreadBinding {
   private closed = false
   private readonly listeners = new Set<(event: Event) => void>()
+  /** Notifications that arrived before the desktop subscribed. The first listener drains them. */
+  private readonly queued: Event[] = []
   private approvalHandler: ((request: ApprovalRequest) => Promise<ApprovalResponse>) | undefined
   private questionHandler: ((request: QuestionRequest) => Promise<QuestionResult>) | undefined
   private readonly translate: TranslateState = createTranslateState()
@@ -134,6 +152,8 @@ export class RustSession implements DesktopSession, ThreadBinding {
 
   onEvent(listener: (event: Event) => void): () => void {
     this.listeners.add(listener)
+    const queued = this.queued.splice(0)
+    for (const event of queued) listener(event)
     return () => {
       this.listeners.delete(listener)
     }
@@ -152,7 +172,26 @@ export class RustSession implements DesktopSession, ThreadBinding {
     if (method === 'turn/started') this.host.noteTurnRunning(true)
     const event = translateNotification(method, params, this.translate, this.id)
     if (event === undefined) return
-    for (const listener of this.listeners) listener(event as Event)
+    this.publish(event as Event)
+  }
+
+  private publish(event: Event): void {
+    if (this.listeners.size === 0) {
+      this.queued.push(event)
+      if (this.queued.length > QUEUED_EVENT_LIMIT) this.queued.shift()
+      return
+    }
+    for (const listener of this.listeners) listener(event)
+  }
+
+  private emitGoal(snapshot: GoalSnapshotData | null): void {
+    this.publish({
+      type: 'goal.updated',
+      snapshot,
+      change: goalChange(snapshot),
+      agentId: 'main',
+      sessionId: this.id,
+    } as Event)
   }
 
   async handleApproval(params: unknown): Promise<{ readonly approved: boolean }> {
@@ -244,6 +283,7 @@ export class RustSession implements DesktopSession, ThreadBinding {
       objective,
       replace: options?.replace === true,
     })
+    this.emitGoal(result.goal)
     return result.goal
   }
 
@@ -256,12 +296,14 @@ export class RustSession implements DesktopSession, ThreadBinding {
   async updateGoalStatus(status: string): Promise<GoalSnapshotData | null> {
     await this.host.ensureThread(this)
     const result = await this.host.request<{ goal: GoalSnapshotData | null }>('goal/update', { status })
+    this.emitGoal(result.goal)
     return result.goal
   }
 
   async cancelGoal(): Promise<GoalSnapshotData | null> {
     await this.host.ensureThread(this)
     const result = await this.host.request<{ goal: GoalSnapshotData | null }>('goal/cancel', {})
+    this.emitGoal(result.goal)
     return result.goal
   }
 
