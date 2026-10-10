@@ -27,11 +27,11 @@
 | `packages/memory` | `crates/lmcode-memory` | 部分。SQLite / 评分 / 向量 / 梦境 / 提取解析都在，压缩和退出会调用提取器。MemoryEdit 在 `lmcode-core` |
 | `packages/config` | 没有独立 crate。身份头（device id、User-Agent）缺失。运行配置读在 `lmcode-core/src/config.rs` | 部分 |
 | `packages/jian` | 没有 crate。Read / Write / Bash 直接打本机文件系统和进程 | 部分。没有可替换的执行环境，也没有沙箱实现 |
-| `packages/node-sdk` | `crates/lmcode-app-server`，由 `lm app-server` 拉起 | 部分。协议进程已经能开会话、跑回合、审批、提问，并读写面板。Electron 主进程仍进程内调用 TS SDK |
+| `packages/node-sdk` | `crates/lmcode-app-server`，由 `lm app-server` 拉起 | 已有。Electron 主进程拉起这一个 stdio JSON-RPC 进程。会话、回合、审批、提问，以及 goal、cron、mcp、memory、config、computer use 走这个进程。渲染层仍是 `import type` |
 | `packages/migration-legacy` | 无 | 不移植。包自己的 README 写了 v1.0 移除 |
 | `packages/ltod` | 无 | 不移植。目录里只有 `dist/` 和 `node_modules/`，没有源码 |
 | `apps/lmcode`（CLI / TUI） | `crates/lmcode-cli` + `crates/lmcode-tui` | 部分。CLI 选项面有契约测试；TUI 是另一套 ratatui，不是 TS 组件的逐个移植 |
-| `apps/lmcode-desktop`（Electron + React，当前产品） | 不替换界面。`crates/lmcode-desktop` 是另一套 Tauri 壳，进程内调 core | 壳层仍绑着 `@lmcode-cli/lmcode-sdk` |
+| `apps/lmcode-desktop`（Electron + React，当前产品） | 不替换界面。主进程是 `lm app-server` 的客户端。`crates/lmcode-desktop` 仍是另一套 Tauri 壳 | 壳层。`package.json` 不再依赖 `@lmcode-cli/lmcode-sdk` 和 `@lmcode/memory` |
 
 `crates/lmcode-desktop` 不能当成需求 3 的完成。需求 3 要留的是 `apps/lmcode-desktop` 的渲染层，主进程改成 JSON-RPC 客户端。
 
@@ -113,7 +113,7 @@
 | `lsp/*` + `lsp-tool` | `lsp/*` `tools/lsp.rs` | 已有 | mock 语言服务器有单测 |
 | `mcp/*`（stdio、HTTP、命名） | `lmcode-mcp` + `mcp_manager.rs` + `tools/mcp.rs` | 部分 | stdio、Streamable HTTP、工具名前缀、配置写回有测试 |
 | `mcp/oauth/*` | `lmcode-mcp` 的 `oauth.rs` | 部分 | 存储键、JSON 文件、回调服务器、授权 URL 只取一次、authenticate 工具的成功/已授权/失败输出有单测。RFC 9728/8414/7591 发现和 token 端点交换还不在 |
-| `rpc/*`（CoreAPI / SDKAPI，进程内） | `lmcode-app-server`，子命令 `lm app-server` | 部分 | stdio JSONL：`initialize`，`thread/start\|resume\|list\|fork\|delete\|rename`，`turn/start\|steer\|interrupt`，审批与提问的反向请求，以及 `goal` / `cron` / `mcp` / `memory` / `config` / `computerUse`。第二次启动能恢复消息、goal 和 cron。MCP 方法只读写 `mcp.json`，不拉起服务器进程；电脑操作不启动驱动。Electron 主进程还没改成这个客户端。Tauri 仍是进程内调用 |
+| `rpc/*`（CoreAPI / SDKAPI，进程内） | `lmcode-app-server`，子命令 `lm app-server` | 已有 | stdio JSONL：`initialize`，`thread/start\|resume\|list\|fork\|delete\|rename`，`turn/start\|steer\|interrupt`，审批与提问的反向请求，以及 `goal` / `cron` / `mcp` / `memory` / `config/read\|write\|get\|patch` / `computerUse`。`thread/list` 不带 cwd 时列出全部会话。`thread/fork` 接受 `targetCwd` 和 `title`。第二次启动能恢复消息、goal 和 cron。Electron 主进程已经改成这个客户端，整个桌面共用一个进程。MCP 方法只读写 `mcp.json`，不拉起服务器进程；电脑操作不启动驱动。Tauri 仍是进程内调用 |
 
 ### 工具
 
@@ -151,7 +151,7 @@ TS 注册表在 `tools/builtin/index.ts`。
 
 ## 桌面外壳：谁留在 Electron，谁进 Rust
 
-`apps/lmcode-desktop/src/main/index.ts` 今天 `new LmcodeHarness()`，渲染进程只走 preload IPC。切换时渲染层、preload 的频道名、git / 终端 / 远程这些壳功能保持不动。主进程里凡是转调 `LmcodeHarness` 或 `MemoryMemoStore` 的，改成 app-server 客户端。
+`apps/lmcode-desktop/src/main/index.ts` 用 `RustHarness.start` 拉起 `lm app-server`。渲染进程仍只走 preload IPC。渲染层、preload 的频道名、git / 终端 / 远程这些壳功能保持不动。主进程里原先转调 `LmcodeHarness` 或 `MemoryMemoStore` 的调用，现在走 `src/main/rust-core/` 里的 JSON-RPC 客户端，通知会翻成渲染层已经在消费的 `Event`。
 
 留在壳里（已经不经过 agent-core，或只该留在 Electron）：
 
@@ -188,12 +188,10 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 | `turn/start` `turn/steer` `turn/interrupt` | 一轮对话 | send / steer / cancel |
 | 通知 `turn/started` `item/agentMessage/delta` `item/reasoning/delta` `item/tool/started` `item/tool/completed` `turn/completed` | 流式事件 | `lmcode:sessionEvent` |
 | 反向请求 `item/commandExecution/requestApproval` `item/tool/requestUserInput` | 审批和提问 | approval / question |
-| `config/read` `config/write` | 配置 | getConfig / setConfig / removeProvider / removeModel |
+| `config/read` `config/write` `config/get` `config/patch` | 配置。`read`/`write` 是原始 TOML；设置面板走 camelCase 的 `get`/`patch` | getConfig / setConfig / removeProvider / removeModel |
 | `goal/*` `cron/*` `mcp/*` `memory/*` `computerUse/*` | 面板 | 同名 IPC |
 
-事件负载尽量沿用现在渲染层已经在消费的 `Event` 字段，这样 preload 和 React store 不用改语义。协议稳定之后，再删掉主进程对 `@lmcode-cli/lmcode-sdk` 和 `@lmcode/memory` 的依赖。渲染层里那些 `import type` 可以改成壳自己的类型副本，避免为了类型再拉起 TS 核心。
-
-在上表里标成缺失的行为补上之前，不把桌面默认切到这个协议。切过去就等于把这些面板弄坏。
+通知由客户端翻成渲染层已经在消费的 `Event`，preload 和 React store 不用改语义。桌面 `package.json` 已经去掉 `@lmcode-cli/lmcode-sdk` 和 `@lmcode/memory`。渲染层和主进程剩下的是 `import type`，vitest 用 `src/shims/` 里的类型重导出解析它们，不会加载 TS 核心的运行时。下面「有意留下」里点名的面板会明确拒绝，不会假装成功。
 
 ## 实施顺序
 
@@ -206,23 +204,43 @@ Tauri 壳（`crates/lmcode-desktop/src/main.rs`）已经有 send、approve、会
 5. 轮次重试、溢出后压缩、steer、undo、会话 delete / rename / fork、OpenAI 工具结果图片折进下一条 user 消息。已接到轮次循环。spec-critic、visual auditor、anchored bootstrap、工具去重、流式中途重试仍然没有。
 6. 电脑操作控制器的决策（占槽、失败回滚、驱动解析、安装配方）和 MCP OAuth 的存储、回调、授权 URL 事件已有契约测试。真实驱动进程还没接到 `McpManager`。授权服务器的 HTTP 发现和换 token 还不在。
 7. 电脑操作契约、待办提醒、用户偏好、pending tasks 已在 `Agent::apply_desktop_injections` 里、每次模型请求前注入。权限模式、近期会话、working set、插件 session-start 还没有。
-8. `lmcode-app-server` 已由 `lm app-server` 拉起。真实进程测试覆盖 thread、turn、审批、提问，以及 goal、cron、mcp、memory、config、computerUse。第二次启动能恢复消息、goal 和 cron。MCP 与驱动进程不在这个进程里拉起。Electron 主进程还没有改成这个客户端。
-9. Electron 主进程改走该客户端。渲染层不动。依赖切完之后再从桌面 `package.json` 去掉 `@lmcode-cli/lmcode-sdk` 和 `@lmcode/memory`。
-10. 回到本文件「剩余问题」，把没做完的和有意留下的分开写清。
+8. `lmcode-app-server` 已由 `lm app-server` 拉起。真实进程测试覆盖 thread、turn、审批、提问，以及 goal、cron、mcp、memory、config、computerUse。第二次启动能恢复消息、goal 和 cron。MCP 与驱动进程不在这个进程里拉起。
+9. Electron 主进程已改走该客户端。渲染层不动。桌面 `package.json` 已去掉 `@lmcode-cli/lmcode-sdk` 和 `@lmcode/memory`。
+10. 本文件把已完成的切换和有意留下的缺口分开写在下面。`packages/` 仍在树里。
 
 不在这轮做的：删除 `packages/`、把 Electron 换成 Tauri、移植 `migration-legacy`、移植 npm `/update`。
 
-## 剩余问题
+## 已完成
 
-写清单时就已经确定、还没动手的：
+Electron 主进程通过真实的 `lm app-server` 进程驱动 Rust 核心。一个进程服务整个桌面：空闲时先 `thread/resume` 再调用，已有回合在跑时第二次 `turn/start` 以 “a turn is already running” 拒绝。审批和提问的反向请求会等到桌面对话框回答，客户端等待上限是 600 秒。
 
-- 接到压缩和退出的提交把原先未跟踪的 `lmcode-core`、`lmcode-llm`、`lmcode-mcp`、`lmcode-cli`、`lmcode-tui`、`lmcode-desktop` 一并记下来。这些 crate 里的大部分代码是接线之前就在工作区里的，不是这次新移植的。没有跑过 `cargo test --workspace`。这次跑的是 `cargo test -p lmcode-memory -p lmcode-core`，以及 `cargo check -p lmcode-cli -p lmcode-tui -p lmcode-desktop`。
-- 退出提取没有 `utility_model`，用的是当前会话 provider。没有把进行中的第二次提取并到同一次调用上。未变化判断用历史指纹，不是 TS 的 context revision。Rust `update` 不重写 FTS，TS 全文搜索在 Rust 改过一条备忘录后可能仍命中旧文本。
-- `permission`、`loop_control`、`computer_use` 已能写回。`utility_model`、`thinking`、`hooks`、`services`、`background`、模型 capabilities 仍然不是类型化字段；未知顶层表会原样保留。
-- OpenAI 兼容路径会把工具结果里的图片折成下一条 user 消息。存储的 tool 消息仍保留 image part。
-- 桌面仍然进程内调用 TS 核心。`crates/lmcode-desktop` 是平行的 Tauri 程序，不是这条切换。
-- `packages/ltod` 没有源码，不用迁。
-- `records/replay` 不按原事件日志移植；会话 JSON 必须仍能恢复消息、goal 和 cron，这件事要用测试钉住，而不是写在注释里。
-- AskUserQuestion 的 CLI 会真正提问。TUI、Tauri 桌面和 stream-json 还是「客户端不支持」，模型应改在正文里问。Electron 的提问弹窗没有接到这个工具。
-- 电脑操作的进程适配器还没接到 `McpManager`，单测用 `ComputerUseHost`。MCP OAuth 还没有授权服务器发现和 token 端点的 HTTP 交换。
-- `lm app-server` 能开会话、跑回合、审批、提问，并读写 goal、cron、`mcp.json`、记忆和 config。它不 spawn MCP 服务器，也不启动 cua-driver。桌面主进程仍走 TS SDK。
+渲染层能看到的会话、回合、审批、提问，以及 goal、cron、mcp、memory、config、computer use，都走这条协议。goal 和 cron 按会话文件存放，fork 会复制它们。cron 的 `humanSchedule` 就是原始表达式，同时带 `nextFireAt` 和 `stale`。mcp 列表只反映 `mcp.json`：有 url 视为 http，否则 stdio；禁用为 disabled，否则 pending，并说明进程没有拉起。computer use 的 `setEnabled(true)` 返回 phase `failed`，错误文本包含 “not launched”；`setEnabled(false)` 回到 idle。配置面板用 `config/get` 和 `config/patch`（camelCase，未知键进 extra，`null` 删除 provider 或 model）。`anchoredBootstrap` 没有单独建模，桌面启动时写入 extra，能随文件往返。`packages/` 下的 TypeScript 还在。`crates/lmcode-desktop` 没有被改成产品壳。
+
+## 有意留下
+
+这些是不做的，不是忘了接：
+
+- 删除 `packages/` 里的 TypeScript。
+- 用 Tauri 换掉 Electron。`crates/lmcode-desktop` 继续做平行壳，进程内调 core。
+- `packages/migration-legacy`。包自己的 README 写了 v1.0 移除。
+- `packages/ltod`。目录里没有源码。
+- npm `/update`。桌面更新仍走 electron-updater。
+- 插件：安装、启停、从 GitHub 拉、插件自带 MCP。
+- 用户 hooks，包括 PreToolCallHook。
+- 把 `records/replay` 做成事件日志。会话 JSON 恢复消息、goal 和 cron 已经由 app-server 的进程测试覆盖。
+- 从 app-server 拉起 MCP 服务器进程。`mcp/stop` 和 `mcp/reconnect` 只返回未连接。
+- 从 app-server 拉起 cua-driver。驱动探测和安装配方留在 Electron 壳里。
+- MCP OAuth 的授权服务器 HTTP 交换（RFC 9728 / 8414 / 7591 发现，以及 token 端点）。存储、回调和授权 URL 事件已经在 `lmcode-mcp`。
+
+桌面 IPC 已经会调用、但 Rust 客户端明确拒绝或没有真实数据的面板：
+
+- `setModel`、`setThinking`、`setPermission`、`setPlanMode` 拒绝，错误文本是 “is not available through lm app-server”。创建会话时传入的 model 以外的 thinking、permission 被接受后忽略。每个会话自己的 permission、thinking、model 覆盖没有单独存。
+- `compact` 和 `undoHistory` 同样拒绝。
+- `listSkills` 和 `activateSkill` 拒绝。
+- `listBackgroundTasks`、`stopBackgroundTask`、`getBackgroundTaskOutput` 拒绝。
+- `exportSession` 拒绝。
+- `getStatus` 的上下文窗口是 0：`contextTokens`、`maxContextTokens`、`contextUsage` 没有从核心读出。
+- 提示里的图片不会进模型请求。只有图片、没有文字时，回合文本是 “[image attachment]”。
+- worktree fork 的 metadata 不在 `SessionState` 上，`forkSession` 会丢掉它。
+
+其它已经知道、但不挡这次切换的缺口：退出提取没有 `utility_model`；备忘录 `update` 不重写 FTS；`config/patch` 只保留建模过的 provider 字段，oauth 和 env 会丢掉；能力目录、catalog、实验 flag、spec-critic、visual auditor、anchored bootstrap 的回合行为都没有。AskUserQuestion 在这条桌面客户端上会弹提问；TUI、Tauri 和 stream-json 仍回复不支持。
