@@ -18,7 +18,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, openAsBlob, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 
 const ROOT = resolve(import.meta.dirname, '..')
@@ -206,6 +206,8 @@ async function main() {
       console.log(`would upload ${name} (${size} bytes)`)
       return
     }
+    // A filesystem stream as the fetch body stalled after the headers, and
+    // GitHub closed the upload for inactivity. A blob keeps the body flowing.
     const upload = await fetch(
       `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`,
       {
@@ -215,8 +217,7 @@ async function main() {
           'content-type': 'application/octet-stream',
           'content-length': String(size),
         },
-        body: createReadStream(filePath),
-        duplex: 'half',
+        body: await openAsBlob(filePath),
       },
     )
     if (!upload.ok) {
