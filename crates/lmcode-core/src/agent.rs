@@ -168,6 +168,15 @@ pub struct TurnOutcome {
     pub hit_step_limit: bool,
 }
 
+/// Result of a manual compaction. The history is already persisted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactionOutcome {
+    pub summary: String,
+    pub compacted_count: usize,
+    pub tokens_before: u64,
+    pub tokens_after: u64,
+}
+
 /// One tool call inside a turn. Cancellation while waiting is not a tool error.
 enum ToolExec {
     /// Output the model should see. `ok` is false when the call failed.
@@ -1008,6 +1017,12 @@ impl Agent {
         let prompt = format!("{instruction}\n\n<conversation>\n{rendered}\n</conversation>");
 
         let summary = self.collect_completion(&prompt).await?;
+        self.commit_compaction(split, &summary);
+        Ok(true)
+    }
+
+    /// Replace the leading `split` messages with one compaction summary.
+    fn commit_compaction(&mut self, split: usize, summary: &str) {
         let mut new_history = Vec::with_capacity(self.history.len() - split + 1);
         new_history.push(
             Message::user(format!(
@@ -1021,8 +1036,51 @@ impl Agent {
         self.computer_use_injector.on_context_compacted();
         self.pipeline.reset_micro();
         // Memo extraction must not sink a summary that is already committed.
-        self.compaction_memo_warning = self.store_compaction_memos(&summary);
-        Ok(true)
+        self.compaction_memo_warning = self.store_compaction_memos(summary);
+    }
+
+    /// Summarize the longest safe prefix and persist the shorter history.
+    ///
+    /// The conversation is given to the model as the system prompt. The user
+    /// turn stays a short instruction so the stored summary does not echo the
+    /// whole transcript back into the history.
+    pub async fn compact_now(
+        &mut self,
+        instruction: Option<&str>,
+    ) -> Result<CompactionOutcome, CoreError> {
+        let Some(split) = CompactionPipeline::plan_manual_split(&self.history) else {
+            return Err(CoreError::Compaction(
+                "No prefix that can be compacted in current history.".to_string(),
+            ));
+        };
+        let tokens_before = estimate_tokens_for_messages(&self.history);
+        let rendered = render_messages(&self.history[..split]);
+        let mut system = include_str!("compaction.md").to_string();
+        if let Some(instruction) = instruction.map(str::trim).filter(|text| !text.is_empty()) {
+            system.push_str("\n\nAdditional instruction:\n");
+            system.push_str(instruction);
+        }
+        system.push_str("\n\n<conversation>\n");
+        system.push_str(&rendered);
+        system.push_str("\n</conversation>");
+        let summary = self
+            .collect_text(&system, "Summarize the earlier conversation.")
+            .await?;
+        if summary.trim().is_empty() {
+            return Err(CoreError::Compaction(
+                "summarizer returned no text".to_string(),
+            ));
+        }
+        self.commit_compaction(split, &summary);
+        self.usage.record_compaction();
+        let tokens_after = estimate_tokens_for_messages(&self.history);
+        self.save_session()?;
+        Ok(CompactionOutcome {
+            summary,
+            compacted_count: split,
+            tokens_before,
+            tokens_after,
+        })
     }
 
     /// Parse `memory-memo` fences from a compaction summary and append them.

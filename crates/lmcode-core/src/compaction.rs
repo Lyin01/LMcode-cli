@@ -283,6 +283,25 @@ impl CompactionPipeline {
         }
         best
     }
+
+    /// Manual `/compact`: summarize the longest safe prefix.
+    ///
+    /// Mirrors `computeCompactCount` for `source: 'manual'`. A one-message
+    /// history cannot be split. The returned count is how many leading
+    /// messages the summary replaces.
+    pub fn plan_manual_split(messages: &[Message]) -> Option<usize> {
+        if messages.len() < 2 {
+            return None;
+        }
+        let mut index = messages.len() - 1;
+        while index > 0 {
+            if can_split_after(messages, index) {
+                return Some(index + 1);
+            }
+            index -= 1;
+        }
+        None
+    }
 }
 
 /// A split after `index` is safe when the message is neither a user message
@@ -542,5 +561,19 @@ mod tests {
         assert!(rendered.contains("--- message 2 role=assistant ---"));
         assert!(rendered.contains("tool calls:"));
         assert!(rendered.contains("c1 Read"));
+    }
+
+    #[test]
+    fn manual_split_replaces_a_finished_turn_and_rejects_a_single_message() {
+        assert!(CompactionPipeline::plan_manual_split(&[Message::user("only")]).is_none());
+        let turn = vec![Message::user("hello"), Message::assistant(vec![], vec![])];
+        assert_eq!(CompactionPipeline::plan_manual_split(&turn), Some(2));
+        let two_turns = vec![
+            Message::user("one"),
+            Message::assistant(vec![], vec![]),
+            Message::user("two"),
+            Message::assistant(vec![], vec![]),
+        ];
+        assert_eq!(CompactionPipeline::plan_manual_split(&two_turns), Some(4));
     }
 }

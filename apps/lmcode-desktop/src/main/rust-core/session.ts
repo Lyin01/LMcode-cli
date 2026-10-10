@@ -354,12 +354,18 @@ export class RustSession implements DesktopSession, ThreadBinding {
     return result.goal
   }
 
-  compact(): Promise<void> {
-    return unsupported('compact')
+  async compact(options?: { readonly instruction?: string }): Promise<void> {
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ thread: ThreadView }>('thread/compact', {
+      instruction: options?.instruction,
+    })
+    this.applyThread(result.thread)
   }
 
-  undoHistory(count: number): Promise<void> {
-    return unsupported(`undoHistory(${String(count)})`)
+  async undoHistory(count: number): Promise<void> {
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ thread: ThreadView }>('thread/undo', { count })
+    this.applyThread(result.thread)
   }
 
   async listCronJobs(): Promise<readonly CronJobInfo[]> {

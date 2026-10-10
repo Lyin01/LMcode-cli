@@ -685,3 +685,79 @@ fn session_controls_and_worktree_survive_a_second_process() {
     );
     let _ = std::fs::remove_dir_all(&home);
 }
+
+fn run_script_turn(client: &mut Client, text: &str) {
+    let started = client.call("turn/start", json!({"text": text}));
+    assert_eq!(started["status"], "started");
+    let completed = client.take_method("turn/completed");
+    assert_eq!(completed["params"]["status"], "completed");
+}
+
+#[test]
+fn undo_and_compact_shorten_history_for_the_next_process() {
+    let home = home("history");
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let keep = "alpha-turn-keep-this-sentence";
+    let drop = "beta-turn-remove-this-sentence";
+
+    let mut first = Client::launch(&home);
+    first.call("initialize", json!({}));
+    let started = first.call("thread/start", json!({"cwd": cwd, "model": "script"}));
+    let thread_id = started["thread"]["id"].as_str().unwrap().to_string();
+    run_script_turn(&mut first, keep);
+    run_script_turn(&mut first, drop);
+
+    let before = first.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    let before_len = before["thread"]["messages"].as_array().unwrap().len();
+    assert!(before_len >= 4, "{before_len}");
+
+    let undone = first.call("thread/undo", json!({"count": 1}));
+    let undone_texts = texts(&undone["thread"]);
+    assert!(
+        undone_texts.iter().any(|text| text.contains(keep)),
+        "{undone_texts:?}"
+    );
+    assert!(
+        undone_texts.iter().all(|text| !text.contains(drop)),
+        "{undone_texts:?}"
+    );
+    let undone_len = undone["thread"]["messages"].as_array().unwrap().len();
+    assert!(undone_len < before_len, "{undone_len} vs {before_len}");
+
+    let compacted = first.call("thread/compact", json!({}));
+    assert!(
+        first.notes.iter().any(|value| {
+            value.get("method").and_then(Value::as_str) == Some("compaction/completed")
+        }),
+        "missing compaction/completed"
+    );
+    let compacted_len = compacted["thread"]["messages"].as_array().unwrap().len();
+    assert!(
+        compacted_len < undone_len,
+        "{compacted_len} vs {undone_len}"
+    );
+    let compacted_texts = texts(&compacted["thread"]);
+    assert!(
+        compacted_texts
+            .iter()
+            .any(|text| text.contains("[Context compaction]")),
+        "{compacted_texts:?}"
+    );
+
+    let stderr = first.close();
+    assert!(stderr.is_empty(), "first launch wrote to stderr:\n{stderr}");
+
+    let mut second = Client::launch(&home);
+    second.call("initialize", json!({}));
+    let resumed = second.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    assert_eq!(
+        resumed["thread"]["messages"],
+        compacted["thread"]["messages"]
+    );
+    let stderr = second.close();
+    assert!(
+        stderr.is_empty(),
+        "second launch wrote to stderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}

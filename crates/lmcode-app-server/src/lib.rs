@@ -344,6 +344,8 @@ impl Server {
             "thread/setThinking" => self.thread_set_thinking(params).await,
             "thread/setPermission" => self.thread_set_permission(params).await,
             "thread/setPlanMode" => self.thread_set_plan_mode(params).await,
+            "thread/undo" => self.thread_undo(params).await,
+            "thread/compact" => self.thread_compact(params).await,
             "turn/start" => self.turn_start(params).await,
             "turn/steer" => self.turn_steer(params),
             "turn/interrupt" => self.turn_interrupt(),
@@ -559,6 +561,55 @@ impl Server {
                 return Err(error);
             }
         }
+        Ok(json!({"thread": load_thread(&cwd, &id)?}))
+    }
+
+    async fn thread_undo(&mut self, params: &Value) -> Result<Value, RpcError> {
+        self.ensure_idle()?;
+        let count = params.get("count").and_then(Value::as_u64).unwrap_or(1) as usize;
+        self.with_active_agent(|agent| {
+            agent.undo(count);
+            agent.save_session()
+        })
+        .await
+    }
+
+    async fn thread_compact(&mut self, params: &Value) -> Result<Value, RpcError> {
+        self.ensure_idle()?;
+        let instruction = params
+            .get("instruction")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let active = self
+            .active
+            .as_ref()
+            .ok_or_else(|| RpcError::failed("no active thread"))?;
+        let cwd = active.cwd.clone();
+        let id = active.id.clone();
+        let outcome = {
+            let mut agent = active.agent.lock().await;
+            agent
+                .compact_now(instruction.as_deref())
+                .await
+                .map_err(failed)?
+        };
+        let _ = send_value(
+            &self.out,
+            &json!({
+                "jsonrpc": "2.0",
+                "method": "compaction/completed",
+                "params": {
+                    "threadId": id,
+                    "result": {
+                        "summary": outcome.summary,
+                        "compactedCount": outcome.compacted_count,
+                        "tokensBefore": outcome.tokens_before,
+                        "tokensAfter": outcome.tokens_after,
+                    }
+                }
+            }),
+        )
+        .await;
         Ok(json!({"thread": load_thread(&cwd, &id)?}))
     }
 

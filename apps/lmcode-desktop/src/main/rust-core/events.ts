@@ -156,6 +156,21 @@ export function translateNotification(
       },
     })
   }
+  if (method === 'compaction/completed') {
+    const result = asRecord(body['result'])
+    const compactedCount = result['compactedCount']
+    const tokensBefore = result['tokensBefore']
+    const tokensAfter = result['tokensAfter']
+    return stamp(sessionId, {
+      type: 'compaction.completed',
+      result: {
+        summary: asString(result['summary']),
+        compactedCount: typeof compactedCount === 'number' ? compactedCount : 0,
+        tokensBefore: typeof tokensBefore === 'number' ? tokensBefore : 0,
+        tokensAfter: typeof tokensAfter === 'number' ? tokensAfter : 0,
+      },
+    })
+  }
   if (method === 'turn/completed') {
     const status = asString(body['status'])
     const errorText = asString(body['error'])

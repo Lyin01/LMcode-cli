@@ -313,6 +313,51 @@ describe('desktop client of lm app-server', () => {
     expect(second.capturedStderr()).toBe('')
   }, 60_000)
 
+  it('undo removes the last turn and compact leaves a shorter history', async () => {
+    const home = await tempDir('lmcode-desktop-home-')
+    const work = await tempDir('lmcode-desktop-work-')
+    const first = await startHarness(home)
+    await first.ensureConfigFile()
+    const session = await first.createSession({ workDir: work, model: 'script' })
+    const keep = 'alpha-turn-keep-this-sentence'
+    const drop = 'beta-turn-remove-this-sentence'
+    let ended = waitForTurnEnd(session)
+    await session.prompt(keep)
+    await ended
+    ended = waitForTurnEnd(session)
+    await session.prompt(drop)
+    await ended
+
+    const before = await session.getContext()
+    await session.undoHistory(1)
+    const undone = await session.getContext()
+    expect(JSON.stringify(undone.history)).toContain(keep)
+    expect(JSON.stringify(undone.history)).not.toContain(drop)
+    expect(undone.history.length).toBeLessThan(before.history.length)
+
+    const completed = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('compaction did not complete')), 40_000)
+      session.onEvent((event) => {
+        if (event.type === 'compaction.completed') {
+          clearTimeout(timer)
+          resolve()
+        }
+      })
+    })
+    await session.compact()
+    await completed
+    const compacted = await session.getContext()
+    expect(compacted.history.length).toBeLessThan(undone.history.length)
+    expect(JSON.stringify(compacted.history)).toContain('[Context compaction]')
+    const sessionId = session.id
+    await first.close()
+
+    const second = await startHarness(home)
+    const resumed = await second.resumeSession({ id: sessionId })
+    expect(await resumed.getContext()).toEqual(compacted)
+    expect(second.capturedStderr()).toBe('')
+  }, 60_000)
+
   it('rejects a second turn while one is running', async () => {
     const home = await tempDir('lmcode-desktop-home-')
     const work = await tempDir('lmcode-desktop-work-')
