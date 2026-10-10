@@ -5,6 +5,7 @@
 //! server processes are not spawned here: computer-use activation reports
 //! that, and MCP methods read and write `mcp.json`.
 
+mod export;
 mod script;
 
 use std::collections::HashMap;
@@ -40,7 +41,10 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
+use export::export_session_archive;
 use script::ScriptProvider;
+
+pub use export::export_session_archive as write_session_archive;
 
 type Out = Arc<Mutex<tokio::io::Stdout>>;
 type Pending = Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>;
@@ -357,6 +361,8 @@ impl Server {
             "turn/start" => self.turn_start(params).await,
             "turn/steer" => self.turn_steer(params),
             "turn/interrupt" => self.turn_interrupt(),
+            "thread/status" => self.thread_status().await,
+            "session/export" => self.session_export(params),
             "config/read" => config_read(params),
             "config/write" => config_write(params),
             "config/get" => config_get(params),
@@ -683,7 +689,7 @@ impl Server {
             }
             active.id.clone()
         };
-        let turn_id = self.spawn_turn(text);
+        let turn_id = self.spawn_turn(text, Vec::new());
         Ok(json!({
             "activated": true,
             "name": name,
@@ -760,7 +766,15 @@ impl Server {
     }
 
     async fn turn_start(&mut self, params: &Value) -> Result<Value, RpcError> {
-        let text = require_str(params, "text")?.to_string();
+        let text = params
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let images = image_urls(params);
+        if text.is_empty() && images.is_empty() {
+            return Err(RpcError::params("missing `text`"));
+        }
         let active = self
             .active
             .as_ref()
@@ -774,7 +788,7 @@ impl Server {
             return Err(RpcError::failed("a turn is already running"));
         }
         let thread_id = active.id.clone();
-        let turn_id = self.spawn_turn(text);
+        let turn_id = self.spawn_turn(text, images);
         Ok(json!({
             "threadId": thread_id,
             "turnId": turn_id,
@@ -783,7 +797,7 @@ impl Server {
     }
 
     /// `running` is already true. The turn task clears it when the model returns.
-    fn spawn_turn(&mut self, text: String) -> String {
+    fn spawn_turn(&mut self, text: String, images: Vec<String>) -> String {
         let active = self
             .active
             .as_ref()
@@ -816,7 +830,7 @@ impl Server {
             .await;
             let outcome = {
                 let mut agent = agent.lock().await;
-                agent.run_turn(&text, &mut ui).await
+                agent.run_turn_with_images(&text, &images, &mut ui).await
             };
             running.store(false, Ordering::SeqCst);
             let params = match outcome {
@@ -847,6 +861,44 @@ impl Server {
             .as_ref()
             .is_some_and(|active| active.steer.submit(text));
         Ok(json!({"accepted": accepted}))
+    }
+
+    async fn thread_status(&self) -> Result<Value, RpcError> {
+        let active = self
+            .active
+            .as_ref()
+            .ok_or_else(|| RpcError::failed("no active thread"))?;
+        let max_context_tokens = configured_context_window(&active.model);
+        let context_tokens = active.agent.lock().await.usage().total.total();
+        let context_usage = if max_context_tokens == 0 {
+            0.0
+        } else {
+            context_tokens as f64 / max_context_tokens as f64
+        };
+        Ok(json!({
+            "contextTokens": context_tokens,
+            "maxContextTokens": max_context_tokens,
+            "contextUsage": context_usage,
+        }))
+    }
+
+    fn session_export(&self, params: &Value) -> Result<Value, RpcError> {
+        let cwd = PathBuf::from(require_str(params, "cwd")?);
+        let id = require_str(params, "threadId")?;
+        let session = SessionStore::new().load(&cwd, id).map_err(failed)?;
+        let output = params
+            .get("outputPath")
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| cwd.join(format!("lmcode-session-{id}.zip")));
+        if let Some(parent) = output.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(failed)?;
+        }
+        export_session_archive(&cwd, id, &session.messages, &output, false)
+            .map_err(RpcError::failed)?;
+        Ok(json!({"zipPath": output.display().to_string()}))
     }
 
     fn turn_interrupt(&self) -> Result<Value, RpcError> {
@@ -994,7 +1046,10 @@ impl Server {
                 agent.queue_injection(render_cron_fire_xml(fire));
             }
         }
-        self.spawn_turn("A scheduled task has fired — handle it.".to_string());
+        self.spawn_turn(
+            "A scheduled task has fired — handle it.".to_string(),
+            Vec::new(),
+        );
     }
 
     async fn notify_cron(&self, thread_id: &str, fire: &lmcode_core::cron::CronFire) {
@@ -1114,6 +1169,10 @@ async fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<Active
         Arc::new(AskUserQuestionTool::new()),
     ];
     let mut agent = Agent::new(provider, tools, "You are LMcode.", cwd.to_path_buf());
+    let window = configured_context_window(model);
+    if window > 0 {
+        agent.set_compaction_limits(window, 0);
+    }
     if let Ok(config) = load_config(None) {
         agent.apply_permission_config(&config);
     }
@@ -2023,6 +2082,32 @@ fn require_bool(params: &Value, key: &str) -> Result<bool, RpcError> {
         .get(key)
         .and_then(Value::as_bool)
         .ok_or_else(|| RpcError::params(format!("missing `{key}`")))
+}
+
+fn configured_context_window(model: &str) -> u64 {
+    load_config(None)
+        .ok()
+        .and_then(|config| {
+            config
+                .models
+                .get(model)
+                .and_then(|alias| alias.max_context_size)
+        })
+        .unwrap_or(0)
+}
+
+fn image_urls(params: &Value) -> Vec<String> {
+    params
+        .get("images")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .filter(|url| !url.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn require_str<'a>(params: &'a Value, key: &str) -> Result<&'a str, RpcError> {

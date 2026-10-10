@@ -14,7 +14,7 @@ use futures_util::StreamExt;
 use lmcode_llm::LlmError;
 use lmcode_llm::generate::assemble_parts;
 use lmcode_llm::message::{
-    ContentPart, Message, MessageOrigin, Role, StreamedMessagePart, ToolCall,
+    ContentPart, ImageUrl, Message, MessageOrigin, Role, StreamedMessagePart, ToolCall,
 };
 use lmcode_llm::provider::{ChatProvider, GenerateOptions, StreamedMessage};
 use lmcode_llm::tool::Tool as ToolDefinition;
@@ -98,6 +98,26 @@ fn user_prompt(text: impl Into<String>) -> Message {
 }
 
 fn user_prompt_with_images(text: &str, images: &[String]) -> Message {
+    if text.is_empty() {
+        let content = images
+            .iter()
+            .map(|url| ContentPart::ImageUrl {
+                image_url: ImageUrl {
+                    url: url.clone(),
+                    id: None,
+                },
+            })
+            .collect();
+        return Message {
+            role: Role::User,
+            name: None,
+            content,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            partial: None,
+            origin: Some(MessageOrigin::User),
+        };
+    }
     Message::user_with_images(text, images).with_origin(MessageOrigin::User)
 }
 

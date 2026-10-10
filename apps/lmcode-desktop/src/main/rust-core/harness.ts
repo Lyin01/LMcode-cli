@@ -186,8 +186,13 @@ export class RustHarness implements DesktopHarness, CoreHost {
     session.applyThread(result.thread)
   }
 
-  exportSession(): Promise<{ zipPath: string }> {
-    return Promise.reject(new Error('exportSession is not available through lm app-server'))
+  async exportSession(input: { readonly id: string; readonly version: string }): Promise<{ zipPath: string }> {
+    const session = await this.requireKnown(input.id)
+    return this.client.request<{ zipPath: string }>('session/export', {
+      cwd: session.workDir,
+      threadId: input.id,
+      version: input.version,
+    })
   }
 
   memoryStore(): RustMemoryStore {

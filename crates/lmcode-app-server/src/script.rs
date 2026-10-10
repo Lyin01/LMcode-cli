@@ -14,6 +14,7 @@ use futures_util::stream;
 use lmcode_llm::provider::{
     BoxStream, ChatProvider, FinishReason, GenerateOptions, StreamSummary, StreamedMessage,
 };
+use lmcode_llm::usage::TokenUsage;
 use lmcode_llm::{ContentPart, LlmError, Message, StreamedMessagePart, ToolCall};
 
 pub struct ScriptProvider {
@@ -82,6 +83,10 @@ impl ChatProvider for ScriptProvider {
             })
         };
         let pause = self.model == "script-pause" && call == 0;
+        let output_tokens = match &part {
+            StreamedMessagePart::Content(ContentPart::Text { text }) => text.chars().count() as u64,
+            _ => 0,
+        };
         let parts: BoxStream<Result<StreamedMessagePart, LlmError>> =
             Box::pin(stream::once(async move {
                 if pause {
@@ -91,6 +96,11 @@ impl ChatProvider for ScriptProvider {
             }));
         let summary = Arc::new(Mutex::new(StreamSummary {
             finish_reason: Some(FinishReason::Completed),
+            usage: Some(TokenUsage {
+                input_tokens: last_user.chars().count() as u64,
+                output_tokens,
+                cache_read_tokens: None,
+            }),
             ..StreamSummary::default()
         }));
         Ok(StreamedMessage::new(parts, summary))

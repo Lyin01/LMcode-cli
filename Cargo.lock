@@ -2643,6 +2643,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "chrono",
  "futures-util",
  "lmcode-core",
  "lmcode-llm",
@@ -2652,6 +2653,7 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "uuid",
+ "zip",
 ]
 
 [[package]]

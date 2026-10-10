@@ -851,3 +851,101 @@ fn skill_on_disk_activates_and_a_background_command_can_be_stopped() {
     assert!(stderr.is_empty(), "app-server wrote to stderr:\n{stderr}");
     let _ = std::fs::remove_dir_all(&home);
 }
+
+fn zip_text(path: &str) -> String {
+    let file = std::fs::File::open(path).expect("open zip");
+    let mut archive = zip::ZipArchive::new(file).expect("zip");
+    let mut combined = String::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).expect("zip entry");
+        let mut data = String::new();
+        if std::io::Read::read_to_string(&mut entry, &mut data).is_ok() {
+            combined.push_str(&data);
+            combined.push('\n');
+        }
+    }
+    combined
+}
+
+#[test]
+fn export_status_and_image_parts_survive_resume() {
+    let home = home("export");
+    let mut config = std::fs::read_to_string(home.join("config.toml")).unwrap();
+    config.push_str(
+        "\n[models.script]\nprovider = \"local\"\nmodel = \"script\"\nmax_context_size = 8192\n",
+    );
+    std::fs::write(home.join("config.toml"), config).unwrap();
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let prompt = "plain-user-sentence";
+    let echoed = format!("script: {prompt}");
+    let expected_tokens = (prompt.chars().count() + echoed.chars().count()) as u64;
+
+    let mut first = Client::launch(&home);
+    first.call("initialize", json!({}));
+    let started = first.call("thread/start", json!({"cwd": cwd, "model": "script"}));
+    let thread_id = started["thread"]["id"].as_str().unwrap().to_string();
+    run_script_turn(&mut first, prompt);
+
+    let status = first.call("thread/status", json!({}));
+    assert_eq!(status["maxContextTokens"], 8192);
+    assert_eq!(status["contextTokens"], expected_tokens);
+    assert_eq!(status["contextUsage"], expected_tokens as f64 / 8192.0);
+
+    let with_text = first.call(
+        "turn/start",
+        json!({
+            "text": "see-the-picture",
+            "images": ["data:image/png;base64,aaaa"]
+        }),
+    );
+    assert_eq!(with_text["status"], "started");
+    assert_eq!(
+        first.take_method("turn/completed")["params"]["status"],
+        "completed"
+    );
+    let image_only = first.call(
+        "turn/start",
+        json!({
+            "text": "",
+            "images": ["data:image/png;base64,bbbb"]
+        }),
+    );
+    assert_eq!(image_only["status"], "started");
+    assert_eq!(
+        first.take_method("turn/completed")["params"]["status"],
+        "completed"
+    );
+
+    let saved = first.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    let rendered = saved["thread"]["messages"].to_string();
+    assert!(rendered.contains("see-the-picture"), "{rendered}");
+    assert!(
+        rendered.contains("data:image/png;base64,aaaa"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("data:image/png;base64,bbbb"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("image_url"), "{rendered}");
+    assert!(!rendered.contains("[image attachment]"), "{rendered}");
+
+    let exported = first.call("session/export", json!({"cwd": cwd, "threadId": thread_id}));
+    let zip_path = exported["zipPath"].as_str().unwrap();
+    let archive = zip_text(zip_path);
+    assert!(archive.contains(prompt), "{archive}");
+
+    let stderr = first.close();
+    assert!(stderr.is_empty(), "first launch wrote to stderr:\n{stderr}");
+
+    let mut second = Client::launch(&home);
+    second.call("initialize", json!({}));
+    let resumed = second.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    assert_eq!(resumed["thread"]["messages"], saved["thread"]["messages"]);
+    let stderr = second.close();
+    assert!(
+        stderr.is_empty(),
+        "second launch wrote to stderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}

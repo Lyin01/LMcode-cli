@@ -238,6 +238,28 @@ export function questionFromReverse(params: unknown, state: TranslateState): Que
   return { turnId, questions }
 }
 
+/** Text plus image URLs the turn protocol carries. Image-only prompts keep the image. */
+export function promptParts(input: unknown): { readonly text: string; readonly images: readonly string[] } {
+  if (typeof input === 'string') return { text: input, images: [] }
+  if (!Array.isArray(input)) return { text: '', images: [] }
+  const texts: string[] = []
+  const images: string[] = []
+  for (const part of input) {
+    const row = asRecord(part)
+    const image = asRecord(row['imageUrl'] ?? row['image_url'])
+    const url = asString(image['url'])
+    if (row['type'] === 'image_url' || url.length > 0) {
+      if (url.length > 0) images.push(url)
+      continue
+    }
+    if (row['type'] === 'text' || typeof row['text'] === 'string') {
+      const text = asString(row['text'])
+      if (text.length > 0) texts.push(text)
+    }
+  }
+  return { text: texts.join(''), images }
+}
+
 /** Text the turn protocol can carry. Image parts stay out of the wire text. */
 export function promptToText(input: unknown): string {
   if (typeof input === 'string') return input

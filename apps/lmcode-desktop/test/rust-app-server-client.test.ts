@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { inflateRawSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -32,6 +33,34 @@ async function tempDir(prefix: string): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), prefix))
   directories.push(directory)
   return directory
+}
+
+async function zipText(path: string): Promise<string> {
+  const data = await readFile(path)
+  const eocd = data.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
+  if (eocd < 0) throw new Error(`not a zip: ${path}`)
+  const cdSize = data.readUInt32LE(eocd + 12)
+  const cdOffset = data.readUInt32LE(eocd + 16)
+  let cursor = cdOffset
+  const end = cdOffset + cdSize
+  const chunks: string[] = []
+  while (cursor + 46 <= end) {
+    if (data.readUInt32LE(cursor) !== 0x02014b50) break
+    const method = data.readUInt16LE(cursor + 10)
+    const compressed = data.readUInt32LE(cursor + 20)
+    const nameLength = data.readUInt16LE(cursor + 28)
+    const extraLength = data.readUInt16LE(cursor + 30)
+    const commentLength = data.readUInt16LE(cursor + 32)
+    const localOffset = data.readUInt32LE(cursor + 42)
+    const localName = data.readUInt16LE(localOffset + 26)
+    const localExtra = data.readUInt16LE(localOffset + 28)
+    const start = localOffset + 30 + localName + localExtra
+    const bytes = data.subarray(start, start + compressed)
+    const raw = method === 0 ? bytes : inflateRawSync(bytes)
+    chunks.push(raw.toString('utf8'))
+    cursor += 46 + nameLength + extraLength + commentLength
+  }
+  return chunks.join('\n')
 }
 
 async function startHarness(home: string): Promise<RustHarness> {
@@ -413,6 +442,67 @@ describe('desktop client of lm app-server', () => {
     expect(active.some((item) => item.taskId === taskId)).toBe(false)
     const all = await session.listBackgroundTasks({ activeOnly: false })
     expect(all.find((item) => item.taskId === taskId)?.status).toBe('killed')
+  }, 60_000)
+
+  it('exports a zip, reports the context window, and keeps image parts', async () => {
+    const home = await tempDir('lmcode-desktop-home-')
+    const work = await tempDir('lmcode-desktop-work-')
+    await writeFile(
+      join(home, 'config.toml'),
+      [
+        'default_provider = "local"',
+        'default_model = "script"',
+        '',
+        '[providers.local]',
+        'type = "openai"',
+        'api_key = "test"',
+        'base_url = "http://127.0.0.1:9/v1"',
+        '',
+        '[models.script]',
+        'provider = "local"',
+        'model = "script"',
+        'max_context_size = 8192',
+        '',
+      ].join('\n'),
+    )
+    const harness = await startHarness(home)
+    await harness.ensureConfigFile()
+    const session = await harness.createSession({ workDir: work, model: 'script' })
+    const prompt = 'plain-user-sentence'
+    const ended = waitForTurnEnd(session)
+    await session.prompt(prompt)
+    await ended
+    const status = await session.getStatus()
+    const expectedTokens = prompt.length + `script: ${prompt}`.length
+    expect(status.maxContextTokens).toBe(8192)
+    expect(status.contextTokens).toBe(expectedTokens)
+    expect(status.contextUsage).toBe(expectedTokens / 8192)
+
+    const pictured = waitForTurnEnd(session)
+    await session.prompt([
+      { type: 'text', text: 'see-the-picture' },
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,aaaa' } },
+    ])
+    await pictured
+    const imageOnly = waitForTurnEnd(session)
+    await session.prompt([{ type: 'image_url', imageUrl: { url: 'data:image/png;base64,bbbb' } }])
+    await imageOnly
+    const history = JSON.stringify((await session.getContext()).history)
+    expect(history).toContain('see-the-picture')
+    expect(history).toContain('data:image/png;base64,aaaa')
+    expect(history).toContain('data:image/png;base64,bbbb')
+    expect(history).toContain('image_url')
+    expect(history).not.toContain('[image attachment]')
+
+    const exported = await harness.exportSession({ id: session.id, version: 'test' })
+    expect(await zipText(exported.zipPath)).toContain(prompt)
+    const sessionId = session.id
+    await harness.close()
+
+    const second = await startHarness(home)
+    const resumed = await second.resumeSession({ id: sessionId })
+    expect(JSON.stringify((await resumed.getContext()).history)).toBe(history)
+    expect(second.capturedStderr()).toBe('')
   }, 60_000)
 
   it('rejects a second turn while one is running', async () => {

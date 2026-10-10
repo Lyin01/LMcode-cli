@@ -16,6 +16,7 @@ import type {
 import {
   approvalFromReverse,
   createTranslateState,
+  promptParts,
   promptToText,
   questionFromReverse,
   translateNotification,
@@ -280,11 +281,16 @@ export class RustSession implements DesktopSession, ThreadBinding {
   }
 
   async prompt(input: unknown): Promise<void> {
+    const parts = promptParts(input)
     this.host.beginTurn(this.id)
     try {
       await this.host.ensureThread(this)
       this.host.noteTurnRunning(true)
-      await this.host.request('turn/start', { threadId: this.id, text: promptToText(input) })
+      await this.host.request('turn/start', {
+        threadId: this.id,
+        text: parts.text,
+        images: parts.images,
+      })
     } catch (error) {
       this.host.noteTurnRunning(false)
       throw error
@@ -311,14 +317,20 @@ export class RustSession implements DesktopSession, ThreadBinding {
   }
 
   async getStatus(): Promise<SessionStatus> {
+    await this.host.ensureThread(this)
+    const tokens = await this.host.request<{
+      contextTokens?: number
+      maxContextTokens?: number
+      contextUsage?: number
+    }>('thread/status', {})
     return {
       model: this.model,
       thinkingLevel: this.thinkingLevel,
       permission: this.permissionMode,
       planMode: this.planMode,
-      contextTokens: 0,
-      maxContextTokens: 0,
-      contextUsage: 0,
+      contextTokens: tokens.contextTokens ?? 0,
+      maxContextTokens: tokens.maxContextTokens ?? 0,
+      contextUsage: tokens.contextUsage ?? 0,
     }
   }
 
