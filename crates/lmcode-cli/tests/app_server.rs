@@ -949,3 +949,271 @@ fn export_status_and_image_parts_survive_resume() {
     );
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// Every desktop session call on one home, then a second process resumes it.
+#[test]
+fn session_surface_survives_a_second_process() {
+    let home = home("surface");
+    let mut config = std::fs::read_to_string(home.join("config.toml")).unwrap();
+    config.push_str(
+        "\n[models.script]\nprovider = \"local\"\nmodel = \"script\"\nmax_context_size = 8192\n",
+    );
+    std::fs::write(home.join("config.toml"), config).unwrap();
+    let work = home.join("work");
+    let skill_dir = work.join(".lmcode").join("skills").join("gate-probe");
+    std::fs::create_dir_all(&skill_dir).expect("skill dir");
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: gate-probe\ndescription: probe the combined session surface\n---\n\nFollow the gate-probe-body instructions.\n",
+    )
+    .expect("skill file");
+    let tree = home.join("tree");
+    std::fs::create_dir_all(&tree).expect("tree");
+    let cwd = work.to_string_lossy().to_string();
+    let tree_path = tree.to_string_lossy().to_string();
+    let prompt = "plain-user-sentence";
+    let drop = "beta-turn-remove-this-sentence";
+    let echoed = format!("script: {prompt}");
+    let expected_tokens = (prompt.chars().count() + echoed.chars().count()) as u64;
+    let picture = "data:image/png;base64,gateA";
+    let picture_only = "data:image/png;base64,gateB";
+
+    let mut first = Client::launch(&home);
+    first.call("initialize", json!({}));
+    let started = first.call(
+        "thread/start",
+        json!({"cwd": cwd, "model": "script", "thinking": "low", "permission": "manual"}),
+    );
+    let thread_id = started["thread"]["id"].as_str().unwrap().to_string();
+    assert_eq!(started["thread"]["model"], "script");
+    assert_eq!(started["thread"]["thinking"], "low");
+    assert_eq!(started["thread"]["permission"], "manual");
+    assert_eq!(started["thread"]["planMode"], false);
+
+    run_script_turn(&mut first, prompt);
+    let status = first.call("thread/status", json!({}));
+    assert_eq!(status["maxContextTokens"], 8192);
+    assert_eq!(status["contextTokens"], expected_tokens);
+    assert_eq!(status["contextUsage"], expected_tokens as f64 / 8192.0);
+
+    let model = first.call("thread/setModel", json!({"model": "script"}));
+    assert_eq!(model["thread"]["model"], "script");
+    let thinking = first.call("thread/setThinking", json!({"level": "high"}));
+    assert_eq!(thinking["thread"]["thinking"], "high");
+    let permission = first.call("thread/setPermission", json!({"mode": "yolo"}));
+    assert_eq!(permission["thread"]["permission"], "yolo");
+    assert_eq!(permission["thread"]["model"], "script");
+    assert_eq!(permission["thread"]["planMode"], false);
+
+    run_script_turn(&mut first, drop);
+    let undone = first.call("thread/undo", json!({"count": 1}));
+    let undone_texts = texts(&undone["thread"]);
+    assert!(
+        undone_texts.iter().any(|text| text.contains(prompt)),
+        "{undone_texts:?}"
+    );
+    assert!(
+        undone_texts.iter().all(|text| !text.contains(drop)),
+        "{undone_texts:?}"
+    );
+    let undone_len = undone["thread"]["messages"].as_array().unwrap().len();
+
+    let exported = first.call("session/export", json!({"cwd": cwd, "threadId": thread_id}));
+    let archive = zip_text(exported["zipPath"].as_str().unwrap());
+    assert!(archive.contains(prompt), "{archive}");
+
+    let compacted = first.call("thread/compact", json!({}));
+    assert!(
+        first.notes.iter().any(|value| {
+            value.get("method").and_then(Value::as_str) == Some("compaction/completed")
+        }),
+        "missing compaction/completed"
+    );
+    let compacted_len = compacted["thread"]["messages"].as_array().unwrap().len();
+    assert!(
+        compacted_len < undone_len,
+        "{compacted_len} vs {undone_len}"
+    );
+    let compacted_texts = texts(&compacted["thread"]);
+    assert!(
+        compacted_texts
+            .iter()
+            .any(|text| text.contains("[Context compaction]")),
+        "{compacted_texts:?}"
+    );
+    assert!(
+        compacted_texts.iter().all(|text| !text.contains(prompt)),
+        "{compacted_texts:?}"
+    );
+
+    let with_text = first.call(
+        "turn/start",
+        json!({"text": "see-the-picture", "images": [picture]}),
+    );
+    assert_eq!(with_text["status"], "started");
+    assert_eq!(
+        first.take_method("turn/completed")["params"]["status"],
+        "completed"
+    );
+    let image_only = first.call("turn/start", json!({"text": "", "images": [picture_only]}));
+    assert_eq!(image_only["status"], "started");
+    assert_eq!(
+        first.take_method("turn/completed")["params"]["status"],
+        "completed"
+    );
+
+    let listed = first.call("skills/list", json!({}));
+    let skill = listed["skills"]
+        .as_array()
+        .expect("skills")
+        .iter()
+        .find(|skill| skill["name"] == "gate-probe")
+        .expect("gate-probe missing from skills/list");
+    assert_eq!(skill["description"], "probe the combined session surface");
+    assert_eq!(skill["source"], "project");
+    let listed_path = skill["path"].as_str().unwrap().replace('\\', "/");
+    assert!(
+        listed_path.ends_with(".lmcode/skills/gate-probe/SKILL.md"),
+        "{listed_path}"
+    );
+    let activated = first.call(
+        "skills/activate",
+        json!({"name": "gate-probe", "args": "with-arg"}),
+    );
+    assert_eq!(activated["activated"], true);
+    assert_eq!(
+        first.take_method("turn/completed")["params"]["status"],
+        "completed"
+    );
+
+    let switched = first.call("thread/setModel", json!({"model": "script-bg"}));
+    assert_eq!(switched["thread"]["model"], "script-bg");
+    assert_eq!(switched["thread"]["thinking"], "high");
+    assert_eq!(switched["thread"]["permission"], "yolo");
+    run_script_turn(&mut first, "start the background command");
+    let mut output = String::new();
+    let mut task_id = String::new();
+    let started_wait = Instant::now();
+    while started_wait.elapsed() < Duration::from_secs(8) {
+        let tasks = first.call("background/list", json!({"activeOnly": false}));
+        if let Some(task) = tasks["tasks"]
+            .as_array()
+            .expect("tasks")
+            .iter()
+            .find(|task| task["command"].as_str().unwrap_or("").contains("127.0.0.1"))
+        {
+            task_id = task["id"].as_str().unwrap().to_string();
+            output = first.call("background/output", json!({"taskId": task_id}))["output"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            if output.contains("127.0.0.1") {
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        output.contains("127.0.0.1"),
+        "task {task_id} output was {output:?}"
+    );
+    let stopped = first.call(
+        "background/stop",
+        json!({"taskId": task_id, "reason": "test stop"}),
+    );
+    assert_eq!(stopped["task"]["status"], "killed");
+    let still_active = first.call("background/list", json!({"activeOnly": true}))["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|task| task["id"] == task_id);
+    assert!(!still_active, "stopped task still listed as active");
+
+    let planned = first.call("thread/setPlanMode", json!({"enabled": true}));
+    assert_eq!(planned["thread"]["model"], "script-bg");
+    assert_eq!(planned["thread"]["thinking"], "high");
+    assert_eq!(planned["thread"]["permission"], "yolo");
+    assert_eq!(planned["thread"]["planMode"], true);
+    let history = planned["thread"]["messages"].to_string();
+    assert!(history.contains("[Context compaction]"), "{history}");
+    assert!(history.contains("see-the-picture"), "{history}");
+    assert!(history.contains(picture), "{history}");
+    assert!(history.contains(picture_only), "{history}");
+    assert!(history.contains("image_url"), "{history}");
+    assert!(history.contains("gate-probe-body"), "{history}");
+    assert!(!history.contains("[image attachment]"), "{history}");
+    assert!(!history.contains(drop), "{history}");
+    assert!(!history.contains(prompt), "{history}");
+    let final_messages = planned["thread"]["messages"].clone();
+
+    let forked = first.call(
+        "thread/fork",
+        json!({
+            "cwd": cwd,
+            "threadId": thread_id,
+            "targetCwd": tree_path,
+            "metadata": {
+                "desktopWorktree": {
+                    "branch": "feature/gate",
+                    "path": tree_path,
+                    "sourceSessionId": thread_id,
+                }
+            }
+        }),
+    );
+    let fork_id = forked["thread"]["id"].as_str().unwrap().to_string();
+    let fork_cwd = forked["thread"]["cwd"].as_str().unwrap().to_string();
+    assert_eq!(
+        forked["thread"]["desktopWorktree"]["branch"],
+        "feature/gate"
+    );
+    assert_eq!(forked["thread"]["desktopWorktree"]["path"], tree_path);
+    assert_eq!(
+        forked["thread"]["desktopWorktree"]["sourceSessionId"],
+        thread_id
+    );
+    assert_eq!(forked["thread"]["model"], "script-bg");
+    assert_eq!(forked["thread"]["thinking"], "high");
+    assert_eq!(forked["thread"]["permission"], "yolo");
+    assert_eq!(forked["thread"]["planMode"], true);
+    assert_eq!(forked["thread"]["messages"], final_messages);
+
+    let stderr = first.close();
+    assert!(stderr.is_empty(), "first launch wrote to stderr:\n{stderr}");
+
+    let mut second = Client::launch(&home);
+    second.call("initialize", json!({}));
+    let resumed = second.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    assert_eq!(resumed["thread"]["model"], "script-bg");
+    assert_eq!(resumed["thread"]["thinking"], "high");
+    assert_eq!(resumed["thread"]["permission"], "yolo");
+    assert_eq!(resumed["thread"]["planMode"], true);
+    assert!(resumed["thread"]["desktopWorktree"].is_null());
+    assert_eq!(resumed["thread"]["messages"], final_messages);
+
+    let forked_again = second.call(
+        "thread/resume",
+        json!({"cwd": fork_cwd, "threadId": fork_id}),
+    );
+    assert_eq!(
+        forked_again["thread"]["desktopWorktree"]["branch"],
+        "feature/gate"
+    );
+    assert_eq!(forked_again["thread"]["desktopWorktree"]["path"], tree_path);
+    assert_eq!(
+        forked_again["thread"]["desktopWorktree"]["sourceSessionId"],
+        thread_id
+    );
+    assert_eq!(forked_again["thread"]["model"], "script-bg");
+    assert_eq!(forked_again["thread"]["thinking"], "high");
+    assert_eq!(forked_again["thread"]["permission"], "yolo");
+    assert_eq!(forked_again["thread"]["planMode"], true);
+    assert_eq!(forked_again["thread"]["messages"], final_messages);
+
+    let stderr = second.close();
+    assert!(
+        stderr.is_empty(),
+        "second launch wrote to stderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}
