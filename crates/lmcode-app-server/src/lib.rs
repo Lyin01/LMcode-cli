@@ -81,6 +81,9 @@ struct ActiveThread {
     id: String,
     cwd: PathBuf,
     model: String,
+    /// Last mode applied to this thread. Read on the request loop only, so a
+    /// same-mode `thread/setPermission` can return without taking `agent`.
+    permission: String,
     agent: Arc<Mutex<Agent>>,
     steer: Arc<SteerSlot>,
     cancel: Arc<Notify>,
@@ -272,7 +275,12 @@ struct Server {
     out: Out,
     pending: Pending,
     next_server_id: Arc<AtomicU64>,
-    active: Option<ActiveThread>,
+    /// Every conversation the desktop has opened in this process. A turn on
+    /// one thread does not unload the others, so two windows can generate at
+    /// the same time. `focused` is only the default when a request omits
+    /// `threadId`.
+    threads: HashMap<String, ActiveThread>,
+    focused: Option<String>,
     /// Live background processes, keyed by session id. Resume rebinds this
     /// manager instead of allocating an empty one.
     backgrounds: HashMap<String, Arc<BackgroundTaskManager>>,
@@ -296,7 +304,8 @@ impl Server {
             out,
             pending,
             next_server_id: Arc::new(AtomicU64::new(1)),
-            active: None,
+            threads: HashMap::new(),
+            focused: None,
             backgrounds: HashMap::new(),
             computer,
         }
@@ -361,6 +370,7 @@ impl Server {
             })),
             "thread/start" => self.thread_start(params).await,
             "thread/resume" => self.thread_resume(params).await,
+            "thread/read" => self.thread_read(params),
             "thread/list" => self.thread_list(params),
             "thread/fork" => self.thread_fork(params).await,
             "thread/delete" => self.thread_delete(params),
@@ -371,28 +381,28 @@ impl Server {
             "thread/setPlanMode" => self.thread_set_plan_mode(params).await,
             "thread/undo" => self.thread_undo(params).await,
             "thread/compact" => self.thread_compact(params).await,
-            "skills/list" => self.skills_list(),
+            "skills/list" => self.skills_list(params),
             "skills/activate" => self.skills_activate(params).await,
             "background/list" => self.background_list(params),
             "background/output" => self.background_output(params),
             "background/stop" => self.background_stop(params),
             "turn/start" => self.turn_start(params).await,
             "turn/steer" => self.turn_steer(params),
-            "turn/interrupt" => self.turn_interrupt(),
-            "thread/status" => self.thread_status().await,
+            "turn/interrupt" => self.turn_interrupt(params),
+            "thread/status" => self.thread_status(params).await,
             "session/export" => self.session_export(params),
             "config/read" => config_read(params),
             "config/write" => config_write(params),
             "config/get" => config_get(params),
             "config/patch" => config_patch(params),
-            "goal/get" => self.goal_get().await,
+            "goal/get" => self.goal_get(params).await,
             "goal/create" => self.goal_create(params).await,
             "goal/update" => self.goal_update(params).await,
-            "goal/cancel" => self.goal_cancel().await,
-            "cron/list" => self.cron_list().await,
+            "goal/cancel" => self.goal_cancel(params).await,
+            "cron/list" => self.cron_list(params).await,
             "cron/create" => self.cron_create(params).await,
             "cron/delete" => self.cron_delete(params).await,
-            "mcp/list" => self.mcp_list(),
+            "mcp/list" => self.mcp_list(params),
             "mcp/add" => self.mcp_add(params),
             "mcp/remove" => self.mcp_remove(params),
             "mcp/stop" => mcp_not_spawned(params),
@@ -406,20 +416,46 @@ impl Server {
         }
     }
 
-    fn ensure_idle(&self) -> Result<(), RpcError> {
-        if self
-            .active
-            .as_ref()
-            .is_some_and(|active| active.running.load(Ordering::SeqCst))
+    fn focused_id(&self) -> Result<String, RpcError> {
+        self.focused
+            .clone()
+            .filter(|id| self.threads.contains_key(id))
+            .ok_or_else(|| RpcError::failed("no active thread"))
+    }
+
+    /// `threadId` selects a loaded conversation. Omitted, the focused one is used.
+    fn resolve_id(&self, params: &Value) -> Result<String, RpcError> {
+        if let Some(id) = params
+            .get("threadId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
         {
+            if self.threads.contains_key(id) {
+                return Ok(id.to_string());
+            }
+            return Err(RpcError::failed("thread is not the active thread"));
+        }
+        self.focused_id()
+    }
+
+    fn ensure_thread_idle(&self, id: &str) -> Result<(), RpcError> {
+        let thread = self
+            .threads
+            .get(id)
+            .ok_or_else(|| RpcError::failed("no active thread"))?;
+        if thread.running.load(Ordering::SeqCst) {
             Err(RpcError::failed("a turn is already running"))
         } else {
             Ok(())
         }
     }
 
+    fn insert_thread(&mut self, active: ActiveThread) {
+        self.focused = Some(active.id.clone());
+        self.threads.insert(active.id.clone(), active);
+    }
+
     async fn thread_start(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
         let cwd = require_str(params, "cwd")?;
         let model = params
             .get("model")
@@ -432,20 +468,36 @@ impl Server {
         let background = self.background_for(&session);
         let active = open_thread(Path::new(cwd), model, session, background).await?;
         let view = load_thread(&active.cwd, &active.id)?;
-        self.active = Some(active);
-        Ok(json!({"thread": view}))
+        self.insert_thread(active);
+        Ok(json!({"thread": view, "activated": true}))
     }
 
-    async fn thread_resume(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
+    fn thread_read(&self, params: &Value) -> Result<Value, RpcError> {
         let cwd = PathBuf::from(require_str(params, "cwd")?);
         let id = require_str(params, "threadId")?;
         let session = SessionStore::new().load(&cwd, id).map_err(failed)?;
+        Ok(json!({"thread": session_value(&session)?}))
+    }
+
+    async fn thread_resume(&mut self, params: &Value) -> Result<Value, RpcError> {
+        let cwd = PathBuf::from(require_str(params, "cwd")?);
+        let id = require_str(params, "threadId")?.to_string();
+        // Rebuilding a thread that is mid-turn would drop its agent. Keep it
+        // and leave every other loaded conversation alone.
+        if self
+            .threads
+            .get(&id)
+            .is_some_and(|active| active.running.load(Ordering::SeqCst))
+        {
+            self.focused = Some(id.clone());
+            return Ok(json!({"thread": load_thread(&cwd, &id)?}));
+        }
+        let session = SessionStore::new().load(&cwd, &id).map_err(failed)?;
         let model = session.state.model.clone();
         let background = self.background_for(&session);
         let active = open_thread(&cwd, &model, session, background).await?;
-        let view = load_thread(&cwd, id)?;
-        self.active = Some(active);
+        let view = load_thread(&cwd, &id)?;
+        self.insert_thread(active);
         Ok(json!({"thread": view}))
     }
 
@@ -470,7 +522,6 @@ impl Server {
     }
 
     async fn thread_fork(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
         let cwd = PathBuf::from(require_str(params, "cwd")?);
         let source = require_str(params, "threadId")?.to_string();
         let target = format!("session_{}", uuid::Uuid::new_v4());
@@ -497,73 +548,83 @@ impl Server {
     }
 
     fn thread_delete(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
         let cwd = PathBuf::from(require_str(params, "cwd")?);
-        let id = require_str(params, "threadId")?;
-        SessionStore::new().delete(&cwd, id).map_err(failed)?;
-        if self.active.as_ref().is_some_and(|active| active.id == id) {
-            self.active = None;
+        let id = require_str(params, "threadId")?.to_string();
+        self.ensure_thread_idle(&id).or_else(|error| {
+            if self.threads.contains_key(&id) {
+                Err(error)
+            } else {
+                Ok(())
+            }
+        })?;
+        SessionStore::new().delete(&cwd, &id).map_err(failed)?;
+        self.threads.remove(&id);
+        if self.focused.as_deref() == Some(id.as_str()) {
+            self.focused = None;
         }
         Ok(json!({"deleted": true}))
     }
 
     async fn thread_rename(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
         let cwd = PathBuf::from(require_str(params, "cwd")?);
         let id = require_str(params, "threadId")?.to_string();
         let title = require_str(params, "title")?;
+        if self.threads.contains_key(&id) {
+            self.ensure_thread_idle(&id)?;
+        }
         SessionStore::new()
             .rename(&cwd, &id, title)
             .map_err(failed)?;
-        if self.active.as_ref().is_some_and(|active| active.id == id) {
+        if self.threads.contains_key(&id) {
             let session = SessionStore::new().load(&cwd, &id).map_err(failed)?;
             let model = session.state.model.clone();
             let background = self.background_for(&session);
-            self.active = Some(open_thread(&cwd, &model, session, background).await?);
+            let active = open_thread(&cwd, &model, session, background).await?;
+            self.threads.insert(id.clone(), active);
         }
         let session = SessionStore::new().load(&cwd, &id).map_err(failed)?;
         Ok(json!({"thread": session_value(&session)?}))
     }
 
     async fn thread_set_model(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
+        let id = self.resolve_id(params)?;
+        self.ensure_thread_idle(&id)?;
         let model = require_str(params, "model")?.trim();
         if model.is_empty() {
             return Err(RpcError::params("Session model cannot be empty"));
         }
         let model = model.to_string();
         let provider = build_provider(&model)?;
-        let (cwd, id) = {
+        let cwd = {
             let active = self
-                .active
-                .as_ref()
+                .threads
+                .get(&id)
                 .ok_or_else(|| RpcError::failed("no active thread"))?;
             let cwd = active.cwd.clone();
-            let id = active.id.clone();
             let mut agent = active.agent.lock().await;
             agent.persist_model(&model).map_err(failed)?;
             agent.set_provider(provider);
-            (cwd, id)
+            cwd
         };
-        if let Some(active) = self.active.as_mut() {
+        if let Some(active) = self.threads.get_mut(&id) {
             active.model = model;
         }
         Ok(json!({"thread": load_thread(&cwd, &id)?}))
     }
 
     async fn thread_set_thinking(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
+        let id = self.resolve_id(params)?;
+        self.ensure_thread_idle(&id)?;
         let level = require_str(params, "level")?.trim();
         if level.is_empty() {
             return Err(RpcError::params("Session thinking level cannot be empty"));
         }
         let level = level.to_string();
-        self.with_active_agent(|agent| agent.persist_thinking(&level))
+        self.with_agent(&id, |agent| agent.persist_thinking(&level))
             .await
     }
 
     async fn thread_set_permission(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
         let mode = require_str(params, "mode")?.trim();
         let Some(parsed) = permission_mode_from(mode) else {
             return Err(RpcError::params(
@@ -571,23 +632,45 @@ impl Server {
             ));
         };
         let mode = mode.to_string();
-        self.with_active_agent(|agent| {
-            agent.persist_permission(&mode)?;
-            agent.set_permission_mode(parsed);
-            Ok(())
-        })
-        .await
+        let id = self.resolve_id(params)?;
+        if let Some(active) = self.threads.get(&id)
+            && active.permission == mode
+        {
+            let cwd = active.cwd.clone();
+            let model = active.model.clone();
+            let thread = load_thread(&cwd, &id).unwrap_or_else(|_| {
+                json!({
+                    "id": id,
+                    "cwd": cwd.display().to_string(),
+                    "model": model,
+                    "permission": mode,
+                })
+            });
+            return Ok(json!({"thread": thread}));
+        }
+        self.ensure_thread_idle(&id)?;
+        let value = self
+            .with_agent(&id, |agent| {
+                agent.persist_permission(&mode)?;
+                agent.set_permission_mode(parsed);
+                Ok(())
+            })
+            .await?;
+        if let Some(active) = self.threads.get_mut(&id) {
+            active.permission = mode;
+        }
+        Ok(value)
     }
 
     async fn thread_set_plan_mode(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
+        let id = self.resolve_id(params)?;
+        self.ensure_thread_idle(&id)?;
         let enabled = require_bool(params, "enabled")?;
         let active = self
-            .active
-            .as_ref()
+            .threads
+            .get(&id)
             .ok_or_else(|| RpcError::failed("no active thread"))?;
         let cwd = active.cwd.clone();
-        let id = active.id.clone();
         {
             let mut agent = active.agent.lock().await;
             agent.persist_plan_mode(enabled).map_err(failed)?;
@@ -600,9 +683,10 @@ impl Server {
     }
 
     async fn thread_undo(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
+        let id = self.resolve_id(params)?;
+        self.ensure_thread_idle(&id)?;
         let count = params.get("count").and_then(Value::as_u64).unwrap_or(1) as usize;
-        self.with_active_agent(|agent| {
+        self.with_agent(&id, |agent| {
             agent.undo(count);
             agent.save_session()
         })
@@ -610,17 +694,17 @@ impl Server {
     }
 
     async fn thread_compact(&mut self, params: &Value) -> Result<Value, RpcError> {
-        self.ensure_idle()?;
+        let id = self.resolve_id(params)?;
+        self.ensure_thread_idle(&id)?;
         let instruction = params
             .get("instruction")
             .and_then(Value::as_str)
             .map(str::to_string);
         let active = self
-            .active
-            .as_ref()
+            .threads
+            .get(&id)
             .ok_or_else(|| RpcError::failed("no active thread"))?;
         let cwd = active.cwd.clone();
-        let id = active.id.clone();
         let outcome = {
             let mut agent = active.agent.lock().await;
             agent
@@ -648,10 +732,11 @@ impl Server {
         Ok(json!({"thread": load_thread(&cwd, &id)?}))
     }
 
-    fn skills_list(&self) -> Result<Value, RpcError> {
+    fn skills_list(&self, params: &Value) -> Result<Value, RpcError> {
+        let id = self.resolve_id(params)?;
         let cwd = &self
-            .active
-            .as_ref()
+            .threads
+            .get(&id)
             .ok_or_else(|| RpcError::failed("no active thread"))?
             .cwd;
         let skills = discover_skills(cwd)
@@ -682,14 +767,15 @@ impl Server {
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(str::to_string);
-        let active = self
-            .active
-            .as_ref()
-            .ok_or_else(|| RpcError::failed("no active thread"))?;
-        if active.running.load(Ordering::SeqCst) {
-            return Err(RpcError::failed("a turn is already running"));
-        }
-        let skill = discover_skills(&active.cwd)
+        let id = self.resolve_id(params)?;
+        self.ensure_thread_idle(&id)?;
+        let cwd = self
+            .threads
+            .get(&id)
+            .ok_or_else(|| RpcError::failed("no active thread"))?
+            .cwd
+            .clone();
+        let skill = discover_skills(&cwd)
             .into_iter()
             .find(|skill| skill.name == name)
             .ok_or_else(|| RpcError::failed(format!("Skill \"{name}\" was not found")))?;
@@ -704,13 +790,16 @@ impl Server {
             text.push_str(&args);
         }
         let thread_id = {
-            let active = self.active.as_ref().expect("active thread");
+            let active = self
+                .threads
+                .get(&id)
+                .ok_or_else(|| RpcError::failed("no active thread"))?;
             if active.running.swap(true, Ordering::SeqCst) {
                 return Err(RpcError::failed("a turn is already running"));
             }
             active.id.clone()
         };
-        let turn_id = self.spawn_turn(text, Vec::new());
+        let turn_id = self.spawn_turn(&thread_id, text, Vec::new());
         Ok(json!({
             "activated": true,
             "name": name,
@@ -720,7 +809,7 @@ impl Server {
     }
 
     fn background_list(&self, params: &Value) -> Result<Value, RpcError> {
-        let manager = self.background_manager()?;
+        let manager = self.background_manager(params)?;
         let active_only = params
             .get("activeOnly")
             .and_then(Value::as_bool)
@@ -738,7 +827,7 @@ impl Server {
             return Err(RpcError::params("Task id cannot be empty"));
         }
         let info = self
-            .background_manager()?
+            .background_manager(params)?
             .get(task_id)
             .ok_or_else(|| RpcError::failed(format!("unknown background task `{task_id}`")))?;
         Ok(json!({"output": info.output}))
@@ -754,36 +843,39 @@ impl Server {
             .and_then(Value::as_str)
             .filter(|text| !text.is_empty())
             .unwrap_or("Stopped from LMCODE Desktop");
-        match self.background_manager()?.stop(task_id, reason) {
+        match self.background_manager(params)?.stop(task_id, reason) {
             Ok(info) => Ok(json!({"task": info})),
             Err(error) if error.contains("is not running") => Ok(json!({"stopped": false})),
             Err(error) => Err(RpcError::failed(error)),
         }
     }
 
-    fn background_manager(&self) -> Result<Arc<BackgroundTaskManager>, RpcError> {
-        self.active
-            .as_ref()
+    fn background_manager(&self, params: &Value) -> Result<Arc<BackgroundTaskManager>, RpcError> {
+        let id = self.resolve_id(params)?;
+        self.threads
+            .get(&id)
             .map(|active| Arc::clone(&active.background))
             .ok_or_else(|| RpcError::failed("no active thread"))
     }
 
-    /// Persist a control on the active thread and return its thread view.
-    async fn with_active_agent(
-        &mut self,
+    /// Persist a control on one loaded thread and return its thread view.
+    /// The caller must already know that thread is idle. Locking its agent
+    /// from the request loop during a turn deadlocks an approval.
+    async fn with_agent(
+        &self,
+        id: &str,
         change: impl FnOnce(&mut Agent) -> Result<(), CoreError>,
     ) -> Result<Value, RpcError> {
         let active = self
-            .active
-            .as_ref()
+            .threads
+            .get(id)
             .ok_or_else(|| RpcError::failed("no active thread"))?;
         let cwd = active.cwd.clone();
-        let id = active.id.clone();
         {
             let mut agent = active.agent.lock().await;
             change(&mut agent).map_err(failed)?;
         }
-        Ok(json!({"thread": load_thread(&cwd, &id)?}))
+        Ok(json!({"thread": load_thread(&cwd, id)?}))
     }
 
     async fn turn_start(&mut self, params: &Value) -> Result<Value, RpcError> {
@@ -796,20 +888,15 @@ impl Server {
         if text.is_empty() && images.is_empty() {
             return Err(RpcError::params("missing `text`"));
         }
+        let thread_id = self.resolve_id(params)?;
         let active = self
-            .active
-            .as_ref()
+            .threads
+            .get(&thread_id)
             .ok_or_else(|| RpcError::failed("no active thread"))?;
-        if let Some(id) = params.get("threadId").and_then(Value::as_str)
-            && id != active.id
-        {
-            return Err(RpcError::failed("thread is not the active thread"));
-        }
         if active.running.swap(true, Ordering::SeqCst) {
             return Err(RpcError::failed("a turn is already running"));
         }
-        let thread_id = active.id.clone();
-        let turn_id = self.spawn_turn(text, images);
+        let turn_id = self.spawn_turn(&thread_id, text, images);
         Ok(json!({
             "threadId": thread_id,
             "turnId": turn_id,
@@ -818,11 +905,11 @@ impl Server {
     }
 
     /// `running` is already true. The turn task clears it when the model returns.
-    fn spawn_turn(&mut self, text: String, images: Vec<String>) -> String {
+    fn spawn_turn(&mut self, thread_id: &str, text: String, images: Vec<String>) -> String {
         let active = self
-            .active
-            .as_ref()
-            .expect("spawn_turn requires an active thread");
+            .threads
+            .get(thread_id)
+            .expect("spawn_turn requires a loaded thread");
         let turn_id = format!("turn_{}", uuid::Uuid::new_v4());
         let thread_id = active.id.clone();
         let agent = Arc::clone(&active.agent);
@@ -877,19 +964,30 @@ impl Server {
 
     fn turn_steer(&self, params: &Value) -> Result<Value, RpcError> {
         let text = require_str(params, "text")?;
-        let accepted = self
-            .active
-            .as_ref()
-            .is_some_and(|active| active.steer.submit(text));
+        let accepted = self.resolve_id(params).ok().is_some_and(|id| {
+            self.threads
+                .get(&id)
+                .is_some_and(|active| active.steer.submit(text))
+        });
         Ok(json!({"accepted": accepted}))
     }
 
-    async fn thread_status(&self) -> Result<Value, RpcError> {
+    async fn thread_status(&self, params: &Value) -> Result<Value, RpcError> {
+        let id = self.resolve_id(params)?;
         let active = self
-            .active
-            .as_ref()
+            .threads
+            .get(&id)
             .ok_or_else(|| RpcError::failed("no active thread"))?;
         let max_context_tokens = configured_context_window(&active.model);
+        // The turn holds `agent` until it finishes, including while it waits
+        // for approval. Status must not take that lock.
+        if active.running.load(Ordering::SeqCst) {
+            return Ok(json!({
+                "contextTokens": 0,
+                "maxContextTokens": max_context_tokens,
+                "contextUsage": 0.0,
+            }));
+        }
         let context_tokens = active.agent.lock().await.usage().total.total();
         let context_usage = if max_context_tokens == 0 {
             0.0
@@ -922,25 +1020,27 @@ impl Server {
         Ok(json!({"zipPath": output.display().to_string()}))
     }
 
-    fn turn_interrupt(&self) -> Result<Value, RpcError> {
-        let interrupted = self.active.as_ref().is_some_and(|active| {
-            if !active.running.load(Ordering::SeqCst) {
-                return false;
-            }
-            active.cancel.notify_one();
-            true
+    fn turn_interrupt(&self, params: &Value) -> Result<Value, RpcError> {
+        let interrupted = self.resolve_id(params).ok().is_some_and(|id| {
+            self.threads.get(&id).is_some_and(|active| {
+                if !active.running.load(Ordering::SeqCst) {
+                    return false;
+                }
+                active.cancel.notify_one();
+                true
+            })
         });
         Ok(json!({"interrupted": interrupted}))
     }
 
-    async fn goal_get(&self) -> Result<Value, RpcError> {
-        let goal = self.goal_handle()?;
+    async fn goal_get(&self, params: &Value) -> Result<Value, RpcError> {
+        let goal = self.goal_handle(params)?;
         let snapshot = goal.lock().await.snapshot();
         Ok(json!({"goal": goal_value(snapshot)?}))
     }
 
     async fn goal_create(&self, params: &Value) -> Result<Value, RpcError> {
-        let goal = self.goal_handle()?;
+        let goal = self.goal_handle(params)?;
         let objective = require_str(params, "objective")?;
         let criterion = params.get("completionCriterion").and_then(Value::as_str);
         let replace = params
@@ -956,7 +1056,7 @@ impl Server {
     }
 
     async fn goal_update(&self, params: &Value) -> Result<Value, RpcError> {
-        let goal = self.goal_handle()?;
+        let goal = self.goal_handle(params)?;
         let name = require_str(params, "status")?;
         let status = GoalStatus::from_name(name)
             .ok_or_else(|| RpcError::params(format!("unknown goal status `{name}`")))?;
@@ -969,8 +1069,8 @@ impl Server {
         Ok(json!({"goal": serde_json::to_value(snapshot).map_err(failed)?}))
     }
 
-    async fn goal_cancel(&self) -> Result<Value, RpcError> {
-        let goal = self.goal_handle()?;
+    async fn goal_cancel(&self, params: &Value) -> Result<Value, RpcError> {
+        let goal = self.goal_handle(params)?;
         let snapshot = goal
             .lock()
             .await
@@ -979,15 +1079,15 @@ impl Server {
         Ok(json!({"goal": serde_json::to_value(snapshot).map_err(failed)?}))
     }
 
-    async fn cron_list(&self) -> Result<Value, RpcError> {
-        let cron = self.cron_handle()?;
+    async fn cron_list(&self, params: &Value) -> Result<Value, RpcError> {
+        let cron = self.cron_handle(params)?;
         let tasks = cron.lock().await.list().to_vec();
         let jobs = tasks.iter().map(job_value).collect::<Vec<_>>();
         Ok(json!({"tasks": jobs}))
     }
 
     async fn cron_create(&self, params: &Value) -> Result<Value, RpcError> {
-        let cron = self.cron_handle()?;
+        let cron = self.cron_handle(params)?;
         let expression = require_str(params, "cron")?;
         let prompt = require_str(params, "prompt")?;
         let recurring = params
@@ -1003,7 +1103,7 @@ impl Server {
     }
 
     async fn cron_delete(&self, params: &Value) -> Result<Value, RpcError> {
-        let cron = self.cron_handle()?;
+        let cron = self.cron_handle(params)?;
         let id = require_str(params, "id")?;
         let deleted = cron.lock().await.remove(id);
         Ok(json!({"deleted": deleted}))
@@ -1017,22 +1117,30 @@ impl Server {
         .await;
     }
 
-    /// Deliver due jobs on the active thread. A running turn keeps the jobs
-    /// due so the next idle beat can start them. Matches the TUI tick:
-    /// inject `<cron-fire>` and run one turn.
+    /// Deliver due jobs on every loaded thread. A running turn keeps that
+    /// thread's jobs due so the next idle beat can start them. Other
+    /// conversations still fire. Matches the TUI tick: inject `<cron-fire>`
+    /// and run one turn.
     async fn cron_tick(&mut self) {
-        let (thread_id, cron, running, agent) = {
-            let Some(active) = self.active.as_ref() else {
+        let ids = self.threads.keys().cloned().collect::<Vec<_>>();
+        for id in ids {
+            self.cron_tick_thread(&id).await;
+        }
+    }
+
+    async fn cron_tick_thread(&mut self, thread_id: &str) {
+        let (cron, running, agent, steer) = {
+            let Some(active) = self.threads.get(thread_id) else {
                 return;
             };
             if active.running.load(Ordering::SeqCst) {
                 return;
             }
             (
-                active.id.clone(),
                 Arc::clone(&active.cron),
                 Arc::clone(&active.running),
                 Arc::clone(&active.agent),
+                Arc::clone(&active.steer),
             )
         };
         let now_ms = std::time::SystemTime::now()
@@ -1048,18 +1156,16 @@ impl Server {
         // slot and do not start a second one. due_fires already consumed them,
         // so they have to be delivered here.
         if running.swap(true, Ordering::SeqCst) {
-            if let Some(active) = self.active.as_ref() {
-                for fire in &fires {
-                    let _ = active.steer.submit(&render_cron_fire_xml(fire));
-                }
+            for fire in &fires {
+                let _ = steer.submit(&render_cron_fire_xml(fire));
             }
             for fire in &fires {
-                self.notify_cron(&thread_id, fire).await;
+                self.notify_cron(thread_id, fire).await;
             }
             return;
         }
         for fire in &fires {
-            self.notify_cron(&thread_id, fire).await;
+            self.notify_cron(thread_id, fire).await;
         }
         {
             let mut agent = agent.lock().await;
@@ -1068,6 +1174,7 @@ impl Server {
             }
         }
         self.spawn_turn(
+            thread_id,
             "A scheduled task has fired — handle it.".to_string(),
             Vec::new(),
         );
@@ -1092,9 +1199,9 @@ impl Server {
         .await;
     }
 
-    fn mcp_list(&self) -> Result<Value, RpcError> {
+    fn mcp_list(&self, params: &Value) -> Result<Value, RpcError> {
         let sources =
-            lmcode_mcp::config::load_effective_sources(&self.work_dir()).map_err(failed)?;
+            lmcode_mcp::config::load_effective_sources(&self.work_dir(params)).map_err(failed)?;
         let mut names = sources.keys().cloned().collect::<Vec<_>>();
         names.sort();
         let servers = names
@@ -1129,7 +1236,7 @@ impl Server {
 
     fn mcp_remove(&self, params: &Value) -> Result<Value, RpcError> {
         let name = require_str(params, "name")?;
-        let removed = lmcode_mcp::config::remove_server(&self.work_dir(), name)
+        let removed = lmcode_mcp::config::remove_server(&self.work_dir(params), name)
             .map_err(failed)?
             .is_some();
         Ok(json!({"removed": removed}))
@@ -1148,35 +1255,41 @@ impl Server {
             self.computer.deactivate().await;
             self.computer.status()
         };
-        if let Some(active) = &self.active {
-            active
-                .agent
-                .lock()
-                .await
-                .set_computer_use_active(status.phase == ComputerUsePhase::Active);
+        let phase_active = status.phase == ComputerUsePhase::Active;
+        for active in self.threads.values() {
+            // A running turn holds its agent across approval. Skip that lock.
+            if let Ok(mut agent) = active.agent.try_lock() {
+                agent.set_computer_use_active(phase_active);
+            }
         }
         persist_computer_use(enabled)?;
         Ok(status_json(status))
     }
 
-    fn goal_handle(&self) -> Result<GoalHandle, RpcError> {
-        self.active
-            .as_ref()
+    fn goal_handle(&self, params: &Value) -> Result<GoalHandle, RpcError> {
+        let id = self.resolve_id(params)?;
+        self.threads
+            .get(&id)
             .map(|active| Arc::clone(&active.goal))
             .ok_or_else(|| RpcError::failed("no active thread"))
     }
 
-    fn cron_handle(&self) -> Result<CronHandle, RpcError> {
-        self.active
-            .as_ref()
+    fn cron_handle(&self, params: &Value) -> Result<CronHandle, RpcError> {
+        let id = self.resolve_id(params)?;
+        self.threads
+            .get(&id)
             .map(|active| Arc::clone(&active.cron))
             .ok_or_else(|| RpcError::failed("no active thread"))
     }
 
-    fn work_dir(&self) -> PathBuf {
-        self.active
-            .as_ref()
-            .map(|active| active.cwd.clone())
+    fn work_dir(&self, params: &Value) -> PathBuf {
+        params
+            .get("threadId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .or_else(|| self.focused.clone())
+            .and_then(|id| self.threads.get(&id).map(|active| active.cwd.clone()))
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
     }
 }
@@ -1222,6 +1335,7 @@ async fn open_thread(
         agent.attach_memo_store(Arc::new(store));
     }
     let id = session.id().to_string();
+    let permission = effective_permission(session.state.permission.as_deref());
     agent.attach_session(session);
     apply_stored_plan_mode(&mut agent, plan_mode).await?;
     let steer = agent.steer_slot();
@@ -1229,6 +1343,7 @@ async fn open_thread(
         id,
         cwd: cwd.to_path_buf(),
         model: model.to_string(),
+        permission,
         agent: Arc::new(Mutex::new(agent)),
         steer,
         cancel,

@@ -23,3 +23,8 @@ export function setStoredPermissionPreference(permission: PermissionMode): void 
     // Keep the in-memory preference usable when persistence is unavailable.
   }
 }
+
+/** Focus-time sync colliding with turn/start. The mode was not changed. */
+export function isBusyTurnPermissionSync(message: string): boolean {
+  return message.includes('a turn is already running')
+}

@@ -85,6 +85,20 @@ impl Client {
     }
 
     fn call(&mut self, method: &str, params: Value) -> Value {
+        match self.exchange(method, params) {
+            Ok(result) => result,
+            Err(error) => panic!("{method} failed: {error}\nstderr:\n{}", self.stderr_now()),
+        }
+    }
+
+    fn call_error(&mut self, method: &str, params: Value) -> Value {
+        match self.exchange(method, params) {
+            Ok(result) => panic!("{method} succeeded: {result}"),
+            Err(error) => error,
+        }
+    }
+
+    fn exchange(&mut self, method: &str, params: Value) -> Result<Value, Value> {
         self.next_id += 1;
         let id = self.next_id;
         self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
@@ -94,9 +108,9 @@ impl Client {
                 && value.get("id").and_then(Value::as_u64) == Some(id);
             if matches {
                 if let Some(error) = value.get("error") {
-                    panic!("{method} failed: {error}\nstderr:\n{}", self.stderr_now());
+                    return Err(error.clone());
                 }
-                return value.get("result").cloned().unwrap_or(Value::Null);
+                return Ok(value.get("result").cloned().unwrap_or(Value::Null));
             }
             self.notes.push(value);
         }
@@ -558,6 +572,136 @@ fn enabling_computer_use_reports_that_the_driver_is_not_launched() {
     let idle = client.call("computerUse/setEnabled", json!({"enabled": false}));
     assert_eq!(idle["phase"], "idle");
     assert!(idle.get("error").is_none(), "{idle}");
+    let stderr = client.close();
+    assert!(stderr.is_empty(), "{stderr}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn same_permission_during_a_turn_is_a_no_op() {
+    let home = home("permission-busy");
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let mut client = Client::launch(&home);
+    client.call("initialize", json!({}));
+    let started = client.call(
+        "thread/start",
+        json!({"cwd": cwd, "model": "script-bash", "permission": "manual"}),
+    );
+    assert_eq!(started["thread"]["permission"], "manual");
+    client.call("turn/start", json!({"text": "run"}));
+    let approval = client.take_method("item/commandExecution/requestApproval");
+
+    let same = client.call("thread/setPermission", json!({"mode": "manual"}));
+    assert_eq!(same["thread"]["permission"], "manual");
+    let rejected = client.call_error("thread/setPermission", json!({"mode": "yolo"}));
+    let message = rejected["message"].as_str().unwrap_or("");
+    assert!(message.contains("a turn is already running"), "{rejected}");
+
+    client.respond(&approval["id"], json!({"approved": false}));
+    let completed = client.take_method("turn/completed");
+    assert_eq!(completed["params"]["status"], "completed");
+    let changed = client.call("thread/setPermission", json!({"mode": "yolo"}));
+    assert_eq!(changed["thread"]["permission"], "yolo");
+
+    let stderr = client.close();
+    assert!(stderr.is_empty(), "{stderr}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn a_second_thread_can_be_created_while_a_turn_is_running() {
+    let home = home("second-thread");
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let other = home.join("other");
+    std::fs::create_dir_all(&other).expect("other");
+    let other_cwd = other.to_string_lossy().to_string();
+    let mut client = Client::launch(&home);
+    client.call("initialize", json!({}));
+    let first = client.call(
+        "thread/start",
+        json!({"cwd": cwd, "model": "script-bash", "permission": "manual"}),
+    );
+    let first_id = first["thread"]["id"].as_str().unwrap().to_string();
+    client.call("turn/start", json!({"text": "run"}));
+    let approval = client.take_method("item/commandExecution/requestApproval");
+
+    let second = client.call(
+        "thread/start",
+        json!({"cwd": other_cwd, "model": "script", "permission": "auto"}),
+    );
+    let second_id = second["thread"]["id"].as_str().unwrap().to_string();
+    assert_ne!(second_id, first_id);
+    assert_eq!(second["activated"], true);
+    assert_eq!(second["thread"]["permission"], "auto");
+    assert_eq!(
+        second["thread"]["cwd"].as_str().unwrap().replace('\\', "/"),
+        other_cwd.replace('\\', "/")
+    );
+    let listed = client.call("thread/list", json!({}));
+    let ids = listed["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(ids.contains(&first_id), "{ids:?}");
+    assert!(ids.contains(&second_id), "{ids:?}");
+
+    // The first turn is blocked on approval. Status and a real mode change on
+    // that thread must not take its agent lock, and the second thread can
+    // generate at the same time.
+    let busy_status = client.call("thread/status", json!({"threadId": first_id}));
+    assert_eq!(busy_status["contextTokens"], 0);
+    let same = client.call(
+        "thread/setPermission",
+        json!({"threadId": first_id, "mode": "manual"}),
+    );
+    assert_eq!(same["thread"]["permission"], "manual");
+    let rejected = client.call_error(
+        "thread/setModel",
+        json!({"threadId": first_id, "model": "script"}),
+    );
+    assert!(
+        rejected["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("a turn is already running"),
+        "{rejected}"
+    );
+    let thinking = client.call(
+        "thread/setThinking",
+        json!({"threadId": second_id, "level": "low"}),
+    );
+    assert_eq!(thinking["thread"]["thinking"], "low");
+
+    let second_turn = client.call(
+        "turn/start",
+        json!({"threadId": second_id, "text": "hello"}),
+    );
+    assert_eq!(second_turn["threadId"], second_id);
+    assert_eq!(second_turn["status"], "started");
+    let second_done = client.take_method("turn/completed");
+    assert_eq!(second_done["params"]["threadId"], second_id);
+    assert_eq!(second_done["params"]["status"], "completed");
+    assert!(
+        second_done["params"]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("hello"),
+        "{second_done}"
+    );
+
+    client.respond(&approval["id"], json!({"approved": false}));
+    let completed = client.take_method("turn/completed");
+    assert_eq!(completed["params"]["threadId"], first_id);
+    assert_eq!(completed["params"]["status"], "completed");
+    let resumed = client.call(
+        "thread/resume",
+        json!({"cwd": other_cwd, "threadId": second_id}),
+    );
+    assert_eq!(resumed["thread"]["id"], second_id);
+    assert_eq!(resumed["thread"]["permission"], "auto");
+
     let stderr = client.close();
     assert!(stderr.is_empty(), "{stderr}");
     let _ = std::fs::remove_dir_all(&home);

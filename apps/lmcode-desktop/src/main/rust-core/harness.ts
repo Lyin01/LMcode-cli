@@ -16,17 +16,19 @@ export interface RustHarnessOptions {
 }
 
 /**
- * One app-server process for the whole desktop. It keeps a single active
- * thread, so a call for another session resumes that thread when no turn is
- * running and rejects the call while a turn is in progress.
+ * One app-server process for the whole desktop. Each open conversation has
+ * its own agent, so two windows can generate at the same time. A second
+ * prompt in the same conversation is still rejected.
  */
 export class RustHarness implements DesktopHarness, CoreHost {
   readonly homeDir: string
   readonly configPath: string
   private readonly sessions = new Map<string, RustSession>()
   private activeId: string | undefined
-  private running = false
-  private turnOwner: string | undefined
+  /** Conversations whose turn has been reserved or is in flight. */
+  private readonly runningIds = new Set<string>()
+  /** Conversations the app-server has loaded. They stay loaded across turns. */
+  private readonly live = new Set<string>()
 
   private constructor(
     private readonly client: AppServerClient,
@@ -52,16 +54,27 @@ export class RustHarness implements DesktopHarness, CoreHost {
     return this.client.request<T>(method, params)
   }
 
-  noteTurnRunning(running: boolean): void {
-    this.running = running
-    if (!running) this.turnOwner = undefined
+  noteTurnRunning(sessionId: string, running: boolean): void {
+    if (running) this.runningIds.add(sessionId)
+    else this.runningIds.delete(sessionId)
   }
 
   beginTurn(sessionId: string): void {
-    if (this.running || this.turnOwner !== undefined) {
+    if (this.runningIds.has(sessionId)) {
       throw new Error('a turn is already running')
     }
-    this.turnOwner = sessionId
+    this.runningIds.add(sessionId)
+  }
+
+  async acquireTurn(sessionId: string): Promise<void> {
+    if (this.runningIds.has(sessionId)) {
+      throw new Error('a turn is already running')
+    }
+    this.runningIds.add(sessionId)
+  }
+
+  releaseTurn(sessionId: string): void {
+    this.runningIds.delete(sessionId)
   }
 
   async ensureConfigFile(): Promise<void> {
@@ -98,25 +111,24 @@ export class RustHarness implements DesktopHarness, CoreHost {
     readonly thinking?: string
     readonly permission?: string
   }): Promise<DesktopSession> {
-    this.assertIdle()
     let model = input.model
     if (model === undefined || model.trim().length === 0) {
       const config = await this.getConfig()
       model = config.defaultModel ?? 'script'
     }
-    const result = await this.client.request<{ thread: ThreadView }>('thread/start', {
+    const result = await this.client.request<{ thread: ThreadView; activated?: boolean }>('thread/start', {
       cwd: input.workDir,
       model,
       thinking: input.thinking,
       permission: input.permission,
     })
-    return this.adopt(result.thread)
+    return this.adopt(result.thread, result.activated !== false)
   }
 
   async resumeSession(input: { readonly id: string }): Promise<DesktopSession> {
     const existing = this.sessions.get(input.id)
     if (existing !== undefined && !existing.isClosed) {
-      await this.ensureThread(existing)
+      await this.attachThread(existing)
       return existing
     }
     const listed = await this.client.request<{ threads?: ThreadView[] }>('thread/list', {})
@@ -124,7 +136,7 @@ export class RustHarness implements DesktopHarness, CoreHost {
     if (thread === undefined) throw new Error(`Session "${input.id}" not found`)
     const session = RustSession.open(this, thread)
     this.sessions.set(session.id, session)
-    await this.ensureThread(session)
+    await this.attachThread(session)
     return session
   }
 
@@ -134,7 +146,6 @@ export class RustHarness implements DesktopHarness, CoreHost {
     readonly title?: string
     readonly metadata?: unknown
   }): Promise<DesktopSession> {
-    this.assertIdle()
     const source = await this.requireKnown(input.id)
     const result = await this.client.request<{ thread: ThreadView }>('thread/fork', {
       cwd: source.workDir,
@@ -149,11 +160,13 @@ export class RustHarness implements DesktopHarness, CoreHost {
   }
 
   async deleteSession(id: string): Promise<void> {
-    this.assertIdle()
+    if (this.runningIds.has(id)) throw new Error('a turn is already running')
     const session = await this.requireKnown(id)
     await this.client.request('thread/delete', { cwd: session.workDir, threadId: id })
     session.markClosed()
     this.sessions.delete(id)
+    this.live.delete(id)
+    this.runningIds.delete(id)
     if (this.activeId === id) this.activeId = undefined
   }
 
@@ -176,7 +189,6 @@ export class RustHarness implements DesktopHarness, CoreHost {
   }
 
   async renameSession(input: { readonly id: string; readonly title: string }): Promise<void> {
-    this.assertIdle()
     const session = await this.requireKnown(input.id)
     const result = await this.client.request<{ thread: ThreadView }>('thread/rename', {
       cwd: session.workDir,
@@ -204,47 +216,50 @@ export class RustHarness implements DesktopHarness, CoreHost {
   }
 
   async ensureThread(session: ThreadBinding): Promise<void> {
-    if (this.activeId === session.id) return
-    if (this.running || (this.turnOwner !== undefined && this.turnOwner !== session.id)) {
-      throw new Error('a turn is already running')
-    }
+    // Reloading a thread that is already open replaces its agent and zeroes
+    // the context counter. A turn in another conversation does not require it.
+    if (this.live.has(session.id)) return
     const result = await this.client.request<{ thread: ThreadView }>('thread/resume', {
       cwd: session.workDir,
       threadId: session.id,
     })
+    this.live.add(session.id)
     this.activeId = session.id
     session.applyThread(result.thread)
   }
 
   async reloadThread(session: ThreadBinding): Promise<void> {
-    if (this.running && this.activeId === session.id) return
-    this.assertIdle()
-    const result = await this.client.request<{ thread: ThreadView }>('thread/resume', {
+    if (this.runningIds.has(session.id)) return
+    await this.readThread(session)
+  }
+
+  async readThread(session: ThreadBinding): Promise<void> {
+    const result = await this.client.request<{ thread: ThreadView }>('thread/read', {
       cwd: session.workDir,
       threadId: session.id,
     })
-    this.activeId = session.id
     session.applyThread(result.thread)
   }
 
   // Shutdown asks to skip exit extraction. This process does not extract on close.
   async close(_options?: { readonly extractMemories?: boolean }): Promise<void> {
-    this.running = false
-    this.turnOwner = undefined
+    this.runningIds.clear()
+    this.live.clear()
     await this.client.close()
   }
 
-  private adopt(thread: ThreadView): RustSession {
+  private adopt(thread: ThreadView, activate = true): RustSession {
     const session = RustSession.open(this, thread)
     this.sessions.set(session.id, session)
-    this.activeId = session.id
+    if (activate) {
+      this.live.add(session.id)
+      this.activeId = session.id
+    }
     return session
   }
 
-  private assertIdle(): void {
-    if (this.running || this.turnOwner !== undefined) {
-      throw new Error('a turn is already running')
-    }
+  private async attachThread(session: ThreadBinding): Promise<void> {
+    await this.ensureThread(session)
   }
 
   private async requireKnown(id: string): Promise<RustSession> {
@@ -258,8 +273,8 @@ export class RustHarness implements DesktopHarness, CoreHost {
 
   private onNotification(method: string, params: unknown): void {
     const threadId = threadIdOf(params)
-    if (method === 'turn/completed') this.noteTurnRunning(false)
-    if (method === 'turn/started') this.noteTurnRunning(true)
+    if (method === 'turn/completed' && threadId !== undefined) this.noteTurnRunning(threadId, false)
+    if (method === 'turn/started' && threadId !== undefined) this.noteTurnRunning(threadId, true)
     if (threadId === undefined) return
     this.sessions.get(threadId)?.handleNotification(method, params)
   }

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { isBusyTurnPermissionSync } from '../src/renderer/lib/permission-preference'
 import { useSessionStore } from '../src/renderer/stores/session-store'
 
 const setPermission = vi.fn(async (): Promise<void> => undefined)
@@ -81,5 +82,21 @@ describe('desktop permission preference contract', () => {
     expect(setPermission).toHaveBeenCalledWith('session-a', 'yolo')
     expect(state.permission).toBe('yolo')
     expect(state.sessions[0]?.permission).toBe('yolo')
+  })
+
+  it('does not call the runtime when the chat already has the global mode', async () => {
+    await useSessionStore.getState().applyPermissionPreference('session-a')
+
+    expect(setPermission).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().permission).toBe('manual')
+  })
+
+  it('treats a permission sync that collides with a running turn as quiet', () => {
+    const wrapped =
+      'Error invoking remote method \'lmcode:setPermission\': Error: thread/setPermission failed: {"code":-32000,"message":"a turn is already running"}'
+
+    expect(isBusyTurnPermissionSync(wrapped)).toBe(true)
+    expect(isBusyTurnPermissionSync('a turn is already running')).toBe(true)
+    expect(isBusyTurnPermissionSync('runtime unavailable')).toBe(false)
   })
 })

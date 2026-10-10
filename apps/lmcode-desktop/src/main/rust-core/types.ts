@@ -125,9 +125,18 @@ export interface CoreHost {
   request<T>(method: string, params?: Record<string, unknown>): Promise<T>
   ensureThread(session: ThreadBinding): Promise<void>
   reloadThread(session: ThreadBinding): Promise<void>
-  /** Reserve the single in-flight turn. Throws when one is already reserved. */
+  /** Load a session from disk without making it the active thread. */
+  readThread(session: ThreadBinding): Promise<void>
+  /** Reserve this session's turn. Throws when that session already has one. */
   beginTurn(sessionId: string): void
-  noteTurnRunning(running: boolean): void
+  /**
+   * Reserve this session's turn. The same session throws while it already
+   * owns a turn. A different session starts immediately.
+   */
+  acquireTurn(sessionId: string): Promise<void>
+  /** Drop this session's reservation when its turn failed to start. */
+  releaseTurn(sessionId: string): void
+  noteTurnRunning(sessionId: string, running: boolean): void
 }
 
 export interface ThreadBinding {

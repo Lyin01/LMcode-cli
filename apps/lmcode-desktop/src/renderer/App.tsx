@@ -43,6 +43,7 @@ import {
   type RenameConversationRequest,
 } from '@/lib/menu-command'
 import type { DesktopMenuCommand } from '../shared/menu-types'
+import { isBusyTurnPermissionSync } from '@/lib/permission-preference'
 import { nextPermissionMode } from '../shared/permission-mode'
 
 function appendMenuNotice(sessionId: string, content: string, isError = false): void {
@@ -239,6 +240,7 @@ export default function App() {
           void state.applyPermissionPreference(currentSessionId).catch((error: unknown) => {
             if (cancelled) return
             const message = error instanceof Error ? error.message : String(error)
+            if (isBusyTurnPermissionSync(message)) return
             appendMenuNotice(currentSessionId, `无法应用全局权限模式：${message}`, true)
           })
         }

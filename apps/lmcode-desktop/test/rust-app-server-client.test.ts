@@ -555,6 +555,42 @@ describe('desktop client of lm app-server', () => {
     expect(second.capturedStderr()).toBe('')
   }, 60_000)
 
+  it('creates a second session while a turn is running', async () => {
+    const home = await tempDir('lmcode-desktop-home-')
+    const work = await tempDir('lmcode-desktop-work-')
+    const other = await tempDir('lmcode-desktop-other-')
+    const harness = await startHarness(home)
+    await harness.ensureConfigFile()
+    const first = await harness.createSession({ workDir: work, model: 'script-bash' })
+    let release: (response: { decision: 'approved' }) => void = () => undefined
+    const approval = new Promise<void>((resolve) => {
+      first.setApprovalHandler(() => {
+        resolve()
+        return new Promise((done) => {
+          release = done
+        })
+      })
+    })
+    const ended = waitForTurnEnd(first)
+    const running = first.prompt('run')
+    await approval
+    const second = await harness.createSession({
+      workDir: other,
+      model: 'script',
+      permission: 'auto',
+    })
+    expect(second.id).not.toBe(first.id)
+    await expect(second.getContext()).resolves.toEqual({ history: [] })
+    const secondEnded = waitForTurnEnd(second)
+    const secondRunning = second.prompt('hello')
+    await secondRunning
+    await expect(secondEnded).resolves.toEqual({ type: 'turn.ended', reason: 'completed' })
+    await expect(second.getStatus()).resolves.toMatchObject({ model: 'script', permission: 'auto' })
+    release({ decision: 'approved' })
+    await running
+    await expect(ended).resolves.toEqual({ type: 'turn.ended', reason: 'completed' })
+  }, 60_000)
+
   it('rejects a second turn while one is running', async () => {
     const home = await tempDir('lmcode-desktop-home-')
     const work = await tempDir('lmcode-desktop-work-')

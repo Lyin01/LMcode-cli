@@ -93,6 +93,10 @@ export function toSummary(thread: ThreadView): SessionSummary {
   }
 }
 
+function isBusyTurn(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('a turn is already running')
+}
+
 function asPermission(value: string | undefined): PermissionMode {
   if (value === 'yolo' || value === 'manual' || value === 'auto') return value
   return 'manual'
@@ -230,8 +234,8 @@ export class RustSession implements DesktopSession, ThreadBinding {
   }
 
   handleNotification(method: string, params: unknown): void {
-    if (method === 'turn/completed') this.host.noteTurnRunning(false)
-    if (method === 'turn/started') this.host.noteTurnRunning(true)
+    if (method === 'turn/completed') this.host.noteTurnRunning(this.id, false)
+    if (method === 'turn/started') this.host.noteTurnRunning(this.id, true)
     const event = translateNotification(method, params, this.translate, this.id)
     if (event === undefined) return
     this.publish(event as unknown as Event)
@@ -282,29 +286,32 @@ export class RustSession implements DesktopSession, ThreadBinding {
 
   async prompt(input: unknown): Promise<void> {
     const parts = promptParts(input)
-    this.host.beginTurn(this.id)
+    await this.host.acquireTurn(this.id)
     try {
       await this.host.ensureThread(this)
-      this.host.noteTurnRunning(true)
+      this.host.noteTurnRunning(this.id, true)
       await this.host.request('turn/start', {
         threadId: this.id,
         text: parts.text,
         images: parts.images,
       })
     } catch (error) {
-      this.host.noteTurnRunning(false)
+      this.host.releaseTurn(this.id)
       throw error
     }
   }
 
   async steer(input: unknown): Promise<void> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ accepted?: boolean }>('turn/steer', { text: promptToText(input) })
+    const result = await this.host.request<{ accepted?: boolean }>('turn/steer', {
+      threadId: this.id,
+      text: promptToText(input),
+    })
     if (result.accepted !== true) throw new Error('steer was not accepted')
   }
 
   async cancel(): Promise<void> {
-    await this.host.request('turn/interrupt', {})
+    await this.host.request('turn/interrupt', { threadId: this.id })
   }
 
   async getContext(): Promise<{ history: unknown[] }> {
@@ -317,12 +324,26 @@ export class RustSession implements DesktopSession, ThreadBinding {
   }
 
   async getStatus(): Promise<SessionStatus> {
-    await this.host.ensureThread(this)
+    try {
+      await this.host.ensureThread(this)
+    } catch (error) {
+      if (!isBusyTurn(error)) throw error
+      await this.host.readThread(this)
+      return {
+        model: this.model,
+        thinkingLevel: this.thinkingLevel,
+        permission: this.permissionMode,
+        planMode: this.planMode,
+        contextTokens: 0,
+        maxContextTokens: 0,
+        contextUsage: 0,
+      }
+    }
     const tokens = await this.host.request<{
       contextTokens?: number
       maxContextTokens?: number
       contextUsage?: number
-    }>('thread/status', {})
+    }>('thread/status', { threadId: this.id })
     return {
       model: this.model,
       thinkingLevel: this.thinkingLevel,
@@ -338,7 +359,10 @@ export class RustSession implements DesktopSession, ThreadBinding {
     const normalized = model.trim()
     if (normalized.length === 0) throw new Error('Session model cannot be empty')
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ thread: ThreadView }>('thread/setModel', { model: normalized })
+    const result = await this.host.request<{ thread: ThreadView }>('thread/setModel', {
+      threadId: this.id,
+      model: normalized,
+    })
     this.applyThread(result.thread)
   }
 
@@ -346,7 +370,10 @@ export class RustSession implements DesktopSession, ThreadBinding {
     const normalized = level.trim()
     if (normalized.length === 0) throw new Error('Session thinking level cannot be empty')
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ thread: ThreadView }>('thread/setThinking', { level: normalized })
+    const result = await this.host.request<{ thread: ThreadView }>('thread/setThinking', {
+      threadId: this.id,
+      level: normalized,
+    })
     this.applyThread(result.thread)
   }
 
@@ -355,19 +382,26 @@ export class RustSession implements DesktopSession, ThreadBinding {
       throw new Error('Session permission mode must be yolo, manual, or auto')
     }
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ thread: ThreadView }>('thread/setPermission', { mode })
+    const result = await this.host.request<{ thread: ThreadView }>('thread/setPermission', {
+      threadId: this.id,
+      mode,
+    })
     this.applyThread(result.thread)
   }
 
   async setPlanMode(enabled: boolean): Promise<void> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ thread: ThreadView }>('thread/setPlanMode', { enabled })
+    const result = await this.host.request<{ thread: ThreadView }>('thread/setPlanMode', {
+      threadId: this.id,
+      enabled,
+    })
     this.applyThread(result.thread)
   }
 
   async createGoal(objective: string, options?: { readonly replace?: boolean }): Promise<GoalSnapshotData> {
     await this.host.ensureThread(this)
     const result = await this.host.request<{ goal: GoalSnapshotData }>('goal/create', {
+      threadId: this.id,
       objective,
       replace: options?.replace === true,
     })
@@ -377,20 +411,27 @@ export class RustSession implements DesktopSession, ThreadBinding {
 
   async getGoal(): Promise<{ readonly goal: GoalSnapshotData | null }> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ goal: GoalSnapshotData | null }>('goal/get', {})
+    const result = await this.host.request<{ goal: GoalSnapshotData | null }>('goal/get', {
+      threadId: this.id,
+    })
     return { goal: result.goal }
   }
 
   async updateGoalStatus(status: string): Promise<GoalSnapshotData | null> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ goal: GoalSnapshotData | null }>('goal/update', { status })
+    const result = await this.host.request<{ goal: GoalSnapshotData | null }>('goal/update', {
+      threadId: this.id,
+      status,
+    })
     this.emitGoal(result.goal)
     return result.goal
   }
 
   async cancelGoal(): Promise<GoalSnapshotData | null> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ goal: GoalSnapshotData | null }>('goal/cancel', {})
+    const result = await this.host.request<{ goal: GoalSnapshotData | null }>('goal/cancel', {
+      threadId: this.id,
+    })
     this.emitGoal(result.goal)
     return result.goal
   }
@@ -398,6 +439,7 @@ export class RustSession implements DesktopSession, ThreadBinding {
   async compact(options?: { readonly instruction?: string }): Promise<void> {
     await this.host.ensureThread(this)
     const result = await this.host.request<{ thread: ThreadView }>('thread/compact', {
+      threadId: this.id,
       instruction: options?.instruction,
     })
     this.applyThread(result.thread)
@@ -405,19 +447,25 @@ export class RustSession implements DesktopSession, ThreadBinding {
 
   async undoHistory(count: number): Promise<void> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ thread: ThreadView }>('thread/undo', { count })
+    const result = await this.host.request<{ thread: ThreadView }>('thread/undo', {
+      threadId: this.id,
+      count,
+    })
     this.applyThread(result.thread)
   }
 
   async listCronJobs(): Promise<readonly CronJobInfo[]> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ tasks?: RawCronJob[] }>('cron/list', {})
+    const result = await this.host.request<{ tasks?: RawCronJob[] }>('cron/list', {
+      threadId: this.id,
+    })
     return (result.tasks ?? []).map(toCronJob)
   }
 
   async createCronJob(input: { readonly cron: string; readonly prompt: string; readonly recurring?: boolean }): Promise<CronJobInfo> {
     await this.host.ensureThread(this)
     const result = await this.host.request<{ task: RawCronJob }>('cron/create', {
+      threadId: this.id,
       cron: input.cron,
       prompt: input.prompt,
       recurring: input.recurring !== false,
@@ -427,12 +475,13 @@ export class RustSession implements DesktopSession, ThreadBinding {
 
   async deleteCronJob(id: string): Promise<void> {
     await this.host.ensureThread(this)
-    await this.host.request('cron/delete', { id })
+    await this.host.request('cron/delete', { threadId: this.id, id })
   }
 
   async listBackgroundTasks(options: { readonly activeOnly: boolean }): Promise<readonly BackgroundTaskInfo[]> {
     await this.host.ensureThread(this)
     const result = await this.host.request<{ tasks?: RawBackgroundTask[] }>('background/list', {
+      threadId: this.id,
       activeOnly: options.activeOnly,
     })
     return (result.tasks ?? []).map(toBackgroundTask)
@@ -440,18 +489,23 @@ export class RustSession implements DesktopSession, ThreadBinding {
 
   async stopBackgroundTask(taskId: string, options?: { readonly reason?: string }): Promise<void> {
     await this.host.ensureThread(this)
-    await this.host.request('background/stop', { taskId, reason: options?.reason })
+    await this.host.request('background/stop', { threadId: this.id, taskId, reason: options?.reason })
   }
 
   async getBackgroundTaskOutput(taskId: string): Promise<string> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ output?: string }>('background/output', { taskId })
+    const result = await this.host.request<{ output?: string }>('background/output', {
+      threadId: this.id,
+      taskId,
+    })
     return result.output ?? ''
   }
 
   async listSkills(): Promise<readonly unknown[]> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ skills?: RawSkill[] }>('skills/list', {})
+    const result = await this.host.request<{ skills?: RawSkill[] }>('skills/list', {
+      threadId: this.id,
+    })
     return result.skills ?? []
   }
 
@@ -459,44 +513,47 @@ export class RustSession implements DesktopSession, ThreadBinding {
     const skillName = name.trim()
     if (skillName.length === 0) throw new Error('Skill name cannot be empty')
     const skillArgs = args?.trim()
-    this.host.beginTurn(this.id)
+    await this.host.acquireTurn(this.id)
     try {
       await this.host.ensureThread(this)
-      this.host.noteTurnRunning(true)
+      this.host.noteTurnRunning(this.id, true)
       await this.host.request('skills/activate', {
+        threadId: this.id,
         name: skillName,
         args: skillArgs === undefined || skillArgs.length === 0 ? undefined : skillArgs,
       })
     } catch (error) {
-      this.host.noteTurnRunning(false)
+      this.host.releaseTurn(this.id)
       throw error
     }
   }
 
   async listMcpServers(): Promise<readonly unknown[]> {
     await this.host.ensureThread(this)
-    const result = await this.host.request<{ servers?: RawMcpServer[] }>('mcp/list', {})
+    const result = await this.host.request<{ servers?: RawMcpServer[] }>('mcp/list', {
+      threadId: this.id,
+    })
     return (result.servers ?? []).map(toMcpServer)
   }
 
   async reconnectMcpServer(name: string): Promise<void> {
     await this.host.ensureThread(this)
-    await this.host.request('mcp/reconnect', { name })
+    await this.host.request('mcp/reconnect', { threadId: this.id, name })
   }
 
   async addMcpServer(name: string, config: unknown): Promise<void> {
     await this.host.ensureThread(this)
-    await this.host.request('mcp/add', { name, config })
+    await this.host.request('mcp/add', { threadId: this.id, name, config })
   }
 
   async stopMcpServer(name: string): Promise<void> {
     await this.host.ensureThread(this)
-    await this.host.request('mcp/stop', { name })
+    await this.host.request('mcp/stop', { threadId: this.id, name })
   }
 
   async removeMcpServer(name: string): Promise<void> {
     await this.host.ensureThread(this)
-    await this.host.request('mcp/remove', { name })
+    await this.host.request('mcp/remove', { threadId: this.id, name })
   }
 
   async getComputerUseStatus(): Promise<ComputerUseStatus> {
