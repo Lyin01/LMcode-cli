@@ -24,8 +24,9 @@ use lmcode_core::config::{
     load_config, resolve_model, save_config,
 };
 use lmcode_core::cron::{CronStore, CronTask, render_cron_fire_xml};
+use lmcode_core::error::CoreError;
 use lmcode_core::goal::{GoalMode, GoalStatus};
-use lmcode_core::session::{Session, SessionStore};
+use lmcode_core::session::{DesktopWorktree, Session, SessionState, SessionStore};
 use lmcode_core::tools::ask_user::{AskUserAnswer, UserQuestion};
 use lmcode_core::tools::cron::CronHandle;
 use lmcode_core::tools::goal::GoalHandle;
@@ -339,6 +340,10 @@ impl Server {
             "thread/fork" => self.thread_fork(params).await,
             "thread/delete" => self.thread_delete(params),
             "thread/rename" => self.thread_rename(params).await,
+            "thread/setModel" => self.thread_set_model(params).await,
+            "thread/setThinking" => self.thread_set_thinking(params).await,
+            "thread/setPermission" => self.thread_set_permission(params).await,
+            "thread/setPlanMode" => self.thread_set_plan_mode(params).await,
             "turn/start" => self.turn_start(params).await,
             "turn/steer" => self.turn_steer(params),
             "turn/interrupt" => self.turn_interrupt(),
@@ -386,10 +391,11 @@ impl Server {
             .get("model")
             .and_then(Value::as_str)
             .unwrap_or("script");
-        let session = SessionStore::new()
+        let mut session = SessionStore::new()
             .create(Path::new(cwd), model)
             .map_err(failed)?;
-        let active = open_thread(Path::new(cwd), model, session)?;
+        apply_start_controls(&mut session, params)?;
+        let active = open_thread(Path::new(cwd), model, session).await?;
         let view = load_thread(&active.cwd, &active.id)?;
         self.active = Some(active);
         Ok(json!({"thread": view}))
@@ -401,7 +407,7 @@ impl Server {
         let id = require_str(params, "threadId")?;
         let session = SessionStore::new().load(&cwd, id).map_err(failed)?;
         let model = session.state.model.clone();
-        let active = open_thread(&cwd, &model, session)?;
+        let active = open_thread(&cwd, &model, session).await?;
         let view = load_thread(&cwd, id)?;
         self.active = Some(active);
         Ok(json!({"thread": view}))
@@ -420,16 +426,8 @@ impl Server {
         let threads = states
             .into_iter()
             .map(|state| {
-                json!({
-                    "id": state.id,
-                    "cwd": state.work_dir,
-                    "model": state.model,
-                    "title": state.title,
-                    "forkedFrom": state.forked_from,
-                    "createdAt": state.created_at,
-                    "updatedAt": state.updated_at,
-                    "sessionDir": store.directory_of(&state).display().to_string(),
-                })
+                let dir = store.directory_of(&state);
+                thread_body(&state, &dir)
             })
             .collect::<Vec<_>>();
         Ok(json!({"threads": threads}))
@@ -447,8 +445,9 @@ impl Server {
             .map(PathBuf::from)
             .unwrap_or_else(|| cwd.clone());
         let title = params.get("title").and_then(Value::as_str);
+        let worktree = desktop_worktree_from(params)?;
         let forked = SessionStore::new()
-            .fork_into(&cwd, &source, &target_cwd, &target, title)
+            .fork_into(&cwd, &source, &target_cwd, &target, title, worktree)
             .map_err(failed)?;
         let goal = GoalMode::with_path(forked.directory().join("goal.json")).snapshot();
         let tasks = CronStore::with_dir(forked.directory().join("cron"))
@@ -481,12 +480,104 @@ impl Server {
             .rename(&cwd, &id, title)
             .map_err(failed)?;
         if self.active.as_ref().is_some_and(|active| active.id == id) {
-            let model = self.active.as_ref().expect("active").model.clone();
             let session = SessionStore::new().load(&cwd, &id).map_err(failed)?;
-            self.active = Some(open_thread(&cwd, &model, session)?);
+            let model = session.state.model.clone();
+            self.active = Some(open_thread(&cwd, &model, session).await?);
         }
         let session = SessionStore::new().load(&cwd, &id).map_err(failed)?;
         Ok(json!({"thread": session_value(&session)?}))
+    }
+
+    async fn thread_set_model(&mut self, params: &Value) -> Result<Value, RpcError> {
+        self.ensure_idle()?;
+        let model = require_str(params, "model")?.trim();
+        if model.is_empty() {
+            return Err(RpcError::params("Session model cannot be empty"));
+        }
+        let model = model.to_string();
+        let provider = build_provider(&model)?;
+        let (cwd, id) = {
+            let active = self
+                .active
+                .as_ref()
+                .ok_or_else(|| RpcError::failed("no active thread"))?;
+            let cwd = active.cwd.clone();
+            let id = active.id.clone();
+            let mut agent = active.agent.lock().await;
+            agent.persist_model(&model).map_err(failed)?;
+            agent.set_provider(provider);
+            (cwd, id)
+        };
+        if let Some(active) = self.active.as_mut() {
+            active.model = model;
+        }
+        Ok(json!({"thread": load_thread(&cwd, &id)?}))
+    }
+
+    async fn thread_set_thinking(&mut self, params: &Value) -> Result<Value, RpcError> {
+        self.ensure_idle()?;
+        let level = require_str(params, "level")?.trim();
+        if level.is_empty() {
+            return Err(RpcError::params("Session thinking level cannot be empty"));
+        }
+        let level = level.to_string();
+        self.with_active_agent(|agent| agent.persist_thinking(&level))
+            .await
+    }
+
+    async fn thread_set_permission(&mut self, params: &Value) -> Result<Value, RpcError> {
+        self.ensure_idle()?;
+        let mode = require_str(params, "mode")?.trim();
+        let Some(parsed) = permission_mode_from(mode) else {
+            return Err(RpcError::params(
+                "Session permission mode must be yolo, manual, or auto",
+            ));
+        };
+        let mode = mode.to_string();
+        self.with_active_agent(|agent| {
+            agent.persist_permission(&mode)?;
+            agent.set_permission_mode(parsed);
+            Ok(())
+        })
+        .await
+    }
+
+    async fn thread_set_plan_mode(&mut self, params: &Value) -> Result<Value, RpcError> {
+        self.ensure_idle()?;
+        let enabled = require_bool(params, "enabled")?;
+        let active = self
+            .active
+            .as_ref()
+            .ok_or_else(|| RpcError::failed("no active thread"))?;
+        let cwd = active.cwd.clone();
+        let id = active.id.clone();
+        {
+            let mut agent = active.agent.lock().await;
+            agent.persist_plan_mode(enabled).map_err(failed)?;
+            if let Err(error) = apply_stored_plan_mode(&mut agent, enabled).await {
+                let _ = agent.persist_plan_mode(!enabled);
+                return Err(error);
+            }
+        }
+        Ok(json!({"thread": load_thread(&cwd, &id)?}))
+    }
+
+    /// Persist a control on the active thread and return its thread view.
+    async fn with_active_agent(
+        &mut self,
+        change: impl FnOnce(&mut Agent) -> Result<(), CoreError>,
+    ) -> Result<Value, RpcError> {
+        let active = self
+            .active
+            .as_ref()
+            .ok_or_else(|| RpcError::failed("no active thread"))?;
+        let cwd = active.cwd.clone();
+        let id = active.id.clone();
+        {
+            let mut agent = active.agent.lock().await;
+            change(&mut agent).map_err(failed)?;
+        }
+        Ok(json!({"thread": load_thread(&cwd, &id)?}))
     }
 
     async fn turn_start(&mut self, params: &Value) -> Result<Value, RpcError> {
@@ -835,7 +926,7 @@ impl Server {
     }
 }
 
-fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<ActiveThread, RpcError> {
+async fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<ActiveThread, RpcError> {
     let provider = build_provider(model)?;
     let tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(BashTool::new()),
@@ -845,7 +936,16 @@ fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<ActiveThread
     if let Ok(config) = load_config(None) {
         agent.apply_permission_config(&config);
     }
+    if let Some(mode) = session
+        .state
+        .permission
+        .as_deref()
+        .and_then(permission_mode_from)
+    {
+        agent.set_permission_mode(mode);
+    }
     let directory = session.directory().to_path_buf();
+    let plan_mode = session.state.plan_mode;
     let cron_dir = directory.join("cron");
     std::fs::create_dir_all(&cron_dir).map_err(failed)?;
     let goal = Arc::new(Mutex::new(GoalMode::with_path(directory.join("goal.json"))));
@@ -859,6 +959,7 @@ fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<ActiveThread
     }
     let id = session.id().to_string();
     agent.attach_session(session);
+    apply_stored_plan_mode(&mut agent, plan_mode).await?;
     let steer = agent.steer_slot();
     Ok(ActiveThread {
         id,
@@ -887,18 +988,27 @@ fn load_thread(cwd: &Path, id: &str) -> Result<Value, RpcError> {
     session_value(&session)
 }
 
+fn thread_body(state: &SessionState, session_dir: &Path) -> Value {
+    json!({
+        "id": state.id,
+        "cwd": state.work_dir,
+        "model": state.model,
+        "title": state.title,
+        "thinking": state.thinking,
+        "permission": effective_permission(state.permission.as_deref()),
+        "planMode": state.plan_mode,
+        "forkedFrom": state.forked_from,
+        "createdAt": state.created_at,
+        "updatedAt": state.updated_at,
+        "sessionDir": session_dir.display().to_string(),
+        "desktopWorktree": state.desktop_worktree,
+    })
+}
+
 fn session_value(session: &Session) -> Result<Value, RpcError> {
-    Ok(json!({
-        "id": session.state.id,
-        "cwd": session.state.work_dir,
-        "model": session.state.model,
-        "title": session.state.title,
-        "forkedFrom": session.state.forked_from,
-        "createdAt": session.state.created_at,
-        "updatedAt": session.state.updated_at,
-        "sessionDir": session.directory().display().to_string(),
-        "messages": serde_json::to_value(&session.messages).map_err(failed)?,
-    }))
+    let mut value = thread_body(&session.state, session.directory());
+    value["messages"] = serde_json::to_value(&session.messages).map_err(failed)?;
+    Ok(value)
 }
 
 fn job_value(task: &CronTask) -> Value {
@@ -1617,6 +1727,121 @@ fn status_json(status: ComputerUseStatus) -> Value {
         value["error"] = json!(error);
     }
     value
+}
+
+fn apply_start_controls(session: &mut Session, params: &Value) -> Result<(), RpcError> {
+    let mut touched = false;
+    if params.get("thinking").is_some() && !params["thinking"].is_null() {
+        session
+            .state
+            .apply_thinking(require_str(params, "thinking")?)
+            .map_err(failed)?;
+        touched = true;
+    }
+    if params.get("permission").is_some() && !params["permission"].is_null() {
+        session
+            .state
+            .apply_permission(require_str(params, "permission")?)
+            .map_err(failed)?;
+        touched = true;
+    }
+    if let Some(enabled) = params.get("planMode").and_then(Value::as_bool) {
+        session.state.plan_mode = enabled;
+        touched = true;
+    }
+    if touched {
+        let messages = session.messages.clone();
+        session.save(&messages).map_err(failed)?;
+    }
+    Ok(())
+}
+
+fn desktop_worktree_from(params: &Value) -> Result<Option<DesktopWorktree>, RpcError> {
+    let Some(metadata) = params.get("metadata") else {
+        return Ok(None);
+    };
+    if metadata.is_null() {
+        return Ok(None);
+    }
+    let Some(worktree) = metadata.get("desktopWorktree") else {
+        return Ok(None);
+    };
+    if worktree.is_null() {
+        return Ok(None);
+    }
+    let branch = require_nonempty(worktree, "branch")?;
+    let path = require_nonempty(worktree, "path")?;
+    let source = require_nonempty(worktree, "sourceSessionId")?;
+    Ok(Some(DesktopWorktree {
+        branch: branch.to_string(),
+        path: path.to_string(),
+        source_session_id: source.to_string(),
+    }))
+}
+
+fn require_nonempty<'a>(value: &'a Value, key: &str) -> Result<&'a str, RpcError> {
+    let text = value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| RpcError::params(format!("desktopWorktree.{key} is required")))?;
+    Ok(text)
+}
+
+async fn apply_stored_plan_mode(agent: &mut Agent, enabled: bool) -> Result<(), RpcError> {
+    let base = agent
+        .session_directory()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let handle = agent.plan_handle();
+    let mut plan = handle.lock().await;
+    if enabled {
+        if !plan.is_active() {
+            plan.enter(&base, false)
+                .map_err(|error| RpcError::failed(format!("failed to enter plan mode: {error}")))?;
+        }
+    } else if plan.is_active() {
+        plan.exit();
+    }
+    Ok(())
+}
+
+fn permission_mode_from(text: &str) -> Option<PermissionMode> {
+    match text {
+        "manual" => Some(PermissionMode::Manual),
+        "yolo" => Some(PermissionMode::Yolo),
+        "auto" => Some(PermissionMode::Auto),
+        _ => None,
+    }
+}
+
+fn permission_label(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Manual => "manual",
+        PermissionMode::Yolo => "yolo",
+        PermissionMode::Auto => "auto",
+    }
+}
+
+/// Stored override, otherwise the config default, otherwise `manual`.
+fn effective_permission(stored: Option<&str>) -> String {
+    if let Some(mode) = stored.filter(|mode| permission_mode_from(mode).is_some()) {
+        return mode.to_string();
+    }
+    if let Ok(config) = load_config(None)
+        && let Some(mode) = config.default_permission_mode
+    {
+        return permission_label(mode).to_string();
+    }
+    "manual".to_string()
+}
+
+fn require_bool(params: &Value, key: &str) -> Result<bool, RpcError> {
+    params
+        .get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| RpcError::params(format!("missing `{key}`")))
 }
 
 fn require_str<'a>(params: &'a Value, key: &str) -> Result<&'a str, RpcError> {

@@ -632,6 +632,47 @@ impl Agent {
         }
     }
 
+    /// Directory of the attached session, when one is attached.
+    pub fn session_directory(&self) -> Option<&std::path::Path> {
+        self.session.as_ref().map(|session| session.directory())
+    }
+
+    /// Update the attached session's model and write `state.json`.
+    pub fn persist_model(&mut self, model: &str) -> Result<(), CoreError> {
+        self.persist_with(|state| state.apply_model(model))
+    }
+
+    /// Update the attached session's thinking level and write `state.json`.
+    pub fn persist_thinking(&mut self, level: &str) -> Result<(), CoreError> {
+        self.persist_with(|state| state.apply_thinking(level))
+    }
+
+    /// Update the attached session's permission and write `state.json`.
+    pub fn persist_permission(&mut self, mode: &str) -> Result<(), CoreError> {
+        self.persist_with(|state| state.apply_permission(mode))
+    }
+
+    /// Update the attached session's plan-mode flag and write `state.json`.
+    pub fn persist_plan_mode(&mut self, enabled: bool) -> Result<(), CoreError> {
+        self.persist_with(|state| {
+            state.plan_mode = enabled;
+            Ok(())
+        })
+    }
+
+    fn persist_with(
+        &mut self,
+        change: impl FnOnce(&mut crate::session::SessionState) -> Result<(), CoreError>,
+    ) -> Result<(), CoreError> {
+        let history = self.history.clone();
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| CoreError::Session("no session attached".to_string()))?;
+        change(&mut session.state)?;
+        session.save(&history)
+    }
+
     pub fn provider_name(&self) -> &str {
         self.provider.name()
     }

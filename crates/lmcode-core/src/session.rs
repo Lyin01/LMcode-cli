@@ -85,6 +85,22 @@ fn slugify_workdir_name(name: &str) -> String {
     }
 }
 
+fn default_thinking() -> String {
+    "off".to_string()
+}
+
+/// Worktree the desktop forked this session into.
+///
+/// The renderer reads these three fields back from the session summary after
+/// a second process resumes the fork.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopWorktree {
+    pub branch: String,
+    pub path: String,
+    #[serde(rename = "sourceSessionId")]
+    pub source_session_id: String,
+}
+
 /// Persisted session metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
@@ -92,6 +108,20 @@ pub struct SessionState {
     #[serde(rename = "workDir")]
     pub work_dir: String,
     pub model: String,
+    /// Thinking effort the desktop status line shows (`off`, `low`, `high`, …).
+    #[serde(default = "default_thinking")]
+    pub thinking: String,
+    /// `yolo` / `manual` / `auto`. Absent means the config default still applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission: Option<String>,
+    #[serde(default, rename = "planMode")]
+    pub plan_mode: bool,
+    #[serde(
+        default,
+        rename = "desktopWorktree",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub desktop_worktree: Option<DesktopWorktree>,
     #[serde(default)]
     pub title: Option<String>,
     /// Set by rename. While this is false, save refreshes the title from the
@@ -109,6 +139,44 @@ pub struct SessionState {
     pub created_at: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
+}
+
+impl SessionState {
+    /// Reject a blank model. The stored value is trimmed.
+    pub fn apply_model(&mut self, model: &str) -> Result<(), CoreError> {
+        let model = model.trim();
+        if model.is_empty() {
+            return Err(CoreError::Session(
+                "Session model cannot be empty".to_string(),
+            ));
+        }
+        self.model = model.to_string();
+        Ok(())
+    }
+
+    /// Reject a blank thinking level. The stored value is trimmed.
+    pub fn apply_thinking(&mut self, level: &str) -> Result<(), CoreError> {
+        let level = level.trim();
+        if level.is_empty() {
+            return Err(CoreError::Session(
+                "Session thinking level cannot be empty".to_string(),
+            ));
+        }
+        self.thinking = level.to_string();
+        Ok(())
+    }
+
+    /// Accept only `yolo`, `manual`, or `auto`.
+    pub fn apply_permission(&mut self, mode: &str) -> Result<(), CoreError> {
+        let mode = mode.trim();
+        if !matches!(mode, "yolo" | "manual" | "auto") {
+            return Err(CoreError::Session(
+                "Session permission mode must be yolo, manual, or auto".to_string(),
+            ));
+        }
+        self.permission = Some(mode.to_string());
+        Ok(())
+    }
 }
 
 /// A loaded session: metadata + conversation history.
@@ -206,6 +274,10 @@ impl SessionStore {
             id: format!("session_{}", uuid::Uuid::new_v4()),
             work_dir: work_dir.to_string_lossy().replace('\\', "/"),
             model: model.to_string(),
+            thinking: default_thinking(),
+            permission: None,
+            plan_mode: false,
+            desktop_worktree: None,
             title: None,
             is_custom_title: false,
             forked_from: None,
@@ -323,13 +395,14 @@ impl SessionStore {
         source_id: &str,
         target_id: &str,
     ) -> Result<Session, CoreError> {
-        self.fork_into(work_dir, source_id, work_dir, target_id, None)
+        self.fork_into(work_dir, source_id, work_dir, target_id, None, None)
     }
 
     /// Copy a session, optionally into another workdir bucket and with a new title.
     ///
     /// The desktop worktree panel forks into a different directory. Omitting a
-    /// distinct target keeps the original same-bucket copy.
+    /// distinct target keeps the original same-bucket copy. `worktree`, when
+    /// set, is stored on the new session only.
     pub fn fork_into(
         &self,
         source_work_dir: &Path,
@@ -337,6 +410,7 @@ impl SessionStore {
         target_work_dir: &Path,
         target_id: &str,
         title: Option<&str>,
+        worktree: Option<DesktopWorktree>,
     ) -> Result<Session, CoreError> {
         if target_id.trim().is_empty() {
             return Err(CoreError::Session("Session id cannot be empty".to_string()));
@@ -375,6 +449,9 @@ impl SessionStore {
         if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
             forked.state.title = Some(title.to_string());
             forked.state.is_custom_title = true;
+        }
+        if let Some(worktree) = worktree {
+            forked.state.desktop_worktree = Some(worktree);
         }
         let messages = forked.messages.clone();
         if let Err(error) = forked.save(&messages) {
@@ -583,5 +660,89 @@ mod tests {
         assert!(again.to_string().contains("already exists"), "{again}");
         let listed = store.list(work_dir.path()).unwrap();
         assert_eq!(listed.len(), 2);
+    }
+
+    #[test]
+    fn controls_reload_and_a_worktree_fork_keeps_its_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let work_dir = tempfile::tempdir().unwrap();
+        let tree = tempfile::tempdir().unwrap();
+        let store = SessionStore::with_root(root.path());
+        let mut session = store.create(work_dir.path(), "script").unwrap();
+        let id = session.id().to_string();
+        assert_eq!(session.state.thinking, "off");
+        assert!(session.state.permission.is_none());
+        assert!(!session.state.plan_mode);
+        assert!(session.state.desktop_worktree.is_none());
+
+        session.state.apply_model("script-ask").unwrap();
+        session.state.apply_thinking(" high ").unwrap();
+        session.state.apply_permission(" yolo ").unwrap();
+        session.state.plan_mode = true;
+        let messages = session.messages.clone();
+        session.save(&messages).unwrap();
+
+        let mut loaded = store.load(work_dir.path(), &id).unwrap();
+        assert_eq!(loaded.state.model, "script-ask");
+        assert_eq!(loaded.state.thinking, "high");
+        assert_eq!(loaded.state.permission.as_deref(), Some("yolo"));
+        assert!(loaded.state.plan_mode);
+        assert!(loaded.state.apply_model("  ").is_err());
+        assert!(loaded.state.apply_thinking(" ").is_err());
+        assert!(loaded.state.apply_permission("ask").is_err());
+        assert_eq!(loaded.state.model, "script-ask");
+        assert_eq!(loaded.state.thinking, "high");
+        assert_eq!(loaded.state.permission.as_deref(), Some("yolo"));
+
+        let worktree = DesktopWorktree {
+            branch: "feature/rust".to_string(),
+            path: tree.path().display().to_string(),
+            source_session_id: id.clone(),
+        };
+        let forked = store
+            .fork_into(
+                work_dir.path(),
+                &id,
+                tree.path(),
+                "forked-wt",
+                Some("tree"),
+                Some(worktree.clone()),
+            )
+            .unwrap();
+        assert_eq!(forked.state.desktop_worktree.as_ref(), Some(&worktree));
+        assert_eq!(forked.state.model, "script-ask");
+        assert_eq!(forked.state.thinking, "high");
+        assert_eq!(forked.state.permission.as_deref(), Some("yolo"));
+        assert!(forked.state.plan_mode);
+        let source = store.load(work_dir.path(), &id).unwrap();
+        assert!(source.state.desktop_worktree.is_none());
+
+        let plain = store.fork(work_dir.path(), &id, "plain-fork").unwrap();
+        assert!(plain.state.desktop_worktree.is_none());
+        assert_eq!(plain.state.permission.as_deref(), Some("yolo"));
+
+        let legacy_dir = store
+            .directory_of(&source.state)
+            .parent()
+            .unwrap()
+            .join("legacy-1");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        std::fs::write(
+            legacy_dir.join("state.json"),
+            r#"{
+                "id": "legacy-1",
+                "workDir": "E:/old",
+                "model": "script",
+                "createdAt": "2020-01-01T00:00:00.000Z",
+                "updatedAt": "2020-01-01T00:00:00.000Z"
+            }"#,
+        )
+        .unwrap();
+        let legacy = store.load(work_dir.path(), "legacy-1").unwrap();
+        assert_eq!(legacy.state.model, "script");
+        assert_eq!(legacy.state.thinking, "off");
+        assert!(legacy.state.permission.is_none());
+        assert!(!legacy.state.plan_mode);
+        assert!(legacy.state.desktop_worktree.is_none());
     }
 }

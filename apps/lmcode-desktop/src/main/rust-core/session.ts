@@ -7,6 +7,7 @@ import type {
   Event,
   GoalSnapshotData,
   QuestionRequest,
+  PermissionMode,
   QuestionResult,
   SessionStatus,
   SessionSummary,
@@ -47,7 +48,19 @@ function millis(value: string | undefined): number {
   return Number.isNaN(parsed) ? Date.now() : parsed
 }
 
-function toSummary(thread: ThreadView): SessionSummary {
+function worktreeMetadata(thread: ThreadView): SessionSummary['metadata'] {
+  const worktree = thread.desktopWorktree
+  if (worktree === undefined || worktree === null) return undefined
+  return {
+    desktopWorktree: {
+      branch: worktree.branch,
+      path: worktree.path,
+      sourceSessionId: worktree.sourceSessionId,
+    },
+  }
+}
+
+export function toSummary(thread: ThreadView): SessionSummary {
   const title = thread.title ?? undefined
   return {
     id: thread.id,
@@ -56,7 +69,13 @@ function toSummary(thread: ThreadView): SessionSummary {
     sessionDir: thread.sessionDir ?? '',
     createdAt: millis(thread.createdAt),
     updatedAt: millis(thread.updatedAt),
+    metadata: worktreeMetadata(thread),
   }
+}
+
+function asPermission(value: string | undefined): PermissionMode {
+  if (value === 'yolo' || value === 'manual' || value === 'auto') return value
+  return 'manual'
 }
 
 function toCronJob(task: RawCronJob): CronJobInfo {
@@ -121,6 +140,10 @@ export class RustSession implements DesktopSession, ThreadBinding {
   private history: unknown[] = []
   summary: SessionSummary | undefined
 
+  private thinkingLevel = 'off'
+  private permissionMode: PermissionMode = 'manual'
+  private planMode = false
+
   private constructor(
     private readonly host: CoreHost,
     readonly id: string,
@@ -140,6 +163,15 @@ export class RustSession implements DesktopSession, ThreadBinding {
 
   applyThread(thread: ThreadView): void {
     this.model = thread.model ?? this.model
+    if (typeof thread.thinking === 'string' && thread.thinking.trim().length > 0) {
+      this.thinkingLevel = thread.thinking
+    }
+    if (typeof thread.permission === 'string') {
+      this.permissionMode = asPermission(thread.permission)
+    }
+    if (typeof thread.planMode === 'boolean') {
+      this.planMode = thread.planMode
+    }
     this.history = Array.isArray(thread.messages) ? thread.messages : this.history
     this.summary = toSummary({ ...thread, messages: undefined })
   }
@@ -252,29 +284,44 @@ export class RustSession implements DesktopSession, ThreadBinding {
   async getStatus(): Promise<SessionStatus> {
     return {
       model: this.model,
-      thinkingLevel: 'off',
-      permission: 'manual',
-      planMode: false,
+      thinkingLevel: this.thinkingLevel,
+      permission: this.permissionMode,
+      planMode: this.planMode,
       contextTokens: 0,
       maxContextTokens: 0,
       contextUsage: 0,
     }
   }
 
-  setModel(model: string): Promise<void> {
-    return unsupported(`setModel(${model})`)
+  async setModel(model: string): Promise<void> {
+    const normalized = model.trim()
+    if (normalized.length === 0) throw new Error('Session model cannot be empty')
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ thread: ThreadView }>('thread/setModel', { model: normalized })
+    this.applyThread(result.thread)
   }
 
-  setThinking(level: string): Promise<void> {
-    return unsupported(`setThinking(${level})`)
+  async setThinking(level: string): Promise<void> {
+    const normalized = level.trim()
+    if (normalized.length === 0) throw new Error('Session thinking level cannot be empty')
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ thread: ThreadView }>('thread/setThinking', { level: normalized })
+    this.applyThread(result.thread)
   }
 
-  setPermission(mode: string): Promise<void> {
-    return unsupported(`setPermission(${mode})`)
+  async setPermission(mode: string): Promise<void> {
+    if (mode !== 'yolo' && mode !== 'manual' && mode !== 'auto') {
+      throw new Error('Session permission mode must be yolo, manual, or auto')
+    }
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ thread: ThreadView }>('thread/setPermission', { mode })
+    this.applyThread(result.thread)
   }
 
-  setPlanMode(enabled: boolean): Promise<void> {
-    return unsupported(`setPlanMode(${String(enabled)})`)
+  async setPlanMode(enabled: boolean): Promise<void> {
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ thread: ThreadView }>('thread/setPlanMode', { enabled })
+    this.applyThread(result.thread)
   }
 
   async createGoal(objective: string, options?: { readonly replace?: boolean }): Promise<GoalSnapshotData> {

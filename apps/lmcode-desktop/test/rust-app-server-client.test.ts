@@ -238,6 +238,81 @@ describe('desktop client of lm app-server', () => {
     expect(question).toBe('Which?')
   }, 90_000)
 
+  it('keeps session controls and worktree metadata across a second process', async () => {
+    const home = await tempDir('lmcode-desktop-home-')
+    const work = await tempDir('lmcode-desktop-work-')
+    const tree = await tempDir('lmcode-desktop-tree-')
+    const first = await startHarness(home)
+    await first.ensureConfigFile()
+    const session = await first.createSession({
+      workDir: work,
+      model: 'script',
+      thinking: 'low',
+      permission: 'auto',
+    })
+    expect(await session.getStatus()).toMatchObject({
+      model: 'script',
+      thinkingLevel: 'low',
+      permission: 'auto',
+      planMode: false,
+    })
+
+    await session.setModel('script-ask')
+    expect(await session.getStatus()).toMatchObject({ model: 'script-ask', thinkingLevel: 'low' })
+    await session.setThinking('high')
+    expect(await session.getStatus()).toMatchObject({ thinkingLevel: 'high' })
+    await session.setPermission('yolo')
+    expect(await session.getStatus()).toMatchObject({ permission: 'yolo' })
+    await session.setPlanMode(true)
+    const status = await session.getStatus()
+    expect(status).toMatchObject({
+      model: 'script-ask',
+      thinkingLevel: 'high',
+      permission: 'yolo',
+      planMode: true,
+    })
+
+    const fork = await first.forkSession({
+      id: session.id,
+      workDir: tree,
+      metadata: {
+        desktopWorktree: {
+          branch: 'feature/rust',
+          path: tree,
+          sourceSessionId: session.id,
+        },
+      },
+    })
+    expect(fork.summary?.metadata).toEqual({
+      desktopWorktree: {
+        branch: 'feature/rust',
+        path: tree,
+        sourceSessionId: session.id,
+      },
+    })
+    const forkId = fork.id
+    await first.close()
+
+    const second = await startHarness(home)
+    const resumed = await second.resumeSession({ id: session.id })
+    expect(await resumed.getStatus()).toEqual(status)
+    const resumedFork = await second.resumeSession({ id: forkId })
+    expect(resumedFork.summary?.metadata).toEqual({
+      desktopWorktree: {
+        branch: 'feature/rust',
+        path: tree,
+        sourceSessionId: session.id,
+      },
+    })
+    expect(await resumedFork.getStatus()).toMatchObject({
+      model: 'script-ask',
+      thinkingLevel: 'high',
+      permission: 'yolo',
+      planMode: true,
+    })
+    expect(second.capturedStderr()).toBe('')
+  }, 60_000)
+
   it('rejects a second turn while one is running', async () => {
     const home = await tempDir('lmcode-desktop-home-')
     const work = await tempDir('lmcode-desktop-work-')

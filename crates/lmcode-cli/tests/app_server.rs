@@ -562,3 +562,126 @@ fn enabling_computer_use_reports_that_the_driver_is_not_launched() {
     assert!(stderr.is_empty(), "{stderr}");
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn session_controls_and_worktree_survive_a_second_process() {
+    let home = home("controls");
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let tree = home.join("tree");
+    std::fs::create_dir_all(&tree).expect("tree");
+    let tree_path = tree.to_string_lossy().to_string();
+
+    let mut first = Client::launch(&home);
+    first.call("initialize", json!({}));
+    let started = first.call(
+        "thread/start",
+        json!({"cwd": cwd, "model": "script", "thinking": "low", "permission": "auto"}),
+    );
+    let thread_id = started["thread"]["id"].as_str().unwrap().to_string();
+    assert_eq!(started["thread"]["model"], "script");
+    assert_eq!(started["thread"]["thinking"], "low");
+    assert_eq!(started["thread"]["permission"], "auto");
+    assert_eq!(started["thread"]["planMode"], false);
+    assert!(started["thread"]["desktopWorktree"].is_null());
+
+    let model = first.call("thread/setModel", json!({"model": "script-ask"}));
+    assert_eq!(model["thread"]["model"], "script-ask");
+    assert_eq!(model["thread"]["thinking"], "low");
+    let thinking = first.call("thread/setThinking", json!({"level": "high"}));
+    assert_eq!(thinking["thread"]["thinking"], "high");
+    let permission = first.call("thread/setPermission", json!({"mode": "yolo"}));
+    assert_eq!(permission["thread"]["permission"], "yolo");
+    let plan = first.call("thread/setPlanMode", json!({"enabled": true}));
+    assert_eq!(plan["thread"]["planMode"], true);
+    assert_eq!(plan["thread"]["model"], "script-ask");
+    assert_eq!(plan["thread"]["thinking"], "high");
+    assert_eq!(plan["thread"]["permission"], "yolo");
+
+    let forked = first.call(
+        "thread/fork",
+        json!({
+            "cwd": cwd,
+            "threadId": thread_id,
+            "targetCwd": tree_path,
+            "metadata": {
+                "desktopWorktree": {
+                    "branch": "feature/rust",
+                    "path": tree_path,
+                    "sourceSessionId": thread_id,
+                }
+            }
+        }),
+    );
+    let fork_id = forked["thread"]["id"].as_str().unwrap().to_string();
+    let fork_cwd = forked["thread"]["cwd"].as_str().unwrap().to_string();
+    assert_eq!(
+        forked["thread"]["desktopWorktree"]["branch"],
+        "feature/rust"
+    );
+    assert_eq!(forked["thread"]["desktopWorktree"]["path"], tree_path);
+    assert_eq!(
+        forked["thread"]["desktopWorktree"]["sourceSessionId"],
+        thread_id
+    );
+    assert_eq!(forked["thread"]["model"], "script-ask");
+    assert_eq!(forked["thread"]["thinking"], "high");
+    assert_eq!(forked["thread"]["permission"], "yolo");
+    assert_eq!(forked["thread"]["planMode"], true);
+    assert!(forked["thread"]["desktopWorktree"]["branch"].is_string());
+
+    let stderr = first.close();
+    assert!(stderr.is_empty(), "first launch wrote to stderr:\n{stderr}");
+
+    let mut second = Client::launch(&home);
+    second.call("initialize", json!({}));
+    let listed = second.call("thread/list", json!({}));
+    let rows = listed["threads"].as_array().expect("threads");
+    let source_row = rows
+        .iter()
+        .find(|row| row["id"] == thread_id)
+        .expect("source session");
+    assert_eq!(source_row["model"], "script-ask");
+    assert_eq!(source_row["thinking"], "high");
+    assert_eq!(source_row["permission"], "yolo");
+    assert_eq!(source_row["planMode"], true);
+    assert!(source_row["desktopWorktree"].is_null());
+    let fork_row = rows
+        .iter()
+        .find(|row| row["id"] == fork_id)
+        .expect("forked session");
+    assert_eq!(fork_row["desktopWorktree"]["branch"], "feature/rust");
+    assert_eq!(fork_row["desktopWorktree"]["path"], tree_path);
+    assert_eq!(fork_row["desktopWorktree"]["sourceSessionId"], thread_id);
+
+    let resumed = second.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    assert_eq!(resumed["thread"]["model"], "script-ask");
+    assert_eq!(resumed["thread"]["thinking"], "high");
+    assert_eq!(resumed["thread"]["permission"], "yolo");
+    assert_eq!(resumed["thread"]["planMode"], true);
+    assert!(resumed["thread"]["desktopWorktree"].is_null());
+
+    let forked_again = second.call(
+        "thread/resume",
+        json!({"cwd": fork_cwd, "threadId": fork_id}),
+    );
+    assert_eq!(
+        forked_again["thread"]["desktopWorktree"]["branch"],
+        "feature/rust"
+    );
+    assert_eq!(forked_again["thread"]["desktopWorktree"]["path"], tree_path);
+    assert_eq!(
+        forked_again["thread"]["desktopWorktree"]["sourceSessionId"],
+        thread_id
+    );
+    assert_eq!(forked_again["thread"]["model"], "script-ask");
+    assert_eq!(forked_again["thread"]["thinking"], "high");
+    assert_eq!(forked_again["thread"]["permission"], "yolo");
+    assert_eq!(forked_again["thread"]["planMode"], true);
+
+    let stderr = second.close();
+    assert!(
+        stderr.is_empty(),
+        "second launch wrote to stderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}

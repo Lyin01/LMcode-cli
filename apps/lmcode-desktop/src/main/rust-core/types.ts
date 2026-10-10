@@ -99,15 +99,25 @@ export interface DesktopMemoryStore {
   close(): Promise<void>
 }
 
+export interface DesktopWorktreeMeta {
+  readonly branch: string
+  readonly path: string
+  readonly sourceSessionId: string
+}
+
 export interface ThreadView {
   readonly id: string
   readonly cwd: string
   readonly model?: string
   readonly title?: string | null
+  readonly thinking?: string
+  readonly permission?: string
+  readonly planMode?: boolean
   readonly forkedFrom?: string | null
   readonly createdAt?: string
   readonly updatedAt?: string
   readonly sessionDir?: string
+  readonly desktopWorktree?: DesktopWorktreeMeta | null
   readonly messages?: unknown[]
 }
 

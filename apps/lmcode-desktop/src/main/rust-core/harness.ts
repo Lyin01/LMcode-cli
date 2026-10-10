@@ -6,7 +6,7 @@ import type { LmcodeConfig, LmcodeConfigPatch, SessionSummary } from '@lmcode-cl
 
 import { AppServerClient } from './client.js'
 import { RustMemoryStore } from './memory.js'
-import { RustSession } from './session.js'
+import { RustSession, toSummary } from './session.js'
 import type { CoreHost, DesktopHarness, DesktopSession, ThreadBinding, ThreadView } from './types.js'
 
 export interface RustHarnessOptions {
@@ -107,6 +107,8 @@ export class RustHarness implements DesktopHarness, CoreHost {
     const result = await this.client.request<{ thread: ThreadView }>('thread/start', {
       cwd: input.workDir,
       model,
+      thinking: input.thinking,
+      permission: input.permission,
     })
     return this.adopt(result.thread)
   }
@@ -139,6 +141,7 @@ export class RustHarness implements DesktopHarness, CoreHost {
       threadId: source.id,
       targetCwd: input.workDir,
       title: input.title,
+      metadata: input.metadata,
     })
     const forked = RustSession.open(this, result.thread)
     this.sessions.set(forked.id, forked)
@@ -164,18 +167,11 @@ export class RustHarness implements DesktopHarness, CoreHost {
     const listed = await this.client.request<{ threads?: ThreadView[] }>('thread/list', {})
     return (listed.threads ?? []).map((thread) => {
       const known = this.sessions.get(thread.id)
-      if (known?.summary !== undefined) {
+      if (known !== undefined) {
         known.applyThread(thread)
-        return known.summary
+        return known.summary ?? toSummary(thread)
       }
-      return {
-        id: thread.id,
-        title: thread.title ?? undefined,
-        workDir: thread.cwd,
-        sessionDir: thread.sessionDir ?? '',
-        createdAt: Date.parse(thread.createdAt ?? '') || Date.now(),
-        updatedAt: Date.parse(thread.updatedAt ?? '') || Date.now(),
-      }
+      return toSummary(thread)
     })
   }
 
