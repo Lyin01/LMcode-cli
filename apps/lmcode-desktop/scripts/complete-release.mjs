@@ -129,20 +129,38 @@ function readToken() {
   return token
 }
 
-/** Gate before uploading: an unsigned installer must never reach users. */
+/**
+ * Gate before uploading: an unsigned installer must never reach users.
+ *
+ * `powershell.exe` is Windows PowerShell 5.1. Started from PowerShell 7 it
+ * inherits a module path that cannot autoload `Microsoft.PowerShell.Security`,
+ * and the status comes back empty on a signed file. 5.1 also writes UTF-16
+ * into a captured pipe unless the output encoding is set first.
+ */
 function assertWindowsSignature(filePath) {
   if (process.platform !== 'win32') {
     console.log('signature check skipped (not Windows)')
     return
   }
-  const script = `(Get-AuthenticodeSignature '${filePath.replaceAll("'", "''")}').Status`
+  const literal = filePath.replaceAll("'", "''")
+  const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
+  const moduleDir = `${systemRoot}\\system32\\WindowsPowerShell\\v1.0\\Modules`.replaceAll("'", "''")
+  const script = [
+    "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
+    `$env:PSModulePath = '${moduleDir}'`,
+    'Import-Module Microsoft.PowerShell.Security',
+    `(Get-AuthenticodeSignature -LiteralPath '${literal}').Status.ToString()`,
+  ].join('; ')
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8',
     timeout: WINDOWS_SIGNATURE_TIMEOUT_MS,
   })
   const status = (result.stdout ?? '').trim()
   if (status !== 'Valid') {
-    throw new Error(`installer is not signed (Get-AuthenticodeSignature -> "${status}")`)
+    const detail = (result.stderr ?? '').trim()
+    throw new Error(
+      `installer is not signed (Get-AuthenticodeSignature -> "${status}"${detail.length > 0 ? `; ${detail}` : ''})`,
+    )
   }
   console.log('signature: Valid')
 }
