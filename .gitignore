@@ -33,3 +33,6 @@ local_cache/
 
 # Rust build output (crates/ workspace)
 /target
+
+# Temporary scratch directory
+scratch/

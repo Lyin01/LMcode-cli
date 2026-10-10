@@ -164,11 +164,15 @@ impl Tool for MultiEditTool {
             Err(error) => return Err(format!("failed to read {path}: {error}")),
         };
         let uses_crlf = is_pure_crlf(&raw);
-        let view = if uses_crlf {
-            raw.replace("\r\n", "\n")
-        } else {
-            raw
-        };
+        let view = raw.replace("\r\n", "\n");
+        let edits: Vec<EditSpec> = edits
+            .into_iter()
+            .map(|e| EditSpec {
+                old_string: e.old_string.replace("\r\n", "\n"),
+                new_string: e.new_string.replace("\r\n", "\n"),
+                replace_all: e.replace_all,
+            })
+            .collect();
         if let Some(anchor) = arguments.get("anchor").and_then(Value::as_str) {
             let current = compute_anchor(&view);
             if current != anchor {

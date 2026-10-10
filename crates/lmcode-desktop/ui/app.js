@@ -1151,6 +1151,16 @@ document.getElementById("deny-btn").addEventListener("click", async () => {
   await invoke("approve_tool", { approved: false });
 });
 
+window.addEventListener("keydown", async (event) => {
+  if (event.key === "Escape") {
+    try {
+      await invoke("cancel_turn");
+    } catch {
+      // ignore
+    }
+  }
+});
+
 // The SessionReady event can fire before this script subscribes; poll the
 // status command until the agent reports itself up.
 let statusAttempts = 0;

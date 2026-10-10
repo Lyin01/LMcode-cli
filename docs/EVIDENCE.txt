@@ -1,0 +1,210 @@
+
+==================================================================
+== 0. Project identity
+==================================================================
+repo: lmcode-desktop-source  remote: https://github.com/Lyin01/LMcode-cli.git
+user-confirmed objective: LMD = LMCODE DESKTOP (Rust rewrite of this repository)
+
+==================================================================
+== 1. Gate commands (raw exit codes)
+==================================================================
+Diff in \\?\E:\lmcode-desktop-source\crates\lmcode-cli\tests\cli_parity_golden.rs:33:
+                 exit: i32::MIN,
+             });
+         } else if let Some(rest) = line.strip_prefix("STDERR|") {
+-            current
+-                .as_mut()
+-                .expect("STDERR before CASE")
+-                .stderr = Some(rest.to_string());
++            current.as_mut().expect("STDERR before CASE").stderr = Some(rest.to_string());
+         } else if let Some(rest) = line.strip_prefix("STDOUT|") {
+-            current
+-                .as_mut()
+-                .expect("STDOUT before CASE")
+-                .stdout = Some(rest.to_string());
++            current.as_mut().expect("STDOUT before CASE").stdout = Some(rest.to_string());
+         } else if let Some(rest) = line.strip_prefix("EXIT|") {
+             let mut vector = current.take().expect("EXIT before CASE");
+             vector.exit = rest.trim().parse().expect("EXIT must be an integer");
+Diff in \\?\E:\lmcode-desktop-source\crates\lmcode-cli\tests\cli_parity_golden.rs:48:
+             vectors.push(vector);
+         }
+     }
+-    assert!(!vectors.is_empty(), "fixture must define at least one vector");
++    assert!(
++        !vectors.is_empty(),
++        "fixture must define at least one vector"
++    );
+     vectors
+ }
+ 
+cargo fmt --all --check exit: 1
+cargo clippy -D warnings exit: 0
+cargo test --all-targets exit: 0
+  passed=283 failed=0 ignored=0
+cargo test --all-features exit: 0
+  all-features passed=284 failed=0 ignored=0
+cargo build --release exit: 0
+  warnings/errors in build log: 0
+  artifact: 13406720 target/release/lm.exe
+  artifact: 20316160 target/release/lmcode-desktop.exe
+
+==================================================================
+== 2. Legacy vs Rust: original option vectors (live comparison)
+==================================================================
+━━━ conflict: --yolo + --auto  (args: --yolo --auto)
+--- legacy
+错误：--yolo 不能与 --auto 同时使用。
+exit:1
+--- rust
+错误：--yolo 不能与 --auto 同时使用。
+exit:1
+
+━━━ conflict: -p empty prompt  (args: -p )
+--- legacy
+错误：提示不能为空。
+exit:1
+--- rust
+错误：提示不能为空。
+exit:1
+
+━━━ conflict: -p + --plan  (args: -p x --plan)
+--- legacy
+错误：--prompt 不能与 --plan 同时使用。
+exit:1
+--- rust
+错误：--prompt 不能与 --plan 同时使用。
+exit:1
+
+━━━ conflict: -p + -S without id  (args: -p x -S)
+--- legacy
+错误：在提示模式下不能使用不带 ID 的 --session。
+exit:1
+--- rust
+错误：在提示模式下不能使用不带 ID 的 --session。
+exit:1
+
+━━━ conflict: --output-format without prompt mode  (args: --output-format stream-json)
+--- legacy
+错误：输出格式仅在提示模式下支持。
+exit:1
+--- rust
+错误：输出格式仅在提示模式下支持。
+exit:1
+
+━━━ conflict: empty model  (args: -m  -p x)
+--- legacy
+错误：模型不能为空。
+exit:1
+--- rust
+错误：模型不能为空。
+exit:1
+
+━━━ conflict: --continue + --session  (args: --continue --session abc)
+--- legacy
+错误：--continue 和 --session 不能同时使用。
+exit:1
+--- rust
+错误：--continue 和 --session 不能同时使用。
+exit:1
+
+━━━ version (-V)
+--- legacy
+0.9.24
+exit:0
+--- rust
+lm 0.1.0
+exit:0
+
+━━━ subcommand: export --help (surface)
+--- legacy
+Usage: lm export [options] [sessionId]
+
+导出会话为 ZIP 压缩包。
+
+Arguments:
+  sessionId                要导出的会话 ID。默认使用最近的会话。
+
+Options:
+  -o, --output <path>      输出 ZIP 路径。
+  -y, --yes                跳过历史会话确认。
+--- rust
+导出会话为 ZIP 压缩包。
+
+Usage: lm.exe export [OPTIONS] [SESSION_ID]
+
+Arguments:
+  [SESSION_ID]  要导出的会话 ID。默认使用最近的会话。
+
+Options:
+  -o, --output <PATH>          输出 ZIP 路径。
+  -y, --yes                    跳过历史会话确认。
+
+━━━ bare -p (empty prompt)  (args: -p)
+--- legacy
+错误：提示不能为空。
+exit:1
+--- rust
+错误：提示不能为空。
+exit:1
+
+━━━ removed flag --print  (args: --print x)
+--- legacy
+error: unknown option '--print'
+(Did you mean --prompt?)
+exit:1
+--- rust
+
+Usage: lm.exe --prompt [<PROMPT>] [PROMPT]...
+
+For more information, try '--help'.
+exit:1
+
+━━━ migrate (disabled notice)
+--- legacy
+迁移功能已取消，不再支持从 lmcode-cli 导入数据。
+exit:0
+--- rust
+迁移功能已取消，不再支持从 lmcode-cli 导入数据。
+exit:0
+
+
+==================================================================
+== 3. Self-containment proofs
+==================================================================
+-- cargo metadata (workspace crates + legacy deps)
+  lmcode crates: ['lmcode-cli', 'lmcode-core', 'lmcode-desktop', 'lmcode-llm', 'lmcode-mcp', 'lmcode-memory', 'lmcode-tui']
+  total packages in graph: 531
+-- PE import scan (lm.exe)
+  node.dll       x0
+  libnode        x0
+  python3        x0
+  libpython      x0
+  KERNEL32.dll   x1
+  WS2_32.dll     x1
+-- binary scan: node_modules / typescript
+  node_modules: 0
+  typescript (LSP tables only): 3
+-- env -i (no Node on PATH): version + prompt + export
+lm 0.1.0
+skills: 23 loaded
+EVIDENCE-OK
+export: file written (1 zip)
+
+==================================================================
+== 4. End-to-end file output (input -> process -> output)
+==================================================================
+  zip entries: ['manifest.json', 'session/messages.jsonl', 'session/state.json']
+  E2E-FILE-VERIFIED
+
+==================================================================
+== 5. Performance benchmarks
+==================================================================
+-- turn-loop throughput (scripted provider, release)
+  bench: 500 scripted turns in 51.198ms (9766.0 turns/sec, 102.4 us/turn, 500 deltas)
+-- startup comparison (median of 3, python timer)
+  Rust lm -V: median 15 ms
+  Rust lm --help: median 15 ms
+  legacy --version (node): median 112 ms
+
+== EVIDENCE CAPTURE COMPLETE ==

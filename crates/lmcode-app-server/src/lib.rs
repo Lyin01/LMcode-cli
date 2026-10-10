@@ -33,7 +33,9 @@ use lmcode_core::skill::{SkillSource, discover_skills};
 use lmcode_core::tools::ask_user::{AskUserAnswer, UserQuestion};
 use lmcode_core::tools::cron::CronHandle;
 use lmcode_core::tools::goal::GoalHandle;
-use lmcode_core::tools::{AskUserQuestionTool, BashTool, Tool};
+use lmcode_core::tools::{
+    AskUserQuestionTool, BashTool, EditTool, GlobTool, GrepTool, ReadTool, Tool, WriteTool,
+};
 use lmcode_llm::provider::ChatProvider;
 use lmcode_llm::providers::create_provider;
 use lmcode_memory::{MemoStore, rank_memos};
@@ -1303,9 +1305,22 @@ async fn open_thread(
     let provider = build_provider(model)?;
     let directory = session.directory().to_path_buf();
     let tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(ReadTool),
         Arc::new(BashTool::with_background(Arc::clone(&background))),
+        Arc::new(WriteTool),
+        Arc::new(EditTool),
+        Arc::new(GrepTool),
+        Arc::new(GlobTool),
         Arc::new(AskUserQuestionTool::new()),
     ];
+
+    let plan_handle: lmcode_core::tools::planning::PlanHandle =
+        Arc::new(Mutex::new(lmcode_core::plan::PlanMode::default()));
+    let cron_dir = directory.join("cron");
+    std::fs::create_dir_all(&cron_dir).map_err(failed)?;
+    let goal = Arc::new(Mutex::new(GoalMode::with_path(directory.join("goal.json"))));
+    let cron = Arc::new(Mutex::new(CronStore::with_dir(cron_dir)));
+
     let mut agent = Agent::new(provider, tools, "You are LMcode.", cwd.to_path_buf());
     let window = configured_context_window(model);
     if window > 0 {
@@ -1323,10 +1338,7 @@ async fn open_thread(
         agent.set_permission_mode(mode);
     }
     let plan_mode = session.state.plan_mode;
-    let cron_dir = directory.join("cron");
-    std::fs::create_dir_all(&cron_dir).map_err(failed)?;
-    let goal = Arc::new(Mutex::new(GoalMode::with_path(directory.join("goal.json"))));
-    let cron = Arc::new(Mutex::new(CronStore::with_dir(cron_dir)));
+    agent.attach_plan(Arc::clone(&plan_handle));
     agent.attach_goal(Arc::clone(&goal));
     agent.attach_cron(Arc::clone(&cron));
     let cancel = Arc::new(Notify::new());

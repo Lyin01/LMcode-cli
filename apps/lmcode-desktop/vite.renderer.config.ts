@@ -27,6 +27,7 @@ export default defineConfig(({ command }) => ({
   root: rendererRoot,
   base: './',
   build: {
+    target: 'chrome130',
     outDir: resolve(import.meta.dirname, 'out/renderer'),
     emptyOutDir: true,
     rollupOptions: {

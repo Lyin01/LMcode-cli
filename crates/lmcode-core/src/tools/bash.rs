@@ -149,8 +149,28 @@ impl Tool for BashTool {
 
 fn shell_command() -> tokio::process::Command {
     if cfg!(windows) {
-        let mut command = tokio::process::Command::new("bash");
-        command.arg("-c");
+        for path in [
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ] {
+            if std::path::Path::new(path).exists() {
+                let mut command = tokio::process::Command::new(path);
+                command.arg("-c");
+                return command;
+            }
+        }
+        if let Ok(path_var) = std::env::var("PATH") {
+            for entry in std::env::split_paths(&path_var) {
+                let bash = entry.join("bash.exe");
+                if bash.is_file() {
+                    let mut command = tokio::process::Command::new(bash);
+                    command.arg("-c");
+                    return command;
+                }
+            }
+        }
+        let mut command = tokio::process::Command::new("powershell");
+        command.args(["-NoProfile", "-Command"]);
         command
     } else {
         let mut command = tokio::process::Command::new("sh");

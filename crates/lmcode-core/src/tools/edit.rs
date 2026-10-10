@@ -88,20 +88,18 @@ impl Tool for EditTool {
             .map_err(|error| format!("failed to read {}: {error}", resolved.display()))?;
 
         let uses_crlf = is_pure_crlf(&raw);
-        let view = if uses_crlf {
-            raw.replace("\r\n", "\n")
-        } else {
-            raw
-        };
+        let view = raw.replace("\r\n", "\n");
+        let old_string_norm = old_string.replace("\r\n", "\n");
+        let new_string_norm = new_string.replace("\r\n", "\n");
 
-        let occurrences = view.matches(old_string).count();
+        let occurrences = view.matches(&old_string_norm).count();
         if occurrences == 0 {
             return Err(not_found_message(path));
         }
 
         let (new_view, message) = if replace_all {
             (
-                view.replace(old_string, new_string),
+                view.replace(&old_string_norm, &new_string_norm),
                 format!("Replaced {occurrences} occurrences in {path}"),
             )
         } else {
@@ -113,7 +111,7 @@ impl Tool for EditTool {
                 ));
             }
             (
-                view.replacen(old_string, new_string, 1),
+                view.replacen(&old_string_norm, &new_string_norm, 1),
                 format!("Replaced 1 occurrence in {path}"),
             )
         };

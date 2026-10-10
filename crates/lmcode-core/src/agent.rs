@@ -252,6 +252,8 @@ pub struct Agent {
     turn_reminder: String,
     session: Option<Session>,
     cancel: Option<Arc<tokio::sync::Notify>>,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
+    internal_cancel: Arc<tokio::sync::Notify>,
     approvals: SessionApprovals,
     /// Permission posture. The chain reads this on every tool call.
     permission: PermissionRuntime,
@@ -297,6 +299,8 @@ impl Agent {
             turn_reminder: String::new(),
             session: None,
             cancel: None,
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            internal_cancel: Arc::new(tokio::sync::Notify::new()),
             approvals: SessionApprovals::default(),
             permission: PermissionRuntime::default(),
             memo_store: None,
@@ -778,8 +782,38 @@ impl Agent {
         }
         self.history.push(user_prompt_with_images(input, images));
 
+        self.cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
+        let cancel_flag = Arc::clone(&self.cancelled);
+        let internal_cancel = Arc::clone(&self.internal_cancel);
+        let cancel_signal = self.cancel.clone();
+        let cancel_listener = cancel_signal.map(|signal| {
+            tokio::spawn(async move {
+                signal.notified().await;
+                cancel_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                internal_cancel.notify_waiters();
+            })
+        });
+        struct CancelGuard(Option<tokio::task::JoinHandle<()>>);
+        impl Drop for CancelGuard {
+            fn drop(&mut self) {
+                if let Some(handle) = self.0.take() {
+                    handle.abort();
+                }
+            }
+        }
+        let _cancel_guard = CancelGuard(cancel_listener);
+
         let mut steps = 0usize;
         loop {
+            if self.cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+                self.steer.clear();
+                self.history.truncate(checkpoint);
+                return Ok(TurnOutcome {
+                    steps: steps.saturating_sub(1),
+                    interrupted: true,
+                    hit_step_limit: false,
+                });
+            }
             // A steer that arrived during the previous step joins the history
             // before the next model call.
             self.flush_steers();
@@ -805,43 +839,62 @@ impl Agent {
 
             // Shape the outgoing history (micro projection + full compaction).
             let projected = self.prepare_history(ui).await?;
+            let system_prompt = self.system_prompt_with_injections().await;
 
-            let stream = match self
-                .generate_with_retry(
-                    &self.system_prompt_with_injections().await,
-                    &tool_definitions,
-                    &projected,
-                )
-                .await
-            {
-                Ok(stream) => stream,
-                Err(error) if is_context_overflow(&error) => {
-                    // One attempt was enough. Compact and continue, or surface
-                    // the overflow when there is nothing safe to summarize.
-                    match self.run_full_compaction().await {
-                        Ok(true) => {
-                            self.usage.record_compaction();
-                            ui.notice("compacted conversation after context overflow")
-                                .await;
-                            continue;
-                        }
-                        Ok(false) => {
-                            self.steer.clear();
-                            self.history.truncate(checkpoint);
-                            return Err(error.into());
-                        }
-                        Err(compact_error) => {
-                            self.steer.clear();
-                            self.history.truncate(checkpoint);
-                            return Err(compact_error);
-                        }
-                    }
-                }
-                Err(error) => {
-                    self.session_memory.record_error(&error.to_string());
+            let stream = tokio::select! {
+                biased;
+                () = self.wait_cancel() => {
                     self.steer.clear();
                     self.history.truncate(checkpoint);
-                    return Err(error.into());
+                    return Ok(TurnOutcome {
+                        steps: steps - 1,
+                        interrupted: true,
+                        hit_step_limit: false,
+                    });
+                }
+                () = wait_for_ctrl_c() => {
+                    self.steer.clear();
+                    self.history.truncate(checkpoint);
+                    return Ok(TurnOutcome {
+                        steps: steps - 1,
+                        interrupted: true,
+                        hit_step_limit: false,
+                    });
+                }
+                stream_res = self.generate_with_retry(
+                    &system_prompt,
+                    &tool_definitions,
+                    &projected,
+                ) => match stream_res {
+                    Ok(stream) => stream,
+                    Err(error) if is_context_overflow(&error) => {
+                        // One attempt was enough. Compact and continue, or surface
+                        // the overflow when there is nothing safe to summarize.
+                        match self.run_full_compaction().await {
+                            Ok(true) => {
+                                self.usage.record_compaction();
+                                ui.notice("compacted conversation after context overflow")
+                                    .await;
+                                continue;
+                            }
+                            Ok(false) => {
+                                self.steer.clear();
+                                self.history.truncate(checkpoint);
+                                return Err(error.into());
+                            }
+                            Err(compact_error) => {
+                                self.steer.clear();
+                                self.history.truncate(checkpoint);
+                                return Err(compact_error);
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        self.session_memory.record_error(&error.to_string());
+                        self.steer.clear();
+                        self.history.truncate(checkpoint);
+                        return Err(error.into());
+                    }
                 }
             };
 
@@ -953,8 +1006,18 @@ impl Agent {
 
     /// Resolves when an external cancel signal fires (never, when unset).
     async fn wait_cancel(&self) {
+        if self.cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
         match &self.cancel {
-            Some(cancel) => cancel.notified().await,
+            Some(cancel) => {
+                tokio::select! {
+                    () = cancel.notified() => {
+                        self.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    () = self.internal_cancel.notified() => {}
+                }
+            }
             None => std::future::pending().await,
         }
     }
@@ -1366,8 +1429,16 @@ impl Agent {
                 return ToolExec::Finished(ToolResult::failure(format!("error: {message}")));
             }
             crate::permission_chain::PermissionOutcome::Ask => {
-                if !session_approved && !ui.approve(&call.name, arguments).await {
-                    return ToolExec::Finished(ToolResult::failure("error: denied by user"));
+                if !session_approved {
+                    let approved = tokio::select! {
+                        biased;
+                        () = self.wait_cancel() => return ToolExec::Interrupted,
+                        () = wait_for_ctrl_c() => return ToolExec::Interrupted,
+                        res = ui.approve(&call.name, arguments) => res,
+                    };
+                    if !approved {
+                        return ToolExec::Finished(ToolResult::failure("error: denied by user"));
+                    }
                 }
                 self.approvals.record(&call.name, arguments);
             }
@@ -1378,7 +1449,13 @@ impl Agent {
         if call.name == "AskUserQuestion" {
             return self.ask_user_question(&parsed, ui).await;
         }
-        match tool.execute_rich(&parsed, &self.cwd).await {
+        let exec_result = tokio::select! {
+            biased;
+            () = self.wait_cancel() => return ToolExec::Interrupted,
+            () = wait_for_ctrl_c() => return ToolExec::Interrupted,
+            res = tool.execute_rich(&parsed, &self.cwd) => res,
+        };
+        match exec_result {
             Ok(result) => ToolExec::Finished(result),
             Err(error) => ToolExec::Finished(ToolResult::failure(format!("error: {error}"))),
         }

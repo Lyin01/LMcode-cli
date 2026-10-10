@@ -39,6 +39,34 @@
 | `migration-legacy` | `packages/migration-legacy/` | 旧数据迁移 —— **已弃用，v1.0 移除**（日落计划见该包 README） |
 | `apps/lmcode` | `apps/lmcode/` | CLI 和终端 UI 应用（`lm` 命令） |
 
+### Rust 重写工作区（crates/）
+
+项目正在从 TypeScript 全量重写为 Rust（对标 codex-rs 路线）。Rust 代码位于根目录 `Cargo.toml` workspace 下的 `crates/`，与 TS 代码并存；TS 侧退役前，两边共享同一份 `~/.lmcode/config.toml`。
+
+| crate | 对应 TS 包 | 状态 |
+| ---------------- | ---------------------- | ------------------------------------------------------------ |
+| `lmcode-llm` | `packages/liumir` | 消息模型、SSE 解析、流式组装；provider：OpenAI 兼容、Anthropic Messages、OpenAI Responses、Google GenAI（Gemini，含 thought/thoughtSignature 与 functionCall） |
+| `lmcode-core` | `packages/agent-core` | 配置/模型解析、轮次循环、会话持久化、压缩管道、技能系统、权限层、用量统计、plan 模式、background 后台任务、协作子代理（Agent/WolfPack）、goal 模式（5 工具 + 持久化 + 预算 + 状态注入）、goal grader、cron 定时任务、**web 工具**（FetchURL 真实抓取 + HTML 文本提取；WebSearch provider 门控）、**LSP 工具**（stdio JSON-RPC 客户端 + 7 扩展名路由 + definition/references/diagnostics）、**session-memory**（工具/错误事件笔记 + 每轮摘要注入（压缩后上下文保持））；工具：Read/Write/Edit/Bash/Grep/Glob（Grep/Glob 为原生 Rust 引擎） |
+| `lmcode-tui` | `apps/lmcode/src/tui` | ratatui 全屏界面：转录本流式渲染（**markdown**：标题/代码块/列表/粗体/行内代码，样式保留换行；**diff 感知**工具结果着色）、输入框（历史/光标/**`@file` 提及补全**）、状态行、工具审批弹窗、滚动、斜杠命令（`/help` `/clear` `/model` `/sessions` `/mcp` `/usage` `/exit`）+ 模型/会话选择器弹窗 + MCP 管理面板（启停/卸载/推荐安装） |
+| `lmcode-memory` | `packages/memory` | SQLite 备忘录存储（与 TS **共用同一数据库文件** `~/.lmcode/memory/memos.sqlite`，schema 兼容）、关键词评分（Jaccard 45% + 90 天衰减 25% + 项目 10% + 标签 5%）、**向量检索**（OpenAI 兼容 `/embeddings` + 60/40 混合评分 + 模型隔离 + 优雅降级）、梦境合并（相似度聚类 0.45 / 新旧矛盾消解 / 先建后删的安全应用 / DreamTracker 24h·5 会话节奏）；工具：MemoryLookup / MemoryWrite / MemoryConsolidatePlan / MemoryConsolidateApply |
+| `lmcode-mcp` | `packages/agent-core/src/mcp` | MCP 客户端（**双传输**：stdio NDJSON JSON-RPC 2.0 + Streamable HTTP（JSON/SSE 响应、`Mcp-Session-Id` 会话续接）；initialize / tools/list / tools/call；工具名限定 `mcp__server__tool` 含 64 字符截断哈希）；配置读取 `~/.lmcode/mcp.json` + 项目局部覆盖（`command` 或 `url`）；配置写回（卸载从来源文件移除、推荐安装写用户 mcp.json，malformed 文件拒绝覆盖）；`lmcode-core` 的 `mcp_manager` 提供运行时启停 + 卸载 + 推荐安装（`/mcp` 面板） |
+| `lmcode-desktop` | `apps/lmcode-desktop` | Tauri 2 桌面应用（WebView 聊天界面 + 会话侧边栏 + 设置面板 + 记忆浏览器 + Git 审查面板 + 终端面板 + 自动化面板 + worktrees 面板 + 子代理面板 + 收件箱 + artifact 预览 + **远程连接**（局域网 HTTP 服务：token 配对 + SSE 事件流 + 内嵌移动端聊天页 + 审批转发）+ 工具审批弹窗 + `agent-event` 事件流），工具集与 CLI 对齐；**面板移植已全部完成** |
+| `lmcode-cli` | `apps/lmcode` | `lm` 命令：`--tui` 全屏模式（非 TTY 自动回退）、纯文本 REPL（流式渲染 + 工具审批）；CLI 面与 legacy 对齐——`-p/--prompt`（别名 `--print`）+ 位置参数、`-m/--model`、`-y/--yolo`（隐藏别名 `--yes`/`--auto-approve`）、`--auto`（自动权限：非敏感自动批准）、`-C/--continue`（别名 `-c`）、`-S/--session [id]`、`-r/--resume [id]`、`--plan`、`--skills-dir`（可多次）、`--output-format text\|stream-json`（NDJSON，Claude Code 兼容）、`--config`；选项冲突校验逐条移植自 legacy `validateOptions`；子命令：`export`（会话 ZIP 导出：`-o`/`-y`/`--no-include-global-log`，manifest 字段名与 legacy 对齐）、`channel setup`（cc-connect 平台配置向导：检测安装 + 11 平台选择 + 生成/追加 `~/.cc-connect/config.toml`）、隐藏 `stream-json`（cc-connect 协议：stdin 消息 → NDJSON 事件）|
+
+- 构建与验证（在仓库根执行）：
+  - `cargo build --workspace`
+  - `cargo test --workspace`
+  - `cargo run -p lmcode-cli`（二进制名 `lm`；`--tui` 全屏界面、`-p`/位置参数单次提问、`-m` 指定模型、`-S <id>`/`-r` 恢复会话、`-C` 继续最近会话、`--plan` 计划模式启动、`--auto` 自动权限、`--skills-dir` 指定技能目录、`--output-format stream-json` NDJSON 输出、`--config` 指定配置路径；子命令：`lm export [-o path] [-y] [sessionId]`、`lm channel setup`、`lm stream-json`）
+  - `cargo run -p lmcode-desktop`（Tauri 桌面应用；`--message "..."` 启动时自动发送一条消息，用于自动化验证）
+- Rust 工具链通过 rustup 安装（Windows MSVC，`~/.cargo/bin`）。
+- 本地 ONNX embedding（fastembed `bge-small-zh-v1.5`）通过 `local-embeddings` feature 启用（`cargo build -p lmcode-cli --features local-embeddings`）；默认构建使用 OpenAI 兼容 API 引擎。
+- 尚未移植：无。`records/replay` 经源码分析确认是**内部持久化/恢复机制**（`ReplayBuilder` 仅在 `restoring` 时收集记录，无用户命令/入口；grep 无用户面引用），Rust 以 `session.rs` 的直接 JSON 持久化 + 恢复实现，语义等价。
+- 验证与质量门禁：`bash scripts/verify.sh`（CI 的本地镜像：fmt → clippy `-D warnings` → test → release build → doc，逐项 PASS 输出；已在**纯 Rust 树**（仅 Cargo.toml/crates/，无 TS 源码）上全绿，`env -i` 无 node PATH 下二进制可直接运行）；工具链由 `rust-toolchain.toml` pin 到 stable；CI 工作流见 `.github/workflows/ci.yml`。
+- CLI 表面契约测试：`crates/lmcode-cli/tests/cli_surface.rs`（legacy 选项面逐项断言 + 冲突用例 + 子命令面 + `--help` golden fixture `tests/fixtures/help.golden.txt`）；**逐命令对照见 `docs/CLI_PARITY.md`**，含 `scripts/parity_check.sh` 的 legacy-vs-Rust 并排输出（**7 个冲突用例文本与退出码逐字节一致**）与启动性能对比（Rust 15ms vs legacy 122ms）。
+- 覆盖率：`docs/COVERAGE.md`（`cargo llvm-cov --workspace --all-targets`）。
+- 性能下限基准：`crates/lmcode-core/tests/bench_harness.rs`（脚本 provider 下 500 轮 turn，`--release -- --nocapture` 打印 turns/sec，回归阈值 20ms/turn）。LLM 输出对比不可自动化（需真实凭据 + 采样非确定性）；非 LLM 行为（选项/冲突/版本/help）已逐字节对比。
+- 修改 `config.toml` schema 时，需同步 Rust 侧 `crates/lmcode-core/src/config.rs`，否则 Rust 实现会静默忽略新字段。
+
 ### 术语说明
 
 - 当用户说 **"agent"** 或 **"session"** 时，指的是 `packages/agent-core` 运行时（`Session`、`Agent`、轮次循环），而不是 AI 助手本身。

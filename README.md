@@ -26,6 +26,68 @@ LMcode 的界面和默认交互以中文为主，模型服务可以自己配置�
 
 这个项目目前是 `0.x`，由我个人维护。我会先拿它处理自己的项目，再决定哪些功能留下。版本升级时，配置格式和行为仍有可能调整。
 
+## Rust 重写版（本仓库）
+
+本仓库正在把 LMcode 全量重写为 Rust（crate 结构见 `crates/`，开发约定见 `AGENTS.md`）。
+
+```bash
+# 构建（Rust 1.85+，MSVC 工具链）
+cargo build --release
+
+# 交互式 TUI（读取 ~/.lmcode/config.toml）
+./target/release/lm --tui
+
+# 单次执行
+./target/release/lm -p "列出当前目录的文件"
+
+# 恢复会话 / 继续最近会话
+./target/release/lm -S <session-id> -p "继续"
+./target/release/lm -C --tui
+
+# 计划模式 / 自动权限 / 指定技能目录
+./target/release/lm --plan
+./target/release/lm --auto
+./target/release/lm --skills-dir ./my-skills
+
+# NDJSON 事件输出（Claude Code stream-json 兼容）
+./target/release/lm -p "总结这个仓库" --output-format stream-json
+
+# 会话导出（ZIP：manifest.json + session/ 文件 + 全局日志）
+./target/release/lm export -y
+./target/release/lm export <session-id> -o backup.zip
+
+# cc-connect 消息平台配置向导（微信/飞书/Telegram/...）
+./target/release/lm channel setup
+
+# 可选：本地 ONNX embedding 引擎（fastembed）
+cargo build --release -p lmcode-cli --features local-embeddings
+
+# 测试与检查（CI 同款：见 .github/workflows/ci.yml）
+cargo test --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+cargo doc --workspace --no-deps
+
+# 性能下限基准（打印 turns/sec）
+cargo test -p lmcode-core --release --test bench_harness -- --nocapture
+```
+
+配置：`~/.lmcode/config.toml`（`default_model = "provider/model"` + `[providers.<name>]`）；
+MCP 服务器：`~/.lmcode/mcp.json`；记忆库与 TS 版共用 `~/.lmcode/memory/memos.sqlite`。
+桌面端（Tauri，需要 WebView2）：`cargo run -p lmcode-desktop`。
+
+### 从 TS 版迁移
+
+Rust 版与 TS 版**共用数据目录**，可平滑切换：
+
+- 配置：`~/.lmcode/config.toml`（格式一致——`default_model` + `[providers.<name>]` + `[models.<alias>]`）
+- MCP：`~/.lmcode/mcp.json`（格式一致；Rust 版支持运行时启停 / 卸载 / 推荐安装）
+- 记忆库：`~/.lmcode/memory/memos.sqlite`（同库读写；Rust 版会自动补齐旧库缺失的列）
+- 技能：`~/.lmcode/skills` 与 `.lmcode/skills`（格式一致）
+- 会话：两版各自存储（Rust 版在 `~/.lmcode/rust-sessions/`），互不干扰
+
+模块与测试的完整对照见 `docs/RUST_TEST_MAPPING.md`；已知边界与验证门禁（`records/replay` 语义等价说明、CLI 表面契约测试、CI、基准）见 `AGENTS.md`。
+
 ## 安装
 
 需要 [Node.js](https://nodejs.org/) `>= 22.19.0`。

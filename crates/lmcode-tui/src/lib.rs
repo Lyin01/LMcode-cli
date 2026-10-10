@@ -136,6 +136,7 @@ fn handle_terminal_event(
         app.mention = None;
         if app.status == Status::Generating {
             cancel.notify_waiters();
+            cancel.notify_one();
         } else {
             app.should_quit = true;
         }
@@ -255,6 +256,7 @@ fn handle_terminal_event(
         KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
             if generating {
                 cancel.notify_waiters();
+                cancel.notify_one();
             } else {
                 app.should_quit = true;
             }
@@ -262,6 +264,7 @@ fn handle_terminal_event(
         KeyCode::Esc => {
             if generating {
                 cancel.notify_waiters();
+                cancel.notify_one();
             } else {
                 app.input.clear();
                 app.mention = None;

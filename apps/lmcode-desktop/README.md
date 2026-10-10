@@ -2,6 +2,22 @@
 
 LMCODE 的 Electron 桌面客户端。对话由随安装包提供的 `lm app-server`（Rust 核心）执行；Git、终端、远程和自动更新仍留在 Electron 壳里。
 
+## 0.9.16
+
+修复任务取消与停止中断机制，补齐桌面端基础代码操作工具，解决 Windows 下换行符导致的修改失败。
+
+**背景**：
+1. 任务进行时，按 ESC 或点击停止有时无法中断，后台子进程可能继续挂起，原因在于轮次循环中工具执行与网络请求未响应外部取消信号，且通知唤醒可能在无激活等待时丢失。
+2. 桌面 app-server 缺失 Read、Write、Edit、Grep、Glob 等文件工具，导致模型无法正常读写工作区；Windows 下 CRLF/混合换行符常导致 Edit 工具误报 `old_string not found`；部分 Windows 环境找不到 Bash 时未提供回退机制。
+
+**改动**：
+- **即时取消与停止**：Rust 核心轮次循环在网络请求与工具调用执行时挂载取消信号，取消时即刻终止正在执行的子进程（`kill_on_drop`）；修复通知丢弃问题，桌面端在输入框与转录本区域均支持 ESC 即时停止生成。
+- **补齐基础文件工具**：桌面 `app-server` 完整接入 `Read`、`Write`、`Edit`、`Grep`、`Glob` 等基础编码工具，解除模型操作限制。
+- **CRLF 换行符归一化**：在 `Edit` 及 `MultiEdit` 工具中对文件内容与替换目标先做换行符规范化匹配，写回时保留原始换行格式，彻底解决 Windows 下编辑报错。
+- **Windows Shell 兼容**：自动探测 Git Bash 安装路径并支持 PowerShell 回退。
+
+**验证**：`cargo test --workspace` 全量通过；`cargo test -p lmcode-cli --test app_server` 12 项全过；桌面客户端单元测试与端到端测试 112 个测试文件全部通过。
+
 ## 0.9.15
 
 多个对话可以同时生成。再开一个对话不再报 `a turn is already running`，权限模式没变时也不再弹红字。

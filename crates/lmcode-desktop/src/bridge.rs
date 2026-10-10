@@ -363,6 +363,7 @@ pub struct StartupContext {
     pub subagents: lmcode_core::subagent::SubagentLog,
     pub inbox: InboxLog,
     pub events_tx: tokio::sync::broadcast::Sender<String>,
+    pub cancel: Arc<tokio::sync::Notify>,
 }
 
 pub async fn start_agent(
@@ -377,6 +378,7 @@ pub async fn start_agent(
         subagents,
         inbox,
         events_tx,
+        cancel,
     } = startup;
     let mut ui = DesktopUi {
         handle: handle.clone(),
@@ -581,6 +583,7 @@ pub async fn start_agent(
     agent.attach_goal(goal_handle);
     agent.attach_cron(cron_handle);
     agent.attach_evidence_snapshot(evidence_snapshot);
+    agent.set_cancel_signal(Arc::clone(&cancel));
 
     let mut current_model = display_name.clone();
     *status.lock().await = Some(StatusPayload {

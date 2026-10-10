@@ -29,6 +29,7 @@ pub struct AppState {
     /// Broadcast sender for the LAN remote service.
     events_tx: tokio::sync::broadcast::Sender<String>,
     remote: Arc<tokio::sync::Mutex<Option<remote::RemoteService>>>,
+    cancel: Arc<tokio::sync::Notify>,
 }
 
 /// Frontend-readable status (model + session); avoids the load race where the
@@ -64,6 +65,13 @@ async fn approve_tool(state: tauri::State<'_, AppState>, approved: bool) -> Resu
     if let Some(respond) = slot.take() {
         let _ = respond.send(approved);
     }
+    Ok(())
+}
+
+#[tauri::command]
+async fn cancel_turn(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.cancel.notify_waiters();
+    state.cancel.notify_one();
     Ok(())
 }
 
@@ -616,6 +624,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             send_message,
             approve_tool,
+            cancel_turn,
             get_status,
             list_sessions,
             resume_session,
@@ -653,6 +662,7 @@ fn main() {
                 Arc::new(std::sync::Mutex::new(Vec::new()));
             let inbox: bridge::InboxLog = Arc::new(std::sync::Mutex::new(Vec::new()));
             let (events_tx, _) = tokio::sync::broadcast::channel::<String>(256);
+            let cancel = Arc::new(tokio::sync::Notify::new());
             app.manage(AppState {
                 commands: commands_tx,
                 approval: Arc::clone(&approval),
@@ -662,6 +672,7 @@ fn main() {
                 inbox: Arc::clone(&inbox),
                 events_tx: events_tx.clone(),
                 remote: Arc::new(tokio::sync::Mutex::new(None)),
+                cancel: Arc::clone(&cancel),
             });
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -674,6 +685,7 @@ fn main() {
                         subagents,
                         inbox,
                         events_tx,
+                        cancel,
                     },
                     initial,
                 )

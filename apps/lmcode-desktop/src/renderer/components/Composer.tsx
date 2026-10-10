@@ -601,6 +601,12 @@ export function Composer({
           }
           return
         }
+      } else if (e.key === 'Escape') {
+        if (isStreaming) {
+          e.preventDefault()
+          void cancel()
+          return
+        }
       }
       if (e.key === 'Enter' && !e.shiftKey) {
         if (isImeConfirmKey(e)) return
@@ -608,7 +614,7 @@ export function Composer({
         handleSend(isStreaming && (e.ctrlKey || e.metaKey) ? 'steer' : 'default')
       }
     },
-    [handleSend, isStreaming, showSlash, slashMatchCount],
+    [handleSend, isStreaming, showSlash, slashMatchCount, cancel],
   )
 
   const handleInput = useCallback(() => {
