@@ -257,21 +257,32 @@ impl SessionStore {
     /// All sessions for `work_dir`, most recently updated first.
     pub fn list(&self, work_dir: &Path) -> Result<Vec<SessionState>, CoreError> {
         let bucket = self.bucket_dir(work_dir);
-        let entries = match std::fs::read_dir(&bucket) {
+        Ok(read_states(&bucket))
+    }
+
+    /// Every session under the store root, most recently updated first.
+    ///
+    /// The desktop sidebar is not scoped to one project. A missing root is an
+    /// empty list, the same as a project that has no sessions yet.
+    pub fn list_all(&self) -> Result<Vec<SessionState>, CoreError> {
+        let entries = match std::fs::read_dir(&self.root) {
             Ok(entries) => entries,
             Err(_) => return Ok(Vec::new()),
         };
         let mut states = Vec::new();
         for entry in entries.flatten() {
-            let state_path = entry.path().join(STATE_FILE);
-            if let Ok(text) = std::fs::read_to_string(&state_path)
-                && let Ok(state) = serde_json::from_str::<SessionState>(&text)
-            {
-                states.push(state);
+            let path = entry.path();
+            if path.is_dir() {
+                states.extend(read_states(&path));
             }
         }
         states.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(states)
+    }
+
+    /// Directory that holds `state` on disk.
+    pub fn directory_of(&self, state: &SessionState) -> PathBuf {
+        self.bucket_dir(Path::new(&state.work_dir)).join(&state.id)
     }
 
     /// Remove the session directory. A session that is already gone is success.
@@ -312,11 +323,26 @@ impl SessionStore {
         source_id: &str,
         target_id: &str,
     ) -> Result<Session, CoreError> {
+        self.fork_into(work_dir, source_id, work_dir, target_id, None)
+    }
+
+    /// Copy a session, optionally into another workdir bucket and with a new title.
+    ///
+    /// The desktop worktree panel forks into a different directory. Omitting a
+    /// distinct target keeps the original same-bucket copy.
+    pub fn fork_into(
+        &self,
+        source_work_dir: &Path,
+        source_id: &str,
+        target_work_dir: &Path,
+        target_id: &str,
+        title: Option<&str>,
+    ) -> Result<Session, CoreError> {
         if target_id.trim().is_empty() {
             return Err(CoreError::Session("Session id cannot be empty".to_string()));
         }
-        let source = self.load(work_dir, source_id)?;
-        let dir = self.bucket_dir(work_dir).join(target_id);
+        let source = self.load(source_work_dir, source_id)?;
+        let dir = self.bucket_dir(target_work_dir).join(target_id);
         if dir.exists() {
             return Err(CoreError::Session(format!(
                 "Session \"{target_id}\" already exists"
@@ -343,6 +369,13 @@ impl SessionStore {
         forked.state.created_at.clone_from(&now);
         forked.state.updated_at = now;
         forked.state.forked_from = Some(source_id.to_string());
+        if self.bucket_dir(source_work_dir) != self.bucket_dir(target_work_dir) {
+            forked.state.work_dir = target_work_dir.to_string_lossy().replace('\\', "/");
+        }
+        if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
+            forked.state.title = Some(title.to_string());
+            forked.state.is_custom_title = true;
+        }
         let messages = forked.messages.clone();
         if let Err(error) = forked.save(&messages) {
             let _ = std::fs::remove_dir_all(&forked.dir);
@@ -364,6 +397,24 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn read_states(bucket: &Path) -> Vec<SessionState> {
+    let entries = match std::fs::read_dir(bucket) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+    let mut states = Vec::new();
+    for entry in entries.flatten() {
+        let state_path = entry.path().join(STATE_FILE);
+        if let Ok(text) = std::fs::read_to_string(&state_path)
+            && let Ok(state) = serde_json::from_str::<SessionState>(&text)
+        {
+            states.push(state);
+        }
+    }
+    states.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    states
 }
 
 fn read_messages(dir: &Path) -> Result<Vec<Message>, CoreError> {

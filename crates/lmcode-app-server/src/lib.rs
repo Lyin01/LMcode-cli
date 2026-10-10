@@ -19,10 +19,11 @@ use lmcode_core::computer_use::{
     ComputerUsePhase, ComputerUseServerView, ComputerUseStatus, HostPlatform,
 };
 use lmcode_core::config::{
-    ComputerUseConfig, ComputerUsePermissionMode, default_config_path, load_config, resolve_model,
-    save_config,
+    ComputerUseConfig, ComputerUsePermissionMode, FileSandboxMode, LoopControlConfig,
+    PermissionConfig, PermissionMode, RawConfig, RawModelAlias, RawProvider, default_config_path,
+    load_config, resolve_model, save_config,
 };
-use lmcode_core::cron::CronStore;
+use lmcode_core::cron::{CronStore, CronTask};
 use lmcode_core::goal::{GoalMode, GoalStatus};
 use lmcode_core::session::{Session, SessionStore};
 use lmcode_core::tools::ask_user::{AskUserAnswer, UserQuestion};
@@ -111,7 +112,9 @@ impl JsonUi {
             &json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
         )
         .await?;
-        match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
+        // Desktop approval dialogs stay open while the operator reads the
+        // command. 60s was shorter than a normal review.
+        match tokio::time::timeout(std::time::Duration::from_secs(600), rx).await {
             Ok(Ok(value)) => {
                 if let Some(error) = value.get("error") {
                     Err(error.to_string())
@@ -341,6 +344,8 @@ impl Server {
             "turn/interrupt" => self.turn_interrupt(),
             "config/read" => config_read(params),
             "config/write" => config_write(params),
+            "config/get" => config_get(params),
+            "config/patch" => config_patch(params),
             "goal/get" => self.goal_get().await,
             "goal/create" => self.goal_create(params).await,
             "goal/update" => self.goal_update(params).await,
@@ -403,8 +408,12 @@ impl Server {
     }
 
     fn thread_list(&self, params: &Value) -> Result<Value, RpcError> {
-        let cwd = PathBuf::from(require_str(params, "cwd")?);
-        let states = SessionStore::new().list(&cwd).map_err(failed)?;
+        let store = SessionStore::new();
+        let cwd = params.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
+        let states = match cwd {
+            Some(cwd) => store.list(Path::new(cwd)).map_err(failed)?,
+            None => store.list_all().map_err(failed)?,
+        };
         let threads = states
             .into_iter()
             .map(|state| {
@@ -414,7 +423,9 @@ impl Server {
                     "model": state.model,
                     "title": state.title,
                     "forkedFrom": state.forked_from,
+                    "createdAt": state.created_at,
                     "updatedAt": state.updated_at,
+                    "sessionDir": store.directory_of(&state).display().to_string(),
                 })
             })
             .collect::<Vec<_>>();
@@ -426,8 +437,15 @@ impl Server {
         let cwd = PathBuf::from(require_str(params, "cwd")?);
         let source = require_str(params, "threadId")?.to_string();
         let target = format!("session_{}", uuid::Uuid::new_v4());
+        let target_cwd = params
+            .get("targetCwd")
+            .and_then(Value::as_str)
+            .filter(|cwd| !cwd.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| cwd.clone());
+        let title = params.get("title").and_then(Value::as_str);
         let forked = SessionStore::new()
-            .fork(&cwd, &source, &target)
+            .fork_into(&cwd, &source, &target_cwd, &target, title)
             .map_err(failed)?;
         let goal = GoalMode::with_path(forked.directory().join("goal.json")).snapshot();
         let tasks = CronStore::with_dir(forked.directory().join("cron"))
@@ -607,7 +625,8 @@ impl Server {
     async fn cron_list(&self) -> Result<Value, RpcError> {
         let cron = self.cron_handle()?;
         let tasks = cron.lock().await.list().to_vec();
-        Ok(json!({"tasks": serde_json::to_value(tasks).map_err(failed)?}))
+        let jobs = tasks.iter().map(job_value).collect::<Vec<_>>();
+        Ok(json!({"tasks": jobs}))
     }
 
     async fn cron_create(&self, params: &Value) -> Result<Value, RpcError> {
@@ -623,7 +642,7 @@ impl Server {
             .await
             .add(expression, prompt, recurring)
             .map_err(RpcError::failed)?;
-        Ok(json!({"task": serde_json::to_value(task).map_err(failed)?}))
+        Ok(json!({"task": job_value(&task)}))
     }
 
     async fn cron_delete(&self, params: &Value) -> Result<Value, RpcError> {
@@ -783,8 +802,30 @@ fn session_value(session: &Session) -> Result<Value, RpcError> {
         "forkedFrom": session.state.forked_from,
         "createdAt": session.state.created_at,
         "updatedAt": session.state.updated_at,
+        "sessionDir": session.directory().display().to_string(),
         "messages": serde_json::to_value(&session.messages).map_err(failed)?,
     }))
+}
+
+fn job_value(task: &CronTask) -> Value {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let mut value = json!({
+        "id": task.id,
+        "cron": task.cron,
+        "prompt": task.prompt,
+        "createdAt": task.created_at,
+        "recurring": task.is_recurring(),
+        "humanSchedule": task.cron,
+        "nextFireAt": task.next_fire_at_ms(),
+        "stale": task.is_stale_at(now_ms),
+    });
+    if let Some(last) = task.last_fired_at {
+        value["lastFiredAt"] = json!(last);
+    }
+    value
 }
 
 fn goal_value(goal: Option<lmcode_core::goal::GoalSnapshot>) -> Result<Value, RpcError> {
@@ -820,6 +861,530 @@ fn config_path(params: &Value) -> PathBuf {
         .and_then(Value::as_str)
         .map(PathBuf::from)
         .unwrap_or_else(default_config_path)
+}
+
+/// CamelCase view of the modeled config plus unknown keys kept in `extra`.
+///
+/// A missing file is an empty config (`providers: {}`) so the settings panel
+/// can render before the desktop writes the first file. `config/read` still
+/// errors when the file is absent.
+fn config_get(params: &Value) -> Result<Value, RpcError> {
+    let path = config_path(params);
+    let config = match load_config(Some(&path)) {
+        Ok(config) => config,
+        Err(_) if !path.exists() => RawConfig::default(),
+        Err(error) => return Err(failed(error)),
+    };
+    config_to_json(&config)
+}
+
+/// Merge a camelCase patch into the file and return the same shape as [`config_get`].
+///
+/// Provider and model entries merge by id. A JSON null deletes that entry.
+/// Keys this schema does not model are stored as-is so a desktop startup flag
+/// such as `anchoredBootstrap` round-trips.
+fn config_patch(params: &Value) -> Result<Value, RpcError> {
+    let path = config_path(params);
+    let patch = params.get("patch").cloned().unwrap_or_else(|| params.clone());
+    let patch = patch
+        .as_object()
+        .ok_or_else(|| RpcError::params("config patch must be an object"))?;
+    let mut config = match load_config(Some(&path)) {
+        Ok(config) => config,
+        Err(_) if !path.exists() => RawConfig::default(),
+        Err(error) => return Err(failed(error)),
+    };
+    apply_config_patch(&mut config, patch)?;
+    let backup = std::fs::read(&path).ok();
+    save_config(&path, &config).map_err(failed)?;
+    match load_config(Some(&path)) {
+        Ok(loaded) => config_to_json(&loaded),
+        Err(error) => {
+            if let Some(bytes) = backup {
+                let _ = std::fs::write(&path, bytes);
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(failed(error))
+        }
+    }
+}
+
+fn config_to_json(config: &RawConfig) -> Result<Value, RpcError> {
+    let mut value = serde_json::Map::new();
+    value.insert("providers".to_string(), providers_json(&config.providers));
+    insert_json_string(&mut value, "defaultProvider", config.default_provider.as_deref());
+    insert_json_string(&mut value, "defaultModel", config.default_model.as_deref());
+    if !config.models.is_empty() {
+        value.insert("models".to_string(), models_json(&config.models));
+    }
+    if let Some(thinking) = config.default_thinking {
+        value.insert("defaultThinking".to_string(), json!(thinking));
+    }
+    if let Some(mode) = config.default_permission_mode {
+        value.insert(
+            "defaultPermissionMode".to_string(),
+            serde_json::to_value(mode).map_err(failed)?,
+        );
+    }
+    if let Some(sandbox) = config.default_file_sandbox {
+        value.insert(
+            "defaultFileSandbox".to_string(),
+            serde_json::to_value(sandbox).map_err(failed)?,
+        );
+    }
+    if let Some(permission) = &config.permission
+        && !permission.rules.is_empty()
+    {
+        value.insert(
+            "permission".to_string(),
+            serde_json::to_value(permission).map_err(failed)?,
+        );
+    }
+    if let Some(loop_control) = &config.loop_control {
+        let encoded = loop_control_json(loop_control);
+        if encoded.as_object().is_some_and(|object| !object.is_empty()) {
+            value.insert("loopControl".to_string(), encoded);
+        }
+    }
+    if let Some(computer_use) = &config.computer_use {
+        value.insert(
+            "computerUse".to_string(),
+            computer_use_json(computer_use)?,
+        );
+    }
+    for (key, extra) in &config.extra {
+        if value.contains_key(key) {
+            continue;
+        }
+        value.insert(key.clone(), toml_to_json(extra));
+    }
+    Ok(Value::Object(value))
+}
+
+fn apply_config_patch(
+    config: &mut RawConfig,
+    patch: &serde_json::Map<String, Value>,
+) -> Result<(), RpcError> {
+    for (key, value) in patch {
+        match key.as_str() {
+            "path" | "patch" => {}
+            "providers" => merge_providers(&mut config.providers, value)?,
+            "models" => merge_models(&mut config.models, value)?,
+            "defaultProvider" => config.default_provider = optional_string(value)?,
+            "defaultModel" => config.default_model = optional_string(value)?,
+            "defaultThinking" => {
+                config.default_thinking = match value {
+                    Value::Null => None,
+                    Value::Bool(flag) => Some(*flag),
+                    _ => return Err(RpcError::params("defaultThinking must be a boolean")),
+                }
+            }
+            "defaultPermissionMode" => {
+                config.default_permission_mode = match value {
+                    Value::Null => None,
+                    Value::String(name) => Some(parse_permission_mode(name)?),
+                    _ => return Err(RpcError::params("defaultPermissionMode must be a string")),
+                }
+            }
+            "defaultFileSandbox" => {
+                config.default_file_sandbox = match value {
+                    Value::Null => None,
+                    Value::String(name) => Some(parse_file_sandbox(name)?),
+                    _ => return Err(RpcError::params("defaultFileSandbox must be a string")),
+                }
+            }
+            "permission" => {
+                config.permission = match value {
+                    Value::Null => None,
+                    other => Some(serde_json::from_value::<PermissionConfig>(other.clone()).map_err(failed)?),
+                }
+            }
+            "loopControl" => merge_loop_control(config, value)?,
+            "computerUse" => merge_computer_use(config, value)?,
+            other => {
+                if value.is_null() {
+                    config.extra.remove(other);
+                } else {
+                    config.extra.insert(other.to_string(), json_to_toml(value)?);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn providers_json(providers: &HashMap<String, RawProvider>) -> Value {
+    let mut object = serde_json::Map::new();
+    for (id, provider) in providers {
+        object.insert(id.clone(), provider_json(provider));
+    }
+    Value::Object(object)
+}
+
+fn provider_json(provider: &RawProvider) -> Value {
+    let mut value = serde_json::Map::new();
+    if !provider.provider_type.is_empty() {
+        value.insert("type".to_string(), json!(provider.provider_type));
+    }
+    insert_json_string(&mut value, "apiKey", provider.api_key.as_deref());
+    insert_json_string(&mut value, "baseUrl", provider.base_url.as_deref());
+    insert_json_string(&mut value, "defaultModel", provider.default_model.as_deref());
+    if !provider.custom_headers.is_empty() {
+        value.insert(
+            "customHeaders".to_string(),
+            serde_json::to_value(&provider.custom_headers).unwrap_or(json!({})),
+        );
+    }
+    if let Some(enabled) = provider.enabled {
+        value.insert("enabled".to_string(), json!(enabled));
+    }
+    insert_json_string(&mut value, "project", provider.project.as_deref());
+    insert_json_string(&mut value, "location", provider.location.as_deref());
+    insert_json_string(&mut value, "credentials", provider.credentials.as_deref());
+    Value::Object(value)
+}
+
+fn models_json(models: &HashMap<String, RawModelAlias>) -> Value {
+    let mut object = serde_json::Map::new();
+    for (id, alias) in models {
+        let mut value = serde_json::Map::new();
+        value.insert("provider".to_string(), json!(alias.provider));
+        value.insert("model".to_string(), json!(alias.model));
+        if let Some(size) = alias.max_context_size {
+            value.insert("maxContextSize".to_string(), json!(size));
+        }
+        if let Some(size) = alias.max_output_size {
+            value.insert("maxOutputSize".to_string(), json!(size));
+        }
+        insert_json_string(&mut value, "displayName", alias.display_name.as_deref());
+        object.insert(id.clone(), Value::Object(value));
+    }
+    Value::Object(object)
+}
+
+fn loop_control_json(loop_control: &LoopControlConfig) -> Value {
+    let mut value = serde_json::Map::new();
+    insert_json_u64(&mut value, "maxStepsPerTurn", loop_control.max_steps_per_turn);
+    insert_json_u64(&mut value, "maxRetriesPerStep", loop_control.max_retries_per_step);
+    if let Some(iterations) = loop_control.max_ralph_iterations {
+        value.insert("maxRalphIterations".to_string(), json!(iterations));
+    }
+    insert_json_u64(
+        &mut value,
+        "maxPostWriteReviewsPerTurn",
+        loop_control.max_post_write_reviews_per_turn,
+    );
+    insert_json_u64(&mut value, "reservedContextSize", loop_control.reserved_context_size);
+    if let Some(ratio) = loop_control.compaction_trigger_ratio {
+        value.insert("compactionTriggerRatio".to_string(), json!(ratio));
+    }
+    insert_json_u64(&mut value, "mediaBudgetBytes", loop_control.media_budget_bytes);
+    insert_json_u64(
+        &mut value,
+        "mediaToolResultImageLimit",
+        loop_control.media_tool_result_image_limit,
+    );
+    insert_json_u64(
+        &mut value,
+        "microCompactionWorkingSetTokens",
+        loop_control.micro_compaction_working_set_tokens,
+    );
+    insert_json_u64(
+        &mut value,
+        "compactionBlockTimeoutMs",
+        loop_control.compaction_block_timeout_ms,
+    );
+    Value::Object(value)
+}
+
+fn computer_use_json(computer_use: &ComputerUseConfig) -> Result<Value, RpcError> {
+    let mut value = serde_json::Map::new();
+    value.insert("enabled".to_string(), json!(computer_use.enabled));
+    insert_json_string(&mut value, "provider", computer_use.provider.as_deref());
+    insert_json_string(&mut value, "command", computer_use.command.as_deref());
+    if !computer_use.args.is_empty() {
+        value.insert("args".to_string(), json!(computer_use.args));
+    }
+    if let Some(mode) = computer_use.permission_mode {
+        value.insert(
+            "permissionMode".to_string(),
+            serde_json::to_value(mode).map_err(failed)?,
+        );
+    }
+    Ok(Value::Object(value))
+}
+
+fn merge_providers(
+    providers: &mut HashMap<String, RawProvider>,
+    value: &Value,
+) -> Result<(), RpcError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| RpcError::params("providers must be an object"))?;
+    for (id, entry) in object {
+        if entry.is_null() {
+            providers.remove(id);
+            continue;
+        }
+        let entry = entry
+            .as_object()
+            .ok_or_else(|| RpcError::params("provider entry must be an object"))?;
+        let mut provider = providers.get(id).cloned().unwrap_or_default();
+        if let Some(kind) = entry.get("type").and_then(Value::as_str) {
+            provider.provider_type = kind.to_string();
+        }
+        assign_optional_string(&mut provider.api_key, entry.get("apiKey"))?;
+        assign_optional_string(&mut provider.base_url, entry.get("baseUrl"))?;
+        assign_optional_string(&mut provider.default_model, entry.get("defaultModel"))?;
+        assign_optional_string(&mut provider.project, entry.get("project"))?;
+        assign_optional_string(&mut provider.location, entry.get("location"))?;
+        assign_optional_string(&mut provider.credentials, entry.get("credentials"))?;
+        if let Some(headers) = entry.get("customHeaders") {
+            provider.custom_headers = serde_json::from_value(headers.clone()).map_err(failed)?;
+        }
+        if let Some(enabled) = entry.get("enabled") {
+            provider.enabled = match enabled {
+                Value::Null => None,
+                Value::Bool(flag) => Some(*flag),
+                _ => return Err(RpcError::params("provider enabled must be a boolean")),
+            };
+        }
+        providers.insert(id.clone(), provider);
+    }
+    Ok(())
+}
+
+fn merge_models(
+    models: &mut HashMap<String, RawModelAlias>,
+    value: &Value,
+) -> Result<(), RpcError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| RpcError::params("models must be an object"))?;
+    for (id, entry) in object {
+        if entry.is_null() {
+            models.remove(id);
+            continue;
+        }
+        let entry = entry
+            .as_object()
+            .ok_or_else(|| RpcError::params("model entry must be an object"))?;
+        let mut alias = models.get(id).cloned().unwrap_or_default();
+        if let Some(provider) = entry.get("provider").and_then(Value::as_str) {
+            alias.provider = provider.to_string();
+        }
+        if let Some(model) = entry.get("model").and_then(Value::as_str) {
+            alias.model = model.to_string();
+        }
+        if let Some(size) = entry.get("maxContextSize") {
+            alias.max_context_size = optional_u64(size)?;
+        }
+        if let Some(size) = entry.get("maxOutputSize") {
+            alias.max_output_size = optional_u64(size)?;
+        }
+        assign_optional_string(&mut alias.display_name, entry.get("displayName"))?;
+        models.insert(id.clone(), alias);
+    }
+    Ok(())
+}
+
+fn merge_loop_control(config: &mut RawConfig, value: &Value) -> Result<(), RpcError> {
+    if value.is_null() {
+        config.loop_control = None;
+        return Ok(());
+    }
+    let object = value
+        .as_object()
+        .ok_or_else(|| RpcError::params("loopControl must be an object"))?;
+    let mut section = config.loop_control.clone().unwrap_or_default();
+    assign_optional_u64(&mut section.max_steps_per_turn, object.get("maxStepsPerTurn"))?;
+    assign_optional_u64(&mut section.max_retries_per_step, object.get("maxRetriesPerStep"))?;
+    if let Some(iterations) = object.get("maxRalphIterations") {
+        section.max_ralph_iterations = match iterations {
+            Value::Null => None,
+            Value::Number(number) => Some(
+                number
+                    .as_i64()
+                    .ok_or_else(|| RpcError::params("maxRalphIterations must be an integer"))?,
+            ),
+            _ => return Err(RpcError::params("maxRalphIterations must be an integer")),
+        };
+    }
+    assign_optional_u64(
+        &mut section.max_post_write_reviews_per_turn,
+        object.get("maxPostWriteReviewsPerTurn"),
+    )?;
+    assign_optional_u64(&mut section.reserved_context_size, object.get("reservedContextSize"))?;
+    if let Some(ratio) = object.get("compactionTriggerRatio") {
+        section.compaction_trigger_ratio = match ratio {
+            Value::Null => None,
+            Value::Number(number) => Some(
+                number
+                    .as_f64()
+                    .ok_or_else(|| RpcError::params("compactionTriggerRatio must be a number"))?,
+            ),
+            _ => return Err(RpcError::params("compactionTriggerRatio must be a number")),
+        };
+    }
+    assign_optional_u64(&mut section.media_budget_bytes, object.get("mediaBudgetBytes"))?;
+    assign_optional_u64(
+        &mut section.media_tool_result_image_limit,
+        object.get("mediaToolResultImageLimit"),
+    )?;
+    assign_optional_u64(
+        &mut section.micro_compaction_working_set_tokens,
+        object.get("microCompactionWorkingSetTokens"),
+    )?;
+    assign_optional_u64(
+        &mut section.compaction_block_timeout_ms,
+        object.get("compactionBlockTimeoutMs"),
+    )?;
+    config.loop_control = Some(section);
+    Ok(())
+}
+
+fn merge_computer_use(config: &mut RawConfig, value: &Value) -> Result<(), RpcError> {
+    if value.is_null() {
+        config.computer_use = None;
+        return Ok(());
+    }
+    let object = value
+        .as_object()
+        .ok_or_else(|| RpcError::params("computerUse must be an object"))?;
+    let mut section = config.computer_use.clone().unwrap_or(ComputerUseConfig {
+        enabled: false,
+        provider: None,
+        command: None,
+        args: Vec::new(),
+        permission_mode: None,
+    });
+    if let Some(enabled) = object.get("enabled") {
+        section.enabled = enabled
+            .as_bool()
+            .ok_or_else(|| RpcError::params("computerUse.enabled must be a boolean"))?;
+    }
+    assign_optional_string(&mut section.provider, object.get("provider"))?;
+    assign_optional_string(&mut section.command, object.get("command"))?;
+    if let Some(args) = object.get("args") {
+        section.args = serde_json::from_value(args.clone()).map_err(failed)?;
+    }
+    if let Some(mode) = object.get("permissionMode") {
+        section.permission_mode = match mode {
+            Value::Null => None,
+            Value::String(name) => Some(parse_computer_use_mode(name)?),
+            _ => return Err(RpcError::params("computerUse.permissionMode must be a string")),
+        };
+    }
+    config.computer_use = Some(section);
+    Ok(())
+}
+
+fn parse_permission_mode(name: &str) -> Result<PermissionMode, RpcError> {
+    match name {
+        "manual" => Ok(PermissionMode::Manual),
+        "yolo" => Ok(PermissionMode::Yolo),
+        "auto" => Ok(PermissionMode::Auto),
+        other => Err(RpcError::params(format!("unknown permission mode `{other}`"))),
+    }
+}
+
+fn parse_file_sandbox(name: &str) -> Result<FileSandboxMode, RpcError> {
+    match name {
+        "read-only" => Ok(FileSandboxMode::ReadOnly),
+        "workspace-write" => Ok(FileSandboxMode::WorkspaceWrite),
+        "full-access" => Ok(FileSandboxMode::FullAccess),
+        other => Err(RpcError::params(format!("unknown file sandbox `{other}`"))),
+    }
+}
+
+fn parse_computer_use_mode(name: &str) -> Result<ComputerUsePermissionMode, RpcError> {
+    match name {
+        "standard" => Ok(ComputerUsePermissionMode::Standard),
+        "bounded" => Ok(ComputerUsePermissionMode::Bounded),
+        "unrestricted" => Ok(ComputerUsePermissionMode::Unrestricted),
+        other => Err(RpcError::params(format!(
+            "unknown computer-use permission mode `{other}`"
+        ))),
+    }
+}
+
+fn optional_string(value: &Value) -> Result<Option<String>, RpcError> {
+    match value {
+        Value::Null => Ok(None),
+        Value::String(text) => Ok(Some(text.clone())),
+        _ => Err(RpcError::params("expected a string or null")),
+    }
+}
+
+fn assign_optional_string(slot: &mut Option<String>, value: Option<&Value>) -> Result<(), RpcError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    *slot = optional_string(value)?;
+    Ok(())
+}
+
+fn optional_u64(value: &Value) -> Result<Option<u64>, RpcError> {
+    match value {
+        Value::Null => Ok(None),
+        Value::Number(number) => number
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| RpcError::params("expected a non-negative integer")),
+        _ => Err(RpcError::params("expected a non-negative integer")),
+    }
+}
+
+fn assign_optional_u64(slot: &mut Option<u64>, value: Option<&Value>) -> Result<(), RpcError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    *slot = optional_u64(value)?;
+    Ok(())
+}
+
+fn insert_json_string(object: &mut serde_json::Map<String, Value>, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        object.insert(key.to_string(), json!(value));
+    }
+}
+
+fn insert_json_u64(object: &mut serde_json::Map<String, Value>, key: &str, value: Option<u64>) {
+    if let Some(value) = value {
+        object.insert(key.to_string(), json!(value));
+    }
+}
+
+fn toml_to_json(value: &toml::Value) -> Value {
+    serde_json::to_value(value).unwrap_or(Value::Null)
+}
+
+fn json_to_toml(value: &Value) -> Result<toml::Value, RpcError> {
+    match value {
+        Value::Null => Err(RpcError::params("cannot store null as a config value")),
+        Value::Bool(flag) => Ok(toml::Value::Boolean(*flag)),
+        Value::Number(number) => {
+            if let Some(integer) = number.as_i64() {
+                Ok(toml::Value::Integer(integer))
+            } else if let Some(float) = number.as_f64() {
+                Ok(toml::Value::Float(float))
+            } else {
+                Err(RpcError::params("config number is out of range"))
+            }
+        }
+        Value::String(text) => Ok(toml::Value::String(text.clone())),
+        Value::Array(items) => Ok(toml::Value::Array(
+            items.iter().map(json_to_toml).collect::<Result<Vec<_>, _>>()?,
+        )),
+        Value::Object(object) => {
+            let mut table = toml::map::Map::new();
+            for (key, entry) in object {
+                table.insert(key.clone(), json_to_toml(entry)?);
+            }
+            Ok(toml::Value::Table(table))
+        }
+    }
 }
 
 fn persist_computer_use(enabled: bool) -> Result<(), RpcError> {

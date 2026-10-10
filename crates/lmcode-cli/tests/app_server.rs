@@ -352,6 +352,68 @@ fn two_launches_agree_and_the_second_reloads_messages_goal_and_cron() {
 }
 
 #[test]
+fn list_all_sessions_and_config_patch_round_trip() {
+    let home = home("panels");
+    let cwd = home.join("work").to_string_lossy().to_string();
+    let other = home.join("other");
+    std::fs::create_dir_all(&other).expect("other workdir");
+    let other_cwd = other.to_string_lossy().to_string();
+
+    let mut client = Client::launch(&home);
+    client.call("initialize", json!({}));
+    let started = client.call("thread/start", json!({"cwd": cwd, "model": "script"}));
+    let first_id = started["thread"]["id"].as_str().unwrap().to_string();
+    assert!(
+        started["thread"]["sessionDir"]
+            .as_str()
+            .unwrap()
+            .contains(&first_id)
+    );
+    client.call("thread/start", json!({"cwd": other_cwd, "model": "script"}));
+
+    let all = client.call("thread/list", json!({}));
+    assert_eq!(all["threads"].as_array().unwrap().len(), 2);
+    let scoped = client.call("thread/list", json!({"cwd": cwd}));
+    assert_eq!(scoped["threads"].as_array().unwrap().len(), 1);
+    assert_eq!(scoped["threads"][0]["id"], first_id);
+
+    let config = client.call("config/get", json!({}));
+    assert_eq!(config["defaultModel"], "script");
+    assert_eq!(config["providers"]["local"]["apiKey"], "test");
+    assert_eq!(config["providers"]["local"]["baseUrl"], "http://127.0.0.1:9/v1");
+    let patched = client.call(
+        "config/patch",
+        json!({
+            "patch": {
+                "anchoredBootstrap": {"enabled": true, "providers": ["deepseek"]},
+                "providers": {"extra": {"type": "openai", "apiKey": "added"}}
+            }
+        }),
+    );
+    assert_eq!(patched["anchoredBootstrap"]["enabled"], true);
+    assert_eq!(patched["providers"]["local"]["apiKey"], "test");
+    assert_eq!(patched["providers"]["extra"]["apiKey"], "added");
+    let removed = client.call(
+        "config/patch",
+        json!({"patch": {"providers": {"extra": null}}}),
+    );
+    assert!(removed["providers"].get("extra").is_none());
+    assert_eq!(removed["providers"]["local"]["apiKey"], "test");
+    assert_eq!(removed["anchoredBootstrap"]["providers"][0], "deepseek");
+
+    let text = client.call("config/read", json!({}))["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(text.contains("anchoredBootstrap"), "{text}");
+    assert!(text.contains("api_key = \"test\""), "{text}");
+
+    let stderr = client.close();
+    assert!(stderr.is_empty(), "panel launch wrote to stderr:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
 fn approval_question_steer_and_interrupt_round_trip() {
     let home = home("turn");
     let cwd = home.join("work").to_string_lossy().to_string();

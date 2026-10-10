@@ -30,6 +30,21 @@ impl CronTask {
     pub fn is_recurring(&self) -> bool {
         self.recurring != Some(false)
     }
+
+    /// Next fire after the last delivery, or after creation when it has never fired.
+    pub fn next_fire_at_ms(&self) -> Option<i64> {
+        let expression = CronExpression::parse(&self.cron).ok()?;
+        let floor_ms = self.last_fired_at.unwrap_or(self.created_at);
+        let floor = millis_to_local(floor_ms);
+        expression
+            .next_after(&floor)
+            .map(|when| when.timestamp_millis())
+    }
+
+    /// Recurring tasks older than [`STALE_THRESHOLD_MS`] are stale.
+    pub fn is_stale_at(&self, now_ms: u64) -> bool {
+        self.is_recurring() && now_ms.saturating_sub(self.created_at) >= STALE_THRESHOLD_MS
+    }
 }
 
 /// One due fire ready for injection.

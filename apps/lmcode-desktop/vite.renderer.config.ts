@@ -41,7 +41,9 @@ export default defineConfig(({ command }) => ({
   },
   resolve: {
     alias: {
-      '@': rendererRoot
+      '@': rendererRoot,
+      '@lmcode-cli/lmcode-sdk': resolve(import.meta.dirname, 'src/shims/lmcode-sdk.ts'),
+      '@lmcode/memory': resolve(import.meta.dirname, 'src/shims/memory.ts'),
     }
   },
   plugins: [contentSecurityPolicyPlugin(command === 'serve'), react(), tailwindcss()]

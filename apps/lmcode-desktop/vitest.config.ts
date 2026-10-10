@@ -13,6 +13,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(appRoot, 'src/renderer'),
+      '@lmcode-cli/lmcode-sdk': resolve(appRoot, 'src/shims/lmcode-sdk.ts'),
+      '@lmcode/memory': resolve(appRoot, 'src/shims/memory.ts'),
     },
   },
   test: {

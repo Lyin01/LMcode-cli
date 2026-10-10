@@ -3,8 +3,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import os from 'node:os'
 import { randomBytes } from 'node:crypto'
-import type { LmcodeHarness, Logger } from '@lmcode-cli/lmcode-sdk'
-import type { MemoryMemoStore } from '@lmcode/memory'
+import type { Logger } from '@lmcode-cli/lmcode-sdk'
+import type { DesktopHarness, DesktopMemoryStore } from '../rust-core/types.js'
 import type { RemoteConfig, RemoteState } from '../../shared/remote-types.js'
 import { RemoteBridge } from './remote-bridge.js'
 import { RemoteServer } from './remote-server.js'
@@ -16,9 +16,9 @@ const MIN_PORT = 1024
 const MAX_PORT = 65_535
 
 export interface RemoteManagerOptions {
-  readonly harness: LmcodeHarness
+  readonly harness: DesktopHarness
   readonly hub: InteractionHub
-  readonly memoryStore: MemoryMemoStore
+  readonly memoryStore: DesktopMemoryStore
   /** Directory that holds the persisted remote config (the runtime userData). */
   readonly configDir: string
   /** Built-in mobile page served by the remote HTTP server (`out/remote-app/`). */

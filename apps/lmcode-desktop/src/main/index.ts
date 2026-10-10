@@ -11,13 +11,13 @@ import {
 } from 'electron'
 import type { IpcMainEvent } from 'electron'
 import { mkdir } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import updaterPkg from 'electron-updater'
 import type { NsisUpdater } from 'electron-updater'
-import { LmcodeHarness, log } from '@lmcode-cli/lmcode-sdk'
-import type { HarnessCloseOptions } from '@lmcode-cli/lmcode-sdk'
-import { MemoryMemoStore } from '@lmcode/memory'
+import { createDesktopLogger } from './log.js'
+import { RustHarness } from './rust-core/harness.js'
+import type { DesktopMemoryStore } from './rust-core/types.js'
 import { InteractionHub } from './remote/interaction-hub.js'
 import { RemoteManager } from './remote/remote-manager.js'
 import { abortComputerUseInstall } from './computer-use.js'
@@ -44,6 +44,7 @@ import {
 
 // electron-updater is CommonJS; destructure the default export for ESM.
 const { autoUpdater } = updaterPkg
+const log = createDesktopLogger()
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = join(__filename, '..')
@@ -86,7 +87,7 @@ process.on('uncaughtException', (error) => {
 })
 
 let mainWindow: BrowserWindow | null = null
-let harness: LmcodeHarness | null = null
+let harness: RustHarness | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let launchUpdateTimer: NodeJS.Timeout | null = null
@@ -102,7 +103,7 @@ let menuStateListener: ((event: IpcMainEvent, state: unknown) => void) | null = 
 // IPC layer and the remote bridge) and the remote service manager. All three
 // survive window recreation and are torn down only in closeRuntime.
 let interactionHub: InteractionHub | null = null
-let memoryStore: MemoryMemoStore | null = null
+let memoryStore: DesktopMemoryStore | null = null
 let remoteManager: RemoteManager | null = null
 
 function pushRemoteStateToRenderer(state: RemoteState): void {
@@ -577,10 +578,9 @@ async function initHarness(): Promise<void> {
   // Every runtime profile owns one complete data boundary: provider credentials,
   // sessions/SQLite, memories and logs all live below the same profile-specific
   // userData directory. Never fall back to the CLI config or another profile.
-  harness = new LmcodeHarness({
+  harness = await RustHarness.start({
     homeDir: runtimeEnvironment.userDataDir,
     configPath: runtimeEnvironment.configPath,
-    uiMode: 'desktop',
   })
 
   // Ensure config file exists
@@ -612,7 +612,7 @@ async function initHarness(): Promise<void> {
   // layer and the remote bridge. The remote service is opt-in and stays off
   // until the user enables it in settings.
   interactionHub = new InteractionHub()
-  memoryStore = new MemoryMemoStore(dirname(runtimeEnvironment.configPath))
+  memoryStore = harness.memoryStore()
   remoteManager = new RemoteManager({
     harness,
     hub: interactionHub,
@@ -677,7 +677,7 @@ async function attachHandlersToCurrentWindow(): Promise<void> {
   )
 }
 
-const closeRuntime = onceAsync(async (options?: HarnessCloseOptions): Promise<void> => {
+const closeRuntime = onceAsync(async (options?: { readonly extractMemories?: boolean }): Promise<void> => {
   if (harnessInitialization !== null) {
     await harnessInitialization.catch(() => {
       // Startup owns its failure; still close resources it managed to create.

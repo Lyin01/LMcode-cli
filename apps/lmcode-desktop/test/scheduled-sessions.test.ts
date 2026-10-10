@@ -46,6 +46,23 @@ describe('desktop scheduled-session activation', () => {
     await expect(scheduledSessionIds([ordinary, scheduled])).resolves.toEqual(['scheduled'])
   })
 
+  it('selects a session whose Rust cron directory holds a job file', async () => {
+    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lmcode-scheduled-session-'))
+    temporaryDirectories.push(sessionDir)
+    const cronDir = path.join(sessionDir, 'cron')
+    await fs.mkdir(cronDir)
+    await fs.writeFile(path.join(cronDir, 'job1.json'), '{}', 'utf8')
+    const session: SessionSummary = {
+      id: 'rust-cron',
+      workDir: sessionDir,
+      sessionDir,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    await expect(scheduledSessionIds([session])).resolves.toEqual(['rust-cron'])
+  })
+
   it('does not select sessions whose main-agent cron directory holds no job files', async () => {
     const empty = await sessionSummary('empty', 'empty-dir')
     const ordinary = await sessionSummary('ordinary', 'none')

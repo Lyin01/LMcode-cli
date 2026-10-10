@@ -1,12 +1,10 @@
 import os from 'node:os'
 import type {
-  LmcodeHarness,
   ResumedSessionState,
-  Session,
   SessionSummary,
 } from '@lmcode-cli/lmcode-sdk'
-import type { MemoryMemoStore } from '@lmcode/memory'
 import type { Event } from '@lmcode-cli/lmcode-sdk'
+import type { DesktopHarness, DesktopMemoryStore, DesktopSession } from '../rust-core/types.js'
 import { restoreRedactedConfigPatch, sanitizeConfigForRenderer } from '../config-security.js'
 import { isPermissionMode } from '../../shared/permission-mode.js'
 import {
@@ -32,7 +30,7 @@ export interface RemoteConnection {
 }
 
 interface ActiveSessionEntry {
-  readonly session: Session
+  readonly session: DesktopSession
   readonly unsubscribeEvent: () => void
 }
 
@@ -84,7 +82,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function isCachedSessionLive(session: Session): boolean {
+function isCachedSessionLive(session: DesktopSession): boolean {
   return !session.isClosed
 }
 
@@ -106,14 +104,14 @@ export class RemoteBridge implements InteractionSurface {
   private readonly connections = new Set<RemoteConnection>()
   private readonly activeSessions = new Map<string, ActiveSessionEntry>()
   private readonly resumingSessions = new Map<string, Promise<ActiveSessionEntry>>()
-  private readonly memoryStore: MemoryMemoStore
+  private readonly memoryStore: DesktopMemoryStore
   private closing = false
 
   constructor(
-    private readonly harness: LmcodeHarness,
+    private readonly harness: DesktopHarness,
     private readonly hub: InteractionHub,
     private readonly noProjectWorkDir: string,
-    memoryStore: MemoryMemoStore,
+    memoryStore: DesktopMemoryStore,
     private readonly onConfigChanged?: () => void,
     private readonly releaseHostSession?: (sessionId: string) => Promise<void>,
   ) {
@@ -192,7 +190,7 @@ export class RemoteBridge implements InteractionSurface {
    * Resume a session in this bridge and start forwarding its events. Safe to
    * call concurrently: in-flight resumes are deduplicated by promise.
    */
-  async ensureSession(sessionId: string): Promise<Session> {
+  async ensureSession(sessionId: string): Promise<DesktopSession> {
     if (this.closing) throw new Error('Remote bridge is closed')
     const existing = this.takeLiveEntry(sessionId)
     if (existing !== undefined) {
@@ -225,7 +223,7 @@ export class RemoteBridge implements InteractionSurface {
     return undefined
   }
 
-  private attachSession(session: Session): ActiveSessionEntry {
+  private attachSession(session: DesktopSession): ActiveSessionEntry {
     const prior = this.takeLiveEntry(session.id)
     if (prior !== undefined) {
       this.hub.bindSession(prior.session)
