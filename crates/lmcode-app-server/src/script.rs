@@ -1,8 +1,8 @@
 //! Offline provider for `lm app-server`.
 //!
-//! `script` echoes the latest real user prompt. `script-bash` and `script-ask`
-//! emit one tool call on the first request. `script-pause` waits inside the
-//! stream so a client can steer or interrupt before the token arrives.
+//! `script` echoes the latest real user prompt. `script-bash`, `script-ask`,
+//! and `script-bg` emit one tool call on the first request. `script-pause`
+//! waits inside the stream so a client can steer or interrupt before the token arrives.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -69,6 +69,13 @@ impl ChatProvider for ScriptProvider {
                         .to_string(),
                 ),
             ))
+        } else if self.model == "script-bg" && call == 0 {
+            let arguments = serde_json::json!({
+                "command": background_shell_command(),
+                "run_in_background": true,
+            })
+            .to_string();
+            StreamedMessagePart::ToolCall(ToolCall::new("call-bg", "Bash", Some(arguments)))
         } else {
             StreamedMessagePart::Content(ContentPart::Text {
                 text: format!("script: {last_user}"),
@@ -87,5 +94,14 @@ impl ChatProvider for ScriptProvider {
             ..StreamSummary::default()
         }));
         Ok(StreamedMessage::new(parts, summary))
+    }
+}
+
+/// Command that writes its own address and stays alive long enough to be stopped.
+fn background_shell_command() -> &'static str {
+    if cfg!(windows) {
+        "ping -n 30 127.0.0.1"
+    } else {
+        "ping -c 30 127.0.0.1"
     }
 }

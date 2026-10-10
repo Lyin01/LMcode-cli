@@ -358,6 +358,63 @@ describe('desktop client of lm app-server', () => {
     expect(second.capturedStderr()).toBe('')
   }, 60_000)
 
+  it('lists a real skill and stops a background command from a turn', async () => {
+    const home = await tempDir('lmcode-desktop-home-')
+    const work = await tempDir('lmcode-desktop-work-')
+    const skillDir = join(work, '.lmcode', 'skills', 'desk-probe')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: desk-probe\ndescription: probe the desktop skill list\n---\n\nFollow the desk-probe-body instructions.\n',
+    )
+    const harness = await startHarness(home)
+    await harness.ensureConfigFile()
+    const session = await harness.createSession({ workDir: work, model: 'script' })
+    const skills = (await session.listSkills()) as Array<{
+      name: string
+      source: string
+      path: string
+      description: string
+    }>
+    const skill = skills.find((item) => item.name === 'desk-probe')
+    expect(skill?.description).toBe('probe the desktop skill list')
+    expect(skill?.source).toBe('project')
+    expect(skill?.path.split('\\').join('/')).toContain('.lmcode/skills/desk-probe/SKILL.md')
+
+    const ended = waitForTurnEnd(session)
+    await session.activateSkill('desk-probe', 'with-arg')
+    await ended
+    const rendered = JSON.stringify((await session.getContext()).history)
+    expect(rendered).toContain('desk-probe-body')
+    expect(rendered).toContain('with-arg')
+
+    await session.setModel('script-bg')
+    await session.setPermission('yolo')
+    const backgroundEnded = waitForTurnEnd(session)
+    await session.prompt('start the background command')
+    await backgroundEnded
+
+    const deadline = Date.now() + 8_000
+    let taskId = ''
+    let output = ''
+    while (Date.now() < deadline) {
+      const tasks = await session.listBackgroundTasks({ activeOnly: false })
+      const task = tasks.find((item) => item.command.includes('127.0.0.1'))
+      if (task !== undefined) {
+        taskId = task.taskId
+        output = await session.getBackgroundTaskOutput(task.taskId)
+        if (output.includes('127.0.0.1')) break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    expect(output).toContain('127.0.0.1')
+    await session.stopBackgroundTask(taskId, { reason: 'test stop' })
+    const active = await session.listBackgroundTasks({ activeOnly: true })
+    expect(active.some((item) => item.taskId === taskId)).toBe(false)
+    const all = await session.listBackgroundTasks({ activeOnly: false })
+    expect(all.find((item) => item.taskId === taskId)?.status).toBe('killed')
+  }, 60_000)
+
   it('rejects a second turn while one is running', async () => {
     const home = await tempDir('lmcode-desktop-home-')
     const work = await tempDir('lmcode-desktop-work-')

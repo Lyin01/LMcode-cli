@@ -761,3 +761,93 @@ fn undo_and_compact_shorten_history_for_the_next_process() {
     );
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn skill_on_disk_activates_and_a_background_command_can_be_stopped() {
+    let home = home("skills");
+    let work = home.join("work");
+    let skill_dir = work.join(".lmcode").join("skills").join("desk-probe");
+    std::fs::create_dir_all(&skill_dir).expect("skill dir");
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: desk-probe\ndescription: probe the desktop skill list\n---\n\nFollow the desk-probe-body instructions.\n",
+    )
+    .expect("skill file");
+    let cwd = work.to_string_lossy().to_string();
+
+    let mut client = Client::launch(&home);
+    client.call("initialize", json!({}));
+    let started = client.call("thread/start", json!({"cwd": cwd, "model": "script"}));
+    let thread_id = started["thread"]["id"].as_str().unwrap().to_string();
+
+    let listed = client.call("skills/list", json!({}));
+    let skills = listed["skills"].as_array().expect("skills");
+    let skill = skills
+        .iter()
+        .find(|skill| skill["name"] == "desk-probe")
+        .expect("desk-probe missing from skills/list");
+    assert_eq!(skill["description"], "probe the desktop skill list");
+    assert_eq!(skill["source"], "project");
+    let listed_path = skill["path"].as_str().unwrap().replace('\\', "/");
+    assert!(
+        listed_path.ends_with(".lmcode/skills/desk-probe/SKILL.md"),
+        "{listed_path}"
+    );
+
+    let activated = client.call(
+        "skills/activate",
+        json!({"name": "desk-probe", "args": "with-arg"}),
+    );
+    assert_eq!(activated["activated"], true);
+    let completed = client.take_method("turn/completed");
+    assert_eq!(completed["params"]["status"], "completed");
+    let resumed = client.call("thread/resume", json!({"cwd": cwd, "threadId": thread_id}));
+    let body = texts(&resumed["thread"]).join("\n");
+    assert!(body.contains("desk-probe-body"), "{body}");
+    assert!(body.contains("with-arg"), "{body}");
+
+    client.call("thread/setModel", json!({"model": "script-bg"}));
+    client.call("thread/setPermission", json!({"mode": "yolo"}));
+    run_script_turn(&mut client, "start the background command");
+
+    let mut output = String::new();
+    let mut task_id = String::new();
+    let started_wait = Instant::now();
+    while started_wait.elapsed() < Duration::from_secs(8) {
+        let listed = client.call("background/list", json!({"activeOnly": false}));
+        let tasks = listed["tasks"].as_array().expect("tasks");
+        if let Some(task) = tasks
+            .iter()
+            .find(|task| task["command"].as_str().unwrap_or("").contains("127.0.0.1"))
+        {
+            task_id = task["id"].as_str().unwrap().to_string();
+            let read = client.call("background/output", json!({"taskId": task_id}));
+            output = read["output"].as_str().unwrap_or("").to_string();
+            if output.contains("127.0.0.1") {
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        output.contains("127.0.0.1"),
+        "task {task_id} output was {output:?}"
+    );
+    let stopped = client.call(
+        "background/stop",
+        json!({"taskId": task_id, "reason": "test stop"}),
+    );
+    assert_eq!(stopped["task"]["status"], "killed");
+    assert_eq!(stopped["task"]["stopReason"], "test stop");
+    let active = client.call("background/list", json!({"activeOnly": true}));
+    let still_active = active["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|task| task["id"] == task_id);
+    assert!(!still_active, "stopped task still listed as active");
+
+    let stderr = client.close();
+    assert!(stderr.is_empty(), "app-server wrote to stderr:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&home);
+}

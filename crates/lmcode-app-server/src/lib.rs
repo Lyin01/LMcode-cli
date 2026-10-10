@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use lmcode_core::agent::{Agent, SteerSlot, TurnUi};
+use lmcode_core::background::BackgroundTaskManager;
 use lmcode_core::computer_use::{
     ComputerUseActivation, ComputerUseController, ComputerUseHost, ComputerUseLaunch,
     ComputerUsePhase, ComputerUseServerView, ComputerUseStatus, HostPlatform,
@@ -27,6 +28,7 @@ use lmcode_core::cron::{CronStore, CronTask, render_cron_fire_xml};
 use lmcode_core::error::CoreError;
 use lmcode_core::goal::{GoalMode, GoalStatus};
 use lmcode_core::session::{DesktopWorktree, Session, SessionState, SessionStore};
+use lmcode_core::skill::{SkillSource, discover_skills};
 use lmcode_core::tools::ask_user::{AskUserAnswer, UserQuestion};
 use lmcode_core::tools::cron::CronHandle;
 use lmcode_core::tools::goal::GoalHandle;
@@ -80,6 +82,7 @@ struct ActiveThread {
     cancel: Arc<Notify>,
     goal: GoalHandle,
     cron: CronHandle,
+    background: Arc<BackgroundTaskManager>,
     running: Arc<AtomicBool>,
 }
 
@@ -346,6 +349,11 @@ impl Server {
             "thread/setPlanMode" => self.thread_set_plan_mode(params).await,
             "thread/undo" => self.thread_undo(params).await,
             "thread/compact" => self.thread_compact(params).await,
+            "skills/list" => self.skills_list(),
+            "skills/activate" => self.skills_activate(params).await,
+            "background/list" => self.background_list(params),
+            "background/output" => self.background_output(params),
+            "background/stop" => self.background_stop(params),
             "turn/start" => self.turn_start(params).await,
             "turn/steer" => self.turn_steer(params),
             "turn/interrupt" => self.turn_interrupt(),
@@ -611,6 +619,126 @@ impl Server {
         )
         .await;
         Ok(json!({"thread": load_thread(&cwd, &id)?}))
+    }
+
+    fn skills_list(&self) -> Result<Value, RpcError> {
+        let cwd = &self
+            .active
+            .as_ref()
+            .ok_or_else(|| RpcError::failed("no active thread"))?
+            .cwd;
+        let skills = discover_skills(cwd)
+            .into_iter()
+            .map(|skill| {
+                json!({
+                    "name": skill.name,
+                    "description": skill.description,
+                    "path": skill.path.display().to_string(),
+                    "source": match skill.source {
+                        SkillSource::Project => "project",
+                        SkillSource::User => "user",
+                    },
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"skills": skills}))
+    }
+
+    async fn skills_activate(&mut self, params: &Value) -> Result<Value, RpcError> {
+        let name = require_str(params, "name")?.trim().to_string();
+        if name.is_empty() {
+            return Err(RpcError::params("Skill name cannot be empty"));
+        }
+        let args = params
+            .get("args")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+        let active = self
+            .active
+            .as_ref()
+            .ok_or_else(|| RpcError::failed("no active thread"))?;
+        if active.running.load(Ordering::SeqCst) {
+            return Err(RpcError::failed("a turn is already running"));
+        }
+        let skill = discover_skills(&active.cwd)
+            .into_iter()
+            .find(|skill| skill.name == name)
+            .ok_or_else(|| RpcError::failed(format!("Skill \"{name}\" was not found")))?;
+        let mut text = skill.load_body().map_err(RpcError::failed)?;
+        if text.trim().is_empty() {
+            return Err(RpcError::failed(format!(
+                "Skill \"{name}\" has no instructions"
+            )));
+        }
+        if let Some(args) = args {
+            text.push_str("\n\n");
+            text.push_str(&args);
+        }
+        let thread_id = {
+            let active = self.active.as_ref().expect("active thread");
+            if active.running.swap(true, Ordering::SeqCst) {
+                return Err(RpcError::failed("a turn is already running"));
+            }
+            active.id.clone()
+        };
+        let turn_id = self.spawn_turn(text);
+        Ok(json!({
+            "activated": true,
+            "name": name,
+            "threadId": thread_id,
+            "turnId": turn_id,
+        }))
+    }
+
+    fn background_list(&self, params: &Value) -> Result<Value, RpcError> {
+        let manager = self.background_manager()?;
+        let active_only = params
+            .get("activeOnly")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let mut tasks = manager.list();
+        if active_only {
+            tasks.retain(|task| !task.status.is_terminal());
+        }
+        Ok(json!({"tasks": tasks}))
+    }
+
+    fn background_output(&self, params: &Value) -> Result<Value, RpcError> {
+        let task_id = require_str(params, "taskId")?;
+        if task_id.is_empty() {
+            return Err(RpcError::params("Task id cannot be empty"));
+        }
+        let info = self
+            .background_manager()?
+            .get(task_id)
+            .ok_or_else(|| RpcError::failed(format!("unknown background task `{task_id}`")))?;
+        Ok(json!({"output": info.output}))
+    }
+
+    fn background_stop(&self, params: &Value) -> Result<Value, RpcError> {
+        let task_id = require_str(params, "taskId")?;
+        if task_id.is_empty() {
+            return Err(RpcError::params("Task id cannot be empty"));
+        }
+        let reason = params
+            .get("reason")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .unwrap_or("Stopped from LMCODE Desktop");
+        match self.background_manager()?.stop(task_id, reason) {
+            Ok(info) => Ok(json!({"task": info})),
+            Err(error) if error.contains("is not running") => Ok(json!({"stopped": false})),
+            Err(error) => Err(RpcError::failed(error)),
+        }
+    }
+
+    fn background_manager(&self) -> Result<Arc<BackgroundTaskManager>, RpcError> {
+        self.active
+            .as_ref()
+            .map(|active| Arc::clone(&active.background))
+            .ok_or_else(|| RpcError::failed("no active thread"))
     }
 
     /// Persist a control on the active thread and return its thread view.
@@ -979,8 +1107,10 @@ impl Server {
 
 async fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<ActiveThread, RpcError> {
     let provider = build_provider(model)?;
+    let directory = session.directory().to_path_buf();
+    let background = Arc::new(BackgroundTaskManager::new(directory.join("tasks")));
     let tools: Vec<Arc<dyn Tool>> = vec![
-        Arc::new(BashTool::new()),
+        Arc::new(BashTool::with_background(Arc::clone(&background))),
         Arc::new(AskUserQuestionTool::new()),
     ];
     let mut agent = Agent::new(provider, tools, "You are LMcode.", cwd.to_path_buf());
@@ -995,7 +1125,6 @@ async fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<Active
     {
         agent.set_permission_mode(mode);
     }
-    let directory = session.directory().to_path_buf();
     let plan_mode = session.state.plan_mode;
     let cron_dir = directory.join("cron");
     std::fs::create_dir_all(&cron_dir).map_err(failed)?;
@@ -1021,6 +1150,7 @@ async fn open_thread(cwd: &Path, model: &str, session: Session) -> Result<Active
         cancel,
         goal,
         cron,
+        background,
         running: Arc::new(AtomicBool::new(false)),
     })
 }

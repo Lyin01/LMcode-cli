@@ -42,6 +42,25 @@ interface RawMcpServer {
   readonly disabled?: boolean
 }
 
+interface RawSkill {
+  readonly name: string
+  readonly description: string
+  readonly path: string
+  readonly source: string
+}
+
+interface RawBackgroundTask {
+  readonly id: string
+  readonly command: string
+  readonly description: string
+  readonly status: BackgroundTaskInfo['status']
+  readonly exitCode?: number | null
+  readonly pid?: number | null
+  readonly stopReason?: string
+  readonly startedAt: number
+  readonly finishedAt?: number | null
+}
+
 function millis(value: string | undefined): number {
   if (value === undefined || value.length === 0) return Date.now()
   const parsed = Date.parse(value)
@@ -109,8 +128,18 @@ function toMcpServer(row: RawMcpServer): {
   }
 }
 
-function unsupported(name: string): Promise<never> {
-  return Promise.reject(new Error(`${name} is not available through lm app-server`))
+function toBackgroundTask(task: RawBackgroundTask): BackgroundTaskInfo {
+  return {
+    taskId: task.id,
+    command: task.command,
+    description: task.description,
+    status: task.status,
+    pid: typeof task.pid === 'number' ? task.pid : 0,
+    exitCode: typeof task.exitCode === 'number' ? task.exitCode : null,
+    startedAt: task.startedAt,
+    endedAt: typeof task.finishedAt === 'number' ? task.finishedAt : null,
+    stopReason: task.stopReason,
+  }
 }
 
 const QUEUED_EVENT_LIMIT = 100
@@ -389,24 +418,47 @@ export class RustSession implements DesktopSession, ThreadBinding {
     await this.host.request('cron/delete', { id })
   }
 
-  listBackgroundTasks(): Promise<readonly BackgroundTaskInfo[]> {
-    return unsupported('listBackgroundTasks')
+  async listBackgroundTasks(options: { readonly activeOnly: boolean }): Promise<readonly BackgroundTaskInfo[]> {
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ tasks?: RawBackgroundTask[] }>('background/list', {
+      activeOnly: options.activeOnly,
+    })
+    return (result.tasks ?? []).map(toBackgroundTask)
   }
 
-  stopBackgroundTask(taskId: string): Promise<void> {
-    return unsupported(`stopBackgroundTask(${taskId})`)
+  async stopBackgroundTask(taskId: string, options?: { readonly reason?: string }): Promise<void> {
+    await this.host.ensureThread(this)
+    await this.host.request('background/stop', { taskId, reason: options?.reason })
   }
 
-  getBackgroundTaskOutput(taskId: string): Promise<string> {
-    return unsupported(`getBackgroundTaskOutput(${taskId})`)
+  async getBackgroundTaskOutput(taskId: string): Promise<string> {
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ output?: string }>('background/output', { taskId })
+    return result.output ?? ''
   }
 
-  listSkills(): Promise<readonly unknown[]> {
-    return unsupported('listSkills')
+  async listSkills(): Promise<readonly unknown[]> {
+    await this.host.ensureThread(this)
+    const result = await this.host.request<{ skills?: RawSkill[] }>('skills/list', {})
+    return result.skills ?? []
   }
 
-  activateSkill(name: string): Promise<void> {
-    return unsupported(`activateSkill(${name})`)
+  async activateSkill(name: string, args?: string): Promise<void> {
+    const skillName = name.trim()
+    if (skillName.length === 0) throw new Error('Skill name cannot be empty')
+    const skillArgs = args?.trim()
+    this.host.beginTurn(this.id)
+    try {
+      await this.host.ensureThread(this)
+      this.host.noteTurnRunning(true)
+      await this.host.request('skills/activate', {
+        name: skillName,
+        args: skillArgs === undefined || skillArgs.length === 0 ? undefined : skillArgs,
+      })
+    } catch (error) {
+      this.host.noteTurnRunning(false)
+      throw error
+    }
   }
 
   async listMcpServers(): Promise<readonly unknown[]> {
