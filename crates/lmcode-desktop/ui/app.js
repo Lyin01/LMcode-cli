@@ -323,7 +323,7 @@ async function loadModels() {
 }
 
 // Populate the model picker at startup so the composer card is complete.
-loadModels();
+void loadModels();
 showWelcome();
 
 document.getElementById("settings-btn").addEventListener("click", async () => {
@@ -454,7 +454,7 @@ async function refreshGit() {
     gitSummary.textContent = `${gitChanges.length} change(s)`;
     renderGitList();
   } catch (error) {
-    gitDiff.textContent = `git status failed: ${error}`;
+    gitDiff.textContent = `git status failed: ${String(error)}`;
   }
 }
 
@@ -508,7 +508,7 @@ async function selectGitFile(change) {
     if (diff) renderGitDiff(diff);
     else gitDiff.textContent = "No diff for this file.";
   } catch (error) {
-    gitDiff.textContent = `git diff failed: ${error}`;
+    gitDiff.textContent = `git diff failed: ${String(error)}`;
   }
 }
 
@@ -542,7 +542,7 @@ async function startTerminal() {
     terminalRunning = true;
     terminalStatus.textContent = "running";
   } catch (error) {
-    terminalOutput.textContent += `failed to start terminal: ${error}\n`;
+    terminalOutput.textContent += `failed to start terminal: ${String(error)}\n`;
   }
 }
 
@@ -576,7 +576,7 @@ document
     try {
       await invoke("terminal_write", { command });
     } catch (error) {
-      terminalOutput.textContent += `failed to write: ${error}\n`;
+      terminalOutput.textContent += `failed to write: ${String(error)}\n`;
     }
   });
 
@@ -658,7 +658,7 @@ document.getElementById("cron-form").addEventListener("submit", async (event) =>
     document.getElementById("cron-prompt").value = "";
     await refreshCron();
   } catch (error) {
-    alert(`failed to create task: ${error}`);
+    alert(`failed to create task: ${String(error)}`);
   }
 });
 
@@ -696,7 +696,7 @@ async function refreshWorktrees() {
           await invoke("worktree_remove", { path: worktree.path });
           await refreshWorktrees();
         } catch (error) {
-          alert(`failed to remove worktree: ${error}`);
+          alert(`failed to remove worktree: ${String(error)}`);
         }
       });
       head.append(badge, hash);
@@ -736,7 +736,7 @@ document
       document.getElementById("worktree-branch").value = "";
       await refreshWorktrees();
     } catch (error) {
-      alert(`failed to add worktree: ${error}`);
+      alert(`failed to add worktree: ${String(error)}`);
     }
   });
 
@@ -911,7 +911,7 @@ async function openArtifact(artifact) {
     const content = await invoke("read_artifact", { id: artifact.id });
     renderArtifactMarkdown(content);
   } catch (error) {
-    artifactContent.textContent = `failed to read artifact: ${error}`;
+    artifactContent.textContent = `failed to read artifact: ${String(error)}`;
   }
 }
 
@@ -1007,7 +1007,7 @@ document.getElementById("remote-start").addEventListener("click", async () => {
     const state = await invoke("remote_start");
     renderRemote(state);
   } catch (error) {
-    alert(`failed to start remote access: ${error}`);
+    alert(`failed to start remote access: ${String(error)}`);
   }
 });
 
@@ -1031,7 +1031,7 @@ listen("agent-event", (event) => {
       modelLabel = `${payload.model} · ${payload.session.slice(-8)}`;
       currentSession = payload.session;
       setStatus("ok", modelLabel);
-      refreshSessions();
+      void refreshSessions();
       break;
     case "textDelta":
       appendText(ensureAssistant(), payload.text);
@@ -1163,10 +1163,10 @@ const statusPoll = setInterval(async () => {
       currentSession = status.session;
       setStatus("ok", modelLabel);
       clearInterval(statusPoll);
-      refreshSessions();
+      void refreshSessions();
       return;
     }
-  } catch (_) {}
+  } catch { /* status is not up yet */ }
   if (statusAttempts > 20) clearInterval(statusPoll);
 }, 500);
 
