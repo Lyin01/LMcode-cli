@@ -43,9 +43,7 @@ import {
   type RenameConversationRequest,
 } from '@/lib/menu-command'
 import type { DesktopMenuCommand } from '../shared/menu-types'
-import { isBusyTurnPermissionSync } from '@/lib/permission-preference'
 import { nextPermissionMode } from '../shared/permission-mode'
-import { cancelResponseSafely } from '@/lib/cancel-response'
 
 function appendMenuNotice(sessionId: string, content: string, isError = false): void {
   useSessionStore.getState().addMessageToSession(sessionId, {
@@ -131,24 +129,6 @@ export default function App() {
         })
     })
   }, [])
-
-  // Escape cancels the active turn when no modal panel is open.
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented && activePanel === null) {
-        const state = useSessionStore.getState()
-        if (state.isStreaming && state.currentSessionId) {
-          e.preventDefault()
-          void cancelResponseSafely(state.currentSessionId, {
-            cancelResponse: (sessionId) => window.lmcodeAPI.cancelResponse(sessionId),
-            logError: (err) => console.error('Failed to cancel on Escape:', err),
-          })
-        }
-      }
-    }
-    window.addEventListener('keydown', handleGlobalKeyDown)
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [activePanel])
 
   const setTheme = useCallback((next: ThemePref) => {
     setThemeState(next)
@@ -259,7 +239,6 @@ export default function App() {
           void state.applyPermissionPreference(currentSessionId).catch((error: unknown) => {
             if (cancelled) return
             const message = error instanceof Error ? error.message : String(error)
-            if (isBusyTurnPermissionSync(message)) return
             appendMenuNotice(currentSessionId, `无法应用全局权限模式：${message}`, true)
           })
         }

@@ -3,6 +3,11 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import {
+  computerUseInstallRecipe,
+  detectComputerUseDriver,
+} from '@lmcode-cli/lmcode-sdk'
+
 import { terminateChildProcessTree } from './process-tree.js'
 import type {
   ComputerUseDriverInfo,
@@ -115,68 +120,6 @@ function firstLine(text: string): string | undefined {
  * Detection is pure filesystem probing. The version probe spawns the driver,
  * which is read-only (`--version`) and therefore safe to run unprompted.
  */
-function isWindows(platform: NodeJS.Platform): boolean {
-  return platform === 'win32'
-}
-
-/** Candidate install paths. PATH lookup is left to the caller when this is empty. */
-export function computerUseDriverCandidates(
-  platform: NodeJS.Platform,
-  env: Record<string, string | undefined>,
-): readonly string[] {
-  const candidates: string[] = []
-  if (isWindows(platform)) {
-    const localAppData = env['LOCALAPPDATA']
-    if (localAppData !== undefined && localAppData.length > 0) {
-      candidates.push(path.join(localAppData, 'Programs', 'Cua', 'cua-driver', 'bin', 'cua-driver.exe'))
-      candidates.push(path.join(localAppData, 'Programs', 'trycua', 'cua-driver-rs', 'bin', 'cua-driver.exe'))
-    }
-    return candidates
-  }
-  const home = env['HOME']
-  if (home !== undefined && home.length > 0) {
-    candidates.push(path.join(home, '.local', 'bin', 'cua-driver'))
-  }
-  candidates.push('/usr/local/bin/cua-driver', '/opt/homebrew/bin/cua-driver')
-  return candidates
-}
-
-export function detectComputerUseDriver(
-  platform: NodeJS.Platform,
-  env: Record<string, string | undefined>,
-): string | undefined {
-  return computerUseDriverCandidates(platform, env).find((candidate) => {
-    try {
-      return fs.existsSync(candidate)
-    } catch {
-      return false
-    }
-  })
-}
-
-export function computerUseInstallRecipe(
-  platform: NodeJS.Platform,
-): { readonly program: string; readonly args: readonly string[]; readonly manualCommand: string } | undefined {
-  if (isWindows(platform)) {
-    const script = [
-      "$ErrorActionPreference = 'Stop'",
-      "$installer = Join-Path $env:TEMP 'cua-driver-install.ps1'",
-      "Invoke-WebRequest -UseBasicParsing -Uri 'https://cua.ai/driver/install.ps1' -OutFile $installer",
-      '& $installer -NoAutoStart',
-    ].join('; ')
-    return {
-      program: 'powershell.exe',
-      args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
-      manualCommand: 'irm https://cua.ai/driver/install.ps1 | iex',
-    }
-  }
-  return {
-    program: 'bash',
-    args: ['-c', 'curl -fsSL https://cua.ai/driver/install.sh | bash'],
-    manualCommand: '/bin/bash -c "$(curl -fsSL https://cua.ai/driver/install.sh)"',
-  }
-}
-
 export async function getComputerUseDriverInfo(): Promise<ComputerUseDriverInfo> {
   const driverPath = detectComputerUseDriver(process.platform, process.env)
   if (driverPath === undefined) {

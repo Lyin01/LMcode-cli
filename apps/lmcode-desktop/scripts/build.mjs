@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { resolve, relative, delimiter, dirname, join } from 'node:path'
-import { existsSync, rmSync, mkdirSync, cpSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, rmSync, mkdirSync, cpSync, realpathSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
@@ -10,15 +10,6 @@ const OUT_MAIN_DIR = resolve(ROOT, 'out/main')
 const OUT_PRELOAD_DIR = resolve(ROOT, 'out/preload')
 const OUT_REMOTE_DIR = resolve(ROOT, 'out/remote-app')
 const VENDOR_DIR = resolve(ROOT, 'out/vendor')
-
-async function buildAndWrite(options) {
-  const result = await build({ ...options, write: false })
-  for (const file of result.outputFiles) {
-    mkdirSync(dirname(file.path), { recursive: true })
-    writeFileSync(file.path, file.contents)
-  }
-  return result
-}
 function resolveVendorPackage(spec, name, relDist, relAssets) {
   const monoMap = {
     '@lmcode-cli/lmcode-sdk': {
@@ -169,7 +160,7 @@ async function vendorAll() {
     mkdirSync(outDir, { recursive: true })
     const outFile = join(outDir, 'index.mjs')
     console.log(`> vendor ${v.spec}`)
-    await buildAndWrite({
+    await build({
       entryPoints: [v.distEntry],
       bundle: true,
       platform: 'node',
@@ -244,7 +235,7 @@ await vendorAll()
 
 // 2. Build main (workspace packages redirected to their vendored bundle).
 console.log('> esbuild main')
-await buildAndWrite({
+await build({
   entryPoints: [resolve(ROOT, 'src/main/index.ts')],
   bundle: true,
   platform: 'node',
@@ -265,7 +256,7 @@ await buildAndWrite({
 // 3. Build preload
 console.log('> esbuild preload')
 rmSync(OUT_PRELOAD_DIR, { recursive: true, force: true })
-await buildAndWrite({
+await build({
   entryPoints: [resolve(ROOT, 'src/preload/index.ts')],
   bundle: true,
   platform: 'node',
@@ -293,7 +284,7 @@ execSync('vite build --config vite.renderer.config.ts', {
 console.log('> esbuild remote app')
 rmSync(OUT_REMOTE_DIR, { recursive: true, force: true })
 mkdirSync(OUT_REMOTE_DIR, { recursive: true })
-await buildAndWrite({
+await build({
   entryPoints: [resolve(ROOT, 'src/remote-app/main.tsx')],
   bundle: true,
   platform: 'browser',

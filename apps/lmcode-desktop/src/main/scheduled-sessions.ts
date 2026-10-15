@@ -17,24 +17,23 @@ function interruptibleSleep(ms: number, isClosing: () => boolean): Promise<void>
   })
 }
 
-async function directoryHasCronJob(directory: string): Promise<boolean> {
+/**
+ * Cron jobs persist under the main agent's home — `<sessionDir>/agents/main/cron/<id>.json`
+ * — because only the main agent owns a cron manager. The session root itself
+ * never contains a `cron/` directory, so probing `<sessionDir>/cron` finds
+ * nothing and silently disables background resume for every session.
+ */
+async function hasPersistedCronJob(session: SessionSummary): Promise<boolean> {
   try {
-    const entries = await fs.readdir(directory, { withFileTypes: true })
+    const entries = await fs.readdir(
+      path.join(session.sessionDir, 'agents', 'main', 'cron'),
+      { withFileTypes: true },
+    )
     return entries.some((entry) => entry.isFile() && entry.name.endsWith('.json'))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
     throw error
   }
-}
-
-/**
- * The Rust app-server writes `<sessionDir>/cron/<id>.json`. Older sessions
- * keep jobs under `<sessionDir>/agents/main/cron`. Either layout means the
- * session should be resumed while the desktop is open.
- */
-async function hasPersistedCronJob(session: SessionSummary): Promise<boolean> {
-  if (await directoryHasCronJob(path.join(session.sessionDir, 'cron'))) return true
-  return directoryHasCronJob(path.join(session.sessionDir, 'agents', 'main', 'cron'))
 }
 
 export async function scheduledSessionIds(

@@ -150,6 +150,12 @@ importers:
 
   apps/lmcode-desktop:
     dependencies:
+      '@lmcode-cli/lmcode-sdk':
+        specifier: workspace:^
+        version: link:../../packages/node-sdk
+      '@lmcode/memory':
+        specifier: workspace:^
+        version: link:../../packages/memory
       '@radix-ui/react-dialog':
         specifier: ^1.1.0
         version: 1.1.17(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

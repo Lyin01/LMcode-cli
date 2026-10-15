@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@lmcode-cli/lmcode-sdk'
 import { groupSessions } from '../src/remote-app/views/sessions'
 
-function session(overrides: Partial<SessionSummary>): SessionSummary {
+function session(overrides: Partial<SessionSummary> & { id: string }): SessionSummary {
   return {
-    id: 'unset',
     workDir: 'C:/work/app',
     sessionDir: 'C:/sessions',
     createdAt: 1,

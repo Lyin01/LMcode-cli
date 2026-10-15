@@ -18,8 +18,7 @@
     "composite": true,
     "paths": {
       "@/*": ["./src/renderer/*"],
-      "@lmcode-cli/lmcode-sdk": ["../../packages/node-sdk/dist/index.d.mts"],
-      "@lmcode/memory": ["../../packages/memory/dist/index.d.mts"]
+      "@lmcode-cli/lmcode-sdk": ["../../packages/node-sdk/dist/index.d.mts"]
     }
   },
   "include": [

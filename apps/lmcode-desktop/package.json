@@ -1,6 +1,6 @@
 {
   "name": "@liumir/lmcode-desktop",
-  "version": "0.9.16",
+  "version": "0.9.13",
   "private": true,
   "description": "LMCODE Desktop - AI Agent 桌面客户端",
   "license": "MIT",
@@ -27,6 +27,8 @@
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
+    "@lmcode-cli/lmcode-sdk": "workspace:^",
+    "@lmcode/memory": "workspace:^",
     "@radix-ui/react-dialog": "^1.1.0",
     "@radix-ui/react-dropdown-menu": "^2.1.0",
     "@radix-ui/react-scroll-area": "^1.2.0",

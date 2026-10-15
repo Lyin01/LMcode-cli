@@ -54,6 +54,22 @@ vi.mock('electron', () => ({
   },
 }))
 
+vi.mock('@lmcode/memory', () => ({
+  MemoryMemoStore: class {
+    async list(): Promise<{ memos: []; total: number }> {
+      return { memos: [], total: 0 }
+    }
+
+    async delete(): Promise<boolean> {
+      return true
+    }
+
+    close(): Promise<void> {
+      return memory.close()
+    }
+  },
+}))
+
 vi.mock('../src/main/security', () => ({
   isTrustedIpcSender: vi.fn(() => true),
 }))
@@ -454,22 +470,9 @@ describe('desktop handler lifecycle', () => {
     memory.close.mockReturnValueOnce(deferred.promise)
     const mainWindow = createWindow()
     const registration = registerAllHandlers(
-      {
-        configPath: 'C:/Users/test/.lmcode/config.toml',
-        homeDir: 'C:/Users/test',
-        listSessions: async () => [],
-      } as never,
+      { configPath: 'C:/Users/test/.lmcode/config.toml' } as never,
       mainWindow as never,
       'file:///renderer/index.html',
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      {
-        list: async () => ({ memos: [], total: 0 }),
-        delete: async () => undefined,
-        close: () => memory.close(),
-      },
     )
     const registeredChannels = [...electron.invokeHandlers.keys()]
     let cleanupSettled = false

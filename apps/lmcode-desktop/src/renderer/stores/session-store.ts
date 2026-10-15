@@ -1177,8 +1177,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   applyPermissionPreference: async (sessionId) => {
     const permission = get().permissionPreference
-    const current = get().sessions.find((session) => session.id === sessionId)?.permission
-    if (current === permission) return
     await window.lmcodeAPI.setPermission(sessionId, permission)
     set((state) => ({
       ...(state.currentSessionId === sessionId ? { permission } : {}),

@@ -18,7 +18,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, openAsBlob, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 
 const ROOT = resolve(import.meta.dirname, '..')
@@ -129,38 +129,20 @@ function readToken() {
   return token
 }
 
-/**
- * Gate before uploading: an unsigned installer must never reach users.
- *
- * `powershell.exe` is Windows PowerShell 5.1. Started from PowerShell 7 it
- * inherits a module path that cannot autoload `Microsoft.PowerShell.Security`,
- * and the status comes back empty on a signed file. 5.1 also writes UTF-16
- * into a captured pipe unless the output encoding is set first.
- */
+/** Gate before uploading: an unsigned installer must never reach users. */
 function assertWindowsSignature(filePath) {
   if (process.platform !== 'win32') {
     console.log('signature check skipped (not Windows)')
     return
   }
-  const literal = filePath.replaceAll("'", "''")
-  const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
-  const moduleDir = `${systemRoot}\\system32\\WindowsPowerShell\\v1.0\\Modules`.replaceAll("'", "''")
-  const script = [
-    "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
-    `$env:PSModulePath = '${moduleDir}'`,
-    'Import-Module Microsoft.PowerShell.Security',
-    `(Get-AuthenticodeSignature -LiteralPath '${literal}').Status.ToString()`,
-  ].join('; ')
+  const script = `(Get-AuthenticodeSignature '${filePath.replaceAll("'", "''")}').Status`
   const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8',
     timeout: WINDOWS_SIGNATURE_TIMEOUT_MS,
   })
   const status = (result.stdout ?? '').trim()
   if (status !== 'Valid') {
-    const detail = (result.stderr ?? '').trim()
-    throw new Error(
-      `installer is not signed (Get-AuthenticodeSignature -> "${status}"${detail.length > 0 ? `; ${detail}` : ''})`,
-    )
+    throw new Error(`installer is not signed (Get-AuthenticodeSignature -> "${status}")`)
   }
   console.log('signature: Valid')
 }
@@ -206,41 +188,22 @@ async function main() {
       console.log(`would upload ${name} (${size} bytes)`)
       return
     }
-    // A filesystem stream as the fetch body stalled after the headers, and
-    // GitHub closed the upload for inactivity. A blob keeps the body flowing.
-    let upload
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      try {
-        console.log(`uploading ${name} (${size} bytes, attempt ${attempt}/4)...`)
-        upload = await fetch(
-          `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`,
-          {
-            method: 'POST',
-            headers: {
-              authorization: `Bearer ${token}`,
-              'content-type': 'application/octet-stream',
-              'content-length': String(size),
-            },
-            body: await openAsBlob(filePath),
-          },
-        )
-        if (upload.ok) break
-        const detail = (await upload.text()).replaceAll(token, '***')
-        if (attempt === 4) throw new Error(`upload ${name} failed: ${upload.status} ${detail}`)
-        console.warn(`upload ${name} failed with ${upload.status}, retrying in 3s...`)
-        await new Promise((r) => setTimeout(r, 3000))
-      } catch (err) {
-        if (attempt === 4) throw err
-        console.warn(`upload ${name} failed (${err.message}), retrying in 3s...`)
-        await new Promise((r) => setTimeout(r, 3000))
-        try {
-          const freshAssets = await (await api(`/repos/${repo}/releases/${releaseId}/assets`)).json()
-          const partial = Array.isArray(freshAssets) ? freshAssets.find((a) => a.name === name) : undefined
-          if (partial !== undefined) {
-            await api(`/repos/${repo}/releases/assets/${partial.id}`, { method: 'DELETE' })
-          }
-        } catch {}
-      }
+    const upload = await fetch(
+      `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/octet-stream',
+          'content-length': String(size),
+        },
+        body: createReadStream(filePath),
+        duplex: 'half',
+      },
+    )
+    if (!upload.ok) {
+      const detail = (await upload.text()).replaceAll(token, '***')
+      throw new Error(`upload ${name} failed: ${upload.status} ${detail}`)
     }
     console.log(`uploaded ${name} (${size} bytes)`)
   }
@@ -343,27 +306,9 @@ async function main() {
     )
   }
 
-  let publicFeed = ''
-  for (let attempt = 1; attempt <= 6; attempt++) {
-    try {
-      console.log(`fetching public feed (attempt ${attempt}/6)...`)
-      const response = await fetch(`https://github.com/${repo}/releases/latest/download/latest.yml`)
-      if (response.ok) {
-        publicFeed = await response.text()
-        if (publicFeed.includes(`version: ${version}`) && publicFeed.includes(sha512)) {
-          break
-        }
-      }
-      if (attempt === 6) {
-        throw new Error(`public latest.yml fetch returned status ${response.status}`)
-      }
-    } catch (err) {
-      if (attempt === 6) throw err
-      console.warn(`fetch public feed failed (${err.message}), retrying in 3s...`)
-    }
-    await new Promise((r) => setTimeout(r, 3000))
-  }
-
+  const publicFeed = await fetch(`https://github.com/${repo}/releases/latest/download/latest.yml`).then(
+    (response) => response.text(),
+  )
   if (!publicFeed.includes(`version: ${version}`)) {
     throw new Error(`public latest.yml does not advertise ${version}`)
   }
@@ -371,20 +316,7 @@ async function main() {
     throw new Error('public latest.yml carries a different installer digest')
   }
 
-  let latestTag = ''
-  for (let attempt = 1; attempt <= 6; attempt++) {
-    try {
-      const response = await api(`/repos/${repo}/releases/latest`)
-      if (response.ok) {
-        latestTag = (await response.json()).tag_name
-        if (latestTag === tag) break
-      }
-    } catch (err) {
-      if (attempt === 6) throw err
-    }
-    await new Promise((r) => setTimeout(r, 2000))
-  }
-
+  const latestTag = (await (await api(`/repos/${repo}/releases/latest`)).json()).tag_name
   console.log(`\nverified ${repo} ${tag}`)
   console.log(`  assets:      ${expected.join(', ')}`)
   console.log(`  download:    sha256:${localSha256.slice(0, 16)}… (matches the local artifact)`)

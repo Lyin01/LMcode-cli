@@ -27,7 +27,6 @@ export default defineConfig(({ command }) => ({
   root: rendererRoot,
   base: './',
   build: {
-    target: 'chrome130',
     outDir: resolve(import.meta.dirname, 'out/renderer'),
     emptyOutDir: true,
     rollupOptions: {
@@ -42,9 +41,7 @@ export default defineConfig(({ command }) => ({
   },
   resolve: {
     alias: {
-      '@': rendererRoot,
-      '@lmcode-cli/lmcode-sdk': resolve(import.meta.dirname, 'src/shims/lmcode-sdk.ts'),
-      '@lmcode/memory': resolve(import.meta.dirname, 'src/shims/memory.ts'),
+      '@': rendererRoot
     }
   },
   plugins: [contentSecurityPolicyPlugin(command === 'serve'), react(), tailwindcss()]

@@ -1,8 +1,11 @@
 import { app, ipcMain, BrowserWindow, dialog, Notification, shell } from 'electron'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
+import { MemoryMemoStore } from '@lmcode/memory'
 import type { MemoryMemoSummary } from '@lmcode/memory'
 import type {
+  Session,
   Event,
+  LmcodeHarness,
   ApprovalResponse,
   QuestionResult,
   SessionSummary,
@@ -16,7 +19,6 @@ import type {
   ComputerUseStatus,
   Logger,
 } from '@lmcode-cli/lmcode-sdk'
-import type { DesktopHarness, DesktopMemoryStore, DesktopSession } from '../rust-core/types.js'
 import { writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -135,7 +137,7 @@ import {
 } from '../../shared/ipc-schemas.js'
 
 interface SessionEntry {
-  session: DesktopSession
+  session: Session
   unsubscribeEvent: () => void
 }
 
@@ -186,14 +188,14 @@ function sendNotification(title: string, body: string, mainWindow?: BrowserWindo
  * Register all IPC handlers for the LMCODE desktop app.
  */
 export function registerAllHandlers(
-  harness: DesktopHarness,
+  harness: LmcodeHarness,
   mainWindow: BrowserWindow,
   trustedRendererUrl: string,
   logger: Logger | undefined = undefined,
   noProjectWorkDir: string | undefined = undefined,
   hub: InteractionHub = new InteractionHub(),
   remote: RemoteController | undefined = undefined,
-  memoryStore: DesktopMemoryStore | undefined = undefined,
+  memoryStore: MemoryMemoStore | undefined = undefined,
 ): DesktopHandlerRegistration {
   const invokeChannels: string[] = []
   const eventListeners: Array<{
@@ -271,7 +273,7 @@ export function registerAllHandlers(
   }
 
   /** Set up event forwarding and reverse-RPC handlers for one live session. */
-  function setupSessionListeners(session: DesktopSession): void {
+  function setupSessionListeners(session: Session): void {
     if (closing) throw new Error('Desktop IPC registration is closed')
 
     // Idempotent: replace any listener previously registered by this window.
@@ -1242,28 +1244,27 @@ export function registerAllHandlers(
 
   // ── Memory store ───────────────────────────────────────────────
 
-  // The app lifecycle injects the store shared with the remote bridge. Both
-  // talk to the same app-server process. Without that store the memory IPCs
-  // fail closed instead of opening a second database.
-  function requireMemoryStore(): DesktopMemoryStore {
-    if (memoryStore === undefined) {
-      throw new Error('memory store is not configured')
-    }
-    return memoryStore
-  }
+  // Keep memory in the same profile boundary as this runtime's config. This is
+  // intentionally isolated from the CLI and from the other desktop profile.
+  // A shared store is injected by the app lifecycle so the remote bridge and
+  // the desktop IPC layer operate on the same SQLite store. When no store is
+  // injected, this handler owns the instance it creates and closes it here.
+  const memoryStoreInstance =
+    memoryStore ?? new MemoryMemoStore(dirname(harness.configPath))
+  const ownsMemoryStore = memoryStore === undefined
 
-  secureInvoke('lmcode:listMemories', async (): Promise<readonly MemoryMemoSummary[]> => {
-    const result = await requireMemoryStore().list({ limit: 100 })
+  secureInvoke('lmcode:listMemories', async (): Promise<MemoryMemoSummary[]> => {
+    const result = await memoryStoreInstance.list({ limit: 100 })
     return result.memos
   })
 
-  secureInvoke('lmcode:searchMemories', async (_event, query: string): Promise<readonly MemoryMemoSummary[]> => {
-    const result = await requireMemoryStore().list({ search: query, limit: 20 })
+  secureInvoke('lmcode:searchMemories', async (_event, query: string): Promise<MemoryMemoSummary[]> => {
+    const result = await memoryStoreInstance.list({ search: query, limit: 20 })
     return result.memos
   }, searchMemoriesArgsSchema)
 
   secureInvoke('lmcode:deleteMemory', async (_event, id: string): Promise<void> => {
-    await requireMemoryStore().delete(id)
+    await memoryStoreInstance.delete(id)
     auditLog?.info('desktop critical operation completed', {
       operation: 'memory.delete',
     })
@@ -1363,7 +1364,7 @@ export function registerAllHandlers(
       errors.push(error)
     }
     try {
-      if (memoryStore !== undefined) await memoryStore.close()
+      if (ownsMemoryStore) await memoryStoreInstance.close()
     } catch (error) {
       errors.push(error)
     }
