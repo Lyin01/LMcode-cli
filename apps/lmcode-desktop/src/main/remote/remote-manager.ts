@@ -269,19 +269,20 @@ export class RemoteManager {
   }
 
   private computeLanUrls(port: number): string[] {
-    const addresses: string[] = []
+    const candidates: LanCandidate[] = []
     const interfaces = os.networkInterfaces()
-    for (const entries of Object.values(interfaces)) {
+    for (const [interfaceName, entries] of Object.entries(interfaces)) {
       if (entries === undefined) continue
       for (const entry of entries) {
         if (entry.family === 'IPv4' && !entry.internal) {
-          addresses.push(entry.address)
+          candidates.push({ address: entry.address, interfaceName })
         }
       }
     }
-    // Prefer real LAN addresses: virtual adapters (VPN clients, etc.) are often
-    // listed first by the OS but are unreachable from a phone on the same WiFi.
-    return rankLanAddresses(addresses).map((address) => `http://${address}:${port}`)
+    // Prefer real LAN addresses: virtual adapters (VPN clients, WSL / Hyper-V
+    // switches, etc.) are often listed first by the OS but are unreachable
+    // from a phone on the same WiFi.
+    return rankLanCandidates(candidates).map((address) => `http://${address}:${port}`)
   }
 }
 
@@ -298,22 +299,49 @@ export function isPrivateIpv4(address: string): boolean {
   return false
 }
 
-/**
- * Order LAN addresses for the pairing QR / address list: private LAN ranges
- * first (reachable from a phone), then everything else, link-local last.
- * Deterministic for equal ranks so the QR does not flap between restarts.
- */
-export function rankLanAddresses(addresses: readonly string[]): string[] {
-  return [...addresses].sort((left, right) => {
-    const rankDifference = lanAddressRank(left) - lanAddressRank(right)
-    return rankDifference !== 0 ? rankDifference : left.localeCompare(right)
-  })
+export interface LanCandidate {
+  readonly address: string
+  /** OS adapter name (e.g. "WLAN", "vEthernet (WSL)"); absent when unknown. */
+  readonly interfaceName?: string
 }
 
-function lanAddressRank(address: string): number {
-  if (isPrivateIpv4(address)) return 0
-  if (address.startsWith('169.254.')) return 2
-  return 1
+/**
+ * Adapter names of host-only virtual networks. Their addresses sit in private
+ * ranges (WSL and Hyper-V hand out 172.16/12, Docker 172.17/16, VMware and
+ * VirtualBox 192.168.x) so the address alone cannot tell them from the real
+ * LAN, yet nothing outside this machine can reach them.
+ */
+const VIRTUAL_ADAPTER_PATTERN =
+  /vethernet|wsl|hyper-v|vmware|vmnet|virtualbox|vboxnet|docker|virbr|^br-|^veth|tailscale|zerotier|wireguard|openvpn|^(?:utun|tun|tap)\d*$/i
+
+export function isVirtualAdapterName(interfaceName: string | undefined): boolean {
+  return interfaceName !== undefined && VIRTUAL_ADAPTER_PATTERN.test(interfaceName)
+}
+
+/**
+ * Order LAN addresses for the pairing QR / address list: private ranges on
+ * physical adapters first (reachable from a phone), then private ranges on
+ * virtual adapters, then everything else, link-local last. Deterministic for
+ * equal ranks so the QR does not flap between restarts.
+ */
+export function rankLanCandidates(candidates: readonly LanCandidate[]): string[] {
+  return [...candidates]
+    .sort((left, right) => {
+      const rankDifference = lanCandidateRank(left) - lanCandidateRank(right)
+      return rankDifference !== 0 ? rankDifference : left.address.localeCompare(right.address)
+    })
+    .map((candidate) => candidate.address)
+}
+
+/** Address-only ranking, for callers that do not know the adapter names. */
+export function rankLanAddresses(addresses: readonly string[]): string[] {
+  return rankLanCandidates(addresses.map((address) => ({ address })))
+}
+
+function lanCandidateRank(candidate: LanCandidate): number {
+  if (candidate.address.startsWith('169.254.')) return 3
+  if (!isPrivateIpv4(candidate.address)) return 2
+  return isVirtualAdapterName(candidate.interfaceName) ? 1 : 0
 }
 
 function isFiniteNumber(value: unknown): value is number {

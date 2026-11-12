@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocket } from 'ws'
 import { InteractionHub } from '../src/main/remote/interaction-hub'
-import { RemoteManager, rankLanAddresses } from '../src/main/remote/remote-manager'
+import {
+  RemoteManager,
+  isVirtualAdapterName,
+  rankLanAddresses,
+  rankLanCandidates,
+} from '../src/main/remote/remote-manager'
 import type { RemoteState } from '../src/shared/remote-types'
 
 interface FakeSession {
@@ -293,5 +298,46 @@ describe('rankLanAddresses', () => {
       '192.168.8.30',
       '192.168.8.4',
     ])
+  })
+})
+
+describe('rankLanCandidates', () => {
+  it('puts the real LAN ahead of WSL / Hyper-V switches that share a private range', () => {
+    expect(
+      rankLanCandidates([
+        { address: '172.31.80.1', interfaceName: 'vEthernet (WSL (Hyper-V firewall))' },
+        { address: '192.168.1.106', interfaceName: 'WLAN' },
+        { address: '2.0.0.1', interfaceName: 'Sangfor SSL VPN CS Support System VNIC' },
+      ]),
+    ).toEqual(['192.168.1.106', '172.31.80.1', '2.0.0.1'])
+  })
+
+  it('still lists virtual adapters, only later, so nothing reachable is hidden', () => {
+    const ranked = rankLanCandidates([
+      { address: '192.168.56.1', interfaceName: 'VirtualBox Host-Only Network' },
+      { address: '10.0.0.4', interfaceName: 'Ethernet' },
+    ])
+    expect(ranked).toEqual(['10.0.0.4', '192.168.56.1'])
+  })
+
+  it('treats an unknown adapter name as physical', () => {
+    expect(rankLanCandidates([{ address: '10.0.0.4' }, { address: '8.8.8.8' }])).toEqual([
+      '10.0.0.4',
+      '8.8.8.8',
+    ])
+  })
+})
+
+describe('isVirtualAdapterName', () => {
+  it('recognizes host-only and tunnel adapters', () => {
+    for (const name of ['vEthernet (Default Switch)', 'docker0', 'br-4f2a', 'utun3', 'Tailscale', 'VMware Network Adapter VMnet8']) {
+      expect(isVirtualAdapterName(name)).toBe(true)
+    }
+  })
+
+  it('leaves physical adapters alone', () => {
+    for (const name of ['WLAN', 'Wi-Fi', '以太网', 'Ethernet 2', 'en0', 'eth0', 'wlan0', undefined]) {
+      expect(isVirtualAdapterName(name)).toBe(false)
+    }
   })
 })
