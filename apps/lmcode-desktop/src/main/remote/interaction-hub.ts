@@ -163,6 +163,15 @@ export class InteractionHub {
     this.pendingQuestions.settleSession(sessionId, null)
   }
 
+  /**
+   * Whether this session still has an approval or question awaiting an
+   * answer. Idle-session reclamation uses this to avoid closing a session
+   * the user is expected to respond to.
+   */
+  hasPendingForSession(sessionId: string): boolean {
+    return this.pendingApprovals.hasSession(sessionId) || this.pendingQuestions.hasSession(sessionId)
+  }
+
   settleAll(): void {
     this.pendingApprovals.settleAll(CANCELLED_APPROVAL)
     this.pendingQuestions.settleAll(null)

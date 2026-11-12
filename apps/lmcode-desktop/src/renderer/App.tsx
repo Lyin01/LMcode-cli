@@ -24,6 +24,7 @@ import { SubagentsPanel } from '@/components/SubagentsPanel'
 import { AutomationsPanel } from '@/components/AutomationsPanel'
 import { InboxPanel } from '@/components/InboxPanel'
 import { ArtifactPanel } from '@/components/ArtifactPanel'
+import { PurgePanel } from '@/components/PurgePanel'
 import { KeyboardShortcutsPanel } from '@/components/KeyboardShortcutsPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { UsageFooter } from '@/components/UsageFooter'
@@ -67,6 +68,7 @@ type ActivePanel =
   | 'subagents'
   | 'automations'
   | 'inbox'
+  | 'purge'
   | 'keyboard-shortcuts'
 
 export default function App() {
@@ -511,6 +513,7 @@ export default function App() {
             onOpenAutomations={handleOpenAutomations}
             onOpenSettings={handleOpenSettings}
             onOpenRemote={handleOpenRemote}
+            onOpenPurge={() => setActivePanel((panel) => (panel === 'purge' ? null : 'purge'))}
             theme={theme}
             onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           />
@@ -578,6 +581,7 @@ export default function App() {
         </ErrorBoundary>
         <ErrorBoundary name="文档审阅">
           <ArtifactPanel onSendFeedback={handleAddReviewCommentsToChat} />
+          <PurgePanel open={activePanel === 'purge'} onClose={() => setActivePanel(null)} />
         </ErrorBoundary>
         <ErrorBoundary name="键盘快捷键">
           <KeyboardShortcutsPanel

@@ -55,6 +55,14 @@ export class PendingInteractionRegistry<T> {
     return this.settleMatching((entry) => entry.sessionId === sessionId, value)
   }
 
+  /** Whether any pending request belongs to the given session. */
+  hasSession(sessionId: string): boolean {
+    for (const entry of this.entries.values()) {
+      if (entry.sessionId === sessionId) return true
+    }
+    return false
+  }
+
   settleAll(value: T): number {
     return this.settleMatching(() => true, value)
   }

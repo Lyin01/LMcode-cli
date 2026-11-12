@@ -2,6 +2,7 @@
 dist/
 out/
 release/
+release-purge/
 tmp/
 node_modules/
 *.tsbuildinfo

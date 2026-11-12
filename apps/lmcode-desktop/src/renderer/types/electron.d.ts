@@ -27,6 +27,11 @@ import type {
   GitRepositorySnapshot,
 } from '../../shared/git-types'
 import type { ProjectTerminalInfo, TerminalOutputPayload } from '../../shared/terminal-types'
+import type {
+  PurgeApplyResult,
+  PurgeSkill,
+  PurgeStatus,
+} from '../../shared/purge-types'
 import type { GitWorktreeInfo } from '../../shared/worktree-types'
 import type {
   DesktopPromptRequest,
@@ -310,6 +315,31 @@ interface LmcodeAPI {
   searchMemories: (query: string) => Promise<MemorySummary[]>
 
   deleteMemory: (id: string) => Promise<void>
+
+  // Purge（会话覆盖段 / 规则库 / 技能）
+  purgeStatus: () => Promise<PurgeStatus>
+
+  purgeSavePrompt: (text: string) => Promise<PurgeStatus>
+
+  purgeClearPrompt: () => Promise<PurgeStatus>
+
+  purgeApply: () => Promise<PurgeApplyResult>
+
+  purgeRevert: (restore: boolean) => Promise<PurgeApplyResult>
+
+  purgeSaveRule: (id: string, body: string) => Promise<PurgeStatus>
+
+  purgeSetRuleEnabled: (id: string, enabled: boolean) => Promise<PurgeStatus>
+
+  purgeDeleteRule: (id: string) => Promise<PurgeStatus>
+
+  purgeListSkills: () => Promise<readonly PurgeSkill[]>
+
+  purgeImportSkill: () => Promise<PurgeStatus | undefined>
+
+  purgeDeleteSkill: (id: string) => Promise<PurgeStatus>
+
+  purgeReveal: () => Promise<void>
 
   // Background tasks
   stopTask: (sessionId: string, taskId: string) => Promise<void>

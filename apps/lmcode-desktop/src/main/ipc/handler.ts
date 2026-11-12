@@ -34,6 +34,8 @@ import { isSafeExternalHttpsUrl } from '../../shared/security.js'
 import type { RemoteFirewallStatus, RemoteState } from '../../shared/remote-types.js'
 import { getRemoteFirewallStatus, repairRemoteFirewall } from '../remote/firewall.js'
 import { getComputerUseDriverInfo, installComputerUseDriver } from '../computer-use.js'
+import { PurgeService } from '../purge/service.js'
+import type { PurgeApplyResult, PurgeSkill, PurgeStatus } from '../../shared/purge-types.js'
 import type {
   ComputerUseDriverInfo,
   ComputerUseInstallResult,
@@ -87,6 +89,7 @@ import type {
   TextAttachment,
 } from '../../shared/file-types.js'
 import { resumeScheduledSessions, scheduledSessionIds } from '../scheduled-sessions.js'
+import { IdleSessionReaper } from '../session-reaper.js'
 import {
   restoreRedactedConfigPatch,
   sanitizeConfigForRenderer,
@@ -111,6 +114,11 @@ import {
   optionalStringArgsSchema,
   parseIpcArgs,
   promptArgsSchema,
+  purgeIdArgsSchema,
+  purgeRevertArgsSchema,
+  purgeRuleSaveArgsSchema,
+  purgeRuleToggleArgsSchema,
+  purgeTextArgsSchema,
   renameSessionArgsSchema,
   respondApprovalArgsSchema,
   respondQuestionArgsSchema,
@@ -139,6 +147,20 @@ import {
 interface SessionEntry {
   session: Session
   unsubscribeEvent: () => void
+  /** Last IPC/event activity; drives idle-session reclamation. */
+  lastActivityAt: number
+  /** True between turn start and end events; a pending turn must not be reclaimed. */
+  turnActive: boolean
+  /**
+   * Last history snapshot handed to the renderer. Reopening a conversation
+   * otherwise re-serialises the whole transcript — including base64 images —
+   * across the IPC boundary. Dropped as soon as the session emits anything.
+   */
+  historyCache?: unknown
+  /** Bumped on every session event so a slow snapshot is never cached stale. */
+  historyRevision: number
+  /** Shared in-flight snapshot so concurrent opens clone the history once. */
+  historyRequest?: Promise<unknown>
 }
 
 export interface DesktopHandlerRegistration {
@@ -285,6 +307,17 @@ export function registerAllHandlers(
     }
 
     const unsubscribeEvent = session.onEvent((event: Event) => {
+      const seen = activeSessions.get(session.id)
+      if (seen !== undefined) {
+        // Any event — a streamed reply, a tool update, a turn boundary —
+        // counts as activity for idle-session reclamation.
+        seen.lastActivityAt = Date.now()
+        if (event.type === 'turn.started') seen.turnActive = true
+        else if (event.type === 'turn.ended') seen.turnActive = false
+        // The context moved, so the snapshot handed out earlier is stale.
+        seen.historyCache = undefined
+        seen.historyRevision += 1
+      }
       if (!closing && !mainWindow.isDestroyed()) {
         try {
           mainWindow.webContents.send('lmcode:sessionEvent', {
@@ -299,7 +332,13 @@ export function registerAllHandlers(
 
     hub.bindSession(session)
 
-    activeSessions.set(session.id, { session, unsubscribeEvent })
+    activeSessions.set(session.id, {
+      session,
+      unsubscribeEvent,
+      lastActivityAt: Date.now(),
+      turnActive: false,
+      historyRevision: 0,
+    })
   }
 
   function secureInvoke<Args extends unknown[], Result>(
@@ -368,7 +407,10 @@ export function registerAllHandlers(
       throw new Error(`Session "${sessionId}" is closing`)
     }
     const existing = activeSessions.get(sessionId)
-    if (existing !== undefined && !existing.session.isClosed) return existing
+    if (existing !== undefined && !existing.session.isClosed) {
+      existing.lastActivityAt = Date.now()
+      return existing
+    }
     if (existing) {
       existing.unsubscribeEvent()
       activeSessions.delete(sessionId)
@@ -639,8 +681,21 @@ export function registerAllHandlers(
   // messages after a restart or when switching back to it.
   secureInvoke('lmcode:getSessionHistory', async (_event, sessionId: string): Promise<unknown> => {
     const entry = await ensureActiveSession(sessionId)
-    const ctx = await entry.session.getContext()
-    return ctx.history
+    if (entry.historyCache !== undefined) return entry.historyCache
+    if (entry.historyRequest !== undefined) return entry.historyRequest
+    const revision = entry.historyRevision
+    const request: Promise<unknown> = entry.session
+      .getContext()
+      .then((ctx) => {
+        // Only cache while nothing else touched the session meanwhile.
+        if (entry.historyRevision === revision) entry.historyCache = ctx.history
+        return ctx.history
+      })
+      .finally(() => {
+        if (entry.historyRequest === request) entry.historyRequest = undefined
+      })
+    entry.historyRequest = request
+    return request
   }, sessionIdArgsSchema)
 
   secureInvoke(
@@ -1270,6 +1325,98 @@ export function registerAllHandlers(
     })
   }, idArgsSchema)
 
+  // ── Purge（会话覆盖段 / 规则库 / 技能）─────────────────────────
+  //
+  // dsh-purge 在 LMcode 上的等价物：只维护 ~/.lmcode/AGENTS.md 的标记段和
+  // ~/.lmcode/purge/*。不改审批、沙箱、工具权限——那些是宿主安全开关。
+
+  // 注意：不是 harness.homeDir —— 那是 Electron userData，AGENTS.md 只在
+  // ~/.lmcode（或 LMCODE_HOME）下被 agent-core 读取。
+  const purgeService = new PurgeService({})
+
+  secureInvoke(
+    'lmcode:purgeStatus',
+    async (): Promise<PurgeStatus> => purgeService.status(),
+  )
+
+  secureInvoke(
+    'lmcode:purgeSavePrompt',
+    async (_event, text: string): Promise<PurgeStatus> => purgeService.savePrompt(text),
+    purgeTextArgsSchema,
+  )
+
+  secureInvoke(
+    'lmcode:purgeClearPrompt',
+    async (): Promise<PurgeStatus> => purgeService.clearPrompt(),
+  )
+
+  secureInvoke(
+    'lmcode:purgeApply',
+    async (): Promise<PurgeApplyResult> => purgeService.apply(),
+  )
+
+  secureInvoke(
+    'lmcode:purgeRevert',
+    async (_event, restore: boolean): Promise<PurgeApplyResult> =>
+      purgeService.revert({ restore }),
+    purgeRevertArgsSchema,
+  )
+
+  secureInvoke(
+    'lmcode:purgeSaveRule',
+    async (_event, id: string, body: string): Promise<PurgeStatus> =>
+      purgeService.saveRule(id, body),
+    purgeRuleSaveArgsSchema,
+  )
+
+  secureInvoke(
+    'lmcode:purgeSetRuleEnabled',
+    async (_event, id: string, enabled: boolean): Promise<PurgeStatus> =>
+      purgeService.setRuleEnabled(id, enabled),
+    purgeRuleToggleArgsSchema,
+  )
+
+  secureInvoke(
+    'lmcode:purgeDeleteRule',
+    async (_event, id: string): Promise<PurgeStatus> => purgeService.deleteRule(id),
+    purgeIdArgsSchema,
+  )
+
+  secureInvoke(
+    'lmcode:purgeListSkills',
+    async (): Promise<readonly PurgeSkill[]> => purgeService.listSkills(),
+  )
+
+  secureInvoke(
+    'lmcode:purgeImportSkill',
+    async (): Promise<PurgeStatus | undefined> => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: '选择技能文件夹（需含 SKILL.md）',
+        defaultPath: app.getPath('home'),
+        properties: ['openDirectory'],
+      })
+      if (result.canceled) return undefined
+      const [directory] = result.filePaths
+      if (directory === undefined) return undefined
+      return purgeService.importSkill(directory)
+    },
+  )
+
+  secureInvoke(
+    'lmcode:purgeDeleteSkill',
+    async (_event, id: string): Promise<PurgeStatus> => purgeService.deleteSkill(id),
+    purgeIdArgsSchema,
+  )
+
+  secureInvoke('lmcode:purgeReveal', async (): Promise<void> => {
+    const status = await purgeService.status()
+    if (existsSync(status.target)) {
+      shell.showItemInFolder(status.target)
+      return
+    }
+    await shell.openPath(status.home)
+  })
+
   // ── Background task operations ─────────────────────────────────
 
   secureInvoke(
@@ -1303,6 +1450,60 @@ export function registerAllHandlers(
       auditLog?.warn(message, { errorKind: error instanceof Error ? error.message : typeof error })
     },
   })
+
+  // Sessions pin their MCP servers — and therefore their child process trees
+  // (windows-mcp, cua-driver, …) — for as long as they stay open. The desktop
+  // resumes sessions on demand and has no UI that closes them, so a
+  // long-running app accumulates one tree per conversation it has touched.
+  // Reclaim sessions idle past the TTL; the next interaction resumes them
+  // again through `ensureActiveSession`.
+  const sessionReaper = new IdleSessionReaper(
+    {
+      listCandidates: () =>
+        [...activeSessions.entries()]
+          .filter(([, entry]) => !entry.session.isClosed)
+          .map(([sessionId, entry]) => ({ sessionId, lastActivityAt: entry.lastActivityAt })),
+      canReclaim: canReclaimIdleSession,
+      reclaim: reclaimIdleSession,
+    },
+    {
+      logWarn: (message, error) => {
+        auditLog?.warn(message, { errorKind: error instanceof Error ? error.message : typeof error })
+      },
+    },
+  )
+
+  async function canReclaimIdleSession(sessionId: string): Promise<boolean> {
+    if (closing) return false
+    const entry = activeSessions.get(sessionId)
+    if (entry === undefined || entry.session.isClosed) return false
+    // Re-check freshness: IPC may have touched the session after the scan
+    // snapshot that produced this candidate.
+    if (Date.now() - entry.lastActivityAt < sessionReaper.idleTtlMs) return false
+    // A turn waiting on a slow, silent tool emits no events for the whole
+    // call — never reclaim a session with a turn in flight.
+    if (entry.turnActive) return false
+    // An approval/question the user still has to answer pins the session.
+    if (hub.hasPendingForSession(sessionId)) return false
+    // Cron jobs are timers inside the session process: closing it would
+    // silently stop an automation the user configured.
+    if ((await entry.session.listCronJobs()).length > 0) return false
+    // Any non-terminal background work (including awaiting approval).
+    if ((await entry.session.listBackgroundTasks({ activeOnly: true })).length > 0) return false
+    return true
+  }
+
+  async function reclaimIdleSession(sessionId: string): Promise<void> {
+    await teardownSession(sessionId, 'close', async () => {
+      await harness.closeSession(sessionId)
+    })
+    auditLog?.info('desktop critical operation completed', {
+      operation: 'session.reclaim',
+      sessionId,
+    })
+  }
+
+  sessionReaper.start()
 
   // ── Cleanup on window close ─────────────────────────────────────
 
@@ -1342,6 +1543,7 @@ export function registerAllHandlers(
     }
 
     await scheduledSessionsActivation
+    runStep(() => sessionReaper.stop())
     runStep(() => mainWindow.webContents.removeListener('did-start-navigation', handleNavigation))
     runStep(() => mainWindow.webContents.removeListener('did-finish-load', handleRendererFinishedLoad))
     runStep(() => mainWindow.webContents.removeListener('render-process-gone', handleRenderProcessGone))

@@ -388,6 +388,38 @@ const lmcodeAPI = {
   getTaskOutput: (sessionId: string, taskId: string) =>
     ipcRenderer.invoke('lmcode:getTaskOutput', sessionId, taskId),
 
+  // ── Purge（会话覆盖段 / 规则库 / 技能）──────────────────────────
+
+  purgeStatus: () => ipcRenderer.invoke('lmcode:purgeStatus'),
+
+  purgeSavePrompt: (text: string) =>
+    ipcRenderer.invoke('lmcode:purgeSavePrompt', text),
+
+  purgeClearPrompt: () => ipcRenderer.invoke('lmcode:purgeClearPrompt'),
+
+  purgeApply: () => ipcRenderer.invoke('lmcode:purgeApply'),
+
+  purgeRevert: (restore: boolean) =>
+    ipcRenderer.invoke('lmcode:purgeRevert', restore),
+
+  purgeSaveRule: (id: string, body: string) =>
+    ipcRenderer.invoke('lmcode:purgeSaveRule', id, body),
+
+  purgeSetRuleEnabled: (id: string, enabled: boolean) =>
+    ipcRenderer.invoke('lmcode:purgeSetRuleEnabled', id, enabled),
+
+  purgeDeleteRule: (id: string) =>
+    ipcRenderer.invoke('lmcode:purgeDeleteRule', id),
+
+  purgeListSkills: () => ipcRenderer.invoke('lmcode:purgeListSkills'),
+
+  purgeImportSkill: () => ipcRenderer.invoke('lmcode:purgeImportSkill'),
+
+  purgeDeleteSkill: (id: string) =>
+    ipcRenderer.invoke('lmcode:purgeDeleteSkill', id),
+
+  purgeReveal: () => ipcRenderer.invoke('lmcode:purgeReveal'),
+
   // ── App control ─────────────────────────────────────────────────
 
   quit: () => {

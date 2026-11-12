@@ -4,6 +4,7 @@ import {
   Bell,
   Bot,
   CalendarClock,
+  FlaskConical,
   GitCompareArrows,
   GitFork,
   ListTodo,
@@ -36,6 +37,7 @@ interface TopBarProps {
   onOpenAutomations: () => void
   onOpenSettings: () => void
   onOpenRemote: () => void
+  onOpenPurge: () => void
   theme: ThemePref
   onToggleTheme: () => void
 }
@@ -88,6 +90,7 @@ export function TopBar({
   onOpenAutomations,
   onOpenSettings,
   onOpenRemote,
+  onOpenPurge,
   theme,
   onToggleTheme,
 }: TopBarProps) {
@@ -186,6 +189,9 @@ export function TopBar({
 
       <div className="mx-0.5 h-5 w-px bg-[var(--lm-border)]" />
 
+      <TopBarAction label="LMD Purge（会话覆盖段 / 规则 / 技能）" onClick={onOpenPurge}>
+        <FlaskConical size={17} />
+      </TopBarAction>
       <TopBarAction
         label={isNoProject ? '审查 Git 变更（未关联项目时不可用）' : '审查 Git 变更'}
         disabled={!currentSessionId || isNoProject}

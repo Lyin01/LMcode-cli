@@ -538,6 +538,54 @@ describe('desktop handler lifecycle', () => {
     await registration.close()
   })
 
+  it('serves session history from cache until the session emits an event', async () => {
+    let emit: ((event: unknown) => void) | undefined
+    const history = [{ role: 'user', content: 'hello' }]
+    const getContext = vi.fn(async () => ({ history }))
+    const session = {
+      id: 'session-history',
+      summary: { id: 'session-history', workDir: 'C:/work' },
+      onEvent: vi.fn((listener: (event: unknown) => void) => {
+        emit = listener
+        return vi.fn()
+      }),
+      setApprovalHandler: vi.fn(),
+      setQuestionHandler: vi.fn(),
+      getResumeState: vi.fn(() => ({})),
+      getContext,
+    }
+    const harness = {
+      configPath: 'C:/Users/test/.lmcode/config.toml',
+      listSessions: vi.fn(async () => []),
+      resumeSession: vi.fn(async () => session),
+    }
+    const registration = registerAllHandlers(
+      harness as never,
+      createWindow() as never,
+      'file:///renderer/index.html',
+    )
+    await invoke('lmcode:resumeSession', 'session-history')
+
+    // Concurrent opens share one snapshot instead of cloning it twice.
+    const [first, second] = await Promise.all([
+      invoke('lmcode:getSessionHistory', 'session-history'),
+      invoke('lmcode:getSessionHistory', 'session-history'),
+    ])
+    expect(getContext).toHaveBeenCalledTimes(1)
+    expect(second).toEqual(first)
+
+    // Re-opening the conversation reuses the cached snapshot.
+    await invoke('lmcode:getSessionHistory', 'session-history')
+    expect(getContext).toHaveBeenCalledTimes(1)
+
+    // Any event means the context moved on, so the snapshot is rebuilt.
+    emit?.({ type: 'assistant.delta', delta: 'x' })
+    await invoke('lmcode:getSessionHistory', 'session-history')
+    expect(getContext).toHaveBeenCalledTimes(2)
+
+    await registration.close()
+  })
+
   it('does not attach a resumed session after its renderer registration closes', async () => {
     const session = {
       id: 'session-late',

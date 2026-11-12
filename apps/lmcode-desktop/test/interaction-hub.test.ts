@@ -151,6 +151,28 @@ describe('InteractionHub', () => {
     await expect(otherApproval).resolves.toEqual(CANCELLED_APPROVAL)
   })
 
+  it('reports pending interactions per session until they are answered', async () => {
+    const hub = new InteractionHub()
+    const renderer = createSurface('renderer')
+    hub.attachSurface(renderer)
+
+    expect(hub.hasPendingForSession('s1')).toBe(false)
+    const approval = hub.requestApproval('s1', { toolCallId: 't1', toolName: 'Bash', action: 'a', display: { kind: 'generic', summary: 'a' } })
+    const question = hub.requestQuestion('s2', { questions: [] })
+    expect(hub.hasPendingForSession('s1')).toBe(true)
+    expect(hub.hasPendingForSession('s2')).toBe(true)
+    expect(hub.hasPendingForSession('s3')).toBe(false)
+
+    hub.respondApproval(renderer.captured[0]?.requestId ?? '', { decision: 'approved' })
+    await approval
+    expect(hub.hasPendingForSession('s1')).toBe(false)
+    // The question on s2 is still awaiting an answer.
+    expect(hub.hasPendingForSession('s2')).toBe(true)
+    hub.respondQuestion(renderer.captured[1]?.requestId ?? '', { answers: {} })
+    await question
+    expect(hub.hasPendingForSession('s2')).toBe(false)
+  })
+
   it('rejects a duplicate surface name and allows detach/reattach', () => {
     const hub = new InteractionHub()
     const surface = createSurface('renderer')

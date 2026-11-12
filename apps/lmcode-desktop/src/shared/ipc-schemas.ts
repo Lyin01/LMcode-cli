@@ -205,6 +205,20 @@ export const activateSkillArgsSchema = z.preprocess(
 
 export const searchMemoriesArgsSchema = z.tuple([z.string().max(4_000)])
 
+// ── Purge（会话覆盖段 / 规则库 / 技能）──────────────────────────
+
+export const purgeTextArgsSchema = z.tuple([z.string().max(256 * 1024)])
+
+export const purgeRevertArgsSchema = z.tuple([z.boolean()])
+
+export const purgeRuleIdSchema = z.string().trim().min(1).max(64)
+
+export const purgeRuleSaveArgsSchema = z.tuple([purgeRuleIdSchema, z.string().max(256 * 1024)])
+
+export const purgeRuleToggleArgsSchema = z.tuple([purgeRuleIdSchema, z.boolean()])
+
+export const purgeIdArgsSchema = z.tuple([purgeRuleIdSchema])
+
 export const setRemoteEnabledArgsSchema = z.tuple([z.boolean()])
 
 export const setRemotePortArgsSchema = z.tuple([

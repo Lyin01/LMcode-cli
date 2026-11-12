@@ -24,6 +24,18 @@ describe('PendingInteractionRegistry', () => {
     expect(registry.settle('first', 'again')).toBe(false)
   })
 
+  it('reports whether any pending request belongs to a session', () => {
+    const registry = new PendingInteractionRegistry<string>()
+    expect(registry.hasSession('session-a')).toBe(false)
+    registry.add('first', 'session-a', vi.fn())
+    registry.add('second', 'session-b', vi.fn())
+    expect(registry.hasSession('session-a')).toBe(true)
+    expect(registry.hasSession('session-b')).toBe(true)
+    expect(registry.hasSession('session-c')).toBe(false)
+    registry.settle('first', 'A')
+    expect(registry.hasSession('session-a')).toBe(false)
+  })
+
   it('cancels requests by session and then resolves every remaining request', () => {
     const registry = new PendingInteractionRegistry<null>()
     const first = vi.fn()
