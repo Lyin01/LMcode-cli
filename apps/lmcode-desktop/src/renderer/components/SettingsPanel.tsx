@@ -481,7 +481,7 @@ export function SettingsPanel({
                 <section className="space-y-2 pt-2 border-t border-[var(--lm-border)]" id="settings-thinking-level">
                   <label className="text-[13px] font-semibold text-[var(--lm-text-primary)]">思考深度预算 (Thinking Budget)</label>
                   <p className="text-[11.5px] text-[var(--lm-text-muted)]">
-                    控制模型在调用工具前的推理预算。极速档位可大幅缩短等待时间（提速 60%~80%）。
+                    控制模型在调用工具前的推理预算。档位越低响应越快，越高越适合复杂问题。
                   </p>
                   <div className="space-y-1.5 pt-1">
                     {THINKING_OPTIONS.map((opt) => (

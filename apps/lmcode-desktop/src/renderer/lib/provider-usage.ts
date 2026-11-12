@@ -87,11 +87,11 @@ export function buildProviderUsageDisplay(
       ? []
       : [`${provider.providerId} ${quotas.join(' · ')}`]
   })
-  const apiText = statusText('API 余额', apiValues, apiIssues.length > 0, '暂不支持')
+  const apiText = statusText('API 余额', apiValues, apiIssues, '暂不支持')
   const subscriptionText = statusText(
     '订阅额度',
     subscriptionValues,
-    subscriptionIssues.length > 0,
+    subscriptionIssues,
     '未配置',
   )
   const detailLines = [apiText, subscriptionText]
@@ -192,11 +192,27 @@ function subscriptionRows(
 function statusText(
   label: string,
   values: readonly string[],
-  hasIssues: boolean,
+  issues: readonly { readonly providerId: string; readonly message: string }[],
   emptyText: string,
 ): string {
-  if (values.length === 0) return `${label} · ${hasIssues ? '查询失败' : emptyText}`
-  return `${label} · ${values.join(' / ')}${hasIssues ? '（部分失败）' : ''}`
+  if (values.length === 0) {
+    return `${label} · ${issues.length > 0 ? `查询失败（${issueSummary(issues)}）` : emptyText}`
+  }
+  return `${label} · ${values.join(' / ')}${issues.length > 0 ? '（部分失败）' : ''}`
+}
+
+/**
+ * Names what failed right in the status bar. A bare "查询失败" forces a hover
+ * to learn whether the key is wrong (HTTP 401), the provider is down, or the
+ * network is — three problems with three different fixes.
+ */
+function issueSummary(
+  issues: readonly { readonly providerId: string; readonly message: string }[],
+): string {
+  const [first] = issues
+  if (first === undefined) return ''
+  const head = `${first.providerId}：${first.message}`
+  return issues.length === 1 ? head : `${head} 等 ${String(issues.length)} 项`
 }
 
 function formatQuotaRow(row: SubscriptionQuotaRow): string {

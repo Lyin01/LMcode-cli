@@ -42,10 +42,25 @@ describe('provider usage footer formatting', () => {
       fetchedAt: 1,
     }
     expect(buildProviderUsageDisplay(snapshot)).toMatchObject({
-      apiText: 'API 余额 · 查询失败',
+      apiText: 'API 余额 · 查询失败（deepseek：HTTP 401）',
       subscriptionText: '订阅额度 · 未配置',
       hasIssues: true,
     })
+  })
+
+  it('names the first failure and counts the rest when several providers fail', () => {
+    const snapshot: ProviderUsageSnapshot = {
+      apiBalances: [],
+      subscriptions: [],
+      issues: [
+        { providerId: 'deepseek', kind: 'api-balance', message: '请求超时' },
+        { providerId: 'grok', kind: 'api-balance', message: 'HTTP 401' },
+      ],
+      fetchedAt: 1,
+    }
+    expect(buildProviderUsageDisplay(snapshot).apiText).toBe(
+      'API 余额 · 查询失败（deepseek：请求超时 等 2 项）',
+    )
   })
 
   it('projects OpenCode quota windows as stable remaining meters', () => {
