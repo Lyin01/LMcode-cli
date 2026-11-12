@@ -302,10 +302,11 @@ function buildDuplicateGroup(cluster: MemoryMemoSummary[]): DuplicateGroup {
     }
   }
 
-  // Determine best outcome: prefer completion indicators
-  const outcomes = cluster.map((m) => m.outcome);
-  const hasDone = outcomes.some((o) => o.includes('完成') || o.toLowerCase().includes('done'));
-  const bestOutcome = hasDone ? '完成' : newest.outcome;
+  // Keep the newest memo's outcome verbatim. Forcing "完成" whenever any
+  // sibling finished would misreport an unfinished merge (e.g. newest says
+  // "部分完成：xx 未做") and, for pending memos, later make findResolved
+  // delete work that is still open.
+  const bestOutcome = newest.outcome;
 
   return {
     memos: cluster,
@@ -410,8 +411,40 @@ function findRelatedGroups(
   return groups;
 }
 
+/**
+ * Markers that mean the outcome is *not* a clean completion.
+ *
+ * Checked before the positive markers because a plain substring match would
+ * treat "未完成" / "部分完成" as completed ("完成" is contained in both) and
+ * silently delete live pending items. Deletion is irreversible, so negation
+ * wins over any positive marker.
+ */
+const INCOMPLETE_OUTCOME_MARKERS = [
+  '未完成',
+  '尚未完成',
+  '没有完成',
+  '未做完',
+  '部分完成',
+  '未成功',
+  '失败',
+  '取消',
+  'blocked',
+  'incomplete',
+  'unfinished',
+  'undone',
+  'not completed',
+  'not done',
+  'partial',
+  'failed',
+  'cancelled',
+  'canceled',
+];
+
 function isOutcomeCompleted(outcome: string): boolean {
   const lower = outcome.toLowerCase();
+  if (INCOMPLETE_OUTCOME_MARKERS.some((marker) => lower.includes(marker))) {
+    return false;
+  }
   return (
     lower.includes('完成') ||
     lower.includes('done') ||
@@ -421,15 +454,29 @@ function isOutcomeCompleted(outcome: string): boolean {
   );
 }
 
+/**
+ * Pending items whose work is done and can be written off.
+ *
+ * Deliberately scoped to `pending`: task memos are long-term experience and
+ * must survive consolidation no matter how old they are. A completed task is
+ * knowledge, not a closed TODO.
+ */
 function findResolved(memos: MemoryMemoSummary[]): MemoryMemoSummary[] {
   return memos.filter(
     (m) =>
+      normalizeMemoKind(m.kind) === 'pending' &&
       isOutcomeCompleted(m.outcome) &&
       // Only flag memos older than 7 days as "resolved"
       (Date.now() - m.recordedAt) > 7 * 24 * 60 * 60 * 1000,
   );
 }
 
+/**
+ * Pending items that have gone cold without ever being finished.
+ *
+ * Scoped to `pending` for the same reason as {@link findResolved}: an old task
+ * or preference memo is still reference material, not stale state.
+ */
 function findStale(
   memos: MemoryMemoSummary[],
   staleDays: number,
@@ -437,8 +484,9 @@ function findStale(
   const threshold = Date.now() - staleDays * 24 * 60 * 60 * 1000;
   return memos.filter(
     (m) =>
+      normalizeMemoKind(m.kind) === 'pending' &&
       m.recordedAt < threshold &&
       !isOutcomeCompleted(m.outcome) &&
-      !m.outcome.includes('blocked'),
+      !m.outcome.toLowerCase().includes('blocked'),
   );
 }

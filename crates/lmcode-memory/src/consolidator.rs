@@ -279,14 +279,10 @@ fn build_duplicate_group(cluster: Vec<MemoryMemo>) -> DuplicateGroup {
         }
     }
 
-    let has_done = cluster
-        .iter()
-        .any(|memo| is_resolved_outcome(&memo.outcome));
-    let best_outcome = if has_done {
-        "完成".to_string()
-    } else {
-        newest.outcome.clone()
-    };
+    // Keep the newest memo's outcome verbatim: forcing "完成" whenever any
+    // sibling finished would misreport an unfinished merge and, for pending
+    // memos, later make find_resolved delete work that is still open.
+    let best_outcome = newest.outcome.clone();
 
     DuplicateGroup {
         reason: format!(
@@ -318,31 +314,81 @@ fn build_duplicate_group(cluster: Vec<MemoryMemo>) -> DuplicateGroup {
     }
 }
 
-/// Whether an outcome indicates completion.
+/// Whether an outcome indicates a clean completion.
 ///
-/// Mirrors the TS rule (`完成` / `done`) but additionally excludes partial or
-/// unfinished outcomes — `contains("完成")` alone would sweep in "部分完成"
-/// and "未完成", and deletion is irreversible.
-fn is_resolved_outcome(outcome: &str) -> bool {
-    if outcome.contains("部分完成") || outcome.contains("未完成") {
+/// Negation markers win over positive ones: `contains("完成")` alone would
+/// sweep in "部分完成" / "未完成", and deletion is irreversible. Mirrors the
+/// TS `isOutcomeCompleted` rule.
+fn is_completed_outcome(outcome: &str) -> bool {
+    let lower = outcome.to_lowercase();
+    const INCOMPLETE_MARKERS: [&str; 18] = [
+        "未完成",
+        "尚未完成",
+        "没有完成",
+        "未做完",
+        "部分完成",
+        "未成功",
+        "失败",
+        "取消",
+        "blocked",
+        "incomplete",
+        "unfinished",
+        "undone",
+        "not completed",
+        "not done",
+        "partial",
+        "failed",
+        "cancelled",
+        "canceled",
+    ];
+    if INCOMPLETE_MARKERS
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
         return false;
     }
-    outcome.contains("完成") || outcome.to_lowercase().contains("done")
+    lower.contains("完成")
+        || lower.contains("done")
+        || lower.contains("completed")
+        || lower.contains("成功")
+        || lower.contains("success")
 }
 
+/// How long a finished pending item stays visible before it is written off.
+const RESOLVED_AFTER_DAYS: i64 = 7;
+
+/// Pending items whose work is done and can be written off.
+///
+/// Deliberately scoped to `Pending`: task memos are long-term experience and
+/// must survive consolidation no matter how old they are. A completed task is
+/// knowledge, not a closed TODO.
 fn find_resolved(memos: &[MemoryMemo]) -> Vec<MemoryMemo> {
+    let cutoff = now_millis() - RESOLVED_AFTER_DAYS * 24 * 60 * 60 * 1000;
     memos
         .iter()
-        .filter(|memo| is_resolved_outcome(&memo.outcome))
+        .filter(|memo| {
+            memo.kind == MemoKind::Pending
+                && is_completed_outcome(&memo.outcome)
+                && memo.recorded_at < cutoff
+        })
         .cloned()
         .collect()
 }
 
+/// Pending items that have gone cold without ever being finished.
+///
+/// Scoped to `Pending` for the same reason as [`find_resolved`]: an old task
+/// or preference memo is still reference material, not stale state.
 fn find_stale(memos: &[MemoryMemo], stale_days: i64) -> Vec<MemoryMemo> {
     let cutoff = now_millis() - stale_days * 24 * 60 * 60 * 1000;
     memos
         .iter()
-        .filter(|memo| memo.recorded_at < cutoff)
+        .filter(|memo| {
+            memo.kind == MemoKind::Pending
+                && memo.recorded_at < cutoff
+                && !is_completed_outcome(&memo.outcome)
+                && !memo.outcome.to_lowercase().contains("blocked")
+        })
         .cloned()
         .collect()
 }
@@ -451,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn merged_record_prefers_completion_and_newest_approach() {
+    fn merged_record_keeps_newest_outcome() {
         let memos = vec![
             memo("部署脚本修复", "旧方案：手动拷贝", "部分完成", -5000),
             memo("部署脚本修复", "新方案：rsync 同步", "完成", -1000),
@@ -460,6 +506,24 @@ mod tests {
         assert_eq!(group.merged.outcome, "完成");
         assert!(group.merged.approach.contains("新方案：rsync 同步"));
         assert!(group.merged.approach.starts_with("合并 2 条相关记录"));
+    }
+
+    #[test]
+    fn merged_record_does_not_upgrade_unfinished_newest_outcome() {
+        let memos = vec![
+            memo("部署脚本修复", "旧方案：手动拷贝", "完成", -5000),
+            memo(
+                "部署脚本修复",
+                "新方案：rsync 同步",
+                "部分完成：回滚未验证",
+                -1000,
+            ),
+        ];
+        let group = build_duplicate_group(memos);
+        assert_eq!(
+            group.merged.outcome, "部分完成：回滚未验证",
+            "an unfinished newest outcome must not be reported as 完成"
+        );
     }
 
     #[test]
@@ -476,41 +540,73 @@ mod tests {
         assert!(group.merged.what_worked.contains("布隆过滤器误判"));
     }
 
+    fn pending(need: &str, outcome: &str, age_days: i64) -> MemoryMemo {
+        let mut memo = memo(need, "a", outcome, 0);
+        memo.kind = MemoKind::Pending;
+        memo.recorded_at = now_millis() - age_days * 24 * 60 * 60 * 1000;
+        memo
+    }
+
+    fn aged_task(need: &str, outcome: &str, age_days: i64) -> MemoryMemo {
+        let mut memo = memo(need, "a", outcome, 0);
+        memo.recorded_at = now_millis() - age_days * 24 * 60 * 60 * 1000;
+        memo
+    }
+
     #[test]
-    fn resolved_and_stale_detection() {
-        let mut old = memo("很久以前的任务", "a", "部分完成", 0);
-        old.recorded_at = now_millis() - 40 * 24 * 60 * 60 * 1000;
+    fn resolved_and_stale_only_touch_pending_items() {
+        let mut long_preference = memo("长期偏好", "a", "已记录为长期偏好", 0);
+        long_preference.kind = MemoKind::Preference;
+        long_preference.recorded_at = now_millis() - 40 * 24 * 60 * 60 * 1000;
+
         let memos = vec![
-            memo("done 的任务", "a", "done", -1000),
-            memo("完成的任务", "a", "完成", -1000),
-            old,
-            memo("进行中的任务", "a", "进行中", -1000),
-            memo("半途的任务", "a", "部分完成", -1000),
-            memo("未完成的任务", "a", "未完成", -1000),
+            pending("已完成的待续事项", "完成：已交付", 8),
+            pending("未完成的待续事项", "未完成", 8),
+            pending("部分完成的待续事项", "部分完成", 40),
+            pending("阻塞的待续事项", "blocked：等上游", 40),
+            aged_task("已完成的任务知识", "完成", 40),
+            aged_task("进行中的任务知识", "进行中", 40),
+            long_preference,
         ];
-        let ungrouped = memos;
-        let resolved = find_resolved(&ungrouped);
-        assert_eq!(resolved.len(), 2, "partial/unfinished outcomes are kept");
-        let stale = find_stale(&ungrouped, STALE_DAYS);
-        assert_eq!(stale.len(), 1);
-        assert_eq!(stale[0].user_need, "很久以前的任务");
+
+        let resolved = find_resolved(&memos);
+        assert_eq!(resolved.len(), 1, "only finished pending items resolve");
+        assert_eq!(resolved[0].user_need, "已完成的待续事项");
+
+        let stale = find_stale(&memos, STALE_DAYS);
+        assert_eq!(stale.len(), 1, "only cold pending items go stale");
+        assert_eq!(stale[0].user_need, "部分完成的待续事项");
+    }
+
+    #[test]
+    fn finished_pending_younger_than_a_week_is_kept() {
+        let memos = vec![
+            pending("刚完成的待续事项", "完成", 3),
+            pending("多年前的待续事项", "完成", 8),
+        ];
+        let resolved = find_resolved(&memos);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].user_need, "多年前的待续事项");
     }
 
     #[test]
     fn plan_summary_counts_are_consistent() {
-        let mut old = memo("陈旧记录", "a", "完成", 0);
-        old.recorded_at = now_millis() - 40 * 24 * 60 * 60 * 1000;
         let memos = vec![
             memo("redis 泄漏", "修连接池", "完成", -3000),
             memo("redis 泄漏问题", "修连接池配置", "完成", -2000),
-            old,
+            aged_task("hexo 主题配色记录", "完成", 40),
+            pending("迁移旧照片", "未完成", 40),
         ];
         let plan = build_consolidation_plan(&memos);
-        assert_eq!(plan.summary.total_memos, 3);
+        assert_eq!(plan.summary.total_memos, 4);
         assert_eq!(plan.summary.duplicates_found, 1);
         assert_eq!(plan.duplicate_groups.len(), 1);
-        // The stale memo is also resolved, matching the TS counting.
+        assert_eq!(
+            plan.summary.resolved_found, 0,
+            "completed tasks are knowledge, not closed TODOs"
+        );
         assert_eq!(plan.summary.stale_found, 1);
+        assert_eq!(plan.summary.memos_after_consolidation, 2);
     }
 
     #[test]
@@ -520,27 +616,39 @@ mod tests {
 
         let a = memo("redis 泄漏", "修连接池", "完成", -3000);
         let b = memo("redis 泄漏问题", "修连接池配置", "完成", -2000);
-        let mut old = memo("陈旧记录", "a", "完成", 0);
-        old.recorded_at = now_millis() - 40 * 24 * 60 * 60 * 1000;
-        for entry in [&a, &b, &old] {
+        let old_task = aged_task("hexo 主题配色记录", "完成", 40);
+        let stale_pending = pending("迁移旧照片", "未完成", 40);
+        for entry in [&a, &b, &old_task, &stale_pending] {
             store.append(entry).unwrap();
         }
 
         let plan = build_consolidation_plan(&store.all().unwrap());
         let result = apply_consolidation(&store, &plan).unwrap();
 
-        // merged (1) + group originals (2) + stale (1) = 4 deleted... stale is
-        // also resolved here, but deletion is idempotent (skipped on second).
         assert_eq!(result.created, 1);
-        assert!(result.deleted >= 3);
-        let remaining = store.all().unwrap();
-        assert_eq!(remaining.len(), 1, "only the merged record remains");
-        assert!(remaining[0].approach.contains("合并 2 条相关记录"));
-        assert_eq!(remaining[0].extraction_source, "compaction");
         assert_eq!(
-            remaining[0].project_dir, "/proj",
-            "shared project inherited"
+            result.deleted, 3,
+            "2 group originals + 1 stale pending; the old task survives"
         );
+        let remaining = store.all().unwrap();
+        assert_eq!(remaining.len(), 2, "merged record + preserved task");
+        assert!(
+            remaining
+                .iter()
+                .any(|memo| memo.approach.contains("合并 2 条相关记录"))
+        );
+        assert!(
+            remaining
+                .iter()
+                .any(|memo| memo.user_need == "hexo 主题配色记录"),
+            "old task knowledge must not be pruned"
+        );
+        let merged = remaining
+            .iter()
+            .find(|memo| memo.approach.contains("合并 2 条相关记录"))
+            .unwrap();
+        assert_eq!(merged.extraction_source, "compaction");
+        assert_eq!(merged.project_dir, "/proj", "shared project inherited");
     }
 
     #[test]

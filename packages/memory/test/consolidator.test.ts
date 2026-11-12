@@ -319,3 +319,137 @@ describe('applyConsolidation', () => {
     expect(remaining[0]?.kind).toBe('task');
   });
 });
+
+describe('resolved/stale scoping', () => {
+  let tmpDir: string;
+  let store: MemoryMemoStore;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'lmcode-consolidator-scope-test-'));
+    store = new MemoryMemoStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    await store.close();
+    await removeTempDir(tmpDir);
+  });
+
+  const ageDays = (days: number): number => Date.now() - days * 24 * 60 * 60 * 1000;
+
+  it('never treats unfinished outcomes as completed', async () => {
+    await store.append(
+      makeMemo('u1', {
+        kind: 'pending',
+        userNeed: 'alpha 待办：迁移旧照片',
+        approach: '先盘点再搬',
+        outcome: '未完成',
+        recordedAt: ageDays(8),
+      }),
+    );
+    await store.append(
+      makeMemo('u2', {
+        kind: 'pending',
+        userNeed: 'beta 待办：回滚演练',
+        approach: '灰度分批',
+        outcome: '部分完成：回滚未验证',
+        recordedAt: ageDays(8),
+      }),
+    );
+    await store.append(
+      makeMemo('u3', {
+        kind: 'task',
+        userNeed: 'gamma 任务：修复构建',
+        approach: '升级依赖',
+        outcome: '完成',
+        recordedAt: ageDays(8),
+      }),
+    );
+
+    const plan = await buildConsolidationPlan(store);
+    expect(plan.resolved).toEqual([]);
+    expect(plan.stale).toEqual([]);
+  });
+
+  it('resolves only finished pending items older than 7 days', async () => {
+    await store.append(
+      makeMemo('r1', {
+        kind: 'pending',
+        userNeed: 'delta 待办：切换默认模型',
+        approach: '改 config',
+        outcome: '完成：已灰度',
+        recordedAt: ageDays(8),
+      }),
+    );
+    await store.append(
+      makeMemo('r2', {
+        kind: 'pending',
+        userNeed: 'epsilon 待办：补文档',
+        approach: '写 README',
+        outcome: '完成',
+        recordedAt: ageDays(3),
+      }),
+    );
+
+    const plan = await buildConsolidationPlan(store);
+    expect(plan.resolved.map((memo) => memo.id)).toEqual(['r1']);
+  });
+
+  it('goes stale only for cold pending items', async () => {
+    await store.append(
+      makeMemo('s1', {
+        kind: 'pending',
+        userNeed: 'zeta 待办：接入支付',
+        approach: '等资质',
+        outcome: '未完成',
+        recordedAt: ageDays(40),
+      }),
+    );
+    await store.append(
+      makeMemo('s2', {
+        kind: 'task',
+        userNeed: 'eta 任务：整理配色',
+        approach: '记录色板',
+        outcome: '进行中',
+        recordedAt: ageDays(40),
+      }),
+    );
+    await store.append(
+      makeMemo('s3', {
+        kind: 'preference',
+        userNeed: 'theta 偏好',
+        approach: '回复用中文',
+        outcome: '已记录为长期偏好',
+        recordedAt: ageDays(40),
+      }),
+    );
+
+    const plan = await buildConsolidationPlan(store);
+    expect(plan.stale.map((memo) => memo.id)).toEqual(['s1']);
+    expect(plan.resolved).toEqual([]);
+  });
+
+  it('keeps the newest outcome when merging a still-open duplicate', async () => {
+    await store.append(
+      makeMemo('o1', {
+        kind: 'pending',
+        userNeed: '部署脚本修复',
+        approach: 'rsync 同步',
+        outcome: '完成',
+        recordedAt: Date.now() - 5000,
+      }),
+    );
+    await store.append(
+      makeMemo('o2', {
+        kind: 'pending',
+        userNeed: '部署脚本修复',
+        approach: 'rsync 同步',
+        outcome: '部分完成：回滚未验证',
+        recordedAt: Date.now() - 1000,
+      }),
+    );
+
+    const plan = await buildConsolidationPlan(store);
+    expect(plan.duplicateGroups.length).toBe(1);
+    expect(plan.duplicateGroups[0]?.merged.outcome).toBe('部分完成：回滚未验证');
+  });
+});
