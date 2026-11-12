@@ -122,7 +122,10 @@ describe('MemoryConsolidatePlanTool', () => {
         whatWorked: 'Auto refresh works',
         recordedAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
       }),
+      // Resolved / stale cleanup only writes off `pending` items: a finished
+      // or abandoned TODO is closed state, while a task memo is experience.
       makeMemo('m3', {
+        kind: 'pending',
         userNeed: 'Add dark mode',
         approach: 'CSS variables',
         outcome: '失败',
@@ -132,8 +135,16 @@ describe('MemoryConsolidatePlanTool', () => {
       // count memos that are not already in a duplicate group (no double
       // counting).
       makeMemo('m4', {
+        kind: 'pending',
         userNeed: 'Migrate database schema to v2',
         approach: 'Write migration scripts',
+        outcome: '完成',
+        recordedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+      }),
+      // Same age and outcome as m4 but a task memo: it must survive.
+      makeMemo('m5', {
+        userNeed: 'Tune webpack bundle splitting',
+        approach: 'Manual chunks per route',
         outcome: '完成',
         recordedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
       }),
@@ -150,10 +161,10 @@ describe('MemoryConsolidatePlanTool', () => {
 
     expect(result.isError).toBeFalsy();
     const plan = JSON.parse(getOutputText(result));
-    expect(plan.summary.totalMemos).toBe(4);
+    expect(plan.summary.totalMemos).toBe(5);
     expect(plan.duplicateGroups.length).toBeGreaterThan(0);
     expect(plan.resolved.length).toBeGreaterThan(0);
-    expect(plan.stale.length).toBeGreaterThan(0);
+    expect(plan.stale.map((m: { id: string }) => m.id)).toEqual(['m3']);
     // m1 is completed+old but sits in the duplicate group — it must not be
     // double-counted as resolved, and the after-count must stay non-negative.
     expect(plan.resolved.map((m: { id: string }) => m.id)).toEqual(['m4']);
