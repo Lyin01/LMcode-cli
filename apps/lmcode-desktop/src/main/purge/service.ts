@@ -242,12 +242,22 @@ export class PurgeService {
         throw new Error('没有可用备份：请改用「移除覆盖段」。')
       }
       const content = await readFile(join(paths.backup, latest), 'utf8')
+      if (content === current) {
+        return {
+          changed: false,
+          message: `AGENTS.md 已与最近备份一致：${latest}`,
+          status: await this.status(),
+        }
+      }
+      // 还原本身也是一次覆盖：先把当前内容存成备份，还原错了还能再退回来。
+      const backupPath = current.length > 0 ? await this.backup(current) : undefined
       await writeFileAtomic(paths.target, content)
       const state = await this.readState()
       await this.writeState({ ...EMPTY_STATE, enabledRules: state.enabledRules })
       return {
         changed: true,
         message: `已从备份还原：${latest}`,
+        ...(backupPath === undefined ? {} : { backupPath }),
         status: await this.status(),
       }
     }
@@ -344,18 +354,33 @@ export class PurgeService {
     if (!existsSync(join(source, 'SKILL.md'))) {
       throw new Error(`目录里没有 SKILL.md：${source}`)
     }
-    const id = sanitiseSkillId(source.split(/[\\/]/).pop() ?? 'skill')
+    const id = assertSkillId(source.split(/[\\/]/).pop() ?? '')
     const dest = join(paths.skills, id)
     assertInside(paths.skills, dest)
+    // 导入会先清掉同名目标再复制。来源与目标重叠时（最常见：直接选中了
+    // 技能目录里已有的那个技能），清目标就等于删来源，复制随后必然失败，
+    // 技能就没了。重叠一律拒绝，不动磁盘。
+    if (pathsOverlap(source, dest)) {
+      throw new Error(`该技能已在技能目录内，无需导入：${source}`)
+    }
     await mkdir(paths.skills, { recursive: true })
-    await rm(dest, { recursive: true, force: true })
-    await cp(source, dest, { recursive: true })
+    // 先完整复制到临时目录，成功后再替换：复制中途失败不会留下半个技能，
+    // 也不会先把旧版本删掉。
+    const staging = join(paths.skills, `.${id}.importing-${process.pid}-${Date.now()}`)
+    try {
+      await cp(source, staging, { recursive: true })
+      await rm(dest, { recursive: true, force: true })
+      await rename(staging, dest)
+    } catch (error) {
+      await rm(staging, { recursive: true, force: true })
+      throw error
+    }
     return this.status()
   }
 
   async deleteSkill(id: string): Promise<PurgeStatus> {
     const paths = this.paths
-    const dest = join(paths.skills, sanitiseSkillId(id))
+    const dest = join(paths.skills, assertSkillId(id))
     assertInside(paths.skills, dest)
     if (!existsSync(dest)) throw new Error(`技能不存在：${id}`)
     await rm(dest, { recursive: true, force: true })
@@ -478,12 +503,44 @@ function assertRuleId(id: string): void {
   }
 }
 
-function sanitiseSkillId(raw: string): string {
-  const cleaned = raw.replace(/[^a-zA-Z0-9._-]/g, '-')
-  if (cleaned.length === 0 || cleaned === '.' || cleaned === '..') {
-    throw new Error(`非法技能名："${raw}"`)
+/**
+ * 校验技能目录名并原样返回。
+ *
+ * 不做"改写成安全字符"：列表里显示的 id 就是磁盘上的目录名，改写后删除会
+ * 找不到（或删到另一个目录），而且所有非 ASCII 名字（如中文技能名）会被
+ * 压成同一串短横线、互相覆盖。这里只拒绝真正危险的名字。
+ */
+function assertSkillId(raw: string): string {
+  const id = raw.trim()
+  const unsafe =
+    id.length === 0 ||
+    id.length > 128 ||
+    id === '.' ||
+    id === '..' ||
+    id.startsWith('.') ||
+    /[\\/:*?"<>|]/.test(id) ||
+    hasControlCharacter(id) ||
+    /[. ]$/.test(id)
+  if (unsafe) throw new Error(`非法技能名："${raw}"`)
+  return id
+}
+
+function hasControlCharacter(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) < 0x20) return true
   }
-  return cleaned
+  return false
+}
+
+/** 两个路径相同，或一个在另一个里面。Windows 上按不区分大小写比较。 */
+function pathsOverlap(left: string, right: string): boolean {
+  const fold = (value: string): string => {
+    const resolved = resolve(value)
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  const a = fold(left)
+  const b = fold(right)
+  return a === b || a.startsWith(`${b}${sep}`) || b.startsWith(`${a}${sep}`)
 }
 
 function assertInside(root: string, candidate: string): void {

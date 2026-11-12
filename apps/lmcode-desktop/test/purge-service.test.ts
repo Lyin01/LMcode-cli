@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
@@ -109,6 +109,29 @@ describe('purge service', () => {
     expect(text).toBe('# 原始\n')
   })
 
+  it('revert --restore backs up what it overwrites', async () => {
+    await writeFile(join(home, 'AGENTS.md'), '# 原始\n', 'utf8')
+    await service.savePrompt('新的\n')
+    await service.apply()
+    const applied = await readFile(join(home, 'AGENTS.md'), 'utf8')
+
+    const result = await service.revert({ restore: true })
+    expect(result.backupPath).toBeDefined()
+    expect(await readFile(result.backupPath ?? '', 'utf8')).toBe(applied)
+  })
+
+  it('revert --restore is a no-op when the file already matches the backup', async () => {
+    await writeFile(join(home, 'AGENTS.md'), '# 原始\n', 'utf8')
+    await service.savePrompt('新的\n')
+    await service.apply()
+    await writeFile(join(home, 'AGENTS.md'), '# 原始\n', 'utf8')
+
+    const before = await readdir(join(home, 'purge', 'backup'))
+    const result = await service.revert({ restore: true })
+    expect(result.changed).toBe(false)
+    expect(await readdir(join(home, 'purge', 'backup'))).toEqual(before)
+  })
+
   it('does not clobber two backups written in the same second', async () => {
     await writeFile(join(home, 'AGENTS.md'), 'v1\n', 'utf8')
     await service.savePrompt('第一版\n')
@@ -156,6 +179,44 @@ describe('purge service', () => {
     await service.deleteSkill('demo-skill')
     expect(await service.listSkills()).toEqual([])
   })
+
+  it('refuses to import a skill that already lives in the skills root', async () => {
+    const existing = join(skills, 'demo-skill')
+    await mkdir(existing, { recursive: true })
+    await writeFile(join(existing, 'SKILL.md'), '---\nname: demo\n---\n', 'utf8')
+
+    await expect(service.importSkill(existing)).rejects.toThrow('无需导入')
+    // The source must survive: importing used to delete it before copying.
+    expect(existsSync(join(existing, 'SKILL.md'))).toBe(true)
+  })
+
+  it('refuses a source folder that contains the skills root', async () => {
+    await writeFile(join(root, 'SKILL.md'), 'outer\n', 'utf8')
+    const nested = new PurgeService({ homeDir: home, skillsDir: root })
+    // dest would be <root>/<basename(root)>, i.e. inside the source itself.
+    await expect(nested.importSkill(root)).rejects.toThrow('无需导入')
+    expect(await readFile(join(root, 'SKILL.md'), 'utf8')).toBe('outer\n')
+  })
+
+  it('keeps non-ASCII skill names distinct and deletable', async () => {
+    for (const name of ['命理解读师', '中文小说家']) {
+      const source = join(root, 'incoming', name)
+      await mkdir(source, { recursive: true })
+      await writeFile(join(source, 'SKILL.md'), `---\nname: ${name}\n---\n`, 'utf8')
+      await service.importSkill(source)
+    }
+    const listed = await service.listSkills()
+    expect(listed.map((skill) => skill.id).toSorted()).toEqual(['中文小说家', '命理解读师'])
+
+    await service.deleteSkill('命理解读师')
+    expect((await service.listSkills()).map((skill) => skill.id)).toEqual(['中文小说家'])
+  })
+
+  it('rejects skill names that could escape or hide', async () => {
+    for (const id of ['', '.', '..', '.hidden', 'a/b', 'a\\b', 'con:', 'trailing.', 'tab\there']) {
+      await expect(service.deleteSkill(id)).rejects.toThrow('非法技能名')
+    }
+  })
 })
 
 describe('purge paths', () => {
@@ -166,8 +227,11 @@ describe('purge paths', () => {
   })
 
   it('honours an explicit home', () => {
-    const paths = resolvePurgePaths({ homeDir: join('C:', 'tmp', 'custom-home') })
-    expect(paths.target).toBe(join('C:', 'tmp', 'custom-home', 'AGENTS.md'))
+    // Built from an absolute path of the current platform so the case holds
+    // on the Linux CI leg as well as on Windows.
+    const custom = resolve(tmpdir(), 'custom-home')
+    const paths = resolvePurgePaths({ homeDir: custom })
+    expect(paths.target).toBe(join(custom, 'AGENTS.md'))
   })
 })
 
