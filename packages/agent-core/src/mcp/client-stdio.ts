@@ -1,6 +1,6 @@
 import { ErrorCodes, LmcodeError } from '#/errors';
 import type { McpServerStdioConfig } from '#/config/schema';
-import { adaptSpawnCommandForWindows } from '#/utils/spawn-command';
+import { adaptSpawnCommandForWindows, terminateProcessTreeByPid } from '#/utils/spawn-command';
 import { mergeSpawnEnv } from '#/utils/spawn-env';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -165,7 +165,19 @@ export class StdioMcpClient implements MCPClient {
     if (this.closing !== undefined) return this.closing;
     if (!this.started) return Promise.resolve();
     this.started = false;
-    const closing = Promise.resolve().then(() => this.client.close());
+    // Capture the transport pid BEFORE `client.close()` clears its internal
+    // process handle: the tree kill below needs it while the direct child
+    // (often a launcher shim) is still alive to root the descendant walk.
+    const childPid = this.transport.pid;
+    const closing = Promise.resolve().then(async () => {
+      // stdio MCP servers are frequently launcher shims (uv / npm / cmd)
+      // whose real server runs as a grandchild; the SDK close only terminates
+      // the direct child, so sweep the whole tree first. Otherwise every
+      // session teardown leaves an orphaned server behind — on Windows those
+      // accumulate until the machine starts paging itself to death.
+      if (childPid !== null) await terminateProcessTreeByPid(childPid);
+      await this.client.close();
+    });
     this.closing = closing;
     return closing;
   }

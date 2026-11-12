@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
@@ -11,6 +11,7 @@ const here = import.meta.dirname;
 const fixture = join(here, 'fixtures', 'mock-stdio-server.mjs');
 const stderrThenExitFixture = join(here, 'fixtures', 'stderr-then-exit-stdio-server.mjs');
 const crashAfterConnectFixture = join(here, 'fixtures', 'crash-after-connect-stdio-server.mjs');
+const spawnGrandchildFixture = join(here, 'fixtures', 'spawn-grandchild-stdio-server.mjs');
 
 describe('StdioMcpClient', () => {
   it('rejects unsupported executor at construction time', () => {
@@ -467,6 +468,49 @@ describe('StdioMcpClient — Windows .cmd shim', () => {
   );
 });
 
+describe('StdioMcpClient — process tree reclamation', () => {
+  // Regression: uv/npm launcher shims spawn the real server as a grandchild.
+  // Killing only the direct child (what the SDK transport close does) leaves
+  // the grandchild running — the mechanism behind orphaned windows-mcp chains.
+  it.runIf(process.platform === 'win32')(
+    'close() terminates grandchild processes spawned by the server',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'lmcode-mcp-tree-'));
+      const pidFile = join(dir, 'grandchild.pid');
+      const client = new StdioMcpClient({
+        transport: 'stdio',
+        command: process.execPath,
+        args: [spawnGrandchildFixture],
+        env: { LMCODE_TEST_GRANDCHILD_PID_FILE: pidFile },
+      });
+      let grandchildPid: number | undefined;
+      try {
+        await client.connect();
+        const reply = await client.callTool('ping', {});
+        expect(reply.isError).toBe(false);
+
+        grandchildPid = await waitForPidFile(pidFile);
+        expect(isProcessAlive(grandchildPid)).toBe(true);
+
+        await client.close();
+
+        await expectProcessGone(grandchildPid);
+      } finally {
+        await client.close();
+        if (grandchildPid !== undefined && isProcessAlive(grandchildPid)) {
+          try {
+            process.kill(grandchildPid);
+          } catch {
+            // Best effort cleanup for the failure path.
+          }
+        }
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    20000,
+  );
+});
+
 function deferred<T>(): {
   readonly promise: Promise<T>;
   readonly resolve: (value: T | PromiseLike<T>) => void;
@@ -479,4 +523,36 @@ function deferred<T>(): {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPidFile(path: string): Promise<number> {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    try {
+      const raw = readFileSync(path, 'utf8').trim();
+      if (raw.length > 0) return Number.parseInt(raw, 10);
+    } catch {
+      // Not written yet.
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`grandchild pid file was never written: ${path}`);
+}
+
+async function expectProcessGone(pid: number): Promise<void> {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`process ${pid} is still alive after close()`);
 }

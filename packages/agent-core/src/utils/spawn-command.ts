@@ -115,6 +115,24 @@ async function runTaskkill(pid: number): Promise<boolean> {
   }
 }
 
+/**
+ * Terminate a process tree when only its root PID is known — the owning
+ * `ChildProcess` handle lives inside a third-party transport (the MCP SDK
+ * stdio client wires it internally). Windows-only: without the handle there
+ * is no safe way to signal a process group, and the direct-child kill the
+ * caller performs afterwards covers the remaining platforms.
+ *
+ * Launcher shims (uv / npm / cmd) keep the real server alive as a grandchild,
+ * so a direct-child kill alone orphans the server on every teardown.
+ */
+export async function terminateProcessTreeByPid(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+): Promise<boolean> {
+  if (platform !== 'win32') return false;
+  return runTaskkill(pid);
+}
+
 function runTaskkillUnlocked(pid: number): Promise<boolean> {
   return new Promise((resolve) => {
     let killer: ChildProcess;

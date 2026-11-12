@@ -1,6 +1,7 @@
+import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
-import { adaptSpawnCommandForWindows, platformFromOsKind } from '../../src/utils/spawn-command';
+import { adaptSpawnCommandForWindows, platformFromOsKind, terminateProcessTreeByPid } from '../../src/utils/spawn-command';
 
 describe('adaptSpawnCommandForWindows', () => {
   it('wraps a .cmd/npx-style command in cmd.exe /c on Windows', () => {
@@ -45,5 +46,43 @@ describe('platformFromOsKind', () => {
     expect(platformFromOsKind('Linux')).toBe('linux');
     expect(platformFromOsKind('macOS')).toBe('linux');
     expect(platformFromOsKind('freebsd')).toBe('linux');
+  });
+});
+
+describe('terminateProcessTreeByPid', () => {
+  it('is a no-op on non-Windows platforms', async () => {
+    await expect(terminateProcessTreeByPid(999999, 'linux')).resolves.toBe(false);
+  });
+
+  it.runIf(process.platform === 'win32')('terminates a live process by pid', async () => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    try {
+      const pid = child.pid;
+      if (pid === undefined) throw new Error('failed to spawn the probe process');
+
+      await expect(terminateProcessTreeByPid(pid)).resolves.toBe(true);
+
+      const deadline = Date.now() + 10000;
+      let alive = true;
+      while (Date.now() < deadline) {
+        try {
+          process.kill(pid, 0);
+        } catch {
+          alive = false;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(alive).toBe(false);
+    } finally {
+      try {
+        child.kill();
+      } catch {
+        // Already gone.
+      }
+    }
   });
 });
