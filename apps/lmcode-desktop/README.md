@@ -31,6 +31,7 @@ LMCODE 的 Electron 桌面客户端。它复用 `@lmcode-cli/lmcode-sdk` 运行 
 
 - 状态栏的余额查询失败会直接写明是哪个供应商、什么原因（如 `deepseek：HTTP 401`），不必再悬停查看。
 - 去掉思考预算说明里没有依据的「提速 60%~80%」。
+- 依赖安全升级：`@modelcontextprotocol/sdk` 1.32.0、`zod` 4.6.x，以及 `body-parser`、`hono`、`@hono/node-server`、`fast-uri`、`ip-address`、`qs` 的修复版本，清掉生产依赖审计里的 14 条公告（4 条高危）。
 
 **验证**：桌面端类型检查与 oxlint（deny-warnings）通过；桌面端测试、`packages/memory` 与 `packages/agent-core` 的 MCP / 进程工具测试通过（Linux）；清洗面板的 6 个新用例在修复前的代码上按预期失败。
 
