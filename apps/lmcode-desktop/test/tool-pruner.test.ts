@@ -1,7 +1,16 @@
-import { describe, it, expect } from 'vitest'
-import { pruneToolOutput, codePointLength, formatCharCount } from '../src/renderer/lib/tool-pruner'
+import { describe, it, expect, beforeEach } from 'vitest'
+import {
+  pruneToolOutput,
+  pruneToolOutputCached,
+  clearPruneCache,
+  codePointLength,
+  formatCharCount,
+} from '../src/renderer/lib/tool-pruner'
 
 describe('tool-pruner', () => {
+  beforeEach(() => {
+    clearPruneCache()
+  })
   it('measures Unicode code points accurately', () => {
     expect(codePointLength('abc')).toBe(3)
     expect(codePointLength('你好世界')).toBe(4)
@@ -71,5 +80,31 @@ describe('tool-pruner', () => {
     expect(result.displayContent).toContain(tail)
     expect(result.displayContent).toContain('已自动精简')
     expect(result.rawContent).toBe(raw)
+  })
+
+  it('counts lines and code points the same as split/Array.from', () => {
+    const raw = '🚀\nok\n你好'
+    const result = pruneToolOutput(raw)
+    expect(result.totalLines).toBe(3)
+    expect(result.totalChars).toBe(7)
+  })
+
+  // Tool outputs are immutable and re-measured on every remount, so identical
+  // strings must reuse the previous result instead of walking the text again.
+  it('memoises results for identical outputs', () => {
+    const raw = 'x'.repeat(9000)
+    const first = pruneToolOutputCached(raw)
+    const second = pruneToolOutputCached(raw)
+    expect(second).toBe(first)
+    expect(first.totalChars).toBe(9000)
+    expect(first.isPruned).toBe(true)
+  })
+
+  it('bypasses the memo for custom configs', () => {
+    const raw = 'y'.repeat(9000)
+    const first = pruneToolOutputCached(raw, { thresholdChars: 10 })
+    const second = pruneToolOutputCached(raw, { thresholdChars: 10 })
+    expect(second).not.toBe(first)
+    expect(second.totalChars).toBe(first.totalChars)
   })
 })

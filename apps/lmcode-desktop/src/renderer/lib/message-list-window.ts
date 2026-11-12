@@ -3,10 +3,22 @@
  * high on purpose: the estimated-height windowing is only a safety valve for
  * pathological transcripts — measured row heights in real sessions vary from
  * a few pixels (collapsed tool rows) to many hundreds, and any sliding window
- * built on estimates drifts (the viewport jumps/flickers). Below this size
- * the whole transcript mounts and scrolling is plain native behavior.
+ * built on estimates drifts (the viewport jumps/flickers). Below this row
+ * count — and below MESSAGE_LIST_HEAVY_CONTENT_CHARS — the whole transcript
+ * mounts and scrolling is plain native behavior.
  */
 export const MESSAGE_LIST_VIRTUALIZE_AFTER = 1500
+/**
+ * Transcript text weight past which the list windows regardless of row count.
+ *
+ * Row count alone is the wrong trigger: markdown parsing plus syntax
+ * highlighting dominates the mount cost, and a 183-row transcript of 174 KB
+ * spends about half a second in that pipeline — below the row threshold, so it
+ * used to mount in full. Weight is the sum of message/tool text lengths.
+ */
+export const MESSAGE_LIST_HEAVY_CONTENT_CHARS = 120_000
+/** Tail rows mounted when a heavy transcript is windowed. */
+export const MESSAGE_LIST_HEAVY_TAIL_ROWS = 60
 export const MESSAGE_LIST_ESTIMATED_ROW_PX = 180
 export const MESSAGE_LIST_OVERSCAN = 6
 /** Rows mounted beyond the viewport so scrolling stays ahead of rendering. */
@@ -23,6 +35,10 @@ export interface MessageListWindowInput {
   readonly stickToBottom: boolean
   readonly windowRange: MessageListWindowRange
   readonly virtualizeAfter?: number
+  /** Total transcript text length; see MESSAGE_LIST_HEAVY_CONTENT_CHARS. */
+  readonly transcriptChars?: number
+  readonly heavyContentChars?: number
+  readonly heavyTailRows?: number
 }
 
 export interface MessageListWindow {
@@ -41,13 +57,17 @@ export interface MessageListWindow {
  */
 export function computeMessageListWindow(input: MessageListWindowInput): MessageListWindow {
   const virtualizeAfter = input.virtualizeAfter ?? MESSAGE_LIST_VIRTUALIZE_AFTER
-  const virtualize = !input.findOpen && input.messageCount > virtualizeAfter
+  const heavyContentChars = input.heavyContentChars ?? MESSAGE_LIST_HEAVY_CONTENT_CHARS
+  const heavyTailRows = input.heavyTailRows ?? MESSAGE_LIST_HEAVY_TAIL_ROWS
+  const heavy = (input.transcriptChars ?? 0) >= heavyContentChars
+  const virtualize = !input.findOpen && (input.messageCount > virtualizeAfter || heavy)
   if (!virtualize) {
     return { virtualize: false, start: 0, end: input.messageCount }
   }
 
   if (input.stickToBottom) {
-    const span = Math.max(virtualizeAfter, input.windowRange.end - input.windowRange.start)
+    const floor = heavy ? Math.min(virtualizeAfter, heavyTailRows) : virtualizeAfter
+    const span = Math.max(floor, input.windowRange.end - input.windowRange.start)
     const start = Math.max(0, input.messageCount - span)
     return { virtualize: true, start, end: input.messageCount }
   }

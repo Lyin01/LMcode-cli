@@ -51,6 +51,8 @@ export const AttachmentStrip = memo(function AttachmentStrip({
               <img
                 src={attachment.previewUrl}
                 alt={attachment.name}
+                loading="lazy"
+                decoding="async"
                 className="h-12 w-16 shrink-0 rounded-lg object-cover"
               />
             ) : (

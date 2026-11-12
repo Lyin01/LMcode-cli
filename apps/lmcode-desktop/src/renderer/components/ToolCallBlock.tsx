@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import type { ToolCallInfo } from '@/types'
 import { artifactIdForToolCall, useArtifactsStore } from '@/stores/artifacts-store'
-import { pruneToolOutput, formatCharCount } from '@/lib/tool-pruner'
+import { pruneToolOutputCached, formatCharCount } from '@/lib/tool-pruner'
 import { toolFamily, summarizeToolArgs, summarizeToolResult, toolFilePath } from '@/lib/tool-summary'
 import { useFileContextMenu, openFileWithSystem, FileOutputCard } from '@/components/FileActionMenu'
 import { resolveOpenTarget } from '@/lib/open-target'
@@ -118,7 +118,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: 
 
   const prunedResult = useMemo(() => {
     if (!toolCall.result) return null
-    return pruneToolOutput(toolCall.result)
+    return pruneToolOutputCached(toolCall.result)
   }, [toolCall.result])
 
   // Tool-result images (computer-use screenshots, read_media, …) render as
@@ -324,6 +324,8 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall, workDir }: 
                       <img
                         src={url}
                         alt="工具输出图片"
+                        loading="lazy"
+                        decoding="async"
                         className="max-h-48 max-w-full object-contain"
                       />
                     </button>

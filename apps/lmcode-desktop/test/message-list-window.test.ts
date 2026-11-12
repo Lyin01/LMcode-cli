@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MESSAGE_LIST_HEAVY_CONTENT_CHARS,
+  MESSAGE_LIST_HEAVY_TAIL_ROWS,
   computeMessageListWindow,
   MESSAGE_LIST_VIRTUALIZE_AFTER,
 } from '../src/renderer/lib/message-list-window'
@@ -77,5 +79,43 @@ describe('computeMessageListWindow', () => {
       ...windowed,
     })
     expect(window).toEqual({ virtualize: true, start: 70, end: 80 })
+  })
+
+  // A transcript can be expensive long before it has 1500 rows: mount cost is
+  // markdown + highlighting over its text, and a 183-row/174 KB transcript was
+  // measured at ~0.5 s in that pipeline. Weight, not row count, is the trigger.
+  it('windows a heavy transcript that is below the row threshold', () => {
+    const window = computeMessageListWindow({
+      messageCount: 183,
+      findOpen: false,
+      stickToBottom: true,
+      windowRange: { start: 0, end: 60 },
+      transcriptChars: MESSAGE_LIST_HEAVY_CONTENT_CHARS,
+    })
+    expect(window.virtualize).toBe(true)
+    expect(window.end).toBe(183)
+    expect(window.start).toBe(183 - MESSAGE_LIST_HEAVY_TAIL_ROWS)
+  })
+
+  it('leaves light transcripts fully mounted even when long', () => {
+    const window = computeMessageListWindow({
+      messageCount: 183,
+      findOpen: false,
+      stickToBottom: true,
+      windowRange: { start: 0, end: 60 },
+      transcriptChars: MESSAGE_LIST_HEAVY_CONTENT_CHARS - 1,
+    })
+    expect(window).toEqual({ virtualize: false, start: 0, end: 183 })
+  })
+
+  it('never windows a heavy transcript while find is open', () => {
+    const window = computeMessageListWindow({
+      messageCount: 183,
+      findOpen: true,
+      stickToBottom: true,
+      windowRange: { start: 0, end: 60 },
+      transcriptChars: MESSAGE_LIST_HEAVY_CONTENT_CHARS * 2,
+    })
+    expect(window).toEqual({ virtualize: false, start: 0, end: 183 })
   })
 })

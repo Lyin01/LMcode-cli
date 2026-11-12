@@ -6,6 +6,7 @@ import { findConversationMessageIds } from '@/lib/conversation-search'
 import { historyToMessages } from '@/lib/history'
 import {
   MESSAGE_LIST_ESTIMATED_ROW_PX,
+  MESSAGE_LIST_HEAVY_CONTENT_CHARS,
   MESSAGE_LIST_VIRTUALIZE_AFTER,
   computeMessageListWindow,
   rangeFromOffset,
@@ -341,11 +342,32 @@ export function MessageList({ findRequest }: MessageListProps) {
     stickToBottomRef.current = true
   }
 
+  // Mount cost is driven by text volume (markdown + highlighting), not by row
+  // count, so a heavy transcript windows even when it has few rows. Stops
+  // counting at the threshold: streaming only needs the boolean.
+  const transcriptChars = useMemo(() => {
+    let total = 0
+    for (const message of messages) {
+      total += message.content.length
+      if (message.thinking !== undefined) total += message.thinking.length
+      const calls = message.toolCalls
+      if (calls !== undefined) {
+        for (const call of calls) {
+          total += call.args.length
+          if (call.result !== undefined) total += call.result.length
+        }
+      }
+      if (total >= MESSAGE_LIST_HEAVY_CONTENT_CHARS) return total
+    }
+    return total
+  }, [messages])
+
   const listWindow = computeMessageListWindow({
     messageCount: messages.length,
     findOpen,
     stickToBottom: stickToBottomRef.current,
     windowRange,
+    transcriptChars,
   })
   const visibleMessages = listWindow.virtualize
     ? messages.slice(listWindow.start, listWindow.end)
