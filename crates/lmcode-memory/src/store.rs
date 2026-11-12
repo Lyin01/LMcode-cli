@@ -471,11 +471,10 @@ mod tests {
         assert_eq!(loaded.kind, MemoKind::Task);
         assert_eq!(loaded.recorded_at, memo.recorded_at);
         assert!(
-            store
+            !store
                 .load_embeddings("test-model")
                 .unwrap()
-                .get(&memo.id)
-                .is_none(),
+                .contains_key(&memo.id),
             "a patched memo must not keep the embedding of the old text"
         );
 

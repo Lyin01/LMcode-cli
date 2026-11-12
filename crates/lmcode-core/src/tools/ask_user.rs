@@ -241,6 +241,7 @@ fn parameters_schema() -> Value {
 
 /// Structured question tool. The turn loop asks the user; `execute` only
 /// validates and reports that no dialog is available.
+#[derive(Default)]
 pub struct AskUserQuestionTool;
 
 impl AskUserQuestionTool {

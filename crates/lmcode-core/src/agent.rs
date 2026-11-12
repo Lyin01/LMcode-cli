@@ -782,7 +782,8 @@ impl Agent {
         }
         self.history.push(user_prompt_with_images(input, images));
 
-        self.cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.cancelled
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         let cancel_flag = Arc::clone(&self.cancelled);
         let internal_cancel = Arc::clone(&self.internal_cancel);
         let cancel_signal = self.cancel.clone();
@@ -2099,12 +2100,13 @@ mod tests {
 
     #[test]
     fn exit_sample_keeps_recent_messages_pitfall_windows_and_clips_text() {
-        let mut history = Vec::new();
-        history.push(Message::user("ctx-before"));
-        history.push(Message::tool_result("c1", "error: pitfall-marker"));
-        history.push(Message::user("ctx-after"));
-        history.push(Message::user("still-near"));
-        history.push(Message::user("NOT-IN-SAMPLE"));
+        let mut history = vec![
+            Message::user("ctx-before"),
+            Message::tool_result("c1", "error: pitfall-marker"),
+            Message::user("ctx-after"),
+            Message::user("still-near"),
+            Message::user("NOT-IN-SAMPLE"),
+        ];
         for index in 0..10 {
             if index == 3 {
                 let mut message = Message::user("ignored");
