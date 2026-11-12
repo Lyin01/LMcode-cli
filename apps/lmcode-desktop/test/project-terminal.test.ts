@@ -1,3 +1,6 @@
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ProjectTerminalManager,
@@ -39,6 +42,35 @@ describe('desktop project terminal', () => {
       }),
     )
   })
+
+  it.runIf(process.platform === 'win32')(
+    'keeps the PowerShell prompt and typed CJK text as UTF-8',
+    async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lmcode-terminal-utf8-'))
+      const workDir = path.join(root, '项目代码')
+      await fs.mkdir(workDir)
+      try {
+        const output: TerminalOutputPayload[] = []
+        terminalManager = new ProjectTerminalManager((payload) => output.push(payload))
+        terminalManager.start('session-utf8', workDir)
+        terminalManager.write('session-utf8', 'Write-Output "终端编码正常"\n')
+
+        await vi.waitFor(
+          () => {
+            const text = output.map((payload) => payload.data).join('')
+            expect(text).toContain('终端编码正常')
+            // A GBK-encoded prompt decoded as UTF-8 surfaces as U+FFFD.
+            expect(text).not.toContain('\uFFFD')
+          },
+          { timeout: 15_000 },
+        )
+      } finally {
+        await terminalManager?.close()
+        terminalManager = undefined
+        await fs.rm(root, { recursive: true, force: true })
+      }
+    },
+  )
 
   it('spawns a fresh shell when a start lands while the previous one is stopping', async () => {
     const output: TerminalOutputPayload[] = []

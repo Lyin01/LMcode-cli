@@ -145,8 +145,17 @@ function resolveShell(): ShellCommand {
         ? wellKnown
         : 'powershell.exe'
     return {
-      command,
-      args: ['-NoLogo', '-NoProfile'],
+      command: process.env['ComSpec'] ?? 'cmd.exe',
+      args: [
+        '/d',
+        '/s',
+        '/c',
+        // Windows PowerShell writes its prompt, paths and input using the
+        // console code page (GBK/936 on Chinese systems), while the terminal
+        // decodes every chunk as UTF-8. Starting it under a UTF-8 console code
+        // page keeps both the prompt and typed CJK text intact.
+        `chcp 65001>nul & ${command} -NoLogo -NoProfile`,
+      ],
       label: 'PowerShell',
     }
   }
