@@ -208,21 +208,39 @@ async function main() {
     }
     // A filesystem stream as the fetch body stalled after the headers, and
     // GitHub closed the upload for inactivity. A blob keeps the body flowing.
-    const upload = await fetch(
-      `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`,
-      {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': 'application/octet-stream',
-          'content-length': String(size),
-        },
-        body: await openAsBlob(filePath),
-      },
-    )
-    if (!upload.ok) {
-      const detail = (await upload.text()).replaceAll(token, '***')
-      throw new Error(`upload ${name} failed: ${upload.status} ${detail}`)
+    let upload
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        console.log(`uploading ${name} (${size} bytes, attempt ${attempt}/4)...`)
+        upload = await fetch(
+          `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`,
+          {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${token}`,
+              'content-type': 'application/octet-stream',
+              'content-length': String(size),
+            },
+            body: await openAsBlob(filePath),
+          },
+        )
+        if (upload.ok) break
+        const detail = (await upload.text()).replaceAll(token, '***')
+        if (attempt === 4) throw new Error(`upload ${name} failed: ${upload.status} ${detail}`)
+        console.warn(`upload ${name} failed with ${upload.status}, retrying in 3s...`)
+        await new Promise((r) => setTimeout(r, 3000))
+      } catch (err) {
+        if (attempt === 4) throw err
+        console.warn(`upload ${name} failed (${err.message}), retrying in 3s...`)
+        await new Promise((r) => setTimeout(r, 3000))
+        try {
+          const freshAssets = await (await api(`/repos/${repo}/releases/${releaseId}/assets`)).json()
+          const partial = Array.isArray(freshAssets) ? freshAssets.find((a) => a.name === name) : undefined
+          if (partial !== undefined) {
+            await api(`/repos/${repo}/releases/assets/${partial.id}`, { method: 'DELETE' })
+          }
+        } catch {}
+      }
     }
     console.log(`uploaded ${name} (${size} bytes)`)
   }
@@ -325,9 +343,27 @@ async function main() {
     )
   }
 
-  const publicFeed = await fetch(`https://github.com/${repo}/releases/latest/download/latest.yml`).then(
-    (response) => response.text(),
-  )
+  let publicFeed = ''
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      console.log(`fetching public feed (attempt ${attempt}/6)...`)
+      const response = await fetch(`https://github.com/${repo}/releases/latest/download/latest.yml`)
+      if (response.ok) {
+        publicFeed = await response.text()
+        if (publicFeed.includes(`version: ${version}`) && publicFeed.includes(sha512)) {
+          break
+        }
+      }
+      if (attempt === 6) {
+        throw new Error(`public latest.yml fetch returned status ${response.status}`)
+      }
+    } catch (err) {
+      if (attempt === 6) throw err
+      console.warn(`fetch public feed failed (${err.message}), retrying in 3s...`)
+    }
+    await new Promise((r) => setTimeout(r, 3000))
+  }
+
   if (!publicFeed.includes(`version: ${version}`)) {
     throw new Error(`public latest.yml does not advertise ${version}`)
   }
@@ -335,7 +371,20 @@ async function main() {
     throw new Error('public latest.yml carries a different installer digest')
   }
 
-  const latestTag = (await (await api(`/repos/${repo}/releases/latest`)).json()).tag_name
+  let latestTag = ''
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      const response = await api(`/repos/${repo}/releases/latest`)
+      if (response.ok) {
+        latestTag = (await response.json()).tag_name
+        if (latestTag === tag) break
+      }
+    } catch (err) {
+      if (attempt === 6) throw err
+    }
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+
   console.log(`\nverified ${repo} ${tag}`)
   console.log(`  assets:      ${expected.join(', ')}`)
   console.log(`  download:    sha256:${localSha256.slice(0, 16)}… (matches the local artifact)`)
