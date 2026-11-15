@@ -4,7 +4,7 @@ import type { PermissionData, PermissionMode } from '#/agent/permission';
 import type { PlanData } from '#/agent/plan';
 import type { ToolInfo } from '#/agent/tool';
 import type { LmcodeConfig, LmcodeConfigPatch } from '#/config';
-import type { McpServerConfig } from '#/config/schema';
+import type { McpServerConfig, McpToolPolicy } from '#/config/schema';
 import type { ComputerUseStatus } from '#/computer-use/types';
 import type { ExperimentalFlagMap } from '#/flags';
 import type { ResumeSessionResult } from '#/rpc/resumed';
@@ -242,6 +242,8 @@ export interface McpServerInfo {
   readonly status: 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth';
   readonly toolCount: number;
   readonly error?: string;
+  /** Server-level tool approval policy (`allow` / `ask` / `blocked`). */
+  readonly toolPolicy?: McpToolPolicy;
 }
 
 export interface McpStartupMetrics {
@@ -263,6 +265,12 @@ export interface StopMcpServerPayload {
 
 export interface RemoveMcpServerPayload {
   readonly name: string;
+}
+
+export interface SetMcpToolPolicyPayload {
+  readonly name: string;
+  /** `undefined` clears the policy and restores the default behaviour. */
+  readonly policy: McpToolPolicy | undefined;
 }
 
 export interface SetComputerUseEnabledPayload {
@@ -424,6 +432,7 @@ export interface SessionAPI extends AgentAPIWithId {
   addMcpServer: (payload: AddMcpServerPayload) => void;
   stopMcpServer: (payload: StopMcpServerPayload) => void;
   removeMcpServer: (payload: RemoveMcpServerPayload) => void;
+  setMcpToolPolicy: (payload: SetMcpToolPolicyPayload) => void;
   getComputerUseStatus: (payload: EmptyPayload) => ComputerUseStatus;
   setComputerUseEnabled: (payload: SetComputerUseEnabledPayload) => Promise<ComputerUseStatus>;
   generateAgentsMd: (payload: EmptyPayload) => void;

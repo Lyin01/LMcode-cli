@@ -71,6 +71,23 @@ type ActivePanel =
   | 'purge'
   | 'keyboard-shortcuts'
 
+/**
+ * Horizontal space each right-side drawer occupies. The main column reserves
+ * the same width while such a panel is open, so the transcript re-centres in
+ * the visible area instead of being clipped behind the drawer. Wide drawers
+ * (git review) are capped at 45% of the window and fall back to overlaying.
+ */
+const DRAWER_WIDTH: Partial<Record<ActivePanel, number>> = {
+  memory: 420,
+  extensions: 420,
+  inbox: 400,
+  purge: 560,
+  subagents: 440,
+  worktrees: 440,
+  automations: 500,
+  'git-review': 1040,
+}
+
 export default function App() {
   const loadConfig = useConfigStore((s) => s.loadConfig)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
@@ -487,6 +504,11 @@ export default function App() {
     [handleMenuCommand],
   )
 
+  const drawerWidth = activePanel ? (DRAWER_WIDTH[activePanel] ?? 0) : 0
+  // Reserving space only helps while the drawer is narrow enough to leave a
+  // usable column; wide drawers keep overlaying instead of squeezing it.
+  const drawerInset = drawerWidth > 0 && drawerWidth <= window.innerWidth * 0.45 ? drawerWidth : 0
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[var(--lm-bg-base)] text-[var(--lm-text-primary)]">
       <div className="flex min-h-0 w-full flex-1 overflow-hidden">
@@ -500,7 +522,10 @@ export default function App() {
           renameRequest={renameRequest}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div
+          className="flex min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-200 ease-out"
+          style={{ paddingRight: drawerInset || undefined }}
+        >
           <TopBar
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen((v) => !v)}

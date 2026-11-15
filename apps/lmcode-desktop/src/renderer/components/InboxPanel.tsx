@@ -151,7 +151,7 @@ export function InboxPanel({ open, onClose }: InboxPanelProps) {
     <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+        className="absolute inset-0 bg-[rgba(20,20,19,0.18)]"
         onClick={onClose}
       />
 
@@ -161,7 +161,7 @@ export function InboxPanel({ open, onClose }: InboxPanelProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="lm-inbox-panel-title"
-        className="relative z-10 ml-auto flex h-full w-[400px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]"
+        className="relative z-10 ml-auto flex h-full w-[400px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-drawer)]"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3.5">
@@ -169,7 +169,7 @@ export function InboxPanel({ open, onClose }: InboxPanelProps) {
             <Bell size={16} className="text-[var(--lm-accent-text)]" />
             <h2
               id="lm-inbox-panel-title"
-              className="text-[15px] font-semibold text-[var(--lm-text-primary)]"
+              className="text-[14px] font-medium tracking-[-0.01em] text-[var(--lm-text-primary)]"
             >
               通知中心
             </h2>

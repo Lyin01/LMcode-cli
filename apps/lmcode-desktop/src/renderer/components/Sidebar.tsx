@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
@@ -50,7 +51,11 @@ import {
 } from '@/lib/session-list'
 import {
   getStoredCollapsedProjects,
+  getStoredSidebarWidth,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
   setStoredCollapsedProjects,
+  setStoredSidebarWidth,
 } from '@/lib/sidebar-preference'
 import {
   getPinnedSessions,
@@ -252,9 +257,9 @@ const SessionListItem = memo(function SessionListItem({
   return (
     <div
       className={cn(
-        'lm-session-row group/session mb-0.5 flex min-h-9 w-full items-center rounded-xl px-2 text-left transition-all duration-150',
+        'lm-session-row group/session mb-px flex min-h-8 w-full items-center rounded-lg px-2 text-left transition-colors duration-150',
         isCurrent
-          ? 'bg-[var(--lm-accent-soft)] text-[var(--lm-accent-text)] font-medium'
+          ? 'bg-[var(--lm-bg-active)] text-[var(--lm-text-primary)] font-medium'
           : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]',
       )}
     >
@@ -448,6 +453,8 @@ export function Sidebar({
   )
   const searchInputRef = useRef<HTMLInputElement>(null)
   const sessionButtonRefs = useRef(new Map<string, HTMLButtonElement>())
+  const [sidebarWidth, setSidebarWidth] = useState(() => getStoredSidebarWidth())
+  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
 
   const filtered = useMemo(
     () => filterAndSortSessions(sessions, deferredQuery, pinnedSessions),
@@ -705,51 +712,84 @@ export function Sidebar({
     [setSessions],
   )
 
+  const handleResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      dragStateRef.current = { startX: event.clientX, startWidth: sidebarWidth }
+      event.currentTarget.setPointerCapture(event.pointerId)
+    },
+    [sidebarWidth],
+  )
+
+  const handleResizePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current
+    if (!drag) return
+    const next = Math.min(
+      SIDEBAR_MAX_WIDTH,
+      Math.max(SIDEBAR_MIN_WIDTH, drag.startWidth + (event.clientX - drag.startX)),
+    )
+    setSidebarWidth(next)
+  }, [])
+
+  const handleResizePointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!dragStateRef.current) return
+      dragStateRef.current = null
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+      setStoredSidebarWidth(sidebarWidth)
+    },
+    [sidebarWidth],
+  )
+
   return (
     <aside
+      data-ui="sidebar"
       aria-label="任务侧栏"
       className={cn(
-        'flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)] transition-[width] duration-200 ease-out',
-        open ? 'w-72' : 'w-0',
+        'relative flex h-full shrink-0 flex-col overflow-hidden bg-[var(--lm-bg-sidebar)] transition-[width] duration-200 ease-out',
+        open ? 'border-r border-[var(--lm-border)]' : 'border-r-0',
       )}
+      style={{ width: open ? sidebarWidth : 0 }}
     >
-      <div className="flex h-full w-72 flex-col">
-        <div className="flex h-[52px] items-center justify-between px-3">
-          <div className="flex min-w-0 items-center gap-2.5 pl-0.5">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-[#4176E6] to-[#679EFE] text-[12px] font-bold text-white shadow-xs">
-              L
-            </div>
-            <div className="min-w-0 leading-tight">
-              <div className="truncate text-[13px] font-bold tracking-tight">LMCODE</div>
-              <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--lm-text-muted)]">
-                Desktop
-              </div>
-            </div>
+      <div className="flex h-full w-full flex-col">
+        <div className="flex h-11 items-center justify-between px-3">
+          <div className="flex min-w-0 items-baseline gap-2 pl-0.5">
+            <span
+              className="truncate text-[15px] font-medium tracking-[-0.015em] text-[var(--lm-text-primary)]"
+              style={{ fontFamily: 'var(--lm-font-serif)' }}
+            >
+              LMCODE
+            </span>
+            <span className="shrink-0 rounded-full border border-[var(--lm-border)] px-1.5 py-px text-[8.5px] font-medium uppercase tracking-[0.12em] text-[var(--lm-text-muted)]">
+              Desktop
+            </span>
           </div>
           <button
             type="button"
             onClick={onToggle}
             aria-label="收起侧栏"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
             title="收起侧栏"
           >
-            <PanelLeftClose size={17} />
+            <PanelLeftClose size={16} />
           </button>
         </div>
 
-        <div className="flex gap-1.5 px-3 pb-2 pt-1">
+        <div className="flex items-center gap-1 px-2 pb-1 pt-0.5">
           <button
             type="button"
             onClick={clearCurrentSession}
-            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--lm-accent)] px-3 py-2 text-[12.5px] font-medium text-white shadow-xs transition-all hover:bg-[var(--lm-accent-hover)]"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium text-[var(--lm-text-primary)] transition-colors hover:bg-[var(--lm-bg-hover)]"
           >
-            <Plus size={15} />
+            <Plus size={15} className="shrink-0 text-[var(--lm-text-muted)]" />
             <span>新建对话</span>
           </button>
           <button
             type="button"
             onClick={() => void createSession()}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[var(--lm-text-secondary)] transition-colors hover:border-[var(--lm-border-strong)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
             title="打开项目"
             aria-label="打开项目"
           >
@@ -762,7 +802,7 @@ export function Sidebar({
         <div className="px-3 pb-1">
           <div className="relative">
             <Search
-              size={14}
+              size={13}
               className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--lm-text-muted)]"
             />
             <input
@@ -781,7 +821,7 @@ export function Sidebar({
               }}
               placeholder="搜索任务或项目"
               aria-label="搜索任务或项目"
-              className="w-full rounded-lg border border-transparent bg-[var(--lm-bg-hover)] py-1.5 pl-8 pr-8 text-[12px] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)] transition-colors focus:border-[var(--lm-border-strong)] focus:bg-[var(--lm-bg-surface)]"
+              className="w-full rounded-[9px] border border-transparent bg-[var(--lm-bg-hover)] py-1.5 pl-8 pr-8 text-[12px] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)] transition-colors focus:border-[var(--lm-border-strong)] focus:bg-[var(--lm-bg-surface)]"
             />
             {query && (
               <button
@@ -804,7 +844,11 @@ export function Sidebar({
           )}
         </div>
 
-        <nav aria-label="任务列表" className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-0.5">
+        <nav
+          data-ui="sidebar-nav"
+          aria-label="任务列表"
+          className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-0.5"
+        >
           {filtered.length === 0 && (
             <div className="mx-1 mt-5 rounded-xl border border-dashed border-[var(--lm-border-strong)] px-3 py-6 text-center">
               <Search size={18} className="mx-auto mb-2 text-[var(--lm-text-muted)]" />
@@ -892,33 +936,45 @@ export function Sidebar({
           })}
         </nav>
 
-        <div className="border-t border-[var(--lm-border)] p-2">
+        <div className="border-t border-[var(--lm-border)] p-1.5">
           <button
             type="button"
             onClick={onOpenExtensions}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12.5px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >
-            <Blocks size={14} />
+            <Blocks size={14} className="text-[var(--lm-text-muted)]" />
             <span>技能与 MCP</span>
           </button>
           <button
             type="button"
             onClick={onOpenMemory}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12.5px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >
-            <BookOpen size={14} />
+            <BookOpen size={14} className="text-[var(--lm-text-muted)]" />
             <span>记忆库</span>
           </button>
           <button
             type="button"
             onClick={onOpenSettings}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12.5px] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)]"
           >
-            <Settings size={14} />
+            <Settings size={14} className="text-[var(--lm-text-muted)]" />
             <span>设置</span>
           </button>
         </div>
       </div>
+      {open && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整侧栏宽度"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+          onPointerCancel={handleResizePointerUp}
+          className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize transition-colors hover:bg-[var(--lm-accent-soft)]"
+        />
+      )}
     </aside>
   )
 }

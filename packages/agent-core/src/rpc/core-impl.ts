@@ -77,6 +77,7 @@ import type {
   StopMcpServerPayload,
   RemoveMcpServerPayload,
   SetComputerUseEnabledPayload,
+  SetMcpToolPolicyPayload,
   RegisterToolPayload,
   ReloadPluginsResult,
   RemoveProviderPayload,
@@ -703,6 +704,13 @@ export class LmcodeCore implements PromisableMethods<CoreAPI> {
     ...payload
   }: SessionScopedPayload<RemoveMcpServerPayload>): Promise<void> {
     return this.sessionApi(sessionId).removeMcpServer(payload);
+  }
+
+  setMcpToolPolicy({
+    sessionId,
+    ...payload
+  }: SessionScopedPayload<SetMcpToolPolicyPayload>): void {
+    this.sessionApi(sessionId).setMcpToolPolicy(payload);
   }
 
   getComputerUseStatus({

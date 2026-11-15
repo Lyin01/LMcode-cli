@@ -118,6 +118,14 @@ interface McpServerInfo {
   readonly status: 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth'
   readonly toolCount: number
   readonly error?: string
+  readonly toolPolicy?: McpToolPolicy
+}
+
+type McpToolPolicyMode = 'allow' | 'ask' | 'blocked'
+
+interface McpToolPolicy {
+  readonly default?: McpToolPolicyMode
+  readonly tools?: Record<string, McpToolPolicyMode>
 }
 
 interface LmcodeAPI {
@@ -165,6 +173,11 @@ interface LmcodeAPI {
   addMcpServer: (sessionId: string, name: string, config: Record<string, unknown>) => Promise<void>
   stopMcpServer: (sessionId: string, name: string) => Promise<void>
   removeMcpServer: (sessionId: string, name: string) => Promise<void>
+  setMcpToolPolicy: (
+    sessionId: string,
+    name: string,
+    policy: McpToolPolicy | null,
+  ) => Promise<void>
 
   // Computer use
   getComputerUseDriver: () => Promise<ComputerUseDriverInfo>

@@ -218,11 +218,11 @@ export function WelcomeScreen() {
 
   return (
     <main className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10">
-      <div className="w-full max-w-[720px]">
+      <div className="w-full max-w-[736px]">
         <AgentWelcome />
 
         <div
-          className="relative rounded-[18px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-[border-color,box-shadow] focus-within:border-[var(--lm-text-muted)] focus-within:shadow-[var(--lm-shadow-composer)]"
+          className="relative rounded-[12px] border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-composer)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--lm-border-strong)]"
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}
           onDragOver={handleDragOver}
@@ -255,7 +255,7 @@ export function WelcomeScreen() {
             onPaste={handlePaste}
             placeholder="描述你想交给 Agent 完成的任务…"
             rows={2}
-            className="block max-h-[220px] min-h-[78px] w-full resize-none bg-transparent px-4 pb-2 pt-3.5 text-[14px] leading-relaxed text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)]"
+            className="block max-h-[220px] min-h-[78px] w-full resize-none bg-transparent px-4 pb-2.5 pt-3.5 text-[16px] leading-[1.55] text-[var(--lm-text-primary)] placeholder:text-[var(--lm-text-muted)]"
           />
 
           {attachments.length > 0 && (
@@ -361,7 +361,7 @@ export function WelcomeScreen() {
               type="button"
               onClick={handleSubmit}
               disabled={(!draft.trim() && attachments.length === 0) || starting}
-              className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:opacity-30"
+              className="ml-1 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors duration-150 hover:bg-[var(--lm-accent-hover)] disabled:bg-[var(--lm-bg-active)] disabled:text-[var(--lm-text-muted)]"
               title={starting ? '正在创建任务…' : '开始任务'}
               aria-label="开始任务"
             >
@@ -377,7 +377,7 @@ export function WelcomeScreen() {
         )}
 
         {briefing !== null && (
-          <section className="mt-4 rounded-2xl border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-3 text-left">
+          <section className="mt-4 rounded-[14px] border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] p-3 text-left">
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-[11.5px] font-medium text-[var(--lm-text-secondary)]">欢迎回来</span>
               <span className="text-[10.5px] text-[var(--lm-text-muted)]">{briefingSummary(briefing)}</span>

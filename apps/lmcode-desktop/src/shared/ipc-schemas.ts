@@ -114,6 +114,21 @@ export const questionResponsePayloadSchema = z.object({
 
 export const mcpServerConfigSchema = z.record(z.string(), z.unknown())
 
+const mcpToolPolicyModeSchema = z.enum(['allow', 'ask', 'blocked'])
+
+/**
+ * MCP server tool approval policy. `null` is accepted so the renderer can
+ * clear a policy without inventing a sentinel value; it maps to `undefined`
+ * ("no policy configured") in the main process.
+ */
+export const mcpToolPolicySchema = z.union([
+  z.object({
+    default: mcpToolPolicyModeSchema.optional(),
+    tools: z.record(z.string(), mcpToolPolicyModeSchema).optional(),
+  }),
+  z.null(),
+])
+
 // ── Argument tuples (one per validated channel) ───────────────────
 
 export const createSessionArgsSchema = z.tuple([createSessionOptionsSchema])
@@ -134,6 +149,12 @@ export const addMcpServerArgsSchema = z.tuple([
   sessionIdSchema,
   z.string().trim().min(1),
   mcpServerConfigSchema,
+])
+
+export const setMcpToolPolicyArgsSchema = z.tuple([
+  sessionIdSchema,
+  z.string().trim().min(1),
+  mcpToolPolicySchema,
 ])
 
 export const applyGitHunkActionArgsSchema = z.tuple([sessionIdSchema, gitHunkActionInputSchema])

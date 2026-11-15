@@ -324,7 +324,7 @@ export function SettingsPanel({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-md transition-opacity duration-200"
+        className="absolute inset-0 bg-[rgba(20,20,19,0.26)] transition-opacity duration-200"
         onClick={onClose}
       />
 
@@ -337,7 +337,7 @@ export function SettingsPanel({
         >
           <div className="flex items-center justify-between px-2 py-2">
             <div>
-              <h2 id="settings-title" className="text-[15px] font-semibold tracking-tight text-[var(--lm-text-primary)]">
+              <h2 id="settings-title" className="text-[14px] font-medium tracking-[-0.01em] text-[var(--lm-text-primary)]">
                 设置与选项
               </h2>
               <p className="text-[11px] text-[var(--lm-text-muted)]">桌面客户端</p>
@@ -413,7 +413,7 @@ export function SettingsPanel({
           {/* Header */}
           <div className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--lm-border)] px-6">
             <div className="flex items-center gap-3">
-              <h3 className="text-[15px] font-semibold text-[var(--lm-text-primary)]">
+              <h3 className="text-[14px] font-medium text-[var(--lm-text-primary)]">
                 {SETTINGS_TABS.find((t) => t.id === activeTab)?.label}
               </h3>
               {currentSessionId && (

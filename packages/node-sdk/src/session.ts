@@ -17,6 +17,7 @@ import type {
   GoalSnapshotData,
   McpServerInfo,
   McpStartupMetrics,
+  McpToolPolicy,
   PermissionMode,
   PluginInfo,
   PluginSummary,
@@ -375,6 +376,18 @@ export class Session {
   async removeMcpServer(name: string): Promise<void> {
     this.ensureOpen();
     await this.rpc.removeMcpServer({ sessionId: this.id, name });
+  }
+
+  /**
+   * Replace the tool approval policy of a running MCP server.
+   *
+   * Runtime-only: the declaration in `mcp.json` is left untouched, so the
+   * next session starts from the file again. Callers that want the choice to
+   * stick must write it to the declaration themselves.
+   */
+  async setMcpToolPolicy(name: string, policy: McpToolPolicy | undefined): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.setMcpToolPolicy({ sessionId: this.id, name, policy });
   }
 
   async getComputerUseStatus(): Promise<ComputerUseStatus> {

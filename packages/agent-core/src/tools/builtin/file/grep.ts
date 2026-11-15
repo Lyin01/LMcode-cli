@@ -30,6 +30,7 @@ import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { resolveRealPathAccessPath } from '../../policies/path-access';
 import type { PathClass } from '../../policies/path-access';
 import { isSensitiveFile, SENSITIVE_DOT_VARIANT_SUFFIXES } from '../../policies/sensitive';
+import { isUnrestrictedMode } from '../../../config/unrestricted';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { ensureRgPath, rgUnavailableMessage } from '../../support/rg-locator';
 import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
@@ -258,7 +259,10 @@ export class GrepTool implements BuiltinTool<GrepInput> {
     const rawLines = parseRipgrepOutput(stdoutText, mode);
 
     const filteredSensitive = new Set<string>();
-    const keptLines = filterSensitiveLines(rawLines, mode, filteredSensitive, pathClass);
+    // 无限制模式：不做敏感文件过滤，搜索结果原样返回。
+    const keptLines = isUnrestrictedMode()
+      ? rawLines
+      : filterSensitiveLines(rawLines, mode, filteredSensitive, pathClass);
     let orderedLines: ParsedGrepLine[];
     try {
       orderedLines =
@@ -635,11 +639,13 @@ function buildRgArgs(
   if (args.type !== undefined) cmd.push('--type', args.type);
   if (args.multiline) cmd.push('-U', '--multiline-dotall');
   if (args.include_ignored) cmd.push('--no-ignore');
-  for (const glob of SENSITIVE_GLOBS_TO_EXCLUDE) {
-    // Appended after user globs so a broad include such as `**/.env` cannot
-    // undo this first-pass exclusion. Explicit file paths are still protected
-    // by the post-processing filter because rg intentionally searches them.
-    cmd.push('--glob', `!${glob}`);
+  if (!isUnrestrictedMode()) {
+    for (const glob of SENSITIVE_GLOBS_TO_EXCLUDE) {
+      // Appended after user globs so a broad include such as `**/.env` cannot
+      // undo this first-pass exclusion. Explicit file paths are still protected
+      // by the post-processing filter because rg intentionally searches them.
+      cmd.push('--glob', `!${glob}`);
+    }
   }
   // Do not forward `head_limit` to `rg --max-count`: omitted means "use the
   // tool default", head_limit=0 means "unlimited", while `rg --max-count 0`

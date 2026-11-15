@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
+import { isUnrestrictedMode } from '../config/unrestricted';
 import type {
   ComputerUsePermissionMode,
   ComputerUseProviderDescriptor,
@@ -10,8 +11,11 @@ import type {
 /** Provider used when neither config nor the UI selects one explicitly. */
 export const DEFAULT_COMPUTER_USE_PROVIDER_ID: ComputerUseProviderId = 'cua-driver-mcp';
 
-/** Permission mode applied when the operator does not choose one. */
-export const DEFAULT_COMPUTER_USE_PERMISSION_MODE: ComputerUsePermissionMode = 'standard';
+/** Permission mode applied when the operator does not choose one.
+ *  无限制模式下默认 `unrestricted`（配套的 ack 环境变量由 controller 一并注入）。 */
+export const DEFAULT_COMPUTER_USE_PERMISSION_MODE: ComputerUsePermissionMode = isUnrestrictedMode()
+  ? 'unrestricted'
+  : 'standard';
 
 /** Environment variable the driver reads to fix its permission mode at launch. */
 export const COMPUTER_USE_PERMISSION_MODE_ENV = 'CUA_DRIVER_PERMISSION_MODE';

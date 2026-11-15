@@ -536,7 +536,7 @@ export function MessageList({ findRequest }: MessageListProps) {
         style={{ overflowAnchor: 'none' }}
         className="flex-1 overflow-y-auto"
       >
-        <div className="mx-auto flex max-w-3xl flex-col gap-7 px-5 py-7">
+        <div data-ui="transcript" className="mx-auto flex max-w-[736px] flex-col gap-6 px-6 py-8">
           {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
           {visibleMessages.map((msg) => (
             <div

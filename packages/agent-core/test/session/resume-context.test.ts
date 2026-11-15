@@ -43,9 +43,16 @@ describe('Session resume context', () => {
       expect(contextText(resumedMain!)).not.toContain('obsolete project instruction');
 
       const wire = await readFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
-      expect(wire).toContain('current project instruction');
-      expect(wire).not.toContain('obsolete project instruction');
-    } finally {
+      // The wire log keeps every turn, so the first turn's context (which
+      // legitimately carried the then-current AGENTS.md) still holds the
+      // obsolete text. What matters is that the newest session-context
+      // injection carries the current file and dropped the old one.
+      const lastContext = [...wire.split('\n')]
+        .reverse()
+        .find((line) => line.includes('"variant":"session_context"'));
+      expect(lastContext).toBeDefined();
+      expect(lastContext).toContain('current project instruction');
+      expect(lastContext).not.toContain('obsolete project instruction');    } finally {
       await resumed.close();
     }
   });

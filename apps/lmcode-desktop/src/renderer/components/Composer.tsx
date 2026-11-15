@@ -750,7 +750,10 @@ export function Composer({
         </div>
       )}
 
-      <div className="rounded-[18px] border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-soft)] transition-[border-color,box-shadow] focus-within:border-[var(--lm-text-muted)] focus-within:shadow-[var(--lm-shadow-composer)]">
+      <div
+        data-ui="composer"
+        className="rounded-[12px] border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] shadow-[var(--lm-shadow-composer)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--lm-border-strong)]"
+      >
         {attachments.length > 0 && (
           <div className="px-3 pt-3">
             <AttachmentStrip attachments={attachments} onRemove={removeAttachment} />
@@ -779,7 +782,7 @@ export function Composer({
               : '给 LMCODE 发消息…（可粘贴截图或文件，/ 查看命令）'
           }
           rows={1}
-          className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-relaxed text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none"
+          className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2.5 text-[16px] leading-[1.55] text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none"
         />
 
         {/* Toolbar */}
@@ -788,11 +791,11 @@ export function Composer({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isAttaching || attachments.length >= MAX_PROMPT_ATTACHMENTS}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)]"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-secondary)]"
             title="附加文件（文本、图片、Excel、Word、PDF）"
             aria-label="附加文件（文本、图片、Excel、Word、PDF）"
           >
-            <Paperclip size={17} />
+            <Paperclip size={16} />
           </button>
 
           <ProjectPicker display="name" />
@@ -810,7 +813,7 @@ export function Composer({
                 type="button"
                 onClick={() => handleSend()}
                 disabled={!canSend || isAttaching}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:opacity-30"
+                className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors duration-150 hover:bg-[var(--lm-accent-hover)] disabled:bg-[var(--lm-bg-active)] disabled:text-[var(--lm-text-muted)]"
                 title="加入待发送队列"
                 aria-label="加入待发送队列"
               >
@@ -819,7 +822,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={cancel}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--lm-bg-active)] text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-error)] hover:text-white"
+                className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-[var(--lm-bg-active)] text-[var(--lm-text-secondary)] transition-colors duration-150 hover:bg-[var(--lm-error)] hover:text-white"
                 title="停止"
                 aria-label="停止生成"
               >
@@ -831,7 +834,7 @@ export function Composer({
               type="button"
               onClick={() => handleSend()}
               disabled={!canSend || isAttaching}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors hover:bg-[var(--lm-accent-hover)] disabled:opacity-40"
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-[var(--lm-accent)] text-[var(--lm-accent-fg)] transition-colors duration-150 hover:bg-[var(--lm-accent-hover)] disabled:bg-[var(--lm-bg-active)] disabled:text-[var(--lm-text-muted)]"
               title="发送"
               aria-label="发送消息"
             >

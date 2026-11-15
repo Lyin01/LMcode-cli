@@ -1,6 +1,6 @@
 import type { Message } from '@/types'
 import { createContext, memo, useCallback, useContext, useState, type ReactNode } from 'react'
-import { AlertTriangle, Check, Copy, FileText, RotateCcw, Sparkles } from 'lucide-react'
+import { AlertTriangle, Check, Copy, FileText, RotateCcw } from 'lucide-react'
 import { ThinkingBlock } from '@/components/ThinkingBlock'
 import { ToolCallList } from '@/components/ToolCallList'
 import { useFileContextMenu, openFileWithSystem } from '@/components/FileActionMenu'
@@ -192,8 +192,8 @@ export const MessageItem = memo(function MessageItem({
   // ── User: right-aligned warm bubble ────────────────────────────────
   if (role === 'user') {
     return (
-      <div className="group flex animate-fade-in justify-end">
-        <div className="relative flex max-w-[82%] flex-col gap-2 rounded-[18px] bg-[var(--lm-bg-bubble)] px-3 py-2.5 text-[14px] leading-relaxed text-[var(--lm-text-primary)]">
+      <div data-ui="message" className="group flex animate-fade-in justify-end">
+        <div className="relative flex max-w-[82%] flex-col gap-2 rounded-[16px] bg-[var(--lm-bg-bubble)] px-3.5 py-2.5 text-[14.5px] leading-[1.65] text-[var(--lm-text-primary)]">
           {message.attachments && message.attachments.length > 0 && (
             <AttachmentStrip attachments={message.attachments} />
           )}
@@ -218,7 +218,7 @@ export const MessageItem = memo(function MessageItem({
   if (role === 'system' || role === 'tool') {
     const isError = message.variant === 'error'
     return (
-      <div className="flex animate-fade-in justify-center">
+      <div data-ui="message" className="flex animate-fade-in justify-center">
         <div
           className={
             isError
@@ -237,12 +237,8 @@ export const MessageItem = memo(function MessageItem({
   const showActions = !isStreaming && (onRegenerate !== undefined || message.content)
 
   return (
-    <div className="group flex animate-fade-in gap-3">
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-[#4176E6] to-[#679EFE] text-white shadow-xs">
-        <Sparkles size={14} />
-      </div>
-
-      <div className="min-w-0 flex-1">
+    <div data-ui="message" className="group animate-fade-in">
+      <div className="min-w-0">
         {message.thinking && (
           <ThinkingBlock content={message.thinking} state={message.thinkingState} />
         )}
@@ -259,13 +255,13 @@ export const MessageItem = memo(function MessageItem({
               // Streaming: render plain text + cursor instead of re-parsing the
               // whole growing markdown on every delta (O(n²) otherwise). The
               // final markdown render happens once when the turn ends.
-              <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--lm-text-primary)]">
+              <div className="whitespace-pre-wrap text-[15px] leading-[1.72] text-[var(--lm-text-primary)] [font-family:var(--lm-font-serif)]">
                 {message.content}
                 <span className="lm-cursor-blink ml-0.5 inline-block text-[var(--lm-accent-text)]">▍</span>
               </div>
             ) : (
               <OpenTargetBaseDirContext.Provider value={workDir}>
-                <div className="lm-markdown">
+                <div data-ui="assistant-body" className="lm-markdown">
                   <Markdown
                     remarkPlugins={REMARK_PLUGINS}
                     rehypePlugins={REHYPE_PLUGINS}

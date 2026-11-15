@@ -60,10 +60,10 @@ export function ProjectPicker({ display, className }: ProjectPickerProps) {
             title={currentWorkDir ?? accessibleLabel}
             aria-label={accessibleLabel}
             className={cn(
-              'flex items-center gap-2 border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] text-[11px] font-medium text-[var(--lm-text-secondary)] outline-none transition-colors hover:border-[var(--lm-border-strong)] hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]',
+              'flex items-center gap-2 text-[12px] font-medium text-[var(--lm-text-secondary)] outline-none transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]',
               display === 'path'
-                ? 'w-full rounded-lg px-2.5 py-1.5'
-                : 'max-w-[160px] rounded-lg border-transparent bg-transparent px-2.5 py-1.5 sm:max-w-56',
+                ? 'w-full rounded-lg border border-transparent bg-transparent px-2.5 py-1.5'
+                : 'max-w-[160px] rounded-lg border border-transparent bg-transparent px-2.5 py-1.5 sm:max-w-56',
             )}
           >
             {isNoProject ? (

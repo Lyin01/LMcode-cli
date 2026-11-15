@@ -1,0 +1,5 @@
+# Screenshots and report.json are local evidence produced by audit.py / panels.py.
+# Run the scripts to regenerate them; only the scripts themselves are tracked.
+__pycache__/
+*.png
+report.json

@@ -683,6 +683,7 @@ describe('Permission policy chain', () => {
       'auto-mode-ask-user-question-deny',
       'plan-mode-guard-deny',
       'user-configured-deny',
+      'mcp-tool-policy',
       'file-sandbox',
       'sensitive-file-access-ask',
       'git-control-path-access-ask',

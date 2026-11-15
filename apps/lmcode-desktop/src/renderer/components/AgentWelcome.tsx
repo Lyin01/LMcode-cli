@@ -1,16 +1,20 @@
 import { greeting } from '@/lib/greeting'
-import { Sparkles } from 'lucide-react'
 
+/**
+ * Empty state: a serif greeting on paper, no logo block. Claude opens a
+ * conversation with a sentence, not a badge; the product name is redundant
+ * here because it is already in the sidebar.
+ */
 export function AgentWelcome() {
   return (
-    <div className="mb-8 flex flex-col items-center text-center animate-fade-in">
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#4176E6] to-[#679EFE] text-white shadow-[0_8px_24px_rgba(65,118,230,0.3)]">
-        <Sparkles size={22} className="animate-pulse" />
-      </div>
-      <h2 className="text-[26px] font-semibold leading-tight tracking-tight text-[var(--lm-text-primary)]">
+    <div data-ui="welcome" className="mb-7 flex flex-col items-center text-center animate-fade-in">
+      <h2
+        className="text-[30px] leading-[1.25] tracking-[-0.015em] text-[var(--lm-text-primary)]"
+        style={{ fontFamily: 'var(--lm-font-serif)', fontWeight: 400 }}
+      >
         {greeting()}，今天想做什么？
       </h2>
-      <p className="mt-2 max-w-md text-[13px] leading-relaxed text-[var(--lm-text-muted)]">
+      <p className="mt-2.5 max-w-md text-[12.5px] leading-relaxed text-[var(--lm-text-muted)]">
         LMCODE · 智能工程 AI Agent
       </p>
     </div>

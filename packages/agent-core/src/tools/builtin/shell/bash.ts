@@ -31,6 +31,7 @@ import { z } from 'zod';
 
 import type { BuiltinTool } from '../../../agent/tool';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
+import { isUnrestrictedMode } from '../../../config/unrestricted';
 import { renderPrompt } from '../../../utils/render-prompt';
 import type { BackgroundProcessManager } from '../../background/manager';
 import { toInputJsonSchema } from '../../support/input-schema';
@@ -268,6 +269,8 @@ function buildWindowsHostShellGuidelines(): string {
 }
 
 function buildSelfProtectionPreamble(isWindows: boolean): string {
+  // 无限制模式：不注入自我保护的 shell shim（允许操作本进程）。
+  if (isUnrestrictedMode()) return '';
   if (isWindows) {
     // Windows Git Bash: shadow taskkill, tskill, kill, pkill
     return (

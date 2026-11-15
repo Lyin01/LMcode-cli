@@ -199,7 +199,7 @@ export function UsageFooter() {
     <footer
       data-lm-global-usage="true"
       aria-label="订阅额度"
-      className="relative z-[60] flex h-[var(--lm-global-usage-height)] w-full shrink-0 items-center gap-2 border-t border-[var(--lm-border)] bg-[var(--lm-bg-sidebar)] px-3 text-[10px] text-[var(--lm-text-muted)]"
+      className="relative z-[60] flex h-[var(--lm-global-usage-height)] w-full shrink-0 items-center gap-2 bg-[var(--lm-bg-base)] px-4 text-[10px] text-[var(--lm-text-muted)]"
       title={title}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2" role="status" aria-live="polite">

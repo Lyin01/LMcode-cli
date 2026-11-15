@@ -29,6 +29,7 @@ export type {
   LoopControl,
   McpServerInfo,
   McpStartupMetrics,
+  McpToolPolicy,
   ModelAlias,
   LmcodeCliServiceConfig,
   OAuthRef,

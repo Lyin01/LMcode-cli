@@ -192,7 +192,7 @@ export function PurgePanel({ open, onClose }: PurgePanelProps) {
 
   return (
     <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
-      <div aria-hidden="true" className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div aria-hidden="true" className="absolute inset-0 bg-[rgba(20,20,19,0.18)]" onClick={onClose} />
 
       <div
         ref={panelRef}
@@ -200,7 +200,7 @@ export function PurgePanel({ open, onClose }: PurgePanelProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="lm-purge-panel-title"
-        className="relative z-10 ml-auto flex h-full w-[560px] max-w-[94vw] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]"
+        className="relative z-10 ml-auto flex h-full w-[560px] max-w-[94vw] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-drawer)]"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3.5">
@@ -209,7 +209,7 @@ export function PurgePanel({ open, onClose }: PurgePanelProps) {
             <div className="min-w-0">
               <h2
                 id="lm-purge-panel-title"
-                className="truncate text-[15px] font-semibold text-[var(--lm-text-primary)]"
+                className="truncate text-[14px] font-medium tracking-[-0.01em] text-[var(--lm-text-primary)]"
               >
                 LMD Purge
               </h2>

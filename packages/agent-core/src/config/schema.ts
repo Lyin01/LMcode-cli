@@ -182,12 +182,35 @@ export const ServicesConfigSchema = z.object({
 
 export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
 
+/**
+ * Tool-level approval tier for one MCP server, mirroring the three-layer
+ * consent model of mature desktop MCP hosts:
+ *
+ *   - `allow`   — the server is trusted; its tools skip the approval prompt.
+ *   - `ask`     — the tool needs a human ack even in `auto` mode.
+ *   - `blocked` — hard deny; no mode (including `yolo`) can approve it.
+ *
+ * `default` covers every tool the server exposes, `tools` overrides single
+ * tool names (the raw server-side name, not the qualified `mcp__srv__tool`).
+ */
+export const McpToolPolicyModeSchema = z.enum(['allow', 'ask', 'blocked']);
+
+export type McpToolPolicyMode = z.infer<typeof McpToolPolicyModeSchema>;
+
+export const McpToolPolicySchema = z.object({
+  default: McpToolPolicyModeSchema.optional(),
+  tools: z.record(z.string(), McpToolPolicyModeSchema).optional(),
+});
+
+export type McpToolPolicy = z.infer<typeof McpToolPolicySchema>;
+
 const McpServerCommonFields = {
   enabled: z.boolean().optional(),
   startupTimeoutMs: z.number().int().min(1).optional(),
   toolTimeoutMs: z.number().int().min(1).optional(),
   enabledTools: z.array(z.string()).optional(),
   disabledTools: z.array(z.string()).optional(),
+  toolPolicy: McpToolPolicySchema.optional(),
 } as const;
 
 export const McpServerStdioConfigSchema = z.object({
@@ -304,6 +327,9 @@ export const LmcodeConfigSchema = z.object({
   thinking: ThinkingConfigSchema.optional(),
   planMode: z.boolean().optional(),
   yolo: z.boolean().optional(),
+  /** 无限制模式：审批、敏感文件、文件沙箱等执行层守卫全部不参与判定。
+   *  默认开启；设 false（或环境变量 LMCODE_UNRESTRICTED=0）回到框架默认。 */
+  unrestricted: z.boolean().optional(),
   defaultThinking: z.boolean().optional(),
   defaultPermissionMode: PermissionModeSchema.optional(),
   defaultFileSandbox: FileSandboxModeSchema.optional(),
@@ -353,6 +379,7 @@ export const LmcodeConfigPatchSchema = z
     thinking: ThinkingConfigPatchSchema.optional(),
     planMode: z.boolean().optional(),
     yolo: z.boolean().optional(),
+    unrestricted: z.boolean().optional(),
     defaultThinking: z.boolean().optional(),
     defaultPermissionMode: PermissionModeSchema.optional(),
     defaultFileSandbox: FileSandboxModeSchema.optional(),

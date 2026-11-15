@@ -71,13 +71,18 @@ function TopBarAction({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-35"
+      className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] transition-colors duration-150 hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] disabled:cursor-not-allowed disabled:opacity-35"
     >
       {children}
     </button>
   )
 }
 
+/**
+ * Slim conversation header: the session title carries the chrome, and every
+ * workspace tool lives in the "更多" menu (or the sidebar), so the transcript
+ * gets the visual weight instead of a row of nine icons.
+ */
 export function TopBar({
   sidebarOpen,
   onToggleSidebar,
@@ -141,34 +146,47 @@ export function TopBar({
   const attentionCount = runningCount + runningAgents
 
   return (
-    <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-[var(--lm-border)] bg-[var(--lm-bg-base)] px-3">
+    <header
+      data-ui="header"
+      className="flex h-11 shrink-0 items-center gap-1.5 bg-[var(--lm-bg-base)] pl-4 pr-2.5"
+    >
       {!sidebarOpen && (
         <TopBarAction label="展开侧栏" onClick={onToggleSidebar}>
-          <PanelLeftOpen size={18} />
+          <PanelLeftOpen size={17} />
         </TopBarAction>
       )}
 
-      <div className="min-w-0 flex-1 leading-tight">
-        <h1 className="truncate text-[13px] font-medium text-[var(--lm-text-primary)]">
+      <div className="flex min-w-0 flex-1 items-baseline gap-2">
+        <h1 className="truncate text-[13px] font-medium tracking-[-0.01em] text-[var(--lm-text-primary)]">
           {title}
         </h1>
-        <p className="mt-0.5 truncate text-[10px] text-[var(--lm-text-muted)]">
-          {locationLabel}
-        </p>
+        <span className="hidden min-w-0 items-center gap-1.5 text-[11px] text-[var(--lm-text-muted)] sm:flex">
+          <span aria-hidden="true" className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--lm-text-muted)]" />
+          <span className="truncate">{locationLabel}</span>
+        </span>
       </div>
 
       {currentSessionId && maxContextTokens > 0 && (
         <div
-          className="hidden items-center gap-2 rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] px-2.5 py-1.5 lg:flex"
+          className="hidden items-center gap-1.5 rounded-full px-2 py-1 text-[10.5px] tabular-nums text-[var(--lm-text-muted)] transition-colors hover:bg-[var(--lm-bg-hover)] lg:flex"
           title={`上下文 ${contextTokens.toLocaleString()} / ${maxContextTokens.toLocaleString()} tokens（${Math.round(contextPercentage)}%）`}
         >
-          <div className="h-1 w-12 overflow-hidden rounded-full bg-[var(--lm-bg-active)]">
-            <div
-              className="h-full rounded-full bg-[var(--lm-accent-text)] transition-[width] duration-300"
-              style={{ width: `${contextPercentage}%` }}
-            />
-          </div>
-          <span className="font-mono text-[10px] tabular-nums text-[var(--lm-text-muted)]">
+          <span className="relative flex h-3.5 w-3.5 items-center justify-center">
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 -rotate-90">
+              <circle cx="8" cy="8" r="6.4" fill="none" stroke="var(--lm-border-strong)" strokeWidth="1.7" />
+              <circle
+                cx="8"
+                cy="8"
+                r="6.4"
+                fill="none"
+                stroke="var(--lm-accent)"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeDasharray={`${(contextPercentage / 100) * 40.2} 40.2`}
+              />
+            </svg>
+          </span>
+          <span className="font-mono">
             {formatTokens(contextTokens)} / {formatTokens(maxContextTokens)}
           </span>
         </div>
@@ -178,7 +196,7 @@ export function TopBar({
 
       {currentSessionId && (
         <span
-          className="hidden items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-medium text-[var(--lm-text-secondary)] sm:flex"
+          className="hidden items-center gap-1.5 rounded-full px-2 py-1 text-[10.5px] font-medium text-[var(--lm-text-secondary)] sm:flex"
           title="当前权限模式（Shift+Tab 切换）"
           aria-live="polite"
         >
@@ -187,40 +205,18 @@ export function TopBar({
         </span>
       )}
 
-      <div className="mx-0.5 h-5 w-px bg-[var(--lm-border)]" />
-
-      <TopBarAction label="LMD Purge（会话覆盖段 / 规则 / 技能）" onClick={onOpenPurge}>
-        <FlaskConical size={17} />
-      </TopBarAction>
-      <TopBarAction
-        label={isNoProject ? '审查 Git 变更（未关联项目时不可用）' : '审查 Git 变更'}
-        disabled={!currentSessionId || isNoProject}
-        onClick={onOpenGitReview}
-      >
-        <GitCompareArrows size={17} />
-      </TopBarAction>
-      <TopBarAction
-        label="打开项目终端"
-        disabled={!currentSessionId}
-        onClick={onOpenTerminal}
-      >
-        <SquareTerminal size={17} />
-      </TopBarAction>
       <TopBarAction
         label={inboxUnread > 0 ? `通知中心（${inboxUnread} 条未读）` : '通知中心'}
         onClick={onOpenInbox}
       >
         <span className="relative">
-          <Bell size={17} />
+          <Bell size={16} />
           {inboxUnread > 0 && (
             <span className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--lm-accent-text)] px-0.5 text-[8px] font-semibold text-[var(--lm-bg-base)]">
               {inboxUnread > 99 ? '99+' : inboxUnread}
             </span>
           )}
         </span>
-      </TopBarAction>
-      <TopBarAction label="远程连接（手机扫码）" onClick={onOpenRemote}>
-        <QrCode size={17} />
       </TopBarAction>
 
       <DropdownMenu.Root>
@@ -229,11 +225,11 @@ export function TopBar({
             type="button"
             aria-label="更多工作区工具"
             title="更多工作区工具"
-            className="relative flex h-8 w-8 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] outline-none transition-colors hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
+            className="relative flex h-7 w-7 items-center justify-center rounded-lg text-[var(--lm-text-secondary)] outline-none transition-colors duration-150 hover:bg-[var(--lm-bg-hover)] hover:text-[var(--lm-text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--lm-accent)]"
           >
-            <MoreHorizontal size={18} />
+            <MoreHorizontal size={17} />
             {attentionCount > 0 && (
-              <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-[var(--lm-accent-text)]" />
+              <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--lm-accent-text)]" />
             )}
           </button>
         </DropdownMenu.Trigger>
@@ -245,8 +241,24 @@ export function TopBar({
             className="z-50 min-w-52 rounded-xl border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] p-1 shadow-[var(--lm-shadow-pop)]"
           >
             <DropdownMenu.Label className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--lm-text-muted)]">
-              工作区工具
+              工作区
             </DropdownMenu.Label>
+            <DropdownMenu.Item
+              disabled={!currentSessionId || isNoProject}
+              onSelect={onOpenGitReview}
+              className={menuItemClass}
+            >
+              <GitCompareArrows size={15} />
+              <span className="flex-1">Git 审查</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={!currentSessionId}
+              onSelect={onOpenTerminal}
+              className={menuItemClass}
+            >
+              <SquareTerminal size={15} />
+              <span className="flex-1">项目终端</span>
+            </DropdownMenu.Item>
             <DropdownMenu.Item
               disabled={!currentSessionId || isNoProject}
               onSelect={onOpenWorktrees}
@@ -285,6 +297,15 @@ export function TopBar({
                   {runningCount}
                 </span>
               )}
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="my-1 h-px bg-[var(--lm-border)]" />
+            <DropdownMenu.Item onSelect={onOpenRemote} className={menuItemClass}>
+              <QrCode size={15} />
+              <span className="flex-1">远程连接（手机扫码）</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={onOpenPurge} className={menuItemClass}>
+              <FlaskConical size={15} />
+              <span className="flex-1">清洗（Purge）</span>
             </DropdownMenu.Item>
             <DropdownMenu.Separator className="my-1 h-px bg-[var(--lm-border)]" />
             <DropdownMenu.Item onSelect={onToggleTheme} className={menuItemClass}>

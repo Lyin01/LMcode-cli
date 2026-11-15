@@ -90,7 +90,7 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
     <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+        className="absolute inset-0 bg-[rgba(20,20,19,0.18)]"
         onClick={onClose}
       />
 
@@ -100,13 +100,13 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="lm-memory-panel-title"
-        className="relative z-10 ml-auto flex h-full w-[420px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]"
+        className="relative z-10 ml-auto flex h-full w-[420px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-drawer)]"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3.5">
           <div className="flex items-center gap-2">
-            <BookOpen size={16} className="text-[var(--lm-accent-text)]" />
-            <h2 id="lm-memory-panel-title" className="text-[15px] font-semibold text-[var(--lm-text-primary)]">记忆库</h2>
+            <BookOpen size={16} className="text-[var(--lm-text-secondary)]" />
+            <h2 id="lm-memory-panel-title" className="text-[14px] font-medium tracking-[-0.01em] text-[var(--lm-text-primary)]">记忆库</h2>
           </div>
           <button
             type="button"
@@ -130,7 +130,7 @@ export function MemoryBrowser({ open, onClose }: MemoryBrowserProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索记忆..."
-              className="w-full rounded-lg border border-[var(--lm-border-strong)] bg-[var(--lm-bg-surface)] py-2 pl-9 pr-3 text-[14px] text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none transition-colors focus:border-[var(--lm-accent)]"
+              className="w-full rounded-lg border border-[var(--lm-border)] bg-[var(--lm-bg-surface)] py-2 pl-9 pr-3 text-[14px] text-[var(--lm-text-primary)] placeholder-[var(--lm-text-muted)] outline-none transition-colors focus:border-[var(--lm-border-strong)]"
             />
           </div>
         </div>

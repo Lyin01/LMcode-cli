@@ -181,8 +181,8 @@ export function AutomationsPanel({ open, onClose }: AutomationsPanelProps) {
 
   return (
     <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <aside className="relative z-10 ml-auto flex h-full w-[500px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]">
+      <div className="absolute inset-0 bg-[rgba(20,20,19,0.18)]" onClick={onClose} />
+      <aside className="relative z-10 ml-auto flex h-full w-[500px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-drawer)]">
         <header className="flex items-center gap-2 border-b border-[var(--lm-border)] px-4 py-3.5">
           <CalendarClock size={16} className="text-[var(--lm-accent-text)]" />
           <div className="min-w-0 flex-1">

@@ -1,5 +1,6 @@
 import type { Agent } from '..';
 import type { PrepareToolExecutionResult } from '../../loop';
+import { isUnrestrictedMode } from '../../config/unrestricted';
 import { abortError } from '../../utils/abort';
 import { createPermissionDecisionPolicies } from './policies';
 import type {
@@ -122,6 +123,8 @@ export class PermissionManager {
   }
 
   get fileSandbox(): FileSandboxMode {
+    // 无限制模式：文件沙箱不参与判定（等价 full-access）。
+    if (isUnrestrictedMode()) return 'full-access';
     return this.fileSandboxOverride ?? this.parent?.fileSandbox ?? 'full-access';
   }
 
@@ -307,6 +310,9 @@ export class PermissionManager {
   private async evaluatePolicies(
     context: PermissionPolicyContext,
   ): Promise<PolicyEvaluation | undefined> {
+    // 无限制模式：与审批相关的策略（deny 规则 / plan-mode 守卫 / 敏感文件询问 /
+    // 沙箱 / PreToolUse hook 拦截）全部不参与判定，工具调用一律放行。
+    if (isUnrestrictedMode()) return undefined;
     for (const policy of this.policies) {
       context.signal.throwIfAborted();
       const result = await policy.evaluate(context);

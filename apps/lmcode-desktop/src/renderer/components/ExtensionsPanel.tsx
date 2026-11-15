@@ -16,6 +16,16 @@ interface ExtensionsPanelProps {
 
 type Tab = 'skills' | 'mcp'
 
+/** Server-card selector values: `inherit` clears the policy back to default. */
+type McpPolicyChoice = 'inherit' | 'allow' | 'ask' | 'blocked'
+
+const MCP_POLICY_OPTIONS: ReadonlyArray<{ value: McpPolicyChoice; label: string }> = [
+  { value: 'inherit', label: '跟随全局' },
+  { value: 'allow', label: '全部放行' },
+  { value: 'ask', label: '调用前询问' },
+  { value: 'blocked', label: '全部阻止' },
+]
+
 const SOURCE_LABEL: Record<SkillSummary['source'], string> = {
   builtin: '内置',
   user: '用户',
@@ -137,6 +147,25 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
     }
   }
 
+  const setToolPolicy = async (name: string, mode: McpPolicyChoice) => {
+    if (!sessionId) return
+    setBusy(name)
+    setActionError(null)
+    try {
+      await window.lmcodeAPI.setMcpToolPolicy(
+        sessionId,
+        name,
+        mode === 'inherit' ? null : { default: mode },
+      )
+      await refresh()
+    } catch (err) {
+      console.error('Failed to set MCP tool policy:', err)
+      setActionError(err instanceof Error ? err.message : '无法设置 MCP 工具策略')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const addServer = async () => {
     if (!sessionId || !newName.trim() || !newTarget.trim()) return
     setBusy('__add__')
@@ -168,7 +197,7 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
 
   return (
     <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
-      <div aria-hidden="true" className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div aria-hidden="true" className="absolute inset-0 bg-[rgba(20,20,19,0.18)]" onClick={onClose} />
 
       <div
         ref={panelRef}
@@ -176,13 +205,13 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="lm-extensions-panel-title"
-        className="relative z-10 ml-auto flex h-full w-[420px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]"
+        className="relative z-10 ml-auto flex h-full w-[420px] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-drawer)]"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--lm-border)] px-4 py-3.5">
           <div className="flex items-center gap-2">
             <Blocks size={16} className="text-[var(--lm-accent-text)]" />
-            <h2 id="lm-extensions-panel-title" className="text-[15px] font-semibold text-[var(--lm-text-primary)]">扩展</h2>
+            <h2 id="lm-extensions-panel-title" className="text-[14px] font-medium tracking-[-0.01em] text-[var(--lm-text-primary)]">扩展</h2>
           </div>
           <button
             type="button"
@@ -384,6 +413,35 @@ export function ExtensionsPanel({ open, onClose }: ExtensionsPanelProps) {
                       {srv.error && (
                         <p className="mt-1 line-clamp-2 text-[11px] text-[var(--lm-error)]">{srv.error}</p>
                       )}
+                      <div className="mt-2 flex items-center gap-2">
+                        <label
+                          htmlFor={`mcp-policy-${srv.name}`}
+                          className="text-[11px] text-[var(--lm-text-muted)]"
+                        >
+                          工具策略
+                        </label>
+                        <select
+                          id={`mcp-policy-${srv.name}`}
+                          value={srv.toolPolicy?.default ?? 'inherit'}
+                          disabled={isBusy}
+                          onChange={(e) =>
+                            void setToolPolicy(srv.name, e.target.value as McpPolicyChoice)
+                          }
+                          className="rounded-md border border-[var(--lm-border)] bg-[var(--lm-bg-base)] px-1.5 py-0.5 text-[11px] text-[var(--lm-text-secondary)] outline-none focus:border-[var(--lm-accent)] disabled:opacity-50"
+                        >
+                          {MCP_POLICY_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-[10px] text-[var(--lm-text-muted)]">
+                          {srv.toolPolicy?.tools !== undefined &&
+                          Object.keys(srv.toolPolicy.tools).length > 0
+                            ? `含 ${Object.keys(srv.toolPolicy.tools).length} 项单工具覆盖`
+                            : 'blocked 任何模式都拦'}
+                        </span>
+                      </div>
                       <div className="mt-2 flex items-center gap-1">
                         <button
                           onClick={() => mcpAction(window.lmcodeAPI.reconnectMcpServer, srv.name)}

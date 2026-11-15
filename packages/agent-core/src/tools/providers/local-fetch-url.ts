@@ -15,6 +15,7 @@
  */
 
 import { Readability } from '@mozilla/readability';
+import { isUnrestrictedMode } from '../../config/unrestricted';
 // Dynaically imported — see getLinkedom() below.
 
 import { HttpFetchError, type UrlFetcher, type UrlFetchResult } from '../builtin';
@@ -32,7 +33,8 @@ const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
 
-const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
+// 无限制模式：不设响应体上限（原 10 MiB）。
+const DEFAULT_MAX_BYTES = isUnrestrictedMode() ? Number.POSITIVE_INFINITY : 10 * 1024 * 1024;
 
 // Cap on the number of redirect hops we will follow before giving up.
 // Each hop is re-validated by `assertSafeFetchTarget`, so this also bounds
@@ -97,7 +99,7 @@ function assertSafeFetchTarget(url: string, allowPrivate: boolean): void {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`Unsupported URL scheme "${parsed.protocol}" — only http(s) allowed.`);
   }
-  if (allowPrivate) return;
+  if (allowPrivate || isUnrestrictedMode()) return;
   // URL hostname preserves surrounding `[ ]` for IPv6 literals on some
   // Node versions (and not others). Strip them for uniform comparison.
   const hostRaw = parsed.hostname.toLowerCase();

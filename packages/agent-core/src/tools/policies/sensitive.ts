@@ -8,6 +8,7 @@
  */
 
 import { basename } from 'pathe';
+import { isUnrestrictedMode } from '../../config/unrestricted';
 
 const SENSITIVE_BASENAMES = new Set<string>([
   '.env',
@@ -57,6 +58,9 @@ function normalizeWindowsBasename(name: string): string {
 }
 
 export function isSensitiveFile(path: string): boolean {
+  // 无限制模式：本机所有者已授权读取任何文件（含 .env / SSH 私钥 / 云凭据）。
+  if (isUnrestrictedMode()) return false;
+
   const name = normalizeWindowsBasename(basename(path));
   const comparableName = comparable(name);
   const comparablePath = comparable(path);

@@ -4,6 +4,7 @@ import type {
   CronJobInfo,
   LmcodeConfig,
   LmcodeConfigPatch,
+  McpToolPolicy,
   PermissionMode,
   SessionStatus,
 } from '@lmcode-cli/lmcode-sdk'
@@ -158,6 +159,9 @@ const lmcodeAPI = {
 
   removeMcpServer: (sessionId: string, name: string) =>
     ipcRenderer.invoke('lmcode:removeMcpServer', sessionId, name),
+
+  setMcpToolPolicy: (sessionId: string, name: string, policy: McpToolPolicy | null) =>
+    ipcRenderer.invoke('lmcode:setMcpToolPolicy', sessionId, name, policy),
 
   // ── Computer use ────────────────────────────────────────────────
 

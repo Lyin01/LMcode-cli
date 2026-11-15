@@ -447,7 +447,7 @@ export function GitReviewPanel({
     <div className="fixed inset-x-0 top-0 bottom-[var(--lm-global-usage-height)] z-40 flex">
       <button
         type="button"
-        className="absolute inset-0 cursor-default bg-black/30 backdrop-blur-sm"
+        className="absolute inset-0 cursor-default bg-[rgba(20,20,19,0.18)]"
         onClick={onClose}
         aria-label="关闭 Git 变更审阅"
       />
@@ -455,7 +455,7 @@ export function GitReviewPanel({
         role="dialog"
         aria-modal="true"
         aria-label="代码审查"
-        className="relative z-10 ml-auto flex h-full w-[min(1040px,calc(100vw-32px))] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-pop)]"
+        className="relative z-10 ml-auto flex h-full w-[min(1040px,calc(100vw-32px))] flex-col border-l border-[var(--lm-border)] bg-[var(--lm-bg-base)] shadow-[var(--lm-shadow-drawer)]"
       >
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--lm-border)] px-4">
           <GitBranch size={17} className="text-[var(--lm-accent-text)]" />

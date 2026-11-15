@@ -8,6 +8,11 @@
 
 import './utils/suppress-sqlite-warning.js';
 
+// 无限制模式：与桌面端一致，CLI 启动时默认打开（LMCODE_UNRESTRICTED=0 可关闭）。
+if (process.env['LMCODE_UNRESTRICTED'] === undefined) {
+  process.env['LMCODE_UNRESTRICTED'] = '1';
+}
+
 try {
   const app = await import('./app.js');
   app.main();

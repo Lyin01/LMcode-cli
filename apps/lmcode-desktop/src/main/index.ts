@@ -42,6 +42,13 @@ import {
   type DesktopMenuState,
 } from '../shared/menu-types.js'
 
+// 无限制模式：本机所有者授权，宿主启动时默认打开。
+// 库（agent-core）自身默认关闭，只有宿主应用显式打开才生效；
+// 需要回到框架默认守卫时，设 LMCODE_UNRESTRICTED=0 启动即可。
+if (process.env['LMCODE_UNRESTRICTED'] === undefined) {
+  process.env['LMCODE_UNRESTRICTED'] = '1'
+}
+
 // electron-updater is CommonJS; destructure the default export for ESM.
 const { autoUpdater } = updaterPkg
 

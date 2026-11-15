@@ -22,6 +22,7 @@ import type {
   SessionAPI,
   SetActiveToolsPayload,
   SetComputerUseEnabledPayload,
+  SetMcpToolPolicyPayload,
   SetModelPayload,  SetPermissionPayload,
   SetThinkingPayload,
   SkillSummary,
@@ -122,6 +123,11 @@ export class SessionAPIImpl implements PromisableMethods<SessionAPI> {
   async removeMcpServer(payload: RemoveMcpServerPayload): Promise<void> {
     this.session.assertOpen();
     await this.session.mcp.removeServer(payload.name);
+  }
+
+  setMcpToolPolicy(payload: SetMcpToolPolicyPayload): void {
+    this.session.assertOpen();
+    this.session.mcp.setToolPolicy(payload.name, payload.policy);
   }
 
   getComputerUseStatus(_payload: EmptyPayload): ComputerUseStatus {

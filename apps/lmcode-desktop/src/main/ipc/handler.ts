@@ -17,6 +17,7 @@ import type {
   BackgroundTaskInfo,
   SessionStatus,
   ComputerUseStatus,
+  McpToolPolicy,
   Logger,
 } from '@lmcode-cli/lmcode-sdk'
 import { writeFile } from 'node:fs/promises'
@@ -30,7 +31,7 @@ import {
   safeDirectoryDialogPath,
   safeSaveFileName,
 } from '../../shared/open-path-guard.js'
-import { isSafeExternalHttpsUrl } from '../../shared/security.js'
+import { parseExternalOpenTarget } from '../../shared/security.js'
 import type { RemoteFirewallStatus, RemoteState } from '../../shared/remote-types.js'
 import { getRemoteFirewallStatus, repairRemoteFirewall } from '../remote/firewall.js'
 import { getComputerUseDriverInfo, installComputerUseDriver } from '../computer-use.js'
@@ -142,6 +143,7 @@ import {
   openPathArgsSchema,
   sessionIdArgsSchema,
   setComputerUseEnabledArgsSchema,
+  setMcpToolPolicyArgsSchema,
 } from '../../shared/ipc-schemas.js'
 
 interface SessionEntry {
@@ -903,6 +905,20 @@ export function registerAllHandlers(
     await entry.session.removeMcpServer(name)
   }, sessionNamedArgsSchema)
 
+  secureInvoke(
+    'lmcode:setMcpToolPolicy',
+    async (
+      _event,
+      sessionId: string,
+      name: string,
+      policy: McpToolPolicy | null,
+    ): Promise<void> => {
+      const entry = await ensureActiveSession(sessionId)
+      await entry.session.setMcpToolPolicy(name, policy ?? undefined)
+    },
+    setMcpToolPolicyArgsSchema,
+  )
+
   // ── Computer use ────────────────────────────────────────────────
 
   secureInvoke('lmcode:getComputerUseDriver', async (): Promise<ComputerUseDriverInfo> => {
@@ -1192,8 +1208,14 @@ export function registerAllHandlers(
   }, openPathArgsSchema)
 
   secureInvoke('lmcode:openExternal', async (_event, url: string): Promise<void> => {
-    if (!isSafeExternalHttpsUrl(url)) return
-    await shell.openExternal(url.trim())
+    // The renderer is sandboxed, but it is still the untrusted side of the
+    // IPC boundary: `shell.openExternal` resolves any registered protocol to
+    // its OS handler, so the scheme allowlist lives here, not in the UI.
+    const target = parseExternalOpenTarget(url)
+    if (target === undefined) {
+      throw new Error('仅支持打开 https:// 或 mailto: 链接')
+    }
+    await shell.openExternal(target)
   }, openExternalArgsSchema)
 
   secureInvoke('lmcode:showItemInFolder', async (_event, input: string): Promise<string> => {

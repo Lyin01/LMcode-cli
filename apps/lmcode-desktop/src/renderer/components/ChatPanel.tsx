@@ -43,8 +43,8 @@ export function ChatPanel({
   // does not flash the empty welcome screen.
   if (isEmpty && historyReady) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
-        <div className="w-full max-w-[720px] pb-10">
+    <div data-ui="chat-column" className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
+        <div className="w-full max-w-[736px] pb-10">
           <AgentWelcome />
           <Composer
             key={currentSessionId}
@@ -62,10 +62,14 @@ export function ChatPanel({
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div data-ui="chat-column" className="flex flex-1 flex-col overflow-hidden">
       <MessageList findRequest={findRequest} />
-      <div className="shrink-0 px-4 pb-4">
-        <div className="mx-auto max-w-3xl">
+      <div className="relative shrink-0 px-6 pb-5">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t from-[var(--lm-bg-base)] to-transparent"
+        />
+        <div className="relative mx-auto max-w-[736px]">
           <RunActivity />
           <StallIndicator />
           <Composer

@@ -12,6 +12,7 @@ import {
   SensitiveFileAccessAskPermissionPolicy,
 } from './file-access-ask';
 import { GitCwdWriteApprovePermissionPolicy } from './git-cwd-write-approve';
+import { McpToolPolicyPermissionPolicy } from './mcp-tool-policy';
 import { PlanModeGuardDenyPermissionPolicy } from './plan-mode-guard-deny';
 import { PlanModeToolApprovePermissionPolicy } from './plan-mode-tool-approve';
 import { PreToolCallHookPermissionPolicy } from './pre-tool-call-hook';
@@ -35,6 +36,9 @@ export function createPermissionDecisionPolicies(agent: Agent): readonly Permiss
     new PlanModeGuardDenyPermissionPolicy(agent),
     // User-configured deny rule matches → deny.
     new UserConfiguredDenyPermissionPolicy(agent),
+    // MCP server `toolPolicy`: blocked denies in every mode (hard boundary);
+    // ask prompts in manual/auto; allow approves before the mode policies.
+    new McpToolPolicyPermissionPolicy(agent),
     // File sandbox is a hard, mode-independent boundary: read-only denies all
     // writes, workspace-write denies writes outside cwd and unrestricted
     // tools. Runs before the ask/allow policies and is NOT bypassed by yolo.

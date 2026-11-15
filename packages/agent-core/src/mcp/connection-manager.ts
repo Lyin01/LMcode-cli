@@ -1,5 +1,5 @@
 import { ErrorCodes, LmcodeError } from '#/errors';
-import type { McpServerConfig } from '#/config/schema';
+import type { McpServerConfig, McpToolPolicy, McpToolPolicyMode } from '#/config/schema';
 import { log as defaultLog } from '#/logging/logger';
 import type { Logger } from '#/logging/types';
 import type { Tool } from '@lmcode-cli/liumir';
@@ -9,6 +9,7 @@ import { HttpMcpClient } from './client-http';
 import type { UnexpectedCloseReason } from './client-shared';
 import { StdioMcpClient } from './client-stdio';
 import type { McpOAuthService } from './oauth';
+import { qualifyMcpToolName } from './tool-naming';
 import { assertMcpInputSchema, type MCPClient } from './types';
 
 export type McpServerStatus = 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth';
@@ -19,6 +20,18 @@ export interface McpServerEntry {
   readonly status: McpServerStatus;
   readonly toolCount: number;
   readonly error?: string;
+  /**
+   * Approval policy currently attached to the running server. Surfaced so a
+   * settings UI can show and edit it without re-reading `mcp.json`.
+   */
+  readonly toolPolicy?: McpToolPolicy;
+}
+
+/** Which approval tier applies to one concrete tool of a running server. */
+export interface McpToolPolicyResolution {
+  readonly serverName: string;
+  readonly toolName: string;
+  readonly mode: McpToolPolicyMode;
 }
 
 interface InternalEntry {
@@ -140,6 +153,45 @@ export class McpConnectionManager {
       tools: entry.tools,
       enabledNames: entry.enabledNames ?? new Set(entry.tools.map((t) => t.name)),
     };
+  }
+
+  /**
+   * Resolve the approval tier configured for one qualified tool name
+   * (`mcp__<server>__<tool>`). Returns `undefined` when the name does not
+   * belong to a connected server, or when the server configures no
+   * `toolPolicy` for it — callers then keep their default behaviour.
+   *
+   * Per-tool entries win over the server-wide `default`. `blocked` is
+   * enforced independently of `enabledTools`/`disabledTools`: those filter
+   * what is advertised to the model, this decides what may run.
+   */
+  resolveToolPolicy(qualifiedName: string): McpToolPolicyResolution | undefined {
+    for (const entry of this.entries.values()) {
+      const tools = entry.tools;
+      if (tools === undefined) continue;
+      for (const tool of tools) {
+        if (qualifyMcpToolName(entry.name, tool.name) !== qualifiedName) continue;
+        const policy = entry.config.toolPolicy;
+        const mode = policy?.tools?.[tool.name] ?? policy?.default;
+        if (mode === undefined) return undefined;
+        return { serverName: entry.name, toolName: tool.name, mode };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Replace the tool approval policy of a running server. Runtime-only: the
+   * declaration in `~/.lmcode/mcp.json` (or the plugin manifest) is not
+   * rewritten, matching how {@link addServer} treats the rest of the config.
+   */
+  setToolPolicy(name: string, policy: McpToolPolicy | undefined): void {
+    const entry = this.entries.get(name);
+    if (entry === undefined) {
+      throw new LmcodeError(ErrorCodes.MCP_SERVER_NOT_FOUND, `Unknown MCP server: ${name}`);
+    }
+    (entry as { config: McpServerConfig }).config = { ...entry.config, toolPolicy: policy };
+    this.emit(entry);
   }
 
   connectAll(configs: Record<string, McpServerConfig>): Promise<void> {
@@ -438,6 +490,7 @@ function toPublicEntry(entry: InternalEntry): McpServerEntry {
         ? entry.enabledNames.size
         : 0,
     error: entry.error,
+    toolPolicy: entry.config.toolPolicy,
   };
 }
 

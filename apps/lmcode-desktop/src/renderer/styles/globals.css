@@ -8,87 +8,100 @@
 
 :root,
 [data-theme='light'] {
-  /* Surfaces - DSH Bluish-Neutral Light Layers */
-  --lm-bg-base: #ffffff;
-  --lm-bg-sidebar: #f9fafb;
-  --lm-bg-surface: #ffffff;
+  /* Surfaces - values lifted from Claude desktop's own tokens (--bg-000..500) */
+  --lm-bg-base: #faf9f5; /* bg-100 */
+  --lm-bg-sidebar: #f5f4ee; /* bg-200 */
+  --lm-bg-surface: #ffffff; /* bg-000 */
   --lm-bg-elevated: #ffffff;
-  --lm-bg-hover: rgba(38, 49, 72, 0.05);
-  --lm-bg-active: rgba(38, 49, 72, 0.09);
-  --lm-bg-bubble: #f4f7fc;
-  --lm-bg-code: #f5f7fa;
+  --lm-bg-hover: #efede6; /* bg-300 */
+  --lm-bg-active: #e5e2d9; /* bg-400 */
+  --lm-bg-bubble: #efede6;
+  --lm-bg-code: #f4f1ea;
 
-  /* Borders - DSH Subtile Fine Lines */
-  --lm-border: rgba(0, 0, 0, 0.08);
-  --lm-border-strong: rgba(0, 0, 0, 0.14);
+  /* Borders - hsl(var(--border-300) / .15) */
+  --lm-border: rgba(31, 30, 29, 0.15);
+  --lm-border-strong: rgba(31, 30, 29, 0.28);
 
-  /* Text - DSH Typographic Hierarchy */
-  --lm-text-primary: #15171b;
-  --lm-text-secondary: #5f656f;
-  --lm-text-muted: #8d939f;
+  /* Text - text-000 / 200 / 400 */
+  --lm-text-primary: #141413;
+  --lm-text-secondary: #3d3d3a;
+  --lm-text-muted: #6f6d66;
 
-  /* Primary Accent - Official DeepSeek Blue (rgb(65, 118, 230)) */
-  --lm-accent: #4176e6;
-  --lm-accent-hover: #3567d1;
+  /* Accent - hsl(15 63.1% 59.6%) = accent-brand */
+  --lm-accent: #d87754;
+  --lm-accent-hover: #c46744;
   --lm-accent-fg: #ffffff;
-  --lm-accent-soft: rgba(65, 118, 230, 0.11);
-  --lm-accent-text: #4176e6;
+  --lm-accent-soft: rgba(216, 119, 84, 0.12);
+  --lm-accent-text: #b35a33;
 
   /* Status */
-  --lm-success: #22c55e;
-  --lm-warning: #f59e0b;
-  --lm-error: #ef4444;
+  --lm-success: #3f8f5b;
+  --lm-warning: #c98a2e;
+  --lm-error: #c9503f;
 
   /* Typography */
   --lm-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI',
     'PingFang SC', 'Microsoft YaHei', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --lm-font-serif: 'Tiempos Text', 'Songti SC', Georgia, 'Times New Roman', serif;
+  /* Latin serif, CJK falls through to the sans stack on purpose: Claude's
+     Copernicus has no CJK glyphs either, so Chinese body copy stays clean. */
+  --lm-font-serif: 'Tiempos Text', 'Source Serif 4', Georgia,
+    'PingFang SC', 'Microsoft YaHei', 'Noto Serif SC', serif;
   --lm-font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono',
     Menlo, Consolas, monospace;
 
-  --lm-shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.04), 0 6px 20px rgba(0, 0, 0, 0.05);
-  --lm-shadow-composer: 0 2px 6px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(65, 118, 230, 0.06);
-  --lm-shadow-pop: 0 16px 48px -8px rgba(15, 23, 42, 0.18);
-  --lm-global-usage-height: 38px;
+  /* Shape - --cds-radius steps (4/5/6/7/8/10/12/14px), composer = .75rem */
+  --lm-radius-sm: 6px;
+  --lm-radius-md: 8px;
+  --lm-radius-lg: 10px;
+  --lm-radius-xl: 12px;
+
+  --lm-shadow-soft: 0 1px 2px rgba(20, 20, 19, 0.05), 0 8px 24px rgba(20, 20, 19, 0.06);
+  --lm-shadow-composer: 0 1px 2px rgba(20, 20, 19, 0.04), 0 10px 30px rgba(20, 20, 19, 0.07);
+  --lm-shadow-pop: 0 18px 48px -12px rgba(20, 20, 19, 0.22);
+  /* Drawers need a directional edge shadow: a centred pop shadow is invisible
+     against warm paper and left the panel looking pasted on. */
+  --lm-shadow-drawer: -1px 0 0 rgba(20, 20, 19, 0.06), -24px 0 64px -24px rgba(20, 20, 19, 0.32);
+  --lm-global-usage-height: 34px;
 
   color-scheme: light;
 }
 
 [data-theme='dark'] {
-  /* Surfaces - DSH Bluish-Neutral Dark Layers */
-  --lm-bg-base: #151517;
-  --lm-bg-sidebar: #1b1b1c;
-  --lm-bg-surface: #212123;
-  --lm-bg-elevated: #28282b;
-  --lm-bg-hover: rgba(255, 255, 255, 0.06);
-  --lm-bg-active: rgba(255, 255, 255, 0.1);
-  --lm-bg-bubble: #1e2430;
-  --lm-bg-code: #121214;
+  /* Surfaces */
+  --lm-bg-base: #262624; /* bg-100 */
+  --lm-bg-sidebar: #1f1e1d; /* bg-200 */
+  --lm-bg-surface: #30302e; /* bg-000 */
+  --lm-bg-elevated: #353531;
+  --lm-bg-hover: rgba(250, 249, 245, 0.06);
+  --lm-bg-active: rgba(250, 249, 245, 0.1);
+  --lm-bg-bubble: #353531;
+  --lm-bg-code: #1b1a19;
 
   /* Borders */
-  --lm-border: rgba(255, 255, 255, 0.08);
-  --lm-border-strong: rgba(255, 255, 255, 0.15);
+  --lm-border: rgba(221, 217, 206, 0.15);
+  --lm-border-strong: rgba(221, 217, 206, 0.28);
 
   /* Text */
-  --lm-text-primary: #f5f5f5;
-  --lm-text-secondary: #a0a5ae;
-  --lm-text-muted: #6c727d;
+  --lm-text-primary: #faf9f5;
+  --lm-text-secondary: #bdb9b1;
+  --lm-text-muted: #9c9990;
 
-  /* Primary Accent - DeepSeek Glow Blue */
-  --lm-accent: #4d93f8;
-  --lm-accent-hover: #679efe;
-  --lm-accent-fg: #ffffff;
-  --lm-accent-soft: rgba(77, 147, 248, 0.16);
-  --lm-accent-text: #679efe;
+  /* Accent */
+  --lm-accent: #d87754;
+  --lm-accent-hover: #e08a6b;
+  --lm-accent-fg: #1b1a19;
+  --lm-accent-soft: rgba(216, 119, 84, 0.18);
+  --lm-accent-text: #e5947a;
 
   /* Status */
-  --lm-success: #4ed17e;
-  --lm-warning: #f7ad31;
-  --lm-error: #f25a5a;
+  --lm-success: #6fbf8b;
+  --lm-warning: #e0a94f;
+  --lm-error: #e97b6a;
 
-  --lm-shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.3), 0 6px 20px rgba(0, 0, 0, 0.3);
-  --lm-shadow-composer: 0 2px 6px rgba(0, 0, 0, 0.35), 0 12px 36px rgba(0, 0, 0, 0.45);
-  --lm-shadow-pop: 0 20px 54px -8px rgba(0, 0, 0, 0.65);
+  --lm-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --lm-shadow-composer: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --lm-shadow-pop: 0 20px 54px -12px rgba(0, 0, 0, 0.7);
+  --lm-shadow-drawer: -1px 0 0 rgba(0, 0, 0, 0.45), -24px 0 64px -24px rgba(0, 0, 0, 0.72);
 
   color-scheme: dark;
 }
@@ -99,7 +112,11 @@
   scrollbar-color: var(--lm-border-strong) transparent;
 }
 
-html,
+html {
+  height: 100%;
+  font-size: 16px;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -108,8 +125,8 @@ body {
   background-color: var(--lm-bg-base);
   color: var(--lm-text-primary);
   font-family: var(--lm-font-sans);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 13.5px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -168,22 +185,26 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ─── Markdown (theme-aware, replaces @tailwind prose) ───────── */
 .lm-markdown {
-  font-size: 14px;
-  line-height: 1.7;
+  font-family: var(--lm-font-serif);
+  font-size: 15px;
+  line-height: 1.72;
+  letter-spacing: 0.002em;
   color: var(--lm-text-primary);
   word-break: break-word;
+  font-feature-settings: 'liga' 1, 'kern' 1;
 }
 .lm-markdown > *:first-child { margin-top: 0; }
 .lm-markdown > *:last-child { margin-bottom: 0; }
-.lm-markdown p { margin: 0.6em 0; }
+.lm-markdown p { margin: 0.7em 0; }
 .lm-markdown h1, .lm-markdown h2, .lm-markdown h3,
 .lm-markdown h4, .lm-markdown h5, .lm-markdown h6 {
-  margin: 1.2em 0 0.5em;
-  font-weight: 600;
+  margin: 1.4em 0 0.55em;
+  font-weight: 550;
+  letter-spacing: -0.01em;
   color: var(--lm-text-primary);
 }
-.lm-markdown h1 { font-size: 1.4em; }
-.lm-markdown h2 { font-size: 1.25em; }
+.lm-markdown h1 { font-size: 1.42em; }
+.lm-markdown h2 { font-size: 1.26em; }
 .lm-markdown h3 { font-size: 1.1em; }
 .lm-markdown a {
   color: var(--lm-accent-text);
@@ -191,31 +212,34 @@ h1, h2, h3, h4, h5, h6 {
   border-bottom: 1px solid var(--lm-accent-soft);
 }
 .lm-markdown a:hover { border-bottom-color: var(--lm-accent); }
-.lm-markdown strong { color: var(--lm-text-primary); font-weight: 650; }
-.lm-markdown ul, .lm-markdown ol { margin: 0.5em 0; padding-left: 1.4em; }
-.lm-markdown li { margin: 0.25em 0; }
+.lm-markdown strong { color: var(--lm-text-primary); font-weight: 600; }
+.lm-markdown ul, .lm-markdown ol { margin: 0.55em 0; padding-left: 1.35em; }
+.lm-markdown ul { list-style: disc outside; }
+.lm-markdown ol { list-style: decimal outside; }
+.lm-markdown ul ul { list-style: circle outside; }
+.lm-markdown li { margin: 0.3em 0; padding-left: 0.15em; }
 .lm-markdown li::marker { color: var(--lm-text-muted); }
 .lm-markdown blockquote {
-  margin: 0.7em 0;
+  margin: 0.8em 0;
   padding-left: 0.9em;
-  border-left: 3px solid var(--lm-accent);
+  border-left: 2px solid var(--lm-border-strong);
   color: var(--lm-text-secondary);
 }
-.lm-markdown hr { border: none; border-top: 1px solid var(--lm-border); margin: 1.2em 0; }
+.lm-markdown hr { border: none; border-top: 1px solid var(--lm-border); margin: 1.4em 0; }
 .lm-markdown code {
   font-family: var(--lm-font-mono);
-  font-size: 0.86em;
+  font-size: 0.84em;
   background: var(--lm-bg-code);
   color: var(--lm-accent-text);
   padding: 0.12em 0.38em;
   border-radius: 5px;
 }
 .lm-markdown pre {
-  margin: 0.7em 0;
-  padding: 0.85em 1em;
+  margin: 0.8em 0;
+  padding: 0.9em 1.05em;
   background: var(--lm-bg-code);
   border: 1px solid var(--lm-border);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow-x: auto;
 }
 .lm-markdown pre code {
@@ -277,7 +301,7 @@ h1, h2, h3, h4, h5, h6 {
    dependency; Chromium skips paint/layout work for offscreen task rows. */
 .lm-session-row {
   content-visibility: auto;
-  contain-intrinsic-size: auto 36px;
+  contain-intrinsic-size: auto 32px;
 }
 
 /* ─── Settings workspace ────────────────────────────────────── */
