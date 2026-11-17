@@ -474,6 +474,15 @@ export type NewSessionTarget =
   | { readonly kind: 'project'; readonly workDir: string }
   | { readonly kind: 'no-project' }
 
+/**
+ * A slash command picked on the welcome screen. The session does not exist
+ * yet, so the command waits here until the composer for the new session
+ * mounts and consumes it.
+ */
+export type PendingComposerCommand =
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'skill'; readonly name: string }
+
 export interface SessionStore {
   currentSessionId: string | null
   sessions: SessionInfo[]
@@ -504,6 +513,8 @@ export interface SessionStore {
 
   pendingInteractions: PendingInteraction[]
   messageQueue: Record<string, QueuedUserMessage[]>
+  /** Slash commands queued on the welcome screen, keyed by the new session id. */
+  pendingComposerCommands: Record<string, PendingComposerCommand>
   /**
    * Sessions whose on-disk history has already been merged into the live
    * view. Guards the backfill so a slow `getSessionHistory` can't be dropped
@@ -533,6 +544,18 @@ export interface SessionStore {
     text: string,
     attachments?: readonly UserAttachment[],
   ) => Promise<void>
+  /**
+   * Welcome-screen entry point for slash commands: create the session for the
+   * chosen target, then hand the command to the composer that mounts for it.
+   * The command never travels through the message queue, so `/plan` is not
+   * mistaken for a prompt.
+   */
+  startSessionWithCommand: (
+    target: NewSessionTarget,
+    command: PendingComposerCommand,
+  ) => Promise<void>
+  queueComposerCommand: (sessionId: string, command: PendingComposerCommand) => void
+  takeComposerCommand: (sessionId: string) => PendingComposerCommand | null
   adoptSession: (summary: SessionSummary) => void
   addMessage: (msg: Message) => void
   addMessageToSession: (
@@ -675,6 +698,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   pendingInteractions: [],
   messageQueue: {},
   hydratedSessions: {},
+  pendingComposerCommands: {},
 
   setSessions: (sessions) => {
     set({ sessions: sessions.filter((session) => !forgottenSessions.has(session.id)) })
@@ -885,8 +909,46 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
-  adoptSession: (summary) => {
-    forgottenSessions.delete(summary.id)
+  startSessionWithCommand: async (target, command) => {
+    // Same single-flight latch as startSessionWithMessage: two welcome-screen
+    // paths must never race creation into two sessions.
+    if (startSessionInFlight) {
+      console.warn('startSessionWithCommand already in flight; ignoring concurrent call')
+      return
+    }
+    startSessionInFlight = true
+    try {
+      if (target.kind === 'no-project') {
+        await get().createSession(undefined, { noProject: true })
+      } else {
+        await get().createSession(target.workDir)
+      }
+      const sessionId = get().currentSessionId
+      if (sessionId === null) throw new Error('无法创建会话')
+      get().queueComposerCommand(sessionId, command)
+    } finally {
+      startSessionInFlight = false
+    }
+  },
+
+  queueComposerCommand: (sessionId, command) => {
+    set((state) => ({
+      pendingComposerCommands: { ...state.pendingComposerCommands, [sessionId]: command },
+    }))
+  },
+
+  takeComposerCommand: (sessionId) => {
+    const command = get().pendingComposerCommands[sessionId]
+    if (!command) return null
+    set((state) => {
+      const pendingComposerCommands = { ...state.pendingComposerCommands }
+      delete pendingComposerCommands[sessionId]
+      return { pendingComposerCommands }
+    })
+    return command
+  },
+
+  adoptSession: (summary) => {    forgottenSessions.delete(summary.id)
     const state = get()
     const newSession = createNewSession(summary.id, {
       title: summary.title,

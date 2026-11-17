@@ -11,7 +11,6 @@ import type {
 } from '@/lib/menu-command'
 
 interface ChatPanelProps {
-  onOpenSettings?: () => void
   onOpenGitReview?: () => void
   findRequest: ConversationFindRequest | null
   commandPaletteRequest: CommandPaletteRequest | null
@@ -21,7 +20,6 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({
-  onOpenSettings,
   onOpenGitReview,
   findRequest,
   commandPaletteRequest,
@@ -49,7 +47,6 @@ export function ChatPanel({
           <Composer
             key={currentSessionId}
             autoFocus
-            onOpenSettings={onOpenSettings}
             onOpenGitReview={onOpenGitReview}
             commandPaletteRequest={commandPaletteRequest}
             composerDraftRequest={composerDraftRequest}
@@ -74,7 +71,6 @@ export function ChatPanel({
           <StallIndicator />
           <Composer
             key={currentSessionId}
-            onOpenSettings={onOpenSettings}
             onOpenGitReview={onOpenGitReview}
             commandPaletteRequest={commandPaletteRequest}
             composerDraftRequest={composerDraftRequest}

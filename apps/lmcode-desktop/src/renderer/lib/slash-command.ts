@@ -14,11 +14,7 @@ export type ParsedDesktopSlashCommand =
       readonly value?: string
     }
   | { readonly kind: 'model' }
-  | { readonly kind: 'mode' }
-  | { readonly kind: 'config' }
   | { readonly kind: 'clear' }
-  | { readonly kind: 'export' }
-  | { readonly kind: 'dream' }
   | { readonly kind: 'help' }
   | { readonly kind: 'error'; readonly message: string }
 
@@ -34,8 +30,6 @@ export function parseDesktopSlashCommand(input: string): ParsedDesktopSlashComma
   switch (name) {
     case 'goal':
       return parseGoalCommand(args)
-    case 'goaloff':
-      return { kind: 'goal-cancel' }
     case 'plan':
       if (args === '' || args === 'on' || args === 'enter') return { kind: 'plan', enabled: true }
       if (args === 'off' || args === 'exit') return { kind: 'plan', enabled: false }
@@ -53,11 +47,7 @@ export function parseDesktopSlashCommand(input: string): ParsedDesktopSlashComma
     case 'review':
       return parseReviewCommand(args)
     case 'model':
-    case 'mode':
-    case 'config':
     case 'clear':
-    case 'export':
-    case 'dream':
     case 'help':
       if (args) return { kind: 'error', message: `命令 \`/${name}\` 不接受参数。` }
       return { kind: name }
@@ -132,39 +122,181 @@ function parseGoalCommand(args: string): ParsedDesktopSlashCommand {
   return { kind: 'goal-create', objective, replace }
 }
 
-/** Minimal shape needed to filter the slash command list. */
+// ── Slash palette ──────────────────────────────────────────────────
+
+/** Minimal shape needed to filter and render the slash palette. */
 export interface SlashCommandLike {
   readonly id: string
   readonly label: string
   readonly description: string
 }
 
+/** Built-in commands ship with the app; skills are user/project extensions. */
+export type SlashCommandSource = 'builtin' | 'skill'
+
+/** One palette entry. Skills are exposed as `/skill-name` for discoverability. */
+export interface SlashCandidate extends SlashCommandLike {
+  readonly source: SlashCommandSource
+  /** Text written into the composer on Enter when the command needs an argument. */
+  readonly insertText?: string
+  /** Skill name to activate; only meaningful when `source` is `skill`. */
+  readonly skillName?: string
+}
+
 /**
- * Filters the command list for the slash dialog. Kept in the lib layer so the
- * dialog and the composer agree on the match count — the composer needs it to
- * decide whether navigation keys belong to the dialog.
+ * Built-in command catalogue. Kept in the lib layer so the composer and the
+ * palette share one source of truth and tests can cover the accept semantics
+ * without mounting React.
+ */
+export const BUILTIN_SLASH_COMMANDS: readonly SlashCandidate[] = [
+  {
+    id: 'goal',
+    label: '/goal',
+    description: '创建目标并立即开始执行',
+    source: 'builtin',
+    insertText: '/goal ',
+  },
+  { id: 'plan', label: '/plan', description: '进入只读规划模式', source: 'builtin' },
+  {
+    id: 'review',
+    label: '/review',
+    description: '打开代码审查，或指定范围让 Agent 只读审查',
+    source: 'builtin',
+  },
+  { id: 'model', label: '/model', description: '切换模型', source: 'builtin' },
+  { id: 'compact', label: '/compact', description: '压缩当前会话上下文', source: 'builtin' },
+  { id: 'revoke', label: '/revoke', description: '撤销最近一轮对话', source: 'builtin' },
+  { id: 'clear', label: '/clear', description: '在当前项目中新建对话', source: 'builtin' },
+  { id: 'help', label: '/help', description: '显示帮助', source: 'builtin' },
+]
+
+export type SlashPaletteState =
+  | { readonly open: false }
+  | { readonly open: true; readonly query: string; readonly token: string }
+
+const CLOSED_PALETTE: SlashPaletteState = { open: false }
+
+/**
+ * Whether the palette should be visible for the composer's current text.
+ *
+ * Claude-style trigger: the message must start with `/` and the caret must sit
+ * inside the command token. A space ends the token (the caret moves into the
+ * argument area) and closes the palette, so `/goal finish the port` never
+ * fights the user over the objective text.
+ *
+ * `dismissedToken` is the token the user escaped out of: the same token stays
+ * closed until the text changes again, so Escape is not immediately undone by
+ * the next keystroke of the same word.
+ */
+export function resolveSlashPalette(
+  value: string,
+  caret: number,
+  dismissedToken: string | null,
+): SlashPaletteState {
+  if (caret < 1) return CLOSED_PALETTE
+  const tokenEnd = value.search(/\s/)
+  const token = tokenEnd < 0 ? value : value.slice(0, tokenEnd)
+  if (!token.startsWith('/')) return CLOSED_PALETTE
+  if (caret > token.length) return CLOSED_PALETTE
+  if (dismissedToken === token) return CLOSED_PALETTE
+  return { open: true, query: token.slice(1), token }
+}
+
+/**
+ * Filters and ranks candidates for the palette query.
+ *
+ * Prefix matches on the command name outrank substring matches, which outrank
+ * description matches; ties keep the catalogue order so the list is stable
+ * while the user types.
+ */
+export function rankSlashCommands<T extends SlashCommandLike>(
+  commands: readonly T[],
+  query: string,
+): T[] {
+  const needle = query.trim().replace(/^\//, '').toLowerCase()
+  if (!needle) return [...commands]
+
+  const scored: Array<{ command: T; score: number; index: number }> = []
+  commands.forEach((command, index) => {
+    const id = command.id.toLowerCase()
+    const label = command.label.replace(/^\//, '').toLowerCase()
+    const description = command.description.toLowerCase()
+    let score = 0
+    if (id === needle || label === needle) score = 4
+    else if (id.startsWith(needle) || label.startsWith(needle)) score = 3
+    else if (id.includes(needle) || label.includes(needle)) score = 2
+    else if (description.includes(needle)) score = 1
+    if (score > 0) scored.push({ command, score, index })
+  })
+
+  scored.sort((a, b) => b.score - a.score || a.index - b.index)
+  return scored.map((entry) => entry.command)
+}
+
+/**
+ * Filters the command list for the slash palette. Kept under the original name
+ * because the composer uses it for the match count that decides whether
+ * navigation keys belong to the palette.
  */
 export function filterSlashCommands<T extends SlashCommandLike>(
   commands: readonly T[],
   query: string,
 ): T[] {
-  if (!query) return [...commands]
-  const lowered = query.toLowerCase()
-  return commands.filter(
-    (cmd) =>
-      cmd.id.includes(lowered) ||
-      cmd.label.includes(lowered) ||
-      cmd.description.includes(query),
-  )
+  return rankSlashCommands(commands, query)
+}
+
+/** `/name ` — the text Tab writes into the composer. */
+export function slashCommandText(candidate: SlashCommandLike): string {
+  const name = candidate.label.startsWith('/') ? candidate.label.slice(1) : candidate.label
+  return `/${name} `
+}
+
+export type SlashAcceptMode = 'complete' | 'run'
+
+export type SlashAcceptAction =
+  | { readonly kind: 'complete'; readonly text: string }
+  | { readonly kind: 'run'; readonly command: string }
+  | { readonly kind: 'skill'; readonly name: string }
+
+/**
+ * What accepting the highlighted entry does.
+ *
+ * - Tab (`complete`) always writes `/name ` and keeps the caret in the composer.
+ * - Enter (`run`) executes argument-free commands immediately, but inserts text
+ *   for commands that need an argument (`/goal`) instead of running a bare one.
+ * - Skills run through `activateSkill`, not the slash parser.
+ */
+export function resolveSlashAccept(
+  candidate: SlashCandidate,
+  mode: SlashAcceptMode,
+): SlashAcceptAction {
+  if (candidate.source === 'skill') {
+    return { kind: 'skill', name: candidate.skillName ?? candidate.id.replace(/^skill:/, '') }
+  }
+  if (mode === 'complete') return { kind: 'complete', text: slashCommandText(candidate) }
+  if (candidate.insertText) return { kind: 'complete', text: candidate.insertText }
+  return { kind: 'run', command: candidate.label }
 }
 
 /**
  * Whether the composer may intercept Enter/ArrowUp/ArrowDown/Tab on behalf of
- * the slash dialog. With zero matches the dialog renders nothing, so the keys
- * must fall through to the textarea — otherwise Enter becomes a dead key.
+ * the slash palette. With zero matches the palette renders only a hint, so the
+ * keys must fall through to the textarea — otherwise Enter becomes a dead key.
  */
 export function shouldHandleSlashKeys(showSlash: boolean, matchCount: number): boolean {
   return showSlash && matchCount > 0
+}
+
+/** Clamps the highlighted index after the query narrows the list. */
+export function clampSlashIndex(index: number, matchCount: number): number {
+  if (matchCount <= 0) return 0
+  return Math.min(Math.max(index, 0), matchCount - 1)
+}
+
+/** Wraps the highlight so ArrowDown on the last entry returns to the first. */
+export function moveSlashIndex(index: number, delta: number, matchCount: number): number {
+  if (matchCount <= 0) return 0
+  return ((index + delta) % matchCount + matchCount) % matchCount
 }
 
 const STREAMING_BLOCKED_SLASH = new Set<ParsedDesktopSlashCommand['kind']>([
@@ -174,7 +306,6 @@ const STREAMING_BLOCKED_SLASH = new Set<ParsedDesktopSlashCommand['kind']>([
   'compact',
   'revoke',
   'clear',
-  'dream',
   'review-run',
 ])
 

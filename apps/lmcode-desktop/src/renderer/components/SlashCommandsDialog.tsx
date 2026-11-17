@@ -1,191 +1,73 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { filterSlashCommands } from '@/lib/slash-command'
-import { isImeConfirmKey } from '@/lib/ime'
+import type { SlashCandidate, SlashCommandSource } from '@/lib/slash-command'
 import {
   Target,
   Cpu,
-  Shield,
-  Settings,
   Eraser,
-  Download,
   HelpCircle,
   ListChecks,
   Archive,
   Undo2,
-  CircleOff,
   ScanSearch,
   Sparkles,
+  Zap,
 } from 'lucide-react'
 
-export interface SlashCommand {
-  id: string
-  label: string
-  description: string
-  icon: React.ReactNode
-  /** Text inserted into the composer instead of executing immediately. */
-  insertText?: string
-}
-
 interface SlashCommandsDialogProps {
-  /** Currently typed query (after "/") for filtering */
+  /** Ranked candidates after the query filter. */
+  matches: readonly SlashCandidate[]
+  /** Highlighted row index into `matches` (owned by the composer). */
+  selectedIndex: number
+  /** Current query after "/" — used for the empty hint. */
   query: string
-  /** Callback when a command is selected */
-  onSelect: (command: SlashCommand) => void
-  /** Callback to close the dialog */
-  onClose: () => void
+  /** Pointer hover moves the highlight; the composer keeps it in sync. */
+  onHover: (index: number) => void
+  /** Clicking a row accepts it the same way Enter does. */
+  onSelect: (candidate: SlashCandidate) => void
 }
 
-export const SLASH_COMMANDS: SlashCommand[] = [
-  {
-    id: 'goal',
-    label: '/goal',
-    description: '创建目标并立即开始执行',
-    icon: <Target size={14} />,
-    insertText: '/goal ',
-  },
-  {
-    id: 'goaloff',
-    label: '/goaloff',
-    description: '取消当前目标',
-    icon: <CircleOff size={14} />,
-  },
-  {
-    id: 'plan',
-    label: '/plan',
-    description: '进入只读规划模式',
-    icon: <ListChecks size={14} />,
-  },
-  {
-    id: 'review',
-    label: '/review',
-    description: '打开代码审查，或指定范围让 Agent 只读审查',
-    icon: <ScanSearch size={14} />,
-  },
-  {
-    id: 'model',
-    label: '/model',
-    description: '切换模型',
-    icon: <Cpu size={14} />,
-  },
-  {
-    id: 'mode',
-    label: '/mode',
-    description: '切换权限模式',
-    icon: <Shield size={14} />,
-  },
-  {
-    id: 'config',
-    label: '/config',
-    description: '打开设置面板',
-    icon: <Settings size={14} />,
-  },
-  {
-    id: 'compact',
-    label: '/compact',
-    description: '压缩当前会话上下文',
-    icon: <Archive size={14} />,
-  },
-  {
-    id: 'revoke',
-    label: '/revoke',
-    description: '撤销最近一轮对话',
-    icon: <Undo2 size={14} />,
-  },
-  {
-    id: 'clear',
-    label: '/clear',
-    description: '在当前项目中新建对话',
-    icon: <Eraser size={14} />,
-  },
-  {
-    id: 'export',
-    label: '/export',
-    description: '导出会话',
-    icon: <Download size={14} />,
-  },
-  {
-    id: 'dream',
-    label: '/dream',
-    description: '整理记忆库：合并重复、清理过期条目',
-    icon: <Sparkles size={14} />,
-  },
-  {
-    id: 'help',
-    label: '/help',
-    description: '显示帮助',
-    icon: <HelpCircle size={14} />,
-  },
-]
+const COMMAND_ICONS: Record<string, React.ReactNode> = {
+  goal: <Target size={14} />,
+  plan: <ListChecks size={14} />,
+  review: <ScanSearch size={14} />,
+  model: <Cpu size={14} />,
+  compact: <Archive size={14} />,
+  revoke: <Undo2 size={14} />,
+  clear: <Eraser size={14} />,
+  help: <HelpCircle size={14} />,
+}
+
+const GROUP_LABELS: Record<SlashCommandSource, string> = {
+  builtin: '命令',
+  skill: '技能',
+}
+
+function iconFor(candidate: SlashCandidate): React.ReactNode {
+  if (candidate.source === 'skill') return <Zap size={14} />
+  return COMMAND_ICONS[candidate.id] ?? <Sparkles size={14} />
+}
 
 export function SlashCommandsDialog({
+  matches,
+  selectedIndex,
   query,
+  onHover,
   onSelect,
-  onClose,
 }: SlashCommandsDialogProps) {
-  const [selectedIndex, setSelectedIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
-
-  const filtered = filterSlashCommands(SLASH_COMMANDS, query)
-
-  // Reset selected index when filter changes
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [query])
-
-  // Scroll selected item into view
-  useEffect(() => {
-    if (!listRef.current) return
-    const selected = listRef.current.children[selectedIndex] as HTMLElement | undefined
-    selected?.scrollIntoView({ block: 'nearest' })
-  }, [selectedIndex])
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (filtered.length === 0) return
-      const fromComposer =
-        e.target instanceof Element && e.target.closest('[data-lm-composer="true"]') !== null
-      if (!fromComposer && e.key !== 'Escape') return
-      switch (e.key) {
-        case 'ArrowDown':
-        case 'Tab':
-          e.preventDefault()
-          setSelectedIndex((prev) => (prev + 1) % filtered.length)
-          break
-        case 'ArrowUp':
-          e.preventDefault()
-          setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length)
-          break
-        case 'Enter':
-          if (isImeConfirmKey(e)) return
-          e.preventDefault()
-          if (filtered[selectedIndex]) {
-            onSelect(filtered[selectedIndex]!)
-          }
-          break
-        case 'Escape':
-          e.preventDefault()
-          onClose()
-          break
-      }
-    },
-    [filtered, selectedIndex, onSelect, onClose],
+  const skillCount = matches.reduce(
+    (count, item) => count + (item.source === 'skill' ? 1 : 0),
+    0,
   )
 
-  // Attach global keyboard listener when dialog is open
+  // Keep the highlighted row visible while the user arrows through a long list.
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleKeyDown])
-
-  const handleClick = useCallback(
-    (cmd: SlashCommand) => {
-      onSelect(cmd)
-    },
-    [onSelect],
-  )
-
-  if (filtered.length === 0) return null
+    const list = listRef.current
+    if (!list) return
+    const row = list.querySelector<HTMLElement>(`[data-slash-index="${selectedIndex}"]`)
+    row?.scrollIntoView({ block: 'nearest' })
+  }, [selectedIndex, matches.length])
 
   return (
     <div
@@ -194,38 +76,86 @@ export function SlashCommandsDialog({
         'border border-[var(--lm-border)] bg-[var(--lm-bg-elevated)] shadow-[var(--lm-shadow-pop)]',
         'animate-fade-in',
       )}
+      data-ui="slash-palette"
     >
-      <div className="border-b border-[var(--lm-border)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
-        命令
-      </div>
-      <div
-        ref={listRef}
-        className="max-h-[220px] overflow-y-auto p-1"
-        role="listbox"
-        aria-label="斜杠命令列表"
-      >
-        {filtered.map((cmd, index) => (
-          <button
-            key={cmd.id}
-            role="option"
-            aria-selected={index === selectedIndex}
-            onClick={() => handleClick(cmd)}
-            onMouseEnter={() => setSelectedIndex(index)}
-            className={cn(
-              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] outline-none transition-colors',
-              index === selectedIndex
-                ? 'bg-[var(--lm-bg-hover)] text-[var(--lm-text-primary)]'
-                : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
-            )}
+      {matches.length === 0 ? (
+        <div className="px-3 py-3 text-[12px] text-[var(--lm-text-muted)]">
+          没有匹配 “<span className="text-[var(--lm-text-secondary)]">{query}</span>” 的命令
+        </div>
+      ) : (
+        <>
+          <div
+            ref={listRef}
+            className="max-h-[260px] overflow-y-auto p-1"
+            role="listbox"
+            aria-label="斜杠命令列表"
+            aria-activedescendant={
+              matches[selectedIndex] ? `slash-option-${selectedIndex}` : undefined
+            }
           >
-            <span className="shrink-0 text-[var(--lm-text-muted)]">{cmd.icon}</span>
-            <div className="flex flex-col">
-              <span className="font-medium text-[var(--lm-text-primary)]">{cmd.label}</span>
-              <span className="text-[11px] text-[var(--lm-text-muted)]">{cmd.description}</span>
-            </div>
-          </button>
-        ))}
-      </div>
+            {matches.map((candidate, index) => {
+              const previous = matches[index - 1]
+              const showGroup = !previous || previous.source !== candidate.source
+              return (
+                <div key={candidate.id}>
+                  {showGroup && (
+                    <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--lm-text-muted)]">
+                      {GROUP_LABELS[candidate.source]}
+                      {candidate.source === 'skill' ? ` · ${skillCount}` : ''}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    id={`slash-option-${index}`}
+                    role="option"
+                    aria-selected={index === selectedIndex}
+                    data-slash-index={index}
+                    onMouseDown={(event) => {
+                      // Keep focus in the textarea; click should not blur it first.
+                      event.preventDefault()
+                    }}
+                    onMouseEnter={() => onHover(index)}
+                    onClick={() => onSelect(candidate)}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors',
+                      index === selectedIndex
+                        ? 'bg-[var(--lm-bg-hover)] text-[var(--lm-text-primary)]'
+                        : 'text-[var(--lm-text-secondary)] hover:bg-[var(--lm-bg-hover)]',
+                    )}
+                  >
+                    <span className="shrink-0 text-[var(--lm-text-muted)]">
+                      {iconFor(candidate)}
+                    </span>
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate font-medium text-[var(--lm-text-primary)]">
+                        {candidate.label}
+                      </span>
+                      <span className="truncate text-[11px] text-[var(--lm-text-muted)]">
+                        {candidate.description}
+                      </span>
+                    </div>
+                    {candidate.source === 'skill' && (
+                      <span className="ml-auto shrink-0 rounded-full bg-[var(--lm-bg-active)] px-1.5 py-0.5 text-[9px] text-[var(--lm-text-muted)]">
+                        技能
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex items-center gap-2 border-t border-[var(--lm-border)] px-3 py-1.5 text-[10px] text-[var(--lm-text-muted)]">
+            <span>↑↓ 选择</span>
+            <span className="opacity-40">·</span>
+            <span>Tab 补全</span>
+            <span className="opacity-40">·</span>
+            <span>Enter 执行</span>
+            <span className="opacity-40">·</span>
+            <span>Esc 关闭</span>
+            <span className="ml-auto">{matches.length} 项</span>
+          </div>
+        </>
+      )}
     </div>
   )
 }

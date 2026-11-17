@@ -546,7 +546,6 @@ export default function App() {
           {currentSessionId ? (
             <ErrorBoundary name="对话">
               <ChatPanel
-                onOpenSettings={handleOpenSettings}
                 onOpenGitReview={handleOpenGitReview}
                 findRequest={findRequest}
                 commandPaletteRequest={commandPaletteRequest}

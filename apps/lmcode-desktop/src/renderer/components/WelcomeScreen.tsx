@@ -22,6 +22,7 @@ import {
   type BriefingState,
 } from '@/lib/return-briefing'
 import { AgentWelcome } from '@/components/AgentWelcome'
+import { SlashCommandsDialog } from '@/components/SlashCommandsDialog'
 import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
@@ -31,6 +32,17 @@ import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared
 import type { UserAttachment } from '@/types'
 import { isImeConfirmKey, noteCompositionEnd } from '@/lib/ime'
 import { filesFromClipboardData, shouldCaptureClipboardFiles } from '@/lib/clipboard-files'
+import {
+  BUILTIN_SLASH_COMMANDS,
+  clampSlashIndex,
+  moveSlashIndex,
+  rankSlashCommands,
+  resolveSlashAccept,
+  resolveSlashPalette,
+  shouldHandleSlashKeys,
+  type SlashAcceptMode,
+  type SlashCandidate,
+} from '@/lib/slash-command'
 
 const NO_PROJECT_LABEL = '不关联项目'
 const targetMenuItemClass =
@@ -57,6 +69,7 @@ export function WelcomeScreen() {
   const selectSession = useSessionStore((state) => state.selectSession)
   const noProjectWorkDir = useSessionStore((state) => state.noProjectWorkDir)
   const startSessionWithMessage = useSessionStore((state) => state.startSessionWithMessage)
+  const startSessionWithCommand = useSessionStore((state) => state.startSessionWithCommand)
   const projects = useMemo(
     () => collectProjects(sessions, noProjectWorkDir),
     [noProjectWorkDir, sessions],
@@ -73,6 +86,12 @@ export function WelcomeScreen() {
   const [attachments, setAttachments] = useState<UserAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [slashOpen, setSlashOpen] = useState(false)
+  const [slashQuery, setSlashQuery] = useState('')
+  const [slashIndex, setSlashIndex] = useState(0)
+  /** Token the user escaped from: keeps Escape from reopening on the next key. */
+  const slashDismissedRef = useRef<string | null>(null)
+  const slashTokenRef = useRef('')
   const attachmentsRef = useRef<UserAttachment[]>([])
   const dragCounter = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -91,6 +110,70 @@ export function WelcomeScreen() {
     if (!textarea) return
     textarea.style.height = 'auto'
     textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`
+  }
+
+  const slashMatches = useMemo(
+    () => rankSlashCommands(BUILTIN_SLASH_COMMANDS, slashQuery),
+    [slashQuery],
+  )
+
+  const syncSlashPalette = (value: string, caret: number): void => {
+    const palette = resolveSlashPalette(value, caret, slashDismissedRef.current)
+    if (palette.open) {
+      slashTokenRef.current = palette.token
+      if (!slashOpen) {
+        setSlashIndex(0)
+        setSlashOpen(true)
+      }
+      setSlashQuery(palette.query)
+      return
+    }
+    slashTokenRef.current = ''
+    if (slashOpen) {
+      setSlashOpen(false)
+      setSlashQuery('')
+    }
+  }
+
+  const closeSlashPalette = (): void => {
+    setSlashOpen(false)
+    setSlashQuery('')
+    slashDismissedRef.current = null
+    slashTokenRef.current = ''
+  }
+
+  /**
+   * Accepting a command on the welcome screen cannot run it yet — there is no
+   * session. Completions stay in the draft; runs create the session and hand
+   * the command to the composer that mounts for it.
+   */
+  const acceptSlash = (candidate: SlashCandidate, mode: SlashAcceptMode): void => {
+    if (starting) return
+    const action = resolveSlashAccept(candidate, mode)
+    closeSlashPalette()
+    const textarea = textareaRef.current
+
+    if (action.kind === 'complete') {
+      setDraft(action.text)
+      if (textarea) {
+        textarea.setSelectionRange(action.text.length, action.text.length)
+        textarea.focus()
+      }
+      window.requestAnimationFrame(autoGrow)
+      return
+    }
+
+    setDraft('')
+    setStarting(true)
+    const command =
+      action.kind === 'skill'
+        ? ({ kind: 'skill', name: action.name } as const)
+        : ({ kind: 'text', text: action.command } as const)
+    void startSessionWithCommand(target, command)
+      .catch((error: unknown) => {
+        setAttachmentError(error instanceof Error ? error.message : '无法创建会话')
+      })
+      .finally(() => setStarting(false))
   }
 
   const handlePickFolder = async (): Promise<void> => {
@@ -203,6 +286,22 @@ export function WelcomeScreen() {
     const text = draft.trim()
     const pendingAttachments = attachmentsRef.current
     if ((!text && pendingAttachments.length === 0) || starting) return
+    if (text.startsWith('/')) {
+      if (pendingAttachments.length > 0) {
+        setAttachmentError('斜杠命令不能携带附件，请先移除附件或发送普通消息')
+        return
+      }
+      setDraft('')
+      closeSlashPalette()
+      setStarting(true)
+      void startSessionWithCommand(target, { kind: 'text', text })
+        .catch((error: unknown) => {
+          setDraft(text)
+          setAttachmentError(error instanceof Error ? error.message : '无法创建会话')
+        })
+        .finally(() => setStarting(false))
+      return
+    }
     setStarting(true)
     attachmentsRef.current = []
     setAttachments([])
@@ -228,6 +327,15 @@ export function WelcomeScreen() {
           onDragOver={handleDragOver}
           onDrop={handleDrop}
         >
+          {slashOpen && (
+            <SlashCommandsDialog
+              matches={slashMatches}
+              selectedIndex={clampSlashIndex(slashIndex, slashMatches.length)}
+              query={slashQuery}
+              onHover={setSlashIndex}
+              onSelect={(candidate) => acceptSlash(candidate, 'run')}
+            />
+          )}
           {isDragging && (
             <div className="absolute inset-0 z-50 flex items-center justify-center rounded-[18px] border-2 border-dashed border-[var(--lm-accent)] bg-[var(--lm-accent-soft)] backdrop-blur-sm">
               <div className="flex flex-col items-center gap-2 text-[var(--lm-accent-text)]">
@@ -239,13 +347,53 @@ export function WelcomeScreen() {
           <textarea
             ref={textareaRef}
             value={draft}
+            data-lm-welcome-composer="true"
             autoFocus
             onChange={(event) => {
               setDraft(event.target.value)
               autoGrow()
+              syncSlashPalette(event.target.value, event.target.selectionStart)
             }}
             onCompositionEnd={noteCompositionEnd}
             onKeyDown={(event) => {
+              if (slashOpen) {
+                if (shouldHandleSlashKeys(slashOpen, slashMatches.length)) {
+                  const highlighted =
+                    slashMatches[clampSlashIndex(slashIndex, slashMatches.length)]
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault()
+                    setSlashIndex((index) =>
+                      moveSlashIndex(index, 1, slashMatches.length),
+                    )
+                    return
+                  }
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault()
+                    setSlashIndex((index) =>
+                      moveSlashIndex(index, -1, slashMatches.length),
+                    )
+                    return
+                  }
+                  if (event.key === 'Tab') {
+                    event.preventDefault()
+                    if (highlighted) acceptSlash(highlighted, 'complete')
+                    return
+                  }
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    if (isImeConfirmKey(event)) return
+                    event.preventDefault()
+                    if (highlighted) acceptSlash(highlighted, 'run')
+                    return
+                  }
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  slashDismissedRef.current = slashTokenRef.current || null
+                  setSlashOpen(false)
+                  setSlashQuery('')
+                  return
+                }
+              }
               if (event.key === 'Enter' && !event.shiftKey) {
                 if (isImeConfirmKey(event)) return
                 event.preventDefault()

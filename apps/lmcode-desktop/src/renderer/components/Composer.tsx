@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from 'react'
+import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowDown,
   ArrowUp,
@@ -15,15 +15,22 @@ import { ModelSwitcher } from '@/components/ModelSwitcher'
 import { ThinkingSwitcher } from '@/components/ThinkingSwitcher'
 import { ProjectPicker } from '@/components/ProjectPicker'
 import { AttachmentStrip } from '@/components/AttachmentStrip'
-import { SlashCommandsDialog, SLASH_COMMANDS, type SlashCommand } from '@/components/SlashCommandsDialog'
+import { SlashCommandsDialog } from '@/components/SlashCommandsDialog'
 import { historyToMessages } from '@/lib/history'
 import { compactionNotice } from '@/lib/compaction-notice'
 import {
+  BUILTIN_SLASH_COMMANDS,
   buildDesktopReviewPrompt,
-  filterSlashCommands,
+  clampSlashIndex,
+  moveSlashIndex,
   parseDesktopSlashCommand,
+  rankSlashCommands,
+  resolveSlashAccept,
+  resolveSlashPalette,
   shouldHandleSlashKeys,
   slashCommandBlockedWhileStreaming,
+  type SlashAcceptMode,
+  type SlashCandidate,
 } from '@/lib/slash-command'
 import type { GoalSnapshotData } from '@lmcode-cli/lmcode-sdk'
 import { MAX_PROMPT_ATTACHMENTS, type FileAttachmentPreview } from '../../shared/file-types'
@@ -42,7 +49,6 @@ import { fileToDataUrl } from '@/lib/file-to-data-url'
 
 interface ComposerProps {
   autoFocus?: boolean
-  onOpenSettings?: () => void
   onOpenGitReview?: () => void
   commandPaletteRequest?: CommandPaletteRequest | null
   composerDraftRequest?: ComposerDraftRequest | null
@@ -56,17 +62,13 @@ interface ElectronFile extends File {
 
 const COMMAND_HELP = [
   '**可用命令**',
-  '- `/goal <目标>`：创建目标并开始执行；支持 `status`、`pause`、`resume`、`replace`。',
-  '- `/goaloff`：取消当前目标。',
+  '- `/goal <目标>`：创建目标并开始执行；支持 `status`、`pause`、`resume`、`off`、`replace`。',
   '- `/plan` / `/plan off`：进入或退出规划模式。',
   '- `/compact [说明]`：压缩当前上下文。',
   '- `/revoke [轮数]`：撤销最近的用户轮次。',
   '- `/review`：打开代码审查；支持 `uncommitted`、`base <分支>`、`commit <引用>`、`custom <重点>`。',
   '- `/model`：打开模型选择器。',
-  '- `/mode`、`/config`：打开设置。',
   '- `/clear`：在当前项目中新建对话。',
-  '- `/export`：导出当前会话。',
-  '- `/dream`：整理记忆库（合并重复、清理过期条目）。',
 ].join('\n')
 
 const EMPTY_QUEUED_MESSAGES: readonly QueuedUserMessage[] = []
@@ -80,7 +82,6 @@ function goalStatusText(goal: GoalSnapshotData | null): string {
 
 export function Composer({
   autoFocus,
-  onOpenSettings,
   onOpenGitReview,
   commandPaletteRequest,
   composerDraftRequest,
@@ -113,8 +114,13 @@ export function Composer({
     isStreaming,
   } = useSession()
 
-  const [showSlash, setShowSlash] = useState(false)
+  const [slashOpen, setSlashOpen] = useState(false)
   const [slashQuery, setSlashQuery] = useState('')
+  const [slashIndex, setSlashIndex] = useState(0)
+  const [skills, setSkills] = useState<readonly SkillSummary[]>([])
+  /** Token the user escaped from: keeps Escape from reopening on the next key. */
+  const slashDismissedRef = useRef<string | null>(null)
+  const slashTokenRef = useRef('')
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [hasDraft, setHasDraft] = useState(false)
@@ -132,6 +138,32 @@ export function Composer({
       mountedRef.current = false
     }
   }, [])
+
+  // Skills double as slash commands (Claude lists them in the same palette).
+  // A missing/older bridge must not break the built-in command list, so a
+  // failed load simply leaves the skills group empty.
+  useEffect(() => {
+    if (!currentSessionId) {
+      setSkills([])
+      return
+    }
+    let active = true
+    const loadSkills = window.lmcodeAPI.listSkills
+    if (typeof loadSkills !== 'function') {
+      setSkills([])
+      return
+    }
+    void loadSkills(currentSessionId)
+      .then((next) => {
+        if (active) setSkills(next)
+      })
+      .catch(() => {
+        if (active) setSkills([])
+      })
+    return () => {
+      active = false
+    }
+  }, [currentSessionId])
 
   useEffect(() => {
     if ((autoFocus || currentSessionId) && textareaRef.current) {
@@ -195,7 +227,9 @@ export function Composer({
     textarea.setSelectionRange(1, 1)
     setHasDraft(true)
     setSlashQuery('')
-    setShowSlash(true)
+    setSlashIndex(0)
+    slashDismissedRef.current = null
+    setSlashOpen(true)
     setModelMenuOpen(false)
     autoGrow()
     textarea.focus()
@@ -210,7 +244,7 @@ export function Composer({
     writeDraftText(next)
     textarea.setSelectionRange(next.length, next.length)
     setHasDraft(Boolean(next.trim()))
-    setShowSlash(false)
+    setSlashOpen(false)
     setSlashQuery('')
     setModelMenuOpen(false)
     autoGrow()
@@ -356,28 +390,33 @@ export function Composer({
   )
 
   // ── Slash commands ─────────────────────────────────────────────────
-  const detectSlashCommand = useCallback(
-    (value: string, cursorPos: number) => {
-      if (cursorPos === 1 && value === '/') {
-        setShowSlash(true)
-        setSlashQuery('')
-        return true
-      }
-      if (showSlash) {
-        const slashIdx = value.indexOf('/')
-        if (slashIdx === 0 && !value.includes(' ')) {
-          setSlashQuery(value.slice(1))
-          return true
-        }
-        if (slashIdx !== 0 || value.includes(' ')) {
-          setShowSlash(false)
-          setSlashQuery('')
-        }
-      }
-      return false
-    },
-    [showSlash],
+  const skillCandidates = useMemo<SlashCandidate[]>(
+    () =>
+      skills.map((skill) => ({
+        id: `skill:${skill.name}`,
+        label: `/${skill.name}`,
+        description: skill.description || '技能',
+        source: 'skill',
+        skillName: skill.name,
+      })),
+    [skills],
   )
+
+  /**
+   * Built-ins first, skills after: the palette paints group headers by source
+   * and the highlight walks this exact array, so the two must never interleave.
+   */
+  const slashMatches = useMemo(
+    () => [
+      ...rankSlashCommands(BUILTIN_SLASH_COMMANDS, slashQuery),
+      ...rankSlashCommands(skillCandidates, slashQuery),
+    ],
+    [skillCandidates, slashQuery],
+  )
+
+  useEffect(() => {
+    setSlashIndex(0)
+  }, [slashQuery])
 
   const showNotice = useCallback(
     (content: string, variant: 'notice' | 'error' = 'notice') => {
@@ -485,10 +524,6 @@ export function Composer({
           case 'model':
             setModelMenuOpen(true)
             break
-          case 'mode':
-          case 'config':
-            onOpenSettings?.()
-            break
           case 'clear': {
             const state = useSessionStore.getState()
             const workDir = state.sessions.find(
@@ -497,15 +532,6 @@ export function Composer({
             await createSession(workDir)
             break
           }
-          case 'export': {
-            const zipPath = await window.lmcodeAPI.exportSession(currentSessionId)
-            showNotice(`会话已导出到：\n\n\`${zipPath}\``)
-            break
-          }
-          case 'dream':
-            await window.lmcodeAPI.activateSkill(currentSessionId, 'dream')
-            showNotice('已开始整理记忆库，Agent 会在对话中给出整理方案。')
-            break
           case 'help':
             showNotice(COMMAND_HELP)
             break
@@ -521,12 +547,41 @@ export function Composer({
       currentSessionId,
       isStreaming,
       onOpenGitReview,
-      onOpenSettings,
       sendMessage,
       setMessagesForSession,
       showNotice,
     ],
   )
+
+  const takeComposerCommand = useSessionStore((s) => s.takeComposerCommand)
+  const pendingCommand = useSessionStore((s) =>
+    currentSessionId ? s.pendingComposerCommands[currentSessionId] : undefined,
+  )
+
+  // A slash command picked on the welcome screen arrives right after the
+  // session is created — possibly after this composer already mounted, so we
+  // subscribe to the slot instead of taking it once on mount.
+  useEffect(() => {
+    if (!currentSessionId || !pendingCommand) return
+    const pending = takeComposerCommand(currentSessionId)
+    if (!pending) return
+    if (pending.kind === 'skill') {
+      void window.lmcodeAPI
+        .activateSkill(currentSessionId, pending.name)
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error)
+          showNotice(`技能启动失败：${message}`, 'error')
+        })
+      return
+    }
+    void executeSlashCommand(pending.text)
+  }, [
+    currentSessionId,
+    executeSlashCommand,
+    pendingCommand,
+    showNotice,
+    takeComposerCommand,
+  ])
 
   // ── Send / Cancel ──────────────────────────────────────────────────
   const handleSend = useCallback((delivery: 'default' | 'steer' = 'default') => {
@@ -542,7 +597,7 @@ export function Composer({
     writeDraftText('')
     ta.style.height = 'auto'
     setHasDraft(false)
-    setShowSlash(false)
+    setSlashOpen(false)
     setSlashQuery('')
     setAttachmentError(null)
     attachmentsRef.current = []
@@ -567,38 +622,110 @@ export function Composer({
     steerMessage,
   ])
 
-  // Match count the slash dialog will show; with zero matches the dialog
-  // renders nothing, so the composer must not swallow navigation keys.
-  const slashMatchCount = showSlash
-    ? filterSlashCommands(SLASH_COMMANDS, slashQuery).length
-    : 0
+  const handleInput = useCallback(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    draftTextRef.current = ta.value
+    setHasDraft(Boolean(ta.value.trim()))
+    autoGrow()
+    const palette = resolveSlashPalette(
+      ta.value,
+      ta.selectionStart,
+      slashDismissedRef.current,
+    )
+    if (palette.open) {
+      slashTokenRef.current = palette.token
+      if (!slashOpen) {
+        setSlashIndex(0)
+        setSlashOpen(true)
+      }
+      setSlashQuery(palette.query)
+      return
+    }
+    slashTokenRef.current = ''
+    if (slashOpen) {
+      setSlashOpen(false)
+      setSlashQuery('')
+    }
+  }, [autoGrow, slashOpen])
+
+  /** Tab completes, Enter runs (or inserts `/goal ` so the argument can be typed). */
+  const acceptSlash = useCallback(
+    (candidate: SlashCandidate, mode: SlashAcceptMode) => {
+      const action = resolveSlashAccept(candidate, mode)
+      const ta = textareaRef.current
+      setSlashOpen(false)
+      setSlashQuery('')
+      slashDismissedRef.current = null
+      slashTokenRef.current = ''
+
+      if (action.kind === 'skill') {
+        writeDraftText('')
+        setHasDraft(false)
+        if (ta) ta.style.height = 'auto'
+        if (currentSessionId) clearComposerDraft(currentSessionId)
+        ta?.focus()
+        if (!currentSessionId) return
+        void window.lmcodeAPI
+          .activateSkill(currentSessionId, action.name)
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error)
+            showNotice(`技能启动失败：${message}`, 'error')
+          })
+        return
+      }
+
+      if (action.kind === 'complete') {
+        writeDraftText(action.text)
+        setHasDraft(Boolean(action.text.trim()))
+        ta?.setSelectionRange(action.text.length, action.text.length)
+        autoGrow()
+        ta?.focus()
+        return
+      }
+
+      writeDraftText('')
+      setHasDraft(false)
+      if (ta) ta.style.height = 'auto'
+      if (currentSessionId) clearComposerDraft(currentSessionId)
+      ta?.focus()
+      void executeSlashCommand(action.command)
+    },
+    [autoGrow, currentSessionId, executeSlashCommand, showNotice, writeDraftText],
+  )
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (showSlash) {
-        if (shouldHandleSlashKeys(showSlash, slashMatchCount)) {
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') {
+      if (slashOpen) {
+        if (shouldHandleSlashKeys(slashOpen, slashMatches.length)) {
+          const highlighted = slashMatches[clampSlashIndex(slashIndex, slashMatches.length)]
+          if (e.key === 'ArrowDown') {
             e.preventDefault()
+            setSlashIndex((index) => moveSlashIndex(index, 1, slashMatches.length))
+            return
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            setSlashIndex((index) => moveSlashIndex(index, -1, slashMatches.length))
+            return
+          }
+          if (e.key === 'Tab') {
+            e.preventDefault()
+            if (highlighted) acceptSlash(highlighted, 'complete')
             return
           }
           if (e.key === 'Enter' && !e.shiftKey) {
             if (isImeConfirmKey(e)) return
             e.preventDefault()
+            if (highlighted) acceptSlash(highlighted, 'run')
             return
           }
         }
         if (e.key === 'Escape') {
           e.preventDefault()
-          setShowSlash(false)
+          slashDismissedRef.current = slashTokenRef.current || null
+          setSlashOpen(false)
           setSlashQuery('')
-          return
-        }
-        if (e.key === 'Backspace') {
-          const ta = e.currentTarget
-          if (ta.selectionStart === 1 && ta.value === '/') {
-            setShowSlash(false)
-            setSlashQuery('')
-          }
           return
         }
       }
@@ -608,40 +735,8 @@ export function Composer({
         handleSend(isStreaming && (e.ctrlKey || e.metaKey) ? 'steer' : 'default')
       }
     },
-    [handleSend, isStreaming, showSlash, slashMatchCount],
+    [acceptSlash, handleSend, isStreaming, slashIndex, slashMatches, slashOpen],
   )
-
-  const handleInput = useCallback(() => {
-    const ta = textareaRef.current
-    if (!ta) return
-    draftTextRef.current = ta.value
-    setHasDraft(Boolean(ta.value.trim()))
-    autoGrow()
-    detectSlashCommand(ta.value, ta.selectionStart)
-  }, [autoGrow, detectSlashCommand])
-
-  const handleSlashSelect = useCallback((command: SlashCommand) => {
-    const ta = textareaRef.current
-    if (!ta) return
-    setShowSlash(false)
-    setSlashQuery('')
-    writeDraftText(command.insertText ?? '')
-    setHasDraft(Boolean(command.insertText?.trim()))
-    if (command.insertText) {
-      ta.setSelectionRange(command.insertText.length, command.insertText.length)
-      autoGrow()
-    } else {
-      ta.style.height = 'auto'
-      void executeSlashCommand(command.label)
-    }
-    ta.focus()
-  }, [autoGrow, executeSlashCommand])
-
-  const handleSlashClose = useCallback(() => {
-    setShowSlash(false)
-    setSlashQuery('')
-    textareaRef.current?.focus()
-  }, [])
 
   const canSend = hasDraft || attachments.length > 0
   const isAttaching = attachmentLoadCount > 0
@@ -666,12 +761,14 @@ export function Composer({
         </div>
       )}
 
-      {/* Slash dialog */}
-      {showSlash && (
+      {/* Slash palette: opens as soon as the message starts with "/". */}
+      {slashOpen && (
         <SlashCommandsDialog
+          matches={slashMatches}
+          selectedIndex={clampSlashIndex(slashIndex, slashMatches.length)}
           query={slashQuery}
-          onSelect={handleSlashSelect}
-          onClose={handleSlashClose}
+          onHover={setSlashIndex}
+          onSelect={(candidate) => acceptSlash(candidate, 'run')}
         />
       )}
 
