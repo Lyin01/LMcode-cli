@@ -47,7 +47,8 @@ describe('Session resume context', () => {
       // legitimately carried the then-current AGENTS.md) still holds the
       // obsolete text. What matters is that the newest session-context
       // injection carries the current file and dropped the old one.
-      const lastContext = [...wire.split('\n')]
+      const lastContext = wire
+        .split('\n')
         .reverse()
         .find((line) => line.includes('"variant":"session_context"'));
       expect(lastContext).toBeDefined();

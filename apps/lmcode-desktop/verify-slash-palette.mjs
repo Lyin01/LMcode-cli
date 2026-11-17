@@ -30,7 +30,10 @@ await new Promise((done, fail) => {
 let nextId = 0
 const pending = new Map()
 socket.on('message', (raw) => {
-  const message = JSON.parse(raw.toString())
+  // `ws` hands us a Buffer here; decode explicitly so the linter can see the
+  // string conversion instead of an implicit Object#toString fallback.
+  const text = Buffer.isBuffer(raw) ? raw.toString('utf8') : Buffer.from(raw).toString('utf8')
+  const message = JSON.parse(text)
   const waiter = pending.get(message.id)
   if (!waiter) return
   pending.delete(message.id)
