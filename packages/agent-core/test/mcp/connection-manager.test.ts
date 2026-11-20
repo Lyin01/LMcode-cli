@@ -5,6 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 import { testJian } from '../fixtures/test-jian';
+import { createControlledPromise } from '@antfu/utils';
 import type { ProviderConfig } from '@lmcode-cli/liumir';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -340,11 +341,11 @@ describe('McpConnectionManager', () => {
     const cm = new McpConnectionManager();
     const hangingListFixture = join(here, 'fixtures', 'hanging-list-stdio-server.mjs');
     const close = StdioMcpClient.prototype.close;
-    const cleanupStarted = Promise.withResolvers<void>();
-    const allowCleanup = Promise.withResolvers<void>();
+    const cleanupStarted = createControlledPromise<void>();
+    const allowCleanup = createControlledPromise<void>();
     const closeSpy = vi.spyOn(StdioMcpClient.prototype, 'close').mockImplementation(async function (this: StdioMcpClient) {
       cleanupStarted.resolve();
-      await allowCleanup.promise;
+      await allowCleanup;
       return close.call(this);
     });
     const connectPromise = cm.connectAll({
@@ -356,7 +357,7 @@ describe('McpConnectionManager', () => {
       },
     });
     try {
-      await cleanupStarted.promise;
+      await cleanupStarted;
       const result = await Promise.race([
         connectPromise.then(() => 'resolved' as const),
         sleep(1_000).then(() => 'hung' as const),
