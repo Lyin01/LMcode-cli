@@ -1,4 +1,8 @@
 import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { lock } from 'proper-lockfile';
 import { describe, expect, it } from 'vitest';
 
 import { adaptSpawnCommandForWindows, platformFromOsKind, terminateProcessTreeByPid } from '../../src/utils/spawn-command';
@@ -54,7 +58,7 @@ describe('terminateProcessTreeByPid', () => {
     await expect(terminateProcessTreeByPid(999999, 'linux')).resolves.toBe(false);
   });
 
-  it.runIf(process.platform === 'win32')('terminates a live process by pid', async () => {
+  it.runIf(process.platform === 'win32')('terminates a live process after a competing tree cleanup', async () => {
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: 'ignore',
       windowsHide: true,
@@ -63,7 +67,17 @@ describe('terminateProcessTreeByPid', () => {
       const pid = child.pid;
       if (pid === undefined) throw new Error('failed to spawn the probe process');
 
-      await expect(terminateProcessTreeByPid(pid)).resolves.toBe(true);
+      // A real taskkill can hold the shared lock for longer than 200 ms.
+      const release = await lock(join(tmpdir(), 'lmcode-taskkill'), {
+        realpath: false,
+        stale: 2_000,
+        retries: { retries: 50, factor: 1, minTimeout: 100, maxTimeout: 100 },
+      });
+      const [killed] = await Promise.all([
+        terminateProcessTreeByPid(pid),
+        delay(450).then(() => release()),
+      ]);
+      expect(killed).toBe(true);
 
       const deadline = Date.now() + 10000;
       let alive = true;
@@ -84,5 +98,5 @@ describe('terminateProcessTreeByPid', () => {
         // Already gone.
       }
     }
-  });
+  }, 15_000);
 });

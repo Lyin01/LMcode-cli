@@ -23,6 +23,8 @@ import { lock } from 'proper-lockfile';
 const KILL_GRACE_MS = 100;
 const PROCESS_TERMINATION_TIMEOUT_MS = 5_000;
 const WINDOWS_TASKKILL_TIMEOUT_MS = 1_500;
+const WINDOWS_TASKKILL_QUEUE_TIMEOUT_MS = 5_000;
+const WINDOWS_TASKKILL_LOCK_RETRY_MS = 50;
 const WINDOWS_CHILD_CLOSE_TIMEOUT_MS = 250;
 const WINDOWS_TASKKILL_LOCK_TARGET = join(tmpdir(), 'lmcode-taskkill');
 
@@ -89,19 +91,17 @@ async function runTaskkill(pid: number): Promise<boolean> {
   let release: (() => Promise<void>) | undefined;
   try {
     // Concurrent taskkill.exe processes can deadlock each other on Windows.
-    // Serialize them across LMcode worker processes; if the lock itself is
-    // unavailable, degrade to the direct-child fallback instead of creating
-    // an unbounded process storm during mass cancellation.
+    // Serialize them across LMcode worker processes. Allow queued kills to
+    // wait through an in-flight taskkill before falling back to the direct child.
     release = await lock(WINDOWS_TASKKILL_LOCK_TARGET, {
       realpath: false,
       stale: 2_000,
       update: 1_000,
       retries: {
-        retries: 20,
+        retries: WINDOWS_TASKKILL_QUEUE_TIMEOUT_MS / WINDOWS_TASKKILL_LOCK_RETRY_MS,
         factor: 1,
-        minTimeout: 10,
-        maxTimeout: 10,
-        randomize: true,
+        minTimeout: WINDOWS_TASKKILL_LOCK_RETRY_MS,
+        maxTimeout: WINDOWS_TASKKILL_LOCK_RETRY_MS,
       },
     });
   } catch {
