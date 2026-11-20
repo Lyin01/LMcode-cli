@@ -25,6 +25,7 @@
 
 import type { Readable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import type { Jian, JianProcess } from '@lmcode-cli/jian';
 import { z } from 'zod';
@@ -33,7 +34,7 @@ import type { BuiltinTool } from '../../../agent/tool';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { isUnrestrictedMode } from '../../../config/unrestricted';
 import { renderPrompt } from '../../../utils/render-prompt';
-import type { BackgroundProcessManager } from '../../background/manager';
+import type { BackgroundProcessManager, BackgroundTaskReservation } from '../../background/manager';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '../../support/rule-match';
 import { ToolResultBuilder } from '../../support/result-builder';
@@ -346,7 +347,7 @@ export class BashTool implements BuiltinTool<BashInput> {
     const shellArgs = [
       this.jian.osEnv.shellPath,
       '-c',
-      `cd ${shellQuote(shellCwd)} && ${preamble}\n${command}`,
+      `cd -- ${shellQuote(shellCwd)} || exit $?\n${preamble}\n${command}`,
     ];
 
     const noninteractiveEnv: Record<string, string> = {
@@ -389,7 +390,7 @@ export class BashTool implements BuiltinTool<BashInput> {
             'Background execution is not available for this agent because TaskOutput and TaskStop are not enabled.',
         };
       }
-      return this.executeInBackground(args);
+      return this.executeInBackground(args, signal);
     }
 
     const timeoutMs = normalizeTimeoutMs(args.timeout, false);
@@ -413,60 +414,17 @@ export class BashTool implements BuiltinTool<BashInput> {
       // some platforms and throws on others — either is safe to ignore.
     }
 
-    let timedOut = false;
-    let aborted = false;
-    let killed = false;
-
-    const killProc = async (): Promise<void> => {
-      if (killed) return;
-      killed = true;
-      try {
-        await proc.kill('SIGTERM');
-      } catch {
-        /* process already gone */
-      }
-      const exited = proc
-        .wait()
-        .then(() => true)
-        .catch(() => true);
-      const raced = await Promise.race([
-        exited,
-        new Promise<false>((resolve) => {
-          setTimeout(() => {
-            resolve(false);
-          }, SIGTERM_GRACE_MS);
-        }),
-      ]);
-      if (!raced && proc.exitCode === null) {
-        try {
-          await proc.kill('SIGKILL');
-        } catch {
-          /* ignore */
-        }
-      }
-
-      try {
-        proc.stdout.destroy();
-      } catch {
-        /* ignore */
-      }
-      try {
-        proc.stderr.destroy();
-      } catch {
-        /* ignore */
-      }
+    let stopReason: 'abort' | 'timeout' | undefined;
+    const stop = (reason: 'abort' | 'timeout'): void => {
+      if (stopReason !== undefined) return;
+      stopReason = reason;
+      void terminateProcess(proc);
     };
-
-    const onAbort = (): void => {
-      aborted = true;
-      void killProc();
-    };
+    const onAbort = (): void => stop('abort');
     signal.addEventListener('abort', onAbort);
-
-    const timeoutHandle = setTimeout(() => {
-      timedOut = true;
-      void killProc();
-    }, timeoutMs);
+    // The caller can cancel while Jian is still awaiting the spawn event.
+    if (signal.aborted) onAbort();
+    const timeoutHandle = setTimeout(() => stop('timeout'), timeoutMs);
 
     try {
       const builder = new ToolResultBuilder();
@@ -478,7 +436,7 @@ export class BashTool implements BuiltinTool<BashInput> {
         proc.wait(),
       ]);
 
-      if (timedOut) {
+      if (stopReason === 'timeout') {
         const timeoutLabel =
           timeoutMs % 1000 === 0 ? `${String(timeoutMs / 1000)}s` : `${String(timeoutMs)}ms`;
         const backgroundHint = this.allowBackground
@@ -488,7 +446,7 @@ export class BashTool implements BuiltinTool<BashInput> {
           brief: `Killed by timeout (${timeoutLabel})`,
         });
       }
-      if (aborted) {
+      if (stopReason === 'abort') {
         return builder.error('Interrupted by user', { brief: 'Interrupted by user' });
       }
 
@@ -514,7 +472,7 @@ export class BashTool implements BuiltinTool<BashInput> {
     }
   }
 
-  private async executeInBackground(args: BashInput): Promise<ExecutableToolResult> {
+  private async executeInBackground(args: BashInput, signal: AbortSignal): Promise<ExecutableToolResult> {
     if (!this.backgroundManager) {
       return {
         isError: true,
@@ -530,7 +488,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       };
     }
 
-    let reservation: ReturnType<BackgroundProcessManager['reserveSlot']>;
+    let reservation: BackgroundTaskReservation;
     try {
       reservation = backgroundManager.reserveSlot();
     } catch (error) {
@@ -562,6 +520,14 @@ export class BashTool implements BuiltinTool<BashInput> {
     }
 
     let taskId: string;
+    if (signal.aborted) {
+      try {
+        await terminateProcess(proc);
+      } finally {
+        reservation.release();
+      }
+      return { isError: true, output: 'Interrupted by user' };
+    }
     try {
       taskId = backgroundManager.register(proc, command, args.description.trim(), {
         reservation,
@@ -573,11 +539,7 @@ export class BashTool implements BuiltinTool<BashInput> {
       });
     } catch (error) {
       reservation.release();
-      try {
-        await proc.kill('SIGTERM');
-      } catch {
-        /* process already gone */
-      }
+      await terminateProcess(proc);
       return {
         isError: true,
         output: error instanceof Error ? error.message : String(error),
@@ -622,7 +584,29 @@ export class BashTool implements BuiltinTool<BashInput> {
   }
 }
 
-// When the command is killed (timeout / user abort), `killProc` destroys the
+async function terminateProcess(proc: JianProcess): Promise<void> {
+  try {
+    await proc.kill('SIGTERM');
+  } catch {
+    // The child may already have exited.
+  }
+  const grace = new AbortController();
+  try {
+    const exited = await Promise.race([
+      proc.wait().then(() => true, () => true),
+      delay(SIGTERM_GRACE_MS, false, { signal: grace.signal }),
+    ]);
+    if (!exited && proc.exitCode === null) await proc.kill('SIGKILL');
+  } catch {
+    // The child may exit between the deadline and escalation.
+  } finally {
+    grace.abort();
+    proc.stdout.destroy();
+    proc.stderr.destroy();
+  }
+}
+
+// When the command is killed (timeout / user abort), terminateProcess destroys the
 // stdout/stderr streams. Async iteration over a destroyed Readable rejects with
 // ERR_STREAM_PREMATURE_CLOSE (and a forced teardown can surface
 // ERR_STREAM_DESTROYED). That is an expected consequence of the kill, not a

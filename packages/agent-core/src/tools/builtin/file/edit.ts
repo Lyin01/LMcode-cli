@@ -14,14 +14,12 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import {
-  pinPhysicalParentDirectory,
-  resolveRealPathAccessPath,
-  revalidateRealPathAccessPath,
-} from '../../policies/path-access';
+import { pinPhysicalParentDirectory } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
+import { resolveFileMutation } from './file-mutation';
+import { replaceExact } from './replace-exact';
 import { materializeModelText, toModelTextView, computeAnchor } from './line-endings';
 import EDIT_DESCRIPTION from './edit.md';
 
@@ -59,12 +57,6 @@ export const EditInputSchema = z.object({
 
 export type EditInput = z.Infer<typeof EditInputSchema>;
 
-function replaceOnceLiteral(content: string, oldString: string, newString: string): string {
-  const index = content.indexOf(oldString);
-  if (index === -1) return content;
-  return content.slice(0, index) + newString + content.slice(index + oldString.length);
-}
-
 export class EditTool implements BuiltinTool<EditInput> {
   readonly name = 'Edit' as const;
   readonly description = EDIT_DESCRIPTION;
@@ -76,11 +68,7 @@ export class EditTool implements BuiltinTool<EditInput> {
   ) {}
 
   async resolveExecution(args: EditInput): Promise<ToolExecution> {
-    const path = await resolveRealPathAccessPath(args.path, {
-      jian: this.jian,
-      workspace: this.workspace,
-      operation: 'write',
-    });
+    const { path, run } = await resolveFileMutation(args.path, this.jian, this.workspace);
     return {
       accesses: ToolAccesses.readWriteFile(path),
       description: `Editing ${args.path}`,
@@ -98,15 +86,7 @@ export class EditTool implements BuiltinTool<EditInput> {
           pathClass: this.jian.pathClass(),
           homeDir: this.jian.gethome(),
         }),
-      execute: async () =>
-        this.execution(
-          args,
-          await revalidateRealPathAccessPath(args.path, path, {
-            jian: this.jian,
-            workspace: this.workspace,
-            operation: 'write',
-          }),
-        ),
+      execute: ({ signal }) => run(signal, (safePath) => this.execution(args, safePath)),
     };
   }
 
@@ -134,52 +114,29 @@ export class EditTool implements BuiltinTool<EditInput> {
         }
       }
 
-      if (!replaceAll) {
-        let count = 0;
-        let pos = 0;
-        while (pos < content.length) {
-          const idx = content.indexOf(args.old_string, pos);
-          if (idx === -1) break;
-          count++;
-          pos = idx + args.old_string.length;
-        }
-
-        if (count === 0) {
-          return { isError: true, output: `old_string not found in ${args.path}, The file contents may be out of date. Please use the Read Tool to reload the content.
-` };
-        }
-        if (count > 1) {
-          return {
-            isError: true,
-            output:
-              `old_string is not unique in ${args.path} (found ${String(count)} occurrences). ` +
-              'To replace every occurrence, set replace_all=true. To replace only one occurrence, include more surrounding context in old_string.',
-          };
-        }
-
-        const newContent = replaceOnceLiteral(content, args.old_string, args.new_string);
-        await pinPhysicalParentDirectory(safePath, { jian: this.jian });
-        await this.jian.writeText(
-          safePath,
-          materializeModelText(newContent, modelView.lineEndingStyle),
-        );
-        return { output: `Replaced 1 occurrence in ${args.path}` };
+      const { text, count } = replaceExact(content, args.old_string, args.new_string, replaceAll);
+      if (count === 0) {
+        return {
+          isError: true,
+          output: `old_string not found in ${args.path}. The file contents may be out of date. Please use the Read Tool to reload the content.`,
+        };
+      }
+      if (!replaceAll && count > 1) {
+        return {
+          isError: true,
+          output:
+            `old_string is not unique in ${args.path} (found ${String(count)} occurrences). ` +
+            'To replace every occurrence, set replace_all=true. To replace only one occurrence, include more surrounding context in old_string.',
+        };
       }
 
-      const parts = content.split(args.old_string);
-      const replacementCount = parts.length - 1;
-      if (replacementCount === 0) {
-        return { isError: true, output: `old_string not found in ${args.path}, The file contents may be out of date. Please use the Read Tool to reload the content.
-` };
-      }
-
-      const newContent = parts.join(args.new_string);
       await pinPhysicalParentDirectory(safePath, { jian: this.jian });
       await this.jian.writeText(
         safePath,
-        materializeModelText(newContent, modelView.lineEndingStyle),
+        materializeModelText(text, modelView.lineEndingStyle),
       );
-      return { output: `Replaced ${String(replacementCount)} occurrences in ${args.path}` };
+      const unit = replaceAll ? 'occurrences' : 'occurrence';
+      return { output: `Replaced ${String(count)} ${unit} in ${args.path}` };
     } catch (error) {
       const code = (error as { code?: unknown } | null)?.code;
       if (code === 'EISDIR') {

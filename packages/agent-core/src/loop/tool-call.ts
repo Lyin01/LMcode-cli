@@ -415,9 +415,7 @@ async function prepareToolCall(
   return {
     task: {
       accesses: execution.accesses ?? ToolAccesses.all(),
-      start: async () => ({
-        result: runRunnableToolCall(step, call, effectiveArgs, executionMetadata, execution),
-      }),
+      start: () => runRunnableToolCall(step, call, effectiveArgs, executionMetadata, execution),
     },
   };
 }
@@ -434,7 +432,7 @@ async function prepareSkippedToolCall(
 function makeResolvedToolCallTask(result: PendingToolResult): ToolCallTask<PendingToolResult> {
   return {
     accesses: ToolAccesses.none(),
-    start: async () => ({ result: Promise.resolve(result) }),
+    start: async () => result,
   };
 }
 

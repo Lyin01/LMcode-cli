@@ -1,6 +1,10 @@
+import { randomUUID } from 'node:crypto';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import type { Environment, JianProcess } from '@lmcode-cli/jian';
+import { LocalJian } from '@lmcode-cli/jian';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BackgroundProcessManager } from '../../src/tools/background/manager';
@@ -306,7 +310,8 @@ describe('BashTool', () => {
     const [argv, env] = execWithEnv.mock.calls[0]!;
     expect(argv[0]).toBe('/bin/bash');
     expect(argv[1]).toBe('-c');
-    expect(argv[2]).toMatch(/^cd '\/workspace' && [\s\S]*\nprintf ok$/);
+    expect(argv[2]).toContain("'/workspace'");
+    expect(argv[2]).toMatch(/\nprintf ok$/);
     expect(env).toMatchObject({
       NO_COLOR: '1',
       TERM: 'dumb',
@@ -327,7 +332,17 @@ describe('BashTool', () => {
 
     expect(execWithEnv.mock.calls[0]?.[0]?.[0]).toBe('/bin/bash');
     expect(execWithEnv.mock.calls[0]?.[0]?.[1]).toBe('-c');
-    expect(execWithEnv.mock.calls[0]?.[0]?.[2]).toMatch(/^cd '\/tmp\/project' && [\s\S]*\npwd$/);
+    expect(execWithEnv.mock.calls[0]?.[0]?.[2]).toContain("'/tmp/project'");
+  });
+
+  it('stops before running any user command when the requested directory is missing', async () => {
+    const tool = new BashTool(await LocalJian.create(), process.cwd());
+    const cwd = path.join(os.tmpdir(), randomUUID());
+    const result = await executeTool(tool, context({ command: 'printf wrong-directory; exit 0', cwd }));
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(path.basename(cwd));
+    expect(result.output).not.toContain('wrong-directory');
   });
 
   it('uses Git Bash semantics on Windows', async () => {
@@ -344,7 +359,8 @@ describe('BashTool', () => {
     const [argv, env] = execWithEnv.mock.calls[0]!;
     expect(argv[0]).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
     expect(argv[1]).toBe('-c');
-    expect(argv[2]).toMatch(/^cd '\/c\/Users\/me\/project' && [\s\S]*\necho ok 2>\/dev\/null$/);
+    expect(argv[2]).toContain("'/c/Users/me/project'");
+    expect(argv[2]).toMatch(/\necho ok 2>\/dev\/null$/);
     expect(env).toMatchObject({ SHELL: 'C:\\Program Files\\Git\\bin\\bash.exe' });
     expect(result).toMatchObject({
       output: 'ok\n',
@@ -522,6 +538,31 @@ describe('BashTool', () => {
     expect(result.output).toContain('Interrupted by user');
   });
 
+  it.each([false, true])('honors cancellation during spawn (background=%s)', async (background) => {
+    const controller = new AbortController();
+    let finish!: (code: number) => void;
+    const exit = new Promise<number>((resolve) => { finish = resolve; });
+    const proc = processWithOutput({
+      wait: () => exit,
+      kill: async () => { finish(143); },
+    });
+    const execWithEnv = vi.fn(async () => {
+      controller.abort();
+      return proc;
+    });
+    const manager = new BackgroundProcessManager();
+    const tool = new BashTool(createFakeJian({ execWithEnv, osEnv: posixEnv }), '/workspace', manager);
+
+    const result = await executeTool(tool, context(
+      { command: 'sleep 10', run_in_background: background, description: 'wait' },
+      controller.signal,
+    ));
+
+    expect(result).toMatchObject({ isError: true, output: 'Interrupted by user' });
+    expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(manager.list(false)).toEqual([]);
+  });
+
   it('requires a background manager and description for background commands', async () => {
     const proc = processWithOutput();
     const execWithEnv = vi.fn().mockResolvedValue(proc);
@@ -649,7 +690,8 @@ describe('BashTool', () => {
     const [argv, env] = execWithEnv.mock.calls[0]!;
     expect(argv[0]).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
     expect(argv[1]).toBe('-c');
-    expect(argv[2]).toMatch(/^cd '\/c\/Users\/me\/project' && [\s\S]*\necho ok 2>\/dev\/null$/);
+    expect(argv[2]).toContain("'/c/Users/me/project'");
+    expect(argv[2]).toMatch(/\necho ok 2>\/dev\/null$/);
     expect(env).toMatchObject({ SHELL: 'C:\\Program Files\\Git\\bin\\bash.exe' });
     expect(results).toContainEqual(expect.objectContaining({ isError: false }));
     expect(results).toContainEqual(
@@ -899,7 +941,7 @@ describe('BashTool', () => {
     await executeTool(tool, context({ command: 'ls 2>nul', timeout: 60 }));
 
     const argv = execWithEnv.mock.calls[0]?.[0] as readonly string[];
-    expect(argv[2]).toMatch(/^cd '\/c\/Users\/me\/project' && [\s\S]*\nls 2>\/dev\/null$/);
+    expect(argv[2]).toMatch(/\nls 2>\/dev\/null$/);
   });
 
   it('passes nul-redirect through unchanged on Linux so the argv keeps the literal file target', async () => {
@@ -909,7 +951,7 @@ describe('BashTool', () => {
     await executeTool(tool, context({ command: 'ls 2>nul', timeout: 60 }));
 
     const argv = execWithEnv.mock.calls[0]?.[0] as readonly string[];
-    expect(argv[2]).toMatch(/^cd '\/workspace' && [\s\S]*\nls 2>nul$/);
+    expect(argv[2]).toMatch(/\nls 2>nul$/);
   });
 
   it('exposes a shell description that documents /bin/bash, TaskOutput/TaskStop, safety and efficiency sections, and background semantics', () => {

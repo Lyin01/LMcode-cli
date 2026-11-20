@@ -7,7 +7,7 @@ import {
   isGoalResourceBudgetReached,
 } from '../../../agent/goal';
 import { wrapUntrustedGoalData } from '../../../agent/goal/prompt-data';
-import type { GoalGraderFn } from './update-goal';
+import type { GoalGraderFn, GoalReview } from './update-goal';
 import CRITERIA_SYSTEM_PROMPT from './acceptance-criteria-system.md';
 import GRADER_SYSTEM_PROMPT from './grader-system.md';
 
@@ -15,6 +15,7 @@ const MAX_GRADER_FIELD_LENGTH = 2000;
 const MAX_GRADER_ISSUES = 20;
 const MAX_GENERATED_CRITERIA = 8;
 const MAX_GENERATED_CRITERION_LENGTH = 500;
+const MAX_VERDICT_ATTEMPTS = 2;
 
 const GraderDimensionSchema = z.object({
   pass: z.boolean(),
@@ -39,9 +40,7 @@ const CriteriaResponseSchema = z.object({
     .max(MAX_GENERATED_CRITERIA),
 });
 
-export interface GraderResult {
-  readonly pass: boolean;
-  readonly reason: string;
+export interface GraderResult extends GoalReview {
   readonly summary: string;
 }
 
@@ -54,7 +53,7 @@ export function parseGraderResponse(text: string): GraderResult {
   const parsedJson = parseJsonResponse(text);
   const parsed = GraderResponseSchema.safeParse(parsedJson);
   if (!parsed.success) {
-    return { pass: false, reason: INVALID_GRADER_RESPONSE, summary: '' };
+    return { outcome: 'inconclusive', reason: INVALID_GRADER_RESPONSE, summary: '' };
   }
 
   const dimensions = {
@@ -87,58 +86,55 @@ export function parseGraderResponse(text: string): GraderResult {
     reasonParts.push(`Issues to fix:\n${parsed.data.issues.map((issue) => `- ${issue}`).join('\n')}`);
   }
 
-  return { pass, reason: reasonParts.join('\n'), summary: lines.join('\n') };
+  return {
+    outcome: pass ? 'passed' : 'failed',
+    reason: reasonParts.join('\n'),
+    summary: lines.join('\n'),
+  };
 }
 
 export function createGoalGrader(agent: Agent): GoalGraderFn {
   return async (goalId, objective, criterion, evidence, signal) => {
     signal.throwIfAborted();
-    const initialInterruption = goalVerificationInterruption(agent, goalId);
-    if (initialInterruption !== undefined) return { pass: false, reason: initialInterruption };
-
+    const goalTransition = agent.goal.transitionSignal;
     let criteria = criterion;
     if (criteria === undefined) {
+      const stopReason = goalVerificationInterruption(agent, goalId, goalTransition);
+      if (stopReason !== undefined) return { outcome: 'inconclusive', reason: stopReason };
       criteria = await generateAcceptanceCriteria(agent, goalId, objective, signal);
-      const criteriaInterruption = goalVerificationInterruption(agent, goalId);
-      if (criteriaInterruption !== undefined) return { pass: false, reason: criteriaInterruption };
       if (criteria.length === 0) {
         criteria =
           'No specific criteria were defined. Require clear evidence that the objective is fully achieved.';
       }
     }
 
-    const model = agent.config.model;
-    const response = await agent.generate(
-      agent.config.provider,
-      GRADER_SYSTEM_PROMPT,
-      [],
-      [
-        {
-          role: 'user',
-          content: [{ type: 'text', text: buildGraderPrompt(objective, criteria, evidence) }],
-          toolCalls: [],
-        },
-      ],
-      undefined,
-      { signal },
-    );
-    await recordGraderUsage(agent, goalId, model, response.usage);
-    signal.throwIfAborted();
-    const verdictInterruption = goalVerificationInterruption(agent, goalId);
-    if (verdictInterruption !== undefined) return { pass: false, reason: verdictInterruption };
-    const result = parseGraderResponse(extractResponseText(response));
-    // An unparseable utility-model reply is not evidence the work is incomplete.
-    // Blocking UpdateGoal(complete) here used to trap long tasks in a retry loop.
-    if (result.reason === INVALID_GRADER_RESPONSE) {
-      return {
-        pass: true,
-        reason:
-          'Goal verification returned no valid structured verdict; completion is accepted as unverified.',
-      };
+    const prompt = buildGraderPrompt(objective, criteria, evidence);
+    for (let attempt = 0; attempt < MAX_VERDICT_ATTEMPTS; attempt++) {
+      signal.throwIfAborted();
+      const stopReason = goalVerificationInterruption(agent, goalId, goalTransition);
+      if (stopReason !== undefined) return { outcome: 'inconclusive', reason: stopReason };
+      const text = attempt === 0
+        ? prompt
+        : `${prompt}\nThe previous reply did not match the JSON schema. Return a fresh verdict with every required field.`;
+      const model = agent.config.model;
+      const response = await agent.generate(
+        agent.config.provider,
+        GRADER_SYSTEM_PROMPT,
+        [],
+        [{ role: 'user', content: [{ type: 'text', text }], toolCalls: [] }],
+        undefined,
+        { signal },
+      );
+      await recordGraderUsage(agent, goalId, model, response.usage);
+      signal.throwIfAborted();
+      const result = parseGraderResponse(extractResponseText(response));
+      if (result.outcome !== 'inconclusive') {
+        return { outcome: result.outcome, reason: `${result.reason}\n${result.summary}` };
+      }
     }
     return {
-      pass: result.pass,
-      reason: result.summary.length > 0 ? `${result.reason}\n${result.summary}` : result.reason,
+      outcome: 'inconclusive',
+      reason: 'The goal reviewer returned two invalid structured verdicts. Completion remains unverified. Resume the goal to retry verification.',
     };
   };
 }
@@ -182,9 +178,13 @@ async function recordGraderUsage(
   await agent.goal.recordTokenUsageForGoal(goalId, grandTotal(usage));
 }
 
-function goalVerificationInterruption(agent: Agent, goalId: string): string | undefined {
+function goalVerificationInterruption(
+  agent: Agent,
+  goalId: string,
+  transition: AbortSignal,
+): string | undefined {
   const goal = agent.goal.getGoal().goal;
-  if (goal?.goalId !== goalId || goal.status !== 'active') {
+  if (transition.aborted || goal?.goalId !== goalId || goal.status !== 'active') {
     return GOAL_CHANGED_DURING_GRADING_REASON;
   }
   return isGoalResourceBudgetReached(goal) ? GOAL_BUDGET_REACHED_REASON : undefined;

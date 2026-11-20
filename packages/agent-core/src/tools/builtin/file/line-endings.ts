@@ -8,27 +8,9 @@ export interface ModelTextView {
 }
 
 export function detectLineEndingStyle(text: string): LineEndingStyle {
-  let hasCrLf = false;
-  let hasLf = false;
-  let hasLoneCr = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const code = text.codePointAt(i);
-    if (code === 13) {
-      if (text.codePointAt(i + 1) === 10) {
-        hasCrLf = true;
-        i++;
-      } else {
-        hasLoneCr = true;
-      }
-    } else if (code === 10) {
-      hasLf = true;
-    }
-  }
-
-  if (hasLoneCr || (hasCrLf && hasLf)) return 'mixed';
-  if (hasCrLf) return 'crlf';
-  return 'lf';
+  if (!text.includes('\r')) return 'lf';
+  // After finding a CR, a lone CR or LF distinguishes mixed text from pure CRLF.
+  return /\r(?!\n)|(?<!\r)\n/.test(text) ? 'mixed' : 'crlf';
 }
 
 export function toModelTextView(raw: string): ModelTextView {

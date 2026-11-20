@@ -26,11 +26,9 @@ import {
   type LoopRecordedEvent,
   type LoopTurnStopReason,
 } from '../../loop/index';
-import type { ExecutableToolOutput } from '../../loop/types';
 import type { AgentEvent, TurnEndedEvent } from '../../rpc';
 import {
   abortable,
-  createDeadlineAbortSignal,
   userCancellationReason,
 } from '../../utils/abort';
 import { USER_PROMPT_ORIGIN, type ContextMessage, type PromptOrigin } from '../context';
@@ -39,16 +37,11 @@ import type { UsageRecordScope } from '../usage';
 import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from '../../session/hooks';
 import { isBlobContentHash } from '../records/blobref';
 import { ToolCallDeduplicator } from './tool-dedup';
-import CRITIC_SYSTEM_PROMPT from './critic-system.md';
+import { PostWriteReview } from './post-write-review';
+import { escapeXmlText, withReviewDeadline } from './review-deadline';
 import SPEC_CRITIC_CONTINUATION_PROMPT from './spec-critic-continuation.md';
 import SPEC_CRITIC_SYSTEM_PROMPT from './spec-critic-system.md';
 import THINKING_TRUNCATED_CONTINUATION_PROMPT from './thinking-truncated-continuation.md';
-import VISUAL_AUDITOR_SYSTEM_PROMPT from './visual-auditor-system.md';
-import { resolveRealPathAccessPath } from '../../tools/policies/path-access';
-import {
-  MAX_SELF_HEALING_SOURCE_BYTES,
-  validateFileSyntaxWithScreenshots,
-} from '../../utils/self-healing';
 
 interface ActiveTurn {
   controller: AbortController;
@@ -113,29 +106,6 @@ const SPEC_CRITIC_MAX_FILES = 80;
 const SPEC_CRITIC_MAX_COMPLETION_TOKENS = 8_192;
 const DIRECT_ANSWER_REVIEW_MIN_LENGTH = 20;
 const DIRECT_ANSWER_FIDELITY_MAX_CONTINUATIONS = 3;
-const DEFAULT_MAX_POST_WRITE_REVIEWS_PER_TURN = 2;
-const POST_WRITE_STAGE_TIMEOUT_MS = 30_000;
-
-async function withPostWriteStageDeadline<T>(
-  sourceSignal: AbortSignal,
-  review: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-  const deadline = createDeadlineAbortSignal(sourceSignal, POST_WRITE_STAGE_TIMEOUT_MS);
-  try {
-    return await abortable(review(deadline.signal), deadline.signal);
-  } catch (error) {
-    if (sourceSignal.aborted) sourceSignal.throwIfAborted();
-    if (deadline.timedOut()) {
-      throw new Error('Automatic post-write stage timed out after 30 seconds', { cause: error });
-    }
-    if (isAbortError(error)) {
-      throw new Error('Automatic post-write stage was aborted unexpectedly', { cause: error });
-    }
-    throw error;
-  } finally {
-    deadline.clear();
-  }
-}
 
 const DIRECT_ANSWER_OBSERVABLE_OR_CONTROL_PATTERN =
   /(?:\u53ef\u5206\u8fa8|\u624b\u611f|\u80fd\u6478\u51fa|\u53ef\u6478\u51fa|\u80fd\u770b\u5230|\u770b\u5f97\u89c1|\u53ef\u89c2\u5bdf|\u53ef\u68c0\u6d4b|\u53ef\u9009\u62e9|\u80fd\u9009\u62e9|\u53ef\u63a7\u5236|\u63d0\u524d\u51b3\u5b9a)/u;
@@ -742,8 +712,7 @@ export class TurnFlow {
   /**
    * Runs a one-shot spec-consistency review over the finished turn on the
    * utility model. Returns the critic's list of unaddressed requirements,
-   * or `undefined` when the work passes. An inconclusive review gets one
-   * main-model self-check, guarded by the same once-per-turn latch.
+   * or `undefined` when the reviewer finds no actionable omission.
    */
   private async runSpecCritic(
     signal: AbortSignal,
@@ -774,48 +743,51 @@ export class TurnFlow {
       const criticProvider =
         thinkingProvider.withMaxCompletionTokens?.(SPEC_CRITIC_MAX_COMPLETION_TOKENS) ??
         thinkingProvider;
-      const response = await this.agent.generate(
-        criticProvider,
-        SPEC_CRITIC_SYSTEM_PROMPT,
-        [],
-        [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: [
-                  '## Original user request',
-                  requestText,
-                  '',
-                  '## Files the agent changed',
-                  files.length > 0 ? files : '(none)',
-                  '',
-                  '## Automatic validation evidence',
-                  limitations.length > 0
-                    ? limitations
-                    : '(none recorded; absence is not evidence that validation ran)',
-                  '',
-                  '## Agent final response',
-                  finalText.length > 0 ? finalText : '(no final text)',
-                ].join('\n'),
-              },
-            ],
-            toolCalls: [],
-          } satisfies Message,
-        ],
-        undefined,
-        { signal },
-      );
-      await this.recordTurnUtilityUsage(utility.model, goalId, response.usage);
-      signal.throwIfAborted();
-      const verdict = generateResultText(response).trim();
-      const markerIndex = verdict.indexOf('SPEC_MISSING');
-      if (markerIndex >= 0) {
-        const missing = verdict
-          .slice(markerIndex + 'SPEC_MISSING'.length)
-          .replace(/^[:\s]+/, '')
-          .trim();
+      const verdict = await withReviewDeadline(signal, 'Spec critic', async (reviewSignal) => {
+        const response = await this.agent.generate(
+          criticProvider,
+          SPEC_CRITIC_SYSTEM_PROMPT,
+          [],
+          [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: [
+                    '## Original user request',
+                    requestText,
+                    '',
+                    '## Files the agent changed',
+                    files.length > 0 ? files : '(none)',
+                    '',
+                    '## Automatic validation evidence',
+                    limitations.length > 0
+                      ? limitations
+                      : '(none recorded; absence is not evidence that validation ran)',
+                    '',
+                    '## Agent final response',
+                    finalText.length > 0 ? finalText : '(no final text)',
+                  ].join('\n'),
+                },
+              ],
+              toolCalls: [],
+            } satisfies Message,
+          ],
+          undefined,
+          { signal: reviewSignal },
+        );
+        await this.recordTurnUtilityUsage(
+          utility.model, goalId, response.usage, reviewSignal.aborted ? 'session' : 'turn',
+        );
+        reviewSignal.throwIfAborted();
+        return generateResultText(response).trim();
+      });
+      // A later missing verdict overrides an earlier approval if the reviewer
+      // explicitly corrected itself using a new protocol line.
+      const marker = /^SPEC_MISSING:/mu.exec(verdict);
+      if (marker !== null) {
+        const missing = verdict.slice(marker.index + marker[0].length).trim();
         if (missing.length > 0) return missing;
       }
       // SPEC_OK, empty, or any non-protocol verdict: do not invent a
@@ -823,7 +795,7 @@ export class TurnFlow {
       // of a missed requirement.
       return undefined;
     } catch (error) {
-      if (isAbortError(error)) throw error;
+      signal.throwIfAborted();
       this.agent.log.warn('spec critic failed; leaving the turn complete', { error });
       return undefined;
     }
@@ -858,13 +830,9 @@ export class TurnFlow {
     // cannot loop the turn forever.
     let specCriticUsed = false;
     let directAnswerFidelityContinuationCount = 0;
-    let postWriteReviewsUsed = 0;
-    let postWriteReviewLimitNotified = false;
-    const maxPostWriteReviews =
-      this.agent.lmcodeConfig?.loopControl?.maxPostWriteReviewsPerTurn ??
-      DEFAULT_MAX_POST_WRITE_REVIEWS_PER_TURN;
-    const specMutatedPaths = new Set<string>();
-    const validationLimitations = new Map<string, string>();
+    const postWriteReview = new PostWriteReview(this.agent, turnId, (model, goalId, usage, scope) =>
+      this.recordTurnUtilityUsage(model, goalId, usage, scope),
+    );
     const deduper = new ToolCallDeduplicator(
       this.agent.config.cwd,
       this.agent.jian.pathClass(),
@@ -1107,15 +1075,15 @@ export class TurnFlow {
                 origin.kind === 'user' &&
                 this.agent.type === 'main' &&
                 this.agent.lmcodeConfig?.enableSpecCritic !== false &&
-                (specMutatedPaths.size > 0 ||
+                (postWriteReview.mutatedPaths.size > 0 ||
                   shouldReviewDirectAnswerForRequirementFidelity(input))
               ) {
                 specCriticUsed = true;
                 const missing = await this.runSpecCritic(
                   signal,
                   input,
-                  specMutatedPaths,
-                  validationLimitations,
+                  postWriteReview.mutatedPaths,
+                  postWriteReview.limitations,
                 );
                 signal.throwIfAborted();
                 if (await stopForInTurnBudget()) return { continue: false };
@@ -1177,12 +1145,8 @@ export class TurnFlow {
                   (ctx.toolCall.name === 'Bash' && argRecord?.['run_in_background'] === true);
                 if (hasAsynchronousWorkspaceSideEffects) {
                   deduper.disableReadCoverage();
-                } else {
-                  deduper.observeAuthorizedExecution(
-                    ctx.toolCall.id,
-                    ctx.execution.accesses,
-                  );
                 }
+                deduper.observeAuthorizedExecution(ctx.toolCall.id, ctx.execution.accesses);
               }
               return authorization;
             },
@@ -1196,483 +1160,8 @@ export class TurnFlow {
               );
               if (sameStepDuplicate) {
                 ctx.signal.throwIfAborted();
-                finalResult = deduper.finalResultForCall(ctx.toolCall.id, finalResult);
-              }
-
-              // Track successful file mutations for the spec-consistency
-              // critic that runs when the turn stops.
-              if (
-                !sameStepDuplicate &&
-                finalResult.isError !== true &&
-                (ctx.toolCall.name === 'Write' ||
-                  ctx.toolCall.name === 'Edit' ||
-                  ctx.toolCall.name === 'MultiEdit')
-              ) {
-                const argRecord = ctx.args as Record<string, unknown>;
-                const pathArg = argRecord['path'] ?? argRecord['file_path'];
-                if (typeof pathArg === 'string' && pathArg.length > 0) {
-                  specMutatedPaths.add(pathArg);
-                }
-              }
-
-              const postWritePath =
-                !sameStepDuplicate &&
-                finalResult.isError !== true &&
-                this.agent.lmcodeConfig?.enableSelfHealing !== false &&
-                (ctx.toolCall.name === 'Write' ||
-                  ctx.toolCall.name === 'Edit' ||
-                  ctx.toolCall.name === 'MultiEdit')
-                  ? pathArgFromToolArgs(ctx.args)
-                  : undefined;
-              let postWriteReviewNumber: number | undefined;
-              if (postWritePath !== undefined && postWriteReviewsUsed < maxPostWriteReviews) {
-                postWriteReviewsUsed += 1;
-                postWriteReviewNumber = postWriteReviewsUsed;
-              }
-
-              // ── Post-write self-healing validation ──
-              if (postWritePath !== undefined && postWriteReviewNumber !== undefined) {
-                const path = postWritePath;
-                this.agent.emitEvent({
-                  type: 'tool.progress',
-                  turnId,
-                  toolCallId: ctx.toolCall.id,
-                  update: {
-                    kind: 'status',
-                    text: `Automatic review ${postWriteReviewNumber}/${maxPostWriteReviews}: checking syntax and runtime`,
-                  },
-                });
-                const validationNotices: string[] = [];
-                let validationPath = path;
-                let validationPathKey = path;
-                try {
-                    const workspace = {
-                      workspaceDir: this.agent.config.cwd,
-                      additionalDirs: [],
-                    };
-                    const resolvedPath = await resolveRealPathAccessPath(path, {
-                      jian: this.agent.jian,
-                      workspace,
-                      operation: 'write',
-                    });
-                    validationPath = resolvedPath;
-                    validationPathKey =
-                      this.agent.jian.pathClass() === 'win32'
-                        ? resolvedPath.toLowerCase()
-                        : resolvedPath;
-                    const { content, validationRes } = await withPostWriteStageDeadline(
-                      signal,
-                      async (validationSignal) => {
-                        const content = await abortable(
-                          this.agent.jian.readText(resolvedPath),
-                          validationSignal,
-                        );
-                        const validationRes = await validateFileSyntaxWithScreenshots(
-                          resolvedPath,
-                          content,
-                          { signal: validationSignal },
-                        );
-                        return { content, validationRes };
-                      },
-                    );
-                    clearValidationLimitation(
-                      validationLimitations,
-                      validationPathKey,
-                      'overall',
-                    );
-
-                    if (validationRes.syntax?.status === 'passed') {
-                      clearValidationLimitation(
-                        validationLimitations,
-                        validationPathKey,
-                        'syntax',
-                      );
-                    } else if (validationRes.syntax?.status === 'skipped') {
-                      this.agent.log.warn('Static syntax validation skipped', {
-                        path,
-                        reason: validationRes.syntax.reason,
-                        detail: validationRes.syntax.detail,
-                      });
-                      addValidationLimitation(
-                        validationNotices,
-                        validationLimitations,
-                        validationPathKey,
-                        validationPath,
-                        'syntax',
-                        `Automatic syntax validation was skipped (${validationRes.syntax.reason}). ` +
-                          'Do not claim that syntax was verified unless a separate parser or build check succeeds.',
-                      );
-                    }
-
-                    if (validationRes.runtime?.status === 'passed') {
-                      clearValidationLimitation(
-                        validationLimitations,
-                        validationPathKey,
-                        'runtime',
-                      );
-                    } else if (validationRes.runtime?.status === 'skipped') {
-                      this.agent.log.warn('HTML runtime validation skipped', {
-                        path,
-                        reason: validationRes.runtime.reason,
-                        detail: validationRes.runtime.detail,
-                      });
-                      addValidationLimitation(
-                        validationNotices,
-                        validationLimitations,
-                        validationPathKey,
-                        validationPath,
-                        'runtime',
-                        `Automatic browser validation was skipped (${validationRes.runtime.reason}). ` +
-                          'Runtime behavior and visual output were not verified. ' +
-                          'Do not claim browser or visual verification unless a separate observable browser check succeeds.',
-                      );
-                    }
-
-                    if (validationRes.error) {
-                      const failureKind: ValidationLimitationKind =
-                        validationRes.syntax?.status === 'failed'
-                          ? 'syntax'
-                          : validationRes.runtime?.status === 'failed'
-                            ? 'runtime'
-                            : 'overall';
-                      addValidationLimitation(
-                        validationNotices,
-                        validationLimitations,
-                        validationPathKey,
-                        validationPath,
-                        failureKind,
-                        `Automatic ${failureKind} validation failed: ${summarizeValidationFailure(validationRes.error)}`,
-                      );
-                      finalResult = {
-                        isError: true,
-                        output: `Code validation failed. Please fix the following issue:\n${validationRes.error}`,
-                      };
-                    } else {
-                      // Run the visual auditor only when keyframes exist and the model can inspect them.
-                      let visualRejected = false;
-                      let visualFeedback = '';
-                      const screenshots = validationRes.screenshots;
-                      if (screenshots !== undefined && screenshots.length > 0) {
-                        if (!this.agent.config.modelCapabilities.image_in) {
-                          addValidationLimitation(
-                            validationNotices,
-                            validationLimitations,
-                            validationPathKey,
-                            validationPath,
-                            'visual',
-                            'Browser runtime validation passed and keyframe screenshots were captured, ' +
-                              'but visual compliance was not reviewed because the active model cannot inspect images. ' +
-                              'Do not claim that appearance, animation timing, or the terminal frame was visually verified.',
-                          );
-                        } else {
-                          try {
-                            this.agent.emitEvent({
-                              type: 'tool.progress',
-                              turnId,
-                              toolCallId: ctx.toolCall.id,
-                              update: {
-                                kind: 'status',
-                                text: `Automatic review ${postWriteReviewNumber}/${maxPostWriteReviews}: inspecting rendered keyframes`,
-                              },
-                            });
-                            // Label each frame by its capture time; the last one
-                            // is the terminal/end state where uncleared-buffer
-                            // ghosts and never-ending particle fields surface.
-                            const keyTimes = validationRes.keyframeTimesMs;
-                            const frameLines = screenshots
-                              .map((_, i) => {
-                                const isTerminal =
-                                  screenshots.length > 1 && i === screenshots.length - 1;
-                                const at =
-                                  keyTimes && keyTimes[i] != null
-                                    ? `${(keyTimes[i] / 1000).toFixed(1)}s`
-                                    : `frame ${i + 1}`;
-                                return `- Screenshot ${i + 1}: ${at}${isTerminal ? ' — TERMINAL / end state' : ''}`;
-                              })
-                              .join('\n');
-
-                            const visualSystemPrompt = VISUAL_AUDITOR_SYSTEM_PROMPT.replace(
-                              '{{FRAME_LINES}}',
-                              frameLines,
-                            );
-
-                            const { project: projectVisual } = await import('../context/projector');
-                            const visualHistory = [...projectVisual(this.agent.context.history)];
-                            const contentParts: ContentPart[] = [
-                              {
-                                type: 'text',
-                                text: 'Here are the rendered keyframe screenshots, in order. Verify them against the user request above.',
-                              },
-                            ];
-                            for (const base64Img of screenshots) {
-                              contentParts.push({
-                                type: 'image_url',
-                                imageUrl: {
-                                  url: `data:image/png;base64,${base64Img}`,
-                                },
-                              });
-                            }
-                            visualHistory.push({
-                              role: 'user',
-                              content: contentParts,
-                              toolCalls: [],
-                            });
-
-                            const visualModel = this.agent.config.model;
-                            const visualGoalId = this.agent.goal.getActiveGoal()?.goalId;
-                            const visualResponse = await withPostWriteStageDeadline(
-                              signal,
-                              async (reviewSignal) => {
-                                const response = await this.agent.generate(
-                                  this.agent.config.provider,
-                                  visualSystemPrompt,
-                                  [],
-                                  visualHistory,
-                                  undefined,
-                                  { signal: reviewSignal },
-                                );
-                                await this.recordTurnUtilityUsage(
-                                  visualModel,
-                                  visualGoalId,
-                                  response.usage,
-                                  reviewSignal.aborted ? 'session' : 'turn',
-                                );
-                                reviewSignal.throwIfAborted();
-                                return response;
-                              },
-                            );
-                            const visualText = contentPartsText(
-                              visualResponse.message.content,
-                            ).trim();
-
-                            if (visualText.startsWith('VISUAL_REJECT:')) {
-                              visualRejected = true;
-                              const rejection = visualText.substring(14).trim();
-                              visualFeedback = `Visual review rejected by LMM Auditor:\n${rejection}`;
-                              addValidationLimitation(
-                                validationNotices,
-                                validationLimitations,
-                                validationPathKey,
-                                validationPath,
-                                'visual',
-                                `Automatic visual review rejected the rendered output: ${summarizeValidationFailure(rejection)}`,
-                              );
-                            } else if (visualText.startsWith('VISUAL_APPROVE')) {
-                              clearValidationLimitation(
-                                validationLimitations,
-                                validationPathKey,
-                                'visual',
-                              );
-                              const notes = extractReviewNotes(visualText);
-                              if (notes !== undefined) {
-                                validationNotices.push(
-                                  `File ${JSON.stringify(validationPath)}: Automatic visual review passed with non-blocking polish notes: ${notes}. ` +
-                                    'Treat them as optional: mention the worthwhile ones to the user in one line in your final reply; ' +
-                                    'apply them directly only when small and clearly correct.',
-                                );
-                              }
-                            } else {
-                              addValidationLimitation(
-                                validationNotices,
-                                validationLimitations,
-                                validationPathKey,
-                                validationPath,
-                                'visual',
-                                'Browser runtime validation passed, but the visual auditor returned an inconclusive verdict. ' +
-                                  'Do not claim that visual compliance was verified.',
-                              );
-                            }
-                          } catch (error) {
-                            if (signal.aborted) signal.throwIfAborted();
-                            if (isAbortError(error)) throw error;
-                            this.agent.log.warn('LMM Visual Auditor failed or timed out', {
-                              error: errorMessage(error),
-                            });
-                            addValidationLimitation(
-                              validationNotices,
-                              validationLimitations,
-                              validationPathKey,
-                              validationPath,
-                              'visual',
-                              'Browser runtime validation passed, but the visual auditor failed or timed out. ' +
-                                'Do not claim that visual compliance was verified.',
-                            );
-                          }
-                        }
-                      }
-
-                      if (visualRejected) {
-                        finalResult = {
-                          isError: true,
-                          output: visualFeedback,
-                        };
-                      } else if (
-                        Buffer.byteLength(content, 'utf8') > MAX_SELF_HEALING_SOURCE_BYTES
-                      ) {
-                        addValidationLimitation(
-                          validationNotices,
-                          validationLimitations,
-                          validationPathKey,
-                          validationPath,
-                          'source',
-                          'Automatic source review was skipped because the file exceeds the safe validation size limit. ' +
-                            'Do not describe automated code review as passed.',
-                        );
-                      } else {
-                        // Run a source review independently of runtime and visual evidence.
-                        try {
-                          this.agent.emitEvent({
-                            type: 'tool.progress',
-                            turnId,
-                            toolCallId: ctx.toolCall.id,
-                            update: {
-                              kind: 'status',
-                              text: `Automatic review ${postWriteReviewNumber}/${maxPostWriteReviews}: reviewing source`,
-                            },
-                          });
-                          const prompt = `File Path: ${resolvedPath}
-
-Please review the current content of this file:
-\`\`\`
-${content}
-\`\`\`
-
-Reject only concrete blocking defects that make the file incorrect, broken, unsafe, or materially incomplete for the original request. Treat optional polish and subjective improvements as non-blocking. Reply with APPROVE or REJECT.`;
-
-                          const { project } = await import('../context/projector');
-                          const history = [...project(this.agent.context.history)];
-                          history.push({
-                            role: 'user',
-                            content: [{ type: 'text', text: prompt }],
-                            toolCalls: [],
-                          });
-
-                          const criticModel = this.agent.config.model;
-                          const criticGoalId = this.agent.goal.getActiveGoal()?.goalId;
-                          const criticResponse = await withPostWriteStageDeadline(
-                            signal,
-                            async (reviewSignal) => {
-                              const response = await this.agent.generate(
-                                this.agent.config.provider,
-                                CRITIC_SYSTEM_PROMPT,
-                                [],
-                                history,
-                                undefined,
-                                { signal: reviewSignal },
-                              );
-                              await this.recordTurnUtilityUsage(
-                                criticModel,
-                                criticGoalId,
-                                response.usage,
-                                reviewSignal.aborted ? 'session' : 'turn',
-                              );
-                              reviewSignal.throwIfAborted();
-                              return response;
-                            },
-                          );
-                          const criticText = contentPartsText(
-                            criticResponse.message.content,
-                          ).trim();
-
-                          if (criticText.startsWith('REJECT:')) {
-                            const rejection = criticText.substring(7).trim();
-                            finalResult = {
-                              isError: true,
-                              output: `Code review rejected by Critic:\n${rejection}`,
-                            };
-                            addValidationLimitation(
-                              validationNotices,
-                              validationLimitations,
-                              validationPathKey,
-                              validationPath,
-                              'source',
-                              `Automatic source review rejected the file: ${summarizeValidationFailure(rejection)}`,
-                            );
-                          } else if (criticText.startsWith('APPROVE')) {
-                            clearValidationLimitation(
-                              validationLimitations,
-                              validationPathKey,
-                              'source',
-                            );
-                            const notes = extractReviewNotes(criticText);
-                            if (notes !== undefined) {
-                              validationNotices.push(
-                                `File ${JSON.stringify(validationPath)}: Automatic source review passed with non-blocking improvement notes: ${notes}. ` +
-                                  'Treat them as optional: complete small, clearly-correct improvements directly; mention the worthwhile ones ' +
-                                  'to the user in one line in your final reply; ignore the rest.',
-                              );
-                            }
-                          } else {
-                            addValidationLimitation(
-                              validationNotices,
-                              validationLimitations,
-                              validationPathKey,
-                              validationPath,
-                              'source',
-                              'Automatic source review returned an inconclusive verdict. ' +
-                                'Do not describe automated code review as passed.',
-                            );
-                          }
-                        } catch (error) {
-                          if (signal.aborted) signal.throwIfAborted();
-                          if (isAbortError(error)) throw error;
-                          this.agent.log.warn('Automatic source review failed or timed out', {
-                            error: errorMessage(error),
-                            path,
-                          });
-                          addValidationLimitation(
-                            validationNotices,
-                            validationLimitations,
-                            validationPathKey,
-                            validationPath,
-                            'source',
-                            'Automatic source review failed or timed out. ' +
-                              'Do not describe automated code review as passed.',
-                          );
-                        }
-                      }
-                    }
-                  } catch (error) {
-                    if (signal.aborted) signal.throwIfAborted();
-                    if (isAbortError(error)) throw error;
-                    this.agent.log.warn('Self-healing code validation skipped or failed internally', {
-                      error: errorMessage(error),
-                      path,
-                    });
-                    addValidationLimitation(
-                      validationNotices,
-                      validationLimitations,
-                      validationPathKey,
-                      validationPath,
-                      'overall',
-                      'Automatic post-write validation did not complete, so its overall result is inconclusive. ' +
-                        'Do not claim syntax, runtime, or visual verification based on this check.',
-                    );
-                }
-                for (const notice of validationNotices) {
-                  finalResult = appendToolResultNotice(finalResult, notice);
-                }
-              } else if (postWritePath !== undefined) {
-                const notice =
-                  `File ${JSON.stringify(postWritePath)}: Automatic post-write review was skipped because ` +
-                  `this turn reached its ${maxPostWriteReviews}-review limit. The write remains successful. ` +
-                  'Do not rewrite the file solely to trigger another automatic review; use a targeted build or test if more evidence is required.';
-                validationLimitations.set(`${postWritePath}\0overall`, notice);
-                if (!postWriteReviewLimitNotified) {
-                  postWriteReviewLimitNotified = true;
-                  // One notice is enough to stop review-driven rewrites. Later
-                  // writes remain fully available for legitimate multi-file
-                  // work and are merely recorded as unreviewed evidence.
-                  finalResult = appendToolResultNotice(finalResult, notice);
-                  this.agent.emitEvent({
-                    type: 'warning',
-                    code: 'post_write_review_limit_reached',
-                    message:
-                      `Automatic post-write review stopped after ${maxPostWriteReviews} complete ` +
-                      `${maxPostWriteReviews === 1 ? 'pass' : 'passes'} in this turn. ` +
-                      'Later writes remain available but will not trigger another automatic review.',
-                  });
-                }
+              } else {
+                finalResult = await postWriteReview.observe(ctx, finalResult);
               }
 
               if (detectInTurnBudgetReached()) {
@@ -1942,13 +1431,6 @@ function truncateArg(s: string): string {
   return s.length > 80 ? s.slice(0, 77) + '...' : s;
 }
 
-function pathArgFromToolArgs(args: unknown): string | undefined {
-  if (typeof args !== 'object' || args === null) return undefined;
-  const record = args as Record<string, unknown>;
-  const path = record['path'] ?? record['file_path'];
-  return typeof path === 'string' && path.length > 0 ? path : undefined;
-}
-
 function contentPartsText(content: readonly ContentPart[]): string {
   return content
     .map((part) => (part.type === 'text' ? part.text : ''))
@@ -1999,10 +1481,6 @@ function hasDirectAnswerRequirementFidelityTrigger(text: string): boolean {
   );
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** True when the latest non-empty assistant message is reasoning with no answer. */
 function lastAssistantIsThinkOnly(history: readonly ContextMessage[]): boolean {
   for (let i = history.length - 1; i >= 0; i--) {
@@ -2041,61 +1519,4 @@ function messageContentText(content: Message['content']): string {
   return content
     .map((part) => (part.type === 'text' ? part.text : ''))
     .join('');
-}
-
-type ValidationLimitationKind = 'syntax' | 'runtime' | 'visual' | 'source' | 'overall';
-
-function addValidationLimitation(
-  notices: string[],
-  limitations: Map<string, string>,
-  pathKey: string,
-  displayPath: string,
-  kind: ValidationLimitationKind,
-  notice: string,
-): void {
-  const rendered = `File ${JSON.stringify(displayPath)}: ${notice}`;
-  limitations.set(`${pathKey}\0${kind}`, rendered);
-  notices.push(rendered);
-}
-
-function clearValidationLimitation(
-  limitations: Map<string, string>,
-  pathKey: string,
-  kind: ValidationLimitationKind,
-): void {
-  limitations.delete(`${pathKey}\0${kind}`);
-}
-
-function summarizeValidationFailure(error: string): string {
-  const oneLine = error.replaceAll(/\s+/g, ' ').trim();
-  return oneLine.length > 500 ? `${oneLine.slice(0, 497)}...` : oneLine;
-}
-
-/** The optional `NOTES:` line a reviewer appends after an approval; carries non-blocking improvement ideas. */
-function extractReviewNotes(text: string): string | undefined {
-  const match = /^\s*NOTES:\s*(.+)$/mu.exec(text);
-  if (match?.[1] === undefined) return undefined;
-  const note = summarizeValidationFailure(match[1]);
-  return note.length === 0 ? undefined : note;
-}
-
-function appendToolResultNotice(
-  result: ExecutableToolResult,
-  notice: string,
-): ExecutableToolResult {
-  const suffix = `\n\n<system>Automatic validation notice: ${escapeXmlText(notice)}</system>`;
-  const output: ExecutableToolOutput =
-    typeof result.output === 'string'
-      ? `${result.output}${suffix}`
-      : [...result.output, { type: 'text', text: suffix }];
-  return { ...result, output };
-}
-
-function escapeXmlText(input: string): string {
-  return input
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
 }

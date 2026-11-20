@@ -54,13 +54,11 @@ export class ToolResultBuilder {
   private truncationHappened = false;
 
   // ── Head-tail state ─────────────────────────────────────────────────
-  private readonly headBuffer: string[] = [];
-  private readonly tailRingBuffer: string[] = [];
-  private nCharsHead = 0;
-  private nCharsTail = 0;
-  /** Total characters ever fed into write() — used for the marker. */
-  private totalInputChars = 0;
-  private headFull = false;
+  // Keep ordinary output intact. Only allocate a tail window after overflow.
+  private head = '';
+  private tail?: Buffer;
+  private tailCursor = 0;
+  private totalBytes = 0;
 
   constructor(options: ToolResultBuilderOptions = {}) {
     this.maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
@@ -77,30 +75,16 @@ export class ToolResultBuilder {
   }
 
   get nChars(): number {
-    return this.useHeadTail ? this.nCharsHead + this.nCharsTail : this.nCharsValue;
+    return this.useHeadTail ? this.head.length + (this.tail ? this.tailMaxChars : 0) : this.nCharsValue;
   }
 
   write(text: string): number {
-    if (this.useHeadTail) {
-      return this.writeImpl(text, this.writeHeadTailLine.bind(this));
-    }
-    return this.writeImpl(text, this.writeLegacyLine.bind(this));
-  }
-
-  // ── write dispatch ──────────────────────────────────────────────────
-
-  private writeImpl(
-    text: string,
-    writeLine: (line: string) => number,
-  ): number {
     if (text.length === 0) return 0;
-
-    const lines = text.match(/[^\r\n]*(?:\r\n|[\n\r])|[^\r\n]+/g) ?? [];
-    if (lines.length === 0) return 0;
+    if (this.useHeadTail) return this.writeHeadTail(this.clipLongLines(text));
 
     let charsWritten = 0;
-    for (const originalLine of lines) {
-      charsWritten += writeLine(originalLine);
+    for (const line of text.match(/[^\r\n]*(?:\r\n|[\n\r])|[^\r\n]+/g) ?? []) {
+      charsWritten += this.writeLegacyLine(line);
     }
     return charsWritten;
   }
@@ -139,62 +123,67 @@ export class ToolResultBuilder {
 
   // ── Head-tail strategy ──────────────────────────────────────────────
 
-  private writeHeadTailLine(line: string): number {
-    if (!this.headFull) {
-      const remainingHead = this.headMaxChars - this.nCharsHead;
-      if (remainingHead <= 0) {
-        this.headFull = true;
-      } else {
-        const limit =
-          this.maxLineLength === null
-            ? remainingHead
-            : Math.min(remainingHead, this.maxLineLength);
-        let processedLine = line;
-        if (processedLine.length > limit) {
-          const lineBreak = /[\r\n]+$/.exec(processedLine)?.[0] ?? '';
-          const suffix = TRUNCATION_MARKER + lineBreak;
-          const effectiveMaxLength = Math.max(limit, suffix.length);
-          processedLine = processedLine.slice(0, effectiveMaxLength - suffix.length) + suffix;
-          this.truncationHappened = true;
-        }
-
-        this.headBuffer.push(processedLine);
-        this.nCharsHead += processedLine.length;
-        this.totalInputChars += line.length;
-
-        if (this.nCharsHead >= this.headMaxChars) {
-          this.headFull = true;
-        }
-        return processedLine.length;
+  private clipLongLines(text: string): string {
+    const limit = this.maxLineLength;
+    if (limit === null || text.length <= limit) return text;
+    const breaks = /\r\n|[\r\n]/g;
+    let lineStart = 0;
+    let copiedThrough = 0;
+    let clipped = '';
+    while (lineStart + limit < text.length) {
+      let end = lineStart + limit;
+      if (text[end - 1] === '\r' && text[end] === '\n') end--;
+      // Every complete line in this window fits. Skip them together without
+      // materializing a match or a string-array entry for every short line.
+      const window = text.slice(lineStart, end);
+      const lastBreak = Math.max(window.lastIndexOf('\n'), window.lastIndexOf('\r'));
+      if (lastBreak >= 0) {
+        lineStart += lastBreak + 1;
+        continue;
       }
+      breaks.lastIndex = end;
+      const delimiter = breaks.exec(text);
+      const lineBreak = delimiter?.[0] ?? '';
+      const keep = Math.max(0, limit - TRUNCATION_MARKER.length - lineBreak.length);
+      clipped += text.slice(copiedThrough, lineStart + keep) + TRUNCATION_MARKER + lineBreak;
+      copiedThrough = delimiter ? breaks.lastIndex : text.length;
+      lineStart = copiedThrough;
+      this.truncationHappened = true;
     }
+    return copiedThrough ? clipped + text.slice(copiedThrough) : text;
+  }
 
-    // ── Writing to tail ring buffer ───────────────────────────────
-    this.totalInputChars += line.length;
-
-    const limit =
-      this.maxLineLength === null ? Infinity : this.maxLineLength;
-    let processedLine = line;
-    if (processedLine.length > limit) {
-      const lineBreak = /[\r\n]+$/.exec(processedLine)?.[0] ?? '';
-      const suffix = TRUNCATION_MARKER + lineBreak;
-      const effectiveMaxLength = Math.max(limit, suffix.length);
-      processedLine = processedLine.slice(0, effectiveMaxLength - suffix.length) + suffix;
+  private writeHeadTail(text: string): number {
+    if (!this.tail) {
+      if (this.head.length + text.length <= this.maxChars) {
+        this.head += text;
+        return text.length;
+      }
+      const previous = this.head;
+      const prefix = previous.slice(0, this.headMaxChars) +
+        text.slice(0, Math.max(0, this.headMaxChars - previous.length));
+      // Own the prefix so a substring cannot keep a whole input chunk alive.
+      this.head = Buffer.from(prefix, 'utf16le').toString('utf16le');
+      this.tail = Buffer.alloc(this.tailMaxChars * 2);
+      this.appendTail(this.tail, previous);
+      this.totalBytes = Buffer.byteLength(previous);
+      this.truncationHappened = true;
     }
+    this.appendTail(this.tail, text);
+    this.totalBytes += Buffer.byteLength(text);
+    return text.length;
+  }
 
-    this.tailRingBuffer.push(processedLine);
-    this.nCharsTail += processedLine.length;
-    this.truncationHappened = true;
-
-    // Drop oldest lines from the tail ring buffer, keeping at least one
-    // line so the tail always has content even when a single line exceeds
-    // tailMaxChars.
-    while (this.nCharsTail > this.tailMaxChars && this.tailRingBuffer.length > 1) {
-      const dropped = this.tailRingBuffer.shift()!;
-      this.nCharsTail -= dropped.length;
+  private appendTail(tail: Buffer, text: string): void {
+    if (text.length >= this.tailMaxChars) {
+      tail.write(text.slice(-this.tailMaxChars), 0, 'utf16le');
+      this.tailCursor = 0;
+      return;
     }
-
-    return processedLine.length;
+    const firstLength = Math.min(this.tailMaxChars - this.tailCursor, text.length);
+    tail.write(text, this.tailCursor * 2, firstLength * 2, 'utf16le');
+    if (firstLength < text.length) tail.write(text.slice(firstLength), 0, 'utf16le');
+    this.tailCursor = (this.tailCursor + text.length) % this.tailMaxChars;
   }
 
   // ── Output assembly ─────────────────────────────────────────────────
@@ -267,25 +256,13 @@ export class ToolResultBuilder {
     if (!this.useHeadTail) {
       return this.buffer.join('');
     }
-    if (this.tailRingBuffer.length === 0) {
-      return this.headBuffer.join('');
-    }
-
-    const head = this.headBuffer.join('');
-    const tail = this.tailRingBuffer.join('');
-
-    // Everything that entered the builder but is no longer held in the head
-    // or tail buffers was lost to ring-buffer eviction; that single difference
-    // already accounts for input beyond maxChars, so no extra term is needed.
-    const bufferedTotal = this.nCharsHead + this.nCharsTail;
-    const lostToOverflow = Math.max(0, this.totalInputChars - bufferedTotal);
-
-    if (lostToOverflow <= 0) {
-      // No data was lost — head just filled and tail continues.
-      return head + tail;
-    }
-
-    const marker = this.formatTruncatedMarker(lostToOverflow);
+    if (!this.tail) return this.head;
+    const offset = this.tailCursor * 2;
+    const head = this.head.replace(/[\uD800-\uDBFF]$/, '');
+    const tail = (this.tail.toString('utf16le', offset) + this.tail.toString('utf16le', 0, offset))
+      .replace(/^[\uDC00-\uDFFF]/, '');
+    const omittedBytes = this.totalBytes - Buffer.byteLength(head) - Buffer.byteLength(tail);
+    const marker = this.formatTruncatedMarker(omittedBytes);
 
     if (head.length > 0 && !head.endsWith('\n')) {
       return `${head}\n${marker}\n${tail}`;

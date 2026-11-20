@@ -104,6 +104,34 @@ describe('post-write validation evidence', () => {
     expect((toolResults[0]!.args as { isError?: boolean }).isError).not.toBe(true);
   });
 
+  it('reviews the written snapshot with the user request and omits the tool exchange', async () => {
+    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
+      error: null,
+      syntax: { status: 'passed' },
+      runtime: undefined,
+      screenshots: undefined,
+      keyframeTimesMs: undefined,
+    });
+    const ctx = await validationAgent();
+    const request = 'Create a canvas for the progress view.';
+    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
+    ctx.mockNextResponse({ type: 'text', text: 'APPROVE' });
+    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: request }] });
+    await ctx.untilTurnEnd();
+
+    const history = ctx.llmCalls.find((call) =>
+      call.systemPrompt.startsWith('You are a critical code reviewer'),
+    )?.history;
+    expect(history?.map(messageText)).toEqual([
+      request,
+      expect.stringContaining('<!doctype html><html><body><canvas></canvas></body></html>'),
+    ]);
+    expect(history?.every((message) => message.role === 'user' && message.toolCalls.length === 0))
+      .toBe(true);
+  });
+
   it('does not fabricate notes when the reviewer approves without a NOTES line', async () => {
     vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
       error: null,
@@ -480,6 +508,41 @@ describe('post-write validation evidence', () => {
     expect(finalStepText).toContain('source review failed or timed out');
     expect(finalStepText).not.toContain('overall result is inconclusive');
     expect(finalStepText).not.toContain('Do not claim syntax, runtime, or visual verification');
+  });
+
+  it.each([
+    ['prefix match', 'VISUAL_APPROVE_PENDING', 'APPROVE pending further tests'],
+    ['empty rejection', 'VISUAL_REJECT:  ', 'REJECT:\n'],
+    ['conflicting lines', 'VISUAL_APPROVE\nVISUAL_REJECT: missing frame', 'APPROVE\nREJECT: missing handler'],
+  ])('records %s as inconclusive in both reviews without failing the write', async (_case, visual, source) => {
+    vi.spyOn(selfHealing, 'validateFileSyntaxWithScreenshots').mockResolvedValue({
+      error: null,
+      syntax: { status: 'passed' },
+      runtime: { status: 'passed' },
+      screenshots: ['ZmFrZS1wbmc='],
+      keyframeTimesMs: [2000],
+    });
+    const ctx = await validationAgent(true, true);
+    ctx.mockNextResponse(writeCall('call_write', 'page.html'));
+    ctx.mockNextResponse({ type: 'text', text: visual });
+    ctx.mockNextResponse({ type: 'text', text: source });
+    ctx.mockNextResponse({ type: 'text', text: 'Created page.html.' });
+    ctx.mockNextResponse({ type: 'text', text: 'SPEC_OK' });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Create page.html' }] });
+    await ctx.untilTurnEnd();
+
+    const specCriticCall = ctx.llmCalls.find((call) =>
+      call.systemPrompt.includes('specification-compliance reviewer'),
+    );
+    const evidence = messageText(specCriticCall?.history.at(-1));
+    expect(evidence).toContain('visual auditor returned an inconclusive verdict');
+    expect(evidence).toContain('source review returned an inconclusive verdict');
+    const toolResults = ctx.allEvents.filter(
+      (event) => event.type === '[rpc]' && event.event === 'tool.result',
+    );
+    expect(toolResults).toHaveLength(1);
+    expect((toolResults[0]!.args as { isError?: boolean }).isError).not.toBe(true);
   });
 
   it('forwards a visual rejection to the spec critic when the model ignores it', async () => {

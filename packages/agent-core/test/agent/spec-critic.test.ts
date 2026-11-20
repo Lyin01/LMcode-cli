@@ -88,7 +88,10 @@ describe('Spec-consistency critic', () => {
 
     ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
     ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
-    ctx.mockNextResponse({ type: 'text', text: 'Everything looks good overall.' });
+    ctx.mockNextResponse({
+      type: 'text',
+      text: 'Everything looks good overall. I would use SPEC_MISSING: only for a concrete gap.',
+    });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt and update README' }] });
     await ctx.untilTurnEnd();
@@ -102,6 +105,42 @@ describe('Spec-consistency critic', () => {
     expect(
       historyTexts.some((text) => text.includes('returned no valid verdict')),
     ).toBe(false);
+  });
+
+  it('completes the turn when the critic request stalls', async () => {
+    const ctx = testAgent({
+      jian: createCommandJian(''),
+      initialConfig: { providers: {}, enableSelfHealing: false },
+    });
+    ctx.configure({ tools: ['Write'] });
+    await ctx.rpc.setPermission({ mode: 'yolo' });
+    const rawGenerate = ctx.agent.rawGenerate.bind(ctx.agent);
+    const criticStarted = createControlledPromise<AbortSignal | undefined>();
+    vi.spyOn(ctx.agent, 'rawGenerate').mockImplementation(async (...args) => {
+      if (args[1].includes('specification-compliance reviewer')) {
+        criticStarted.resolve(args[5]?.signal);
+        return new Promise<never>(() => {});
+      }
+      return rawGenerate(...args);
+    });
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      ctx.mockNextResponse(writeCall('call_w1', 'notes.txt'));
+      ctx.mockNextResponse({ type: 'text', text: 'Done: wrote notes.txt.' });
+      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Write notes.txt' }] });
+      const signal = await criticStarted;
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(signal?.aborted).toBe(true);
+      expect(await ctx.untilTurnEnd()).toContainEqual(expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'completed' }),
+      }));
+      expect(ctx.llmCalls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('completes the turn without continuation when the critic approves', async () => {

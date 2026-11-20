@@ -14,7 +14,8 @@ function sortJsonValue(value: unknown): unknown {
   if (!isPlainRecord(value)) {
     return value;
   }
-  const out: Record<string, unknown> = {};
+  // A null prototype preserves "__proto__" as an ordinary JSON property.
+  const out = Object.create(null) as Record<string, unknown>;
   for (const key of Object.keys(value).toSorted()) {
     out[key] = sortJsonValue(value[key]);
   }

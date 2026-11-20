@@ -56,7 +56,12 @@ function buildGoalCompletionPromptMessage(goal: GoalSnapshot): string {
 function buildGoalBlockedMessage(goal: GoalSnapshot): string {
   const turns = `${goal.turnsUsed} turn${goal.turnsUsed === 1 ? '' : 's'}`;
   const stats = `Worked ${turns} over ${formatElapsed(goal.wallClockMs)}, using ${formatTokens(goal.tokensUsed)} tokens.`;
-  return `Goal blocked.\n${stats}`;
+  const lines = ['Goal blocked.'];
+  if (goal.terminalReason !== undefined) {
+    lines.push(wrapUntrustedGoalData('terminal_reason', goal.terminalReason));
+  }
+  lines.push(stats);
+  return lines.join('\n');
 }
 
 function formatElapsed(ms: number): string {

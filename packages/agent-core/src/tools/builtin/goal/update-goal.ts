@@ -21,13 +21,18 @@ import { isAbortError } from '../../../loop/errors';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
 import { toInputJsonSchema } from '../../support/input-schema';
 
+export interface GoalReview {
+  readonly outcome: 'passed' | 'failed' | 'inconclusive';
+  readonly reason: string;
+}
+
 export type GoalGraderFn = (
   goalId: string,
   objective: string,
   criterion: string | undefined,
   evidence: string,
   signal: AbortSignal,
-) => Promise<{ pass: boolean; reason: string }>;
+) => Promise<GoalReview>;
 
 export const UpdateGoalToolInputSchema = z
   .object({
@@ -99,6 +104,8 @@ function renderEvidenceEntry(
       message.name ??
       (message.toolCallId === undefined ? undefined : toolNames.get(message.toolCallId)) ??
       'unknown';
+    // A previous review describes a verdict, not execution evidence for the next review.
+    if (name === 'UpdateGoal') return undefined;
     const status = message.isError === true ? 'error' : 'success';
     return formatEvidenceSection(
       `tool result: ${name}; ${status}`,
@@ -184,15 +191,16 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
             : `Cannot complete a goal in status "${goalState.status}".`,
       };
     }
-    const initialBudgetResult = await this.blockIfResourceBudgetReached(goal, goalState);
-    if (initialBudgetResult !== null) return initialBudgetResult;
+    if (isGoalResourceBudgetReached(goalState)) {
+      return this.blockVerification(goal, goalState, GOAL_BUDGET_REACHED_REASON);
+    }
 
+    const goalTransition = goal.transitionSignal;
     const evidence = extractRecentEvidence(goal.getEvidenceContext(goalState.goalId));
 
-    let pass: boolean;
-    let reason: string;
+    let review: GoalReview;
     try {
-      const result = await this.grader(
+      review = await this.grader(
         goalState.goalId,
         goalState.objective,
         goalState.completionCriterion,
@@ -200,28 +208,36 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
         signal,
       );
       signal.throwIfAborted();
-      pass = result.pass;
-      reason = result.reason;
     } catch (error) {
       if (signal.aborted || isAbortError(error)) throw error;
       this.agent.log.warn('goal completion grader failed', { error });
-      pass = false;
-      reason =
-        'Goal verification could not be completed because the grader was unavailable. Completion remains unverified.';
+      review = {
+        outcome: 'failed',
+        reason: 'Goal verification could not be completed because the grader was unavailable. Completion remains unverified.',
+      };
     }
-    reason = normalizeGoalReviewFeedback(reason);
+    const reason = normalizeGoalReviewFeedback(review.reason);
 
     const current = goal.getGoal().goal;
-    if (current?.goalId !== goalState.goalId || current.status !== 'active') {
+    if (
+      goalTransition.aborted ||
+      current?.goalId !== goalState.goalId ||
+      current.status !== 'active'
+    ) {
       return {
         isError: true,
         output: 'Goal changed while completion verification was running. The grader verdict was discarded.',
       };
     }
-    const finalBudgetResult = await this.blockIfResourceBudgetReached(goal, current);
-    if (finalBudgetResult !== null) return finalBudgetResult;
+    // Keep the state check and terminal transition in the same synchronous turn.
+    if (isGoalResourceBudgetReached(current)) {
+      return this.blockVerification(goal, current, GOAL_BUDGET_REACHED_REASON);
+    }
+    if (review.outcome === 'inconclusive') {
+      return this.blockVerification(goal, current, reason);
+    }
 
-    if (pass) {
+    if (review.outcome === 'passed') {
       const completed = await goal.markComplete({}, 'model');
       if (completed === null) {
         return {
@@ -256,16 +272,16 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
     };
   }
 
-  private async blockIfResourceBudgetReached(
+  private async blockVerification(
     goal: Agent['goal'],
     snapshot: GoalSnapshot,
-  ): Promise<ExecutableToolResult | null> {
-    if (!isGoalResourceBudgetReached(snapshot)) return null;
-    const blocked = await goal.markBlocked({ reason: GOAL_BUDGET_REACHED_REASON }, 'runtime');
+    reason: string,
+  ): Promise<ExecutableToolResult> {
+    const blocked = await goal.markBlocked({ reason }, 'runtime');
     if (blocked?.goalId !== snapshot.goalId) {
       return {
         isError: true,
-        output: 'Goal changed before budget enforcement could be recorded.',
+        output: 'Goal changed before the verification result could be recorded.',
       };
     }
     this.agent.context.appendSystemReminder(buildGoalBlockedReasonPrompt(blocked), {
@@ -273,7 +289,9 @@ export class UpdateGoalTool implements BuiltinTool<UpdateGoalToolInput> {
       name: GOAL_BLOCKED_REMINDER_NAME,
     });
     return {
-      output: 'Goal completion verification stopped because a configured budget was reached.',
+      output: reason === GOAL_BUDGET_REACHED_REASON
+        ? 'Goal completion verification stopped because a configured budget was reached.'
+        : `Goal completion verification is blocked.\n${wrapUntrustedGoalData('terminal_reason', reason)}`,
       stopTurn: true,
     };
   }

@@ -17,14 +17,12 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import {
-  pinPhysicalParentDirectory,
-  resolveRealPathAccessPath,
-  revalidateRealPathAccessPath,
-} from '../../policies/path-access';
+import { pinPhysicalParentDirectory } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
+import { resolveFileMutation } from './file-mutation';
+import { replaceExact } from './replace-exact';
 import { materializeModelText, toModelTextView, computeAnchor } from './line-endings';
 import MULTI_EDIT_DESCRIPTION from './multi-edit.md';
 
@@ -68,12 +66,6 @@ export const MultiEditInputSchema = z.object({
 
 export type MultiEditInput = z.Infer<typeof MultiEditInputSchema>;
 
-function replaceOnceLiteral(content: string, oldString: string, newString: string): string {
-  const index = content.indexOf(oldString);
-  if (index === -1) return content;
-  return content.slice(0, index) + newString + content.slice(index + oldString.length);
-}
-
 export class MultiEditTool implements BuiltinTool<MultiEditInput> {
   readonly name = 'MultiEdit' as const;
   readonly description = MULTI_EDIT_DESCRIPTION;
@@ -85,11 +77,7 @@ export class MultiEditTool implements BuiltinTool<MultiEditInput> {
   ) {}
 
   async resolveExecution(args: MultiEditInput): Promise<ToolExecution> {
-    const path = await resolveRealPathAccessPath(args.path, {
-      jian: this.jian,
-      workspace: this.workspace,
-      operation: 'write',
-    });
+    const { path, run } = await resolveFileMutation(args.path, this.jian, this.workspace);
     const editCount = args.edits.length;
     return {
       accesses: ToolAccesses.readWriteFile(path),
@@ -109,15 +97,7 @@ export class MultiEditTool implements BuiltinTool<MultiEditInput> {
           pathClass: this.jian.pathClass(),
           homeDir: this.jian.gethome(),
         }),
-      execute: async () =>
-        this.execution(
-          args,
-          await revalidateRealPathAccessPath(args.path, path, {
-            jian: this.jian,
-            workspace: this.workspace,
-            operation: 'write',
-          }),
-        ),
+      execute: ({ signal }) => run(signal, (safePath) => this.execution(args, safePath)),
     };
   }
 
@@ -152,8 +132,7 @@ export class MultiEditTool implements BuiltinTool<MultiEditInput> {
         }
 
         const replaceAll = edit.replace_all ?? false;
-        const parts = content.split(edit.old_string);
-        const count = parts.length - 1;
+        const { text, count } = replaceExact(content, edit.old_string, edit.new_string, replaceAll);
 
         if (count === 0) {
           return {
@@ -172,10 +151,8 @@ export class MultiEditTool implements BuiltinTool<MultiEditInput> {
           };
         }
 
-        content = replaceAll
-          ? parts.join(edit.new_string)
-          : replaceOnceLiteral(content, edit.old_string, edit.new_string);
-        totalReplacements += replaceAll ? count : 1;
+        content = text;
+        totalReplacements += count;
       }
 
       await pinPhysicalParentDirectory(safePath, { jian: this.jian });

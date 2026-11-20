@@ -167,6 +167,28 @@ describe('ToolScheduler', () => {
     expect(drained).toEqual(['first-writer', 'second-writer', 'reader']);
   });
 
+  it('starts a queued task only once when it throws before returning a promise', async () => {
+    const scheduler = new ToolScheduler<string>();
+    const started: string[] = [];
+    const writer = makeControlledTask('writer', ToolAccesses.all(), started);
+    const first = scheduler.add(writer.task);
+    const broken = scheduler.add({
+      accesses: ToolAccesses.all(),
+      start: () => {
+        started.push('broken');
+        throw new Error('failed to start');
+      },
+    });
+    const next = makeControlledTask('reader', readPath('/repo/a.ts'), started);
+    const last = scheduler.add(next.task);
+    writer.resolve();
+    await first;
+    await expect(broken).rejects.toThrow('failed to start');
+    next.resolve();
+    await expect(last).resolves.toBe('reader');
+    expect(started).toEqual(['writer', 'broken', 'reader']);
+  });
+
   it('does not start later tasks that conflict with queued accesses', async () => {
     const started: string[] = [];
     const drained: string[] = [];
@@ -276,9 +298,9 @@ function makeControlledTask(
   return {
     task: {
       accesses,
-      start: async () => {
+      start: () => {
         startedNames.push(name);
-        return { result };
+        return result;
       },
     },
     resolve: () => {

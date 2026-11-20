@@ -174,24 +174,22 @@ describe('ToolResultBuilder', () => {
       expect(result.truncated).toBe(false);
     });
 
-    it('preserves full content when head fills and tail continues without overflow', () => {
+    it('preserves all output up to the configured budget when a line crosses the head boundary', () => {
       const builder = new ToolResultBuilder({ maxChars: 2000 });
-      // 500-char lines with newlines (501 chars each). Two writes fill head
-      // to 1002/1100; third write of 501 chars fills head to 1100 (99-char
-      // per-line truncation adds `[...truncated]`). Fourth and fifth writes
-      // go to tail. Total input ~2505 > 2000, so head-tail marker appears.
-      const line = 'x'.repeat(500) + '\n';
-      builder.write(line);
-      builder.write(line);
-      builder.write(line);   // head fills at 1100, 99-char overflow → per-line truncated
-      builder.write(line);   // goes to tail
-      builder.write(line);   // goes to tail, totalInput=2505 > 2000
+      const line = 'x'.repeat(499) + '\n';
+      for (let i = 0; i < 4; i += 1) builder.write(line);
+      expect(builder.ok('Done')).toMatchObject({ output: line.repeat(4), truncated: false });
+    });
 
-      const result = builder.ok();
-      expect(result.output).toContain('x'.repeat(500));
-      // Tail content is present (somewhere after the marker)
-      expect(result.output).toContain('[...truncated]');
-      expect(result.truncated).toBe(true);
+    it('keeps both ends of one oversized unwrapped record and counts omitted UTF-8 bytes', () => {
+      const builder = new ToolResultBuilder({ maxChars: 2000, maxLineLength: null });
+      builder.write('H'.repeat(1099) + '😀' + '界'.repeat(300) + '😀' + 'T'.repeat(799));
+      const result = builder.error('Failed');
+      expect(result.output).toBe(
+        'H'.repeat(1099) + '\n[...truncated] 908 B\n' + 'T'.repeat(799) +
+        '\nFailed Output is truncated to fit in the message.',
+      );
+      expect(result.isError).toBe(true);
     });
 
     it('inserts a truncation marker with byte count between head and tail when total exceeds maxChars', () => {

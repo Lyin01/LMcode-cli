@@ -52,15 +52,8 @@ function captureCommandRewrite(
     signal,
   }).then(() => {
       const argv = execWithEnv.mock.calls[0]?.[0] as readonly string[];
-      // The shell wrapper is "cd '<cwd>' && <rewritten>"; isolate the rewrite.
-      const wrapped = argv[2]!;
-      const match = /^cd '[^']+' && ([\s\S]*)$/.exec(wrapped)!;
-      // Strip self-protection preamble if present: _LMCODE_CHECK(){...};\n <command>
-      let rewritten = match[1]!;
-      if (rewritten.startsWith('_LMCODE_CHECK(){')) {
-        const nl = rewritten.lastIndexOf('\n');
-        if (nl !== -1) rewritten = rewritten.slice(nl + 1);
-      }
+      // Each case supplies one command line after the shell setup.
+      const rewritten = argv[2]!.split('\n').at(-1)!;
       return { rewritten, argv };
     });
 }

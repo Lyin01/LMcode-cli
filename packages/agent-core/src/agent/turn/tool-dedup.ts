@@ -36,6 +36,15 @@ interface Deferred<T> {
   resolve(value: T): void;
 }
 
+/** One execution shared by all equivalent provider calls in this step. */
+interface OriginalCall {
+  readonly id: string;
+  readonly streak: number;
+  reusableGeneration: number;
+  result?: ExecutableToolResult;
+  waiter?: Deferred<ExecutableToolResult>;
+}
+
 function makeDeferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((r) => {
@@ -363,31 +372,22 @@ function describeReadWindow(window: ResolvedReadWindow): string {
  *   file is suppressed entirely and returned as an error result.
  */
 export class ToolCallDeduplicator {
-  private stepDeferreds = new Map<string, Deferred<ExecutableToolResult>>();
-  private stepCalls: string[] = [];
-  private originalCallIndex = new Map<string, number>();
-  private syntheticCallIds = new Set<string>();
-  private readonly finalizedResults = new Map<string, ExecutableToolResult>();
-  /**
-   * Records the dedup key used at `checkSameStep` time, keyed by `toolCallId`.
-   * The loop is allowed to rewrite args between `prepareToolExecution` and
-   * `finalizeToolResult` via `PrepareToolExecutionResult.updatedArgs`, so the
-   * `(toolName, args)` pair available at finalize may differ from what was
-   * registered. We pin the key at registration time and look it up by call id
-   * during finalize.
-   */
-  private callKeyByCallId = new Map<string, string>();
+  private readonly originalsByKey = new Map<string, OriginalCall>();
+  // Hooks can rewrite args. Finalization must use the registration-time identity.
+  private readonly originalByCallId = new Map<string, OriginalCall>();
   private consecutiveKey: string | null = null;
   private consecutiveCount = 0;
+  private stepKey: string | null = null;
+  private stepStreak = 0;
   private readCoverageDisabled = false;
   private readonly readCoverage = new Map<string, ReadLedgerEntry>();
   private globalReadGeneration = 0;
   private readonly pendingReadInvalidations = new Map<string, ReadInvalidation>();
-  private stepReadInvalidations: ReadInvalidation[] = [];
+  private stepHasWriter = false;
 
   // Storm Breaker sliding window (persisted across steps within one turn).
-  private stepStormCalls: StormCall[] = [];
-  private readonly stormWindow: StormCall[] = [];
+  private stepStormWindow: StormCall[] = [];
+  private stormWindow: StormCall[] = [];
   private readonly stormWindowSize = 8;
 
   constructor(
@@ -407,8 +407,12 @@ export class ToolCallDeduplicator {
     if (invalidation === undefined) return;
 
     this.pendingReadInvalidations.set(toolCallId, invalidation);
-    this.stepReadInvalidations.push(invalidation);
+    this.stepHasWriter = true;
     this.globalReadGeneration += 1;
+    // An immediate duplicate can still reuse this writer. Any intervening
+    // writer must invalidate it, even when that writer ultimately fails.
+    const original = this.originalByCallId.get(toolCallId);
+    if (original?.id === toolCallId) original.reusableGeneration = this.globalReadGeneration;
   }
 
   /** Clear guards when prior Read output may no longer be visible to the model. */
@@ -425,59 +429,36 @@ export class ToolCallDeduplicator {
   }
 
   beginStep(): void {
-    for (const deferred of this.stepDeferreds.values()) {
-      deferred.resolve({
+    for (const original of this.originalByCallId.values()) {
+      original.waiter?.resolve({
         output: 'Tool call deduplicated but original result was lost',
         isError: true,
       });
     }
-    this.stepDeferreds.clear();
-    this.stepCalls = [];
-    this.originalCallIndex.clear();
-    this.syntheticCallIds.clear();
-    this.finalizedResults.clear();
-    this.callKeyByCallId.clear();
+    this.originalsByKey.clear();
+    this.originalByCallId.clear();
+    this.stepKey = this.consecutiveKey;
+    this.stepStreak = this.consecutiveCount;
     this.pendingReadInvalidations.clear();
-    this.stepReadInvalidations = [];
-    this.stepStormCalls = [];
+    this.stepHasWriter = false;
+    this.stepStormWindow = [...this.stormWindow];
   }
 
   isSameStepDuplicate(toolCallId: string): boolean {
-    return this.syntheticCallIds.has(toolCallId);
+    const original = this.originalByCallId.get(toolCallId);
+    return original !== undefined && original.id !== toolCallId;
   }
 
   /** Save the result after post-tool validation so duplicates reuse it verbatim. */
   recordFinalResult(toolCallId: string, result: ExecutableToolResult): void {
-    if (this.syntheticCallIds.has(toolCallId)) return;
-    const key = this.callKeyByCallId.get(toolCallId);
-    if (key !== undefined) this.finalizedResults.set(key, result);
-  }
-
-  finalResultForCall(
-    toolCallId: string,
-    fallback: ExecutableToolResult,
-  ): ExecutableToolResult {
-    const key = this.callKeyByCallId.get(toolCallId);
-    return key === undefined ? fallback : (this.finalizedResults.get(key) ?? fallback);
+    const original = this.originalByCallId.get(toolCallId);
+    if (original?.id === toolCallId) original.result = result;
   }
 
   endStep(): void {
-    for (const key of this.stepCalls) {
-      if (key === this.consecutiveKey) {
-        this.consecutiveCount += 1;
-      } else {
-        this.consecutiveKey = key;
-        this.consecutiveCount = 1;
-      }
-    }
-
-    // Storm Breaker: record mutating calls in the sliding window.
-    for (const call of this.stepStormCalls) {
-      this.stormWindow.push(call);
-      if (this.stormWindow.length > this.stormWindowSize) {
-        this.stormWindow.shift();
-      }
-    }
+    this.consecutiveKey = this.stepKey;
+    this.consecutiveCount = this.stepStreak;
+    this.stormWindow = this.stepStormWindow;
   }
 
   /**
@@ -490,27 +471,24 @@ export class ToolCallDeduplicator {
    * loop on a deferred that only resolves in the finalize phase.
    */
   checkSameStep(toolCallId: string, toolName: string, args: unknown): ExecutableToolResult | null {
-    const exactKey = makeKey(toolName, args);
     const request =
       toolName === 'Read'
         ? readRequest(args, this.cwd, this.pathClass, this.homeDir)
         : undefined;
     const key =
       request === undefined
-        ? exactKey
+        ? makeKey(toolName, args)
         : readDedupKey(request, this.globalReadGeneration);
 
-    const existing = this.stepDeferreds.get(key);
-    if (existing !== undefined) {
-      this.stepCalls.push(key);
-      this.callKeyByCallId.set(toolCallId, key);
-      this.syntheticCallIds.add(toolCallId);
+    const existing = this.originalsByKey.get(key);
+    if (existing?.reusableGeneration === this.globalReadGeneration) {
+      this.advanceStreak(key);
+      this.originalByCallId.set(toolCallId, existing);
       return DEDUP_PLACEHOLDER_RESULT;
     }
 
     if (request !== undefined && !this.readCoverageDisabled) {
-      const mayHaveChanged = this.stepReadInvalidations.length > 0;
-      const entry = mayHaveChanged ? undefined : this.readCoverage.get(request.pathKey);
+      const entry = this.stepHasWriter ? undefined : this.readCoverage.get(request.pathKey);
       const covered = entry === undefined ? undefined : coveredReadWindow(entry, request);
       if (covered !== undefined) {
         return {
@@ -526,16 +504,14 @@ export class ToolCallDeduplicator {
     const candidateStormCall = stormCall(
       toolName,
       args,
-      exactKey,
+      key,
       this.cwd,
       this.pathClass,
       this.homeDir,
     );
     if (candidateStormCall !== undefined) {
-      const priorCalls = [...this.stormWindow, ...this.stepStormCalls].slice(
-        -this.stormWindowSize,
-      );
-      const exactCount = priorCalls.filter((call) => call.exactKey === exactKey).length;
+      const priorCalls = this.stepStormWindow;
+      const exactCount = priorCalls.filter((call) => call.exactKey === key).length;
       if (exactCount >= EXACT_MUTATION_STORM_THRESHOLD - 1) {
         return {
           output:
@@ -557,14 +533,24 @@ export class ToolCallDeduplicator {
       }
     }
 
-    const index = this.stepCalls.length;
-    this.stepCalls.push(key);
-    this.callKeyByCallId.set(toolCallId, key);
-
-    this.stepDeferreds.set(key, makeDeferred<ExecutableToolResult>());
-    this.originalCallIndex.set(toolCallId, index);
-    if (candidateStormCall !== undefined) this.stepStormCalls.push(candidateStormCall);
+    this.advanceStreak(key);
+    const original: OriginalCall = {
+      id: toolCallId,
+      streak: this.stepStreak,
+      reusableGeneration: this.globalReadGeneration,
+    };
+    this.originalsByKey.set(key, original);
+    this.originalByCallId.set(toolCallId, original);
+    if (candidateStormCall !== undefined) {
+      if (this.stepStormWindow.length === this.stormWindowSize) this.stepStormWindow.shift();
+      this.stepStormWindow.push(candidateStormCall);
+    }
     return null;
+  }
+
+  private advanceStreak(key: string): void {
+    this.stepStreak = key === this.stepKey ? this.stepStreak + 1 : 1;
+    this.stepKey = key;
   }
 
   /**
@@ -584,31 +570,15 @@ export class ToolCallDeduplicator {
     const invalidation = this.pendingReadInvalidations.get(toolCallId);
     this.pendingReadInvalidations.delete(toolCallId);
 
-    // Use the key recorded at registration time, NOT a fresh key from the args
-    // passed here — the loop may have rewritten args via updatedArgs.
-    const key = this.callKeyByCallId.get(toolCallId);
-    if (key === undefined) return result;
-
-    if (this.syntheticCallIds.has(toolCallId)) {
-      const deferred = this.stepDeferreds.get(key);
-      if (deferred === undefined) return result;
-      return deferred.promise;
+    const original = this.originalByCallId.get(toolCallId);
+    if (original === undefined) return result;
+    if (original.id !== toolCallId) {
+      if (original.result !== undefined) return original.result;
+      original.waiter ??= makeDeferred<ExecutableToolResult>();
+      return original.waiter.promise;
     }
-    const index = this.originalCallIndex.get(toolCallId);
-    if (index === undefined) return result;
-    this.originalCallIndex.delete(toolCallId);
-
-    let lastKey = this.consecutiveKey;
-    let streak = this.consecutiveCount;
-    for (let i = 0; i <= index; i += 1) {
-      const k = this.stepCalls[i]!;
-      if (k === lastKey) {
-        streak += 1;
-      } else {
-        lastKey = k;
-        streak = 1;
-      }
-    }
+    if (original.result !== undefined) return result;
+    const streak = original.streak;
 
     let finalResult = result;
     if (streak === 3) {
@@ -618,7 +588,8 @@ export class ToolCallDeduplicator {
     }
 
     this.recordToolProgress(toolName, args, result, finalResult, invalidation);
-    this.stepDeferreds.get(key)?.resolve(finalResult);
+    original.result = finalResult;
+    original.waiter?.resolve(finalResult);
     return finalResult;
   }
 

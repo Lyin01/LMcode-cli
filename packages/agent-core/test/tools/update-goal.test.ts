@@ -31,8 +31,8 @@ describe('goal completion grading', () => {
   });
 
   it('rejects missing or malformed structured verdicts', () => {
-    expect(parseGraderResponse('PASS').pass).toBe(false);
-    expect(parseGraderResponse('{not valid json}').pass).toBe(false);
+    expect(parseGraderResponse('PASS').outcome).toBe('inconclusive');
+    expect(parseGraderResponse('{not valid json}').outcome).toBe('inconclusive');
   });
 
   it('rejects oversized structured verdict fields', () => {
@@ -47,7 +47,7 @@ describe('goal completion grading', () => {
       }),
     );
 
-    expect(result.pass).toBe(false);
+    expect(result.outcome).toBe('inconclusive');
     expect(result.reason).toContain('invalid structured verdict');
   });
 
@@ -63,7 +63,7 @@ describe('goal completion grading', () => {
       }),
     );
 
-    expect(result.pass).toBe(false);
+    expect(result.outcome).toBe('failed');
     expect(result.reason).toContain('contradicts');
     expect(result.reason).toContain('Implement the missing requirement.');
   });
@@ -80,7 +80,7 @@ describe('goal completion grading', () => {
       }),
     );
 
-    expect(result.pass).toBe(false);
+    expect(result.outcome).toBe('failed');
     expect(result.reason).toContain('The cancellation path is still unverified.');
   });
 
@@ -96,7 +96,7 @@ describe('goal completion grading', () => {
       }),
     );
 
-    expect(result.pass).toBe(true);
+    expect(result.outcome).toBe('passed');
   });
 
   it('isolates untrusted objective, criteria, and output in grader prompts', async () => {
@@ -196,6 +196,12 @@ describe('goal completion grading', () => {
       toolCallId: 'call_validation',
       isError: true,
     });
+    ctx.agent.context.appendMessage({
+      role: 'tool',
+      content: [{ type: 'text', text: 'Previous reviewer feedback. ' + 'x'.repeat(4000) }],
+      toolCalls: [],
+      toolCallId: 'call_update_goal',
+    });
     let capturedEvidence: string | undefined;
     const grader = vi.fn(
       async (
@@ -206,7 +212,7 @@ describe('goal completion grading', () => {
         _signal: AbortSignal,
       ) => {
         capturedEvidence = evidence;
-        return { pass: false, reason: 'Validation failed.' };
+        return { outcome: 'failed' as const, reason: 'Validation failed.' };
       },
     );
     const tool = new UpdateGoalTool(ctx.agent, grader);
@@ -227,6 +233,7 @@ describe('goal completion grading', () => {
     );
     expect(evidence).not.toContain('old-a-');
     expect(evidence).not.toContain('[tool call: UpdateGoal]');
+    expect(evidence).not.toContain('tool result: UpdateGoal');
   });
 
   it('grades only current-goal evidence and resets the boundary after context clear', async () => {
@@ -380,7 +387,7 @@ describe('goal completion grading', () => {
       await ctx.agent.goal.createGoal({
         objective: pass ? 'Complete safely' : 'Continue safely',
       });
-      const grader = vi.fn().mockResolvedValue({ pass, reason: rawFeedback });
+      const grader = vi.fn().mockResolvedValue({ outcome: pass ? 'passed' : 'failed', reason: rawFeedback });
       const tool = new UpdateGoalTool(ctx.agent, grader);
 
       const result = await executeTool(tool, {
@@ -411,7 +418,7 @@ describe('goal completion grading', () => {
     }
   });
 
-  it('includes acceptance-criteria and grader usage in completion stats', async () => {
+  it('recovers an invalid verdict and charges criteria and both review attempts to completion', async () => {
     const ctx = testAgent();
     ctx.configure();
     await ctx.agent.goal.createGoal({ objective: 'Ship the complete feature' });
@@ -419,6 +426,7 @@ describe('goal completion grading', () => {
       type: 'text',
       text: JSON.stringify({ criteria: ['The feature is implemented and validated.'] }),
     });
+    ctx.mockNextResponse({ type: 'text', text: 'PASS' });
     ctx.mockNextResponse({
       type: 'text',
       text: JSON.stringify({
@@ -450,10 +458,78 @@ describe('goal completion grading', () => {
     const sessionTokens = ctx.agent.usage.stats().totalTokens;
 
     expect(result.isError).toBeFalsy();
-    expect(ctx.llmCalls).toHaveLength(2);
+    expect(ctx.llmCalls).toHaveLength(3);
     expect(sessionTokens).toBeGreaterThan(0);
     expect(completionStats?.tokensUsed).toBe(sessionTokens);
     expect(ctx.agent.goal.getGoal().goal).toBeNull();
+  });
+
+  it('blocks with a resumable reason when both verdicts are malformed', async () => {
+    const ctx = testAgent();
+    ctx.configure();
+    const goal = await ctx.agent.goal.createGoal({
+      objective: 'Ship a validated change',
+      completionCriterion: 'The tests pass.',
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'PASS' });
+    ctx.mockNextResponse({ type: 'text', text: '{"pass":true}' });
+    const result = await executeTool(new UpdateGoalTool(ctx.agent, createGoalGrader(ctx.agent)), {
+      turnId: 'turn-1',
+      toolCallId: 'invalid-review',
+      signal: new AbortController().signal,
+      args: { status: 'complete' },
+    });
+
+    expect(ctx.llmCalls).toHaveLength(2);
+    expect(result).toMatchObject({ stopTurn: true, output: expect.stringContaining('unverified') });
+    const blocked = ctx.agent.goal.getGoal().goal;
+    expect(blocked).toMatchObject({
+      goalId: goal.goalId,
+      status: 'blocked',
+      terminalReason: expect.stringContaining('invalid structured verdicts'),
+    });
+    expect(messagesText(ctx.agent.context.history)).toContain(blocked!.terminalReason);
+    const resumed = await ctx.agent.goal.resumeGoal();
+    expect(resumed).toMatchObject({ goalId: goal.goalId, status: 'active' });
+  });
+
+  it('enforces the token budget before retrying an invalid verdict', async () => {
+    const ctx = testAgent();
+    ctx.configure();
+    await ctx.agent.goal.createGoal({ objective: 'Check the change', completionCriterion: 'Tests pass.' });
+    await ctx.agent.goal.setBudgetLimits({ budgetLimits: { tokenBudget: 1 } });
+    ctx.mockNextResponse({ type: 'text', text: 'PASS' });
+    const result = await executeTool(new UpdateGoalTool(ctx.agent, createGoalGrader(ctx.agent)), {
+      turnId: 'turn-1',
+      toolCallId: 'invalid-review-at-budget',
+      signal: new AbortController().signal,
+      args: { status: 'complete' },
+    });
+
+    expect(ctx.llmCalls).toHaveLength(1);
+    expect(result.stopTurn).toBe(true);
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({
+      status: 'blocked', terminalReason: 'A configured budget was reached',
+    });
+  });
+
+  it('discards an in-flight verdict when the same goal is paused and resumed', async () => {
+    const ctx = testAgent();
+    const original = await ctx.agent.goal.createGoal({ objective: 'Complete the current run' });
+    const grader: GoalGraderFn = async () => {
+      await ctx.agent.goal.pauseGoal();
+      await ctx.agent.goal.resumeGoal();
+      return { outcome: 'passed', reason: 'The previous run passed.' };
+    };
+    const result = await executeTool(new UpdateGoalTool(ctx.agent, grader), {
+      turnId: 'turn-1',
+      toolCallId: 'stale-after-resume',
+      signal: new AbortController().signal,
+      args: { status: 'complete' },
+    });
+
+    expect(result).toMatchObject({ isError: true, output: expect.stringContaining('discarded') });
+    expect(ctx.agent.goal.getGoal().goal).toMatchObject({ goalId: original.goalId, status: 'active' });
   });
 
   it('does not invoke the grader when a resource budget is already reached', async () => {
@@ -461,7 +537,7 @@ describe('goal completion grading', () => {
     await ctx.agent.goal.createGoal({ objective: 'Respect the existing budget boundary' });
     await ctx.agent.goal.setBudgetLimits({ budgetLimits: { tokenBudget: 1 } });
     await ctx.agent.goal.recordTokenUsage(1);
-    const grader = vi.fn().mockResolvedValue({ pass: true, reason: 'must not run' });
+    const grader = vi.fn().mockResolvedValue({ outcome: 'passed', reason: 'must not run' });
     const tool = new UpdateGoalTool(ctx.agent, grader);
 
     const result = await executeTool(tool, {
@@ -528,7 +604,7 @@ describe('goal completion grading', () => {
     await ctx.agent.goal.setBudgetLimits({ budgetLimits: { wallClockBudgetMs: 100 } });
     const grader = vi.fn(async () => {
       now = 1_100;
-      return { pass: true, reason: 'The work otherwise passes.' };
+      return { outcome: 'passed' as const, reason: 'The work otherwise passes.' };
     });
     const tool = new UpdateGoalTool(ctx.agent, grader);
 
@@ -572,7 +648,7 @@ describe('goal completion grading', () => {
     const ctx = testAgent();
     await ctx.agent.goal.createGoal({ objective: 'Wait until explicitly resumed' });
     await ctx.agent.goal.pauseGoal();
-    const grader = vi.fn().mockResolvedValue({ pass: true, reason: 'must not run' });
+    const grader = vi.fn().mockResolvedValue({ outcome: 'passed', reason: 'must not run' });
     const tool = new UpdateGoalTool(ctx.agent, grader);
 
     const complete = await executeTool(tool, {
@@ -607,7 +683,7 @@ describe('goal completion grading', () => {
     const grader = vi.fn(async () => {
       abortController.abort();
       abortController.signal.throwIfAborted();
-      return { pass: true, reason: 'unreachable' };
+      return { outcome: 'passed' as const, reason: 'unreachable' };
     });
     const tool = new UpdateGoalTool(ctx.agent, grader);
 
@@ -811,6 +887,6 @@ function messagesText(messages: readonly Message[]): string {
 function captureEvidence(captures: string[]): GoalGraderFn {
   return async (_goalId, _objective, _criterion, evidence, _signal) => {
     captures.push(evidence);
-    return { pass: false, reason: 'Continue working.' };
+    return { outcome: 'failed', reason: 'Continue working.' };
   };
 }

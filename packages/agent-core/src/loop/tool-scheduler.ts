@@ -18,7 +18,7 @@ import { ToolAccesses } from './tool-access';
 
 export interface ToolCallTask<Result> {
   readonly accesses: ToolAccesses;
-  readonly start: () => Promise<{ readonly result: Promise<Result> }>;
+  readonly start: () => Promise<Result>;
 }
 
 interface ScheduledToolCallTask<Result> extends ToolCallTask<Result> {
@@ -26,8 +26,9 @@ interface ScheduledToolCallTask<Result> extends ToolCallTask<Result> {
 }
 
 export class ToolScheduler<Result> {
-  private readonly activeTasks: Array<ScheduledToolCallTask<Result>> = [];
+  private readonly activeTasks = new Set<ScheduledToolCallTask<Result>>();
   private queuedTasks: Array<ScheduledToolCallTask<Result>> = [];
+  private drainScheduled = false;
 
   add(task: ToolCallTask<Result>): Promise<Result> {
     const result = createControlledPromise<Result>();
@@ -37,7 +38,7 @@ export class ToolScheduler<Result> {
     if (this.isBlocked(task, this.queuedTasks)) {
       this.queuedTasks.push(scheduledTask);
     } else {
-      this.start(scheduledTask);
+      void this.start(scheduledTask);
     }
 
     return result;
@@ -54,36 +55,32 @@ export class ToolScheduler<Result> {
 
   private conflictsWithAny(
     task: ToolCallTask<Result>,
-    candidates: readonly ToolCallTask<Result>[],
+    candidates: Iterable<ToolCallTask<Result>>,
   ): boolean {
-    return candidates.some((candidate) =>
-      ToolAccesses.conflict(task.accesses, candidate.accesses),
-    );
+    for (const candidate of candidates) {
+      if (ToolAccesses.conflict(task.accesses, candidate.accesses)) return true;
+    }
+    return false;
   }
 
-  private start(task: ScheduledToolCallTask<Result>): void {
-    this.activeTasks.push(task);
-    let started: Promise<{ readonly result: Promise<Result> }>;
+  private async start(task: ScheduledToolCallTask<Result>): Promise<void> {
+    this.activeTasks.add(task);
     try {
-      started = task.start();
+      task.result.resolve(await task.start());
     } catch (error) {
       task.result.reject(error);
-      this.finish(task);
-      return;
+    } finally {
+      this.activeTasks.delete(task);
+      // Several readers can finish together. Defer their single queue pass
+      // until after the current pass, including when start() throws synchronously.
+      if (this.queuedTasks.length > 0 && !this.drainScheduled) {
+        this.drainScheduled = true;
+        queueMicrotask(() => {
+          this.drainScheduled = false;
+          this.startQueuedTasks();
+        });
+      }
     }
-
-    void started
-      .then(({ result }) => result)
-      .then(task.result.resolve, task.result.reject)
-      .finally(() => {
-        this.finish(task);
-      });
-  }
-
-  private finish(task: ScheduledToolCallTask<Result>): void {
-    const index = this.activeTasks.indexOf(task);
-    if (index >= 0) this.activeTasks.splice(index, 1);
-    this.startQueuedTasks();
   }
 
   private startQueuedTasks(): void {
@@ -92,7 +89,7 @@ export class ToolScheduler<Result> {
       if (this.isBlocked(task, stillQueued)) {
         stillQueued.push(task);
       } else {
-        this.start(task);
+        void this.start(task);
       }
     }
     this.queuedTasks = stillQueued;

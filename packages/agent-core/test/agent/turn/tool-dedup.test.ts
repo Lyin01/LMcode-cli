@@ -57,6 +57,31 @@ async function runOriginal(
 
 describe('ToolCallDeduplicator', () => {
   describe('same-step dedup', () => {
+    it('re-executes an earlier write after an intervening authorized overwrite', async () => {
+      const dedup = new ToolCallDeduplicator('/repo', 'posix');
+      const first = { path: '/repo/file', content: 'A' };
+      const second = { ...first, content: 'B' };
+      const access = ToolAccesses.writeFile(first.path);
+      dedup.beginStep();
+      expect(dedup.checkSameStep('a', 'Write', first)).toBeNull();
+      dedup.observeAuthorizedExecution('a', access);
+      const duplicate = dedup.checkSameStep('dup', 'Write', first);
+      expect(duplicate).not.toBeNull();
+      expect(dedup.checkSameStep('b', 'Write', second)).toBeNull();
+      dedup.observeAuthorizedExecution('b', access);
+      expect(dedup.checkSameStep('restore', 'Write', first)).toBeNull();
+      await dedup.finalizeResult('a', 'Write', first, okResult('first write'));
+      await expect(dedup.finalizeResult('dup', 'Write', first, duplicate!))
+        .resolves.toEqual(okResult('first write'));
+    });
+
+    it('keeps distinct JSON tool arguments when a payload contains __proto__', () => {
+      const dedup = new ToolCallDeduplicator();
+      dedup.beginStep();
+      expect(dedup.checkSameStep('one', 'InspectJson', { data: {} })).toBeNull();
+      expect(dedup.checkSameStep('two', 'InspectJson', { data: { ['__proto__']: 'value' } })).toBeNull();
+    });
+
     it('returns a placeholder synchronously and resolves to the real result on finalize', async () => {
       const dedup = new ToolCallDeduplicator();
       dedup.beginStep();
@@ -916,17 +941,12 @@ describe('ToolCallDeduplicator', () => {
       const dupCached = dedup.checkSameStep('dup', 'Read', { p: 1 });
       expect(dupCached).not.toBeNull();
 
-      // Next step begins — the leaked deferred should resolve so an awaiter
-      // doesn't hang. (In production the dup's finalize would have already
-      // happened before beginStep, but defensively resolving leaked deferreds
-      // protects against any ordering bug.)
+      const waiting = dedup.finalizeResult('dup', 'Read', { p: 1 }, dupCached!);
       dedup.beginStep();
-      // Finalize the dup that captured the leaked deferred. Since we cleared
-      // syntheticCallIds in beginStep, this is no longer tracked — it just
-      // returns the placeholder it was passed. The leaked deferred has been
-      // resolved with an error result but nothing is awaiting it now.
-      const finalDup = await dedup.finalizeResult('dup', 'Read', { p: 1 }, dupCached!);
-      expect(finalDup).toEqual(dupCached);
+      expect(await waiting).toEqual({
+        output: 'Tool call deduplicated but original result was lost',
+        isError: true,
+      });
     });
   });
 });

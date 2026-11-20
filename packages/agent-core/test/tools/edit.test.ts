@@ -1,7 +1,10 @@
+import { createControlledPromise } from '@antfu/utils';
 import { describe, expect, it, vi } from 'vitest';
 
 import { type EditInput, EditInputSchema, EditTool } from '../../src/tools/builtin/file/edit';
 import { computeAnchor, toModelTextView } from '../../src/tools/builtin/file/line-endings';
+import { MultiEditTool } from '../../src/tools/builtin/file/multi-edit';
+import { WriteTool } from '../../src/tools/builtin/file/write';
 import { createFakeJian, PERMISSIVE_WORKSPACE } from './fixtures/fake-jian';
 import { executeTool } from './fixtures/execute-tool';
 
@@ -525,28 +528,80 @@ describe('EditTool', () => {
     );
     const sharedAnchor = computeAnchor(toModelTextView(content).text);
 
-    const first = await executeTool(
-      tool,
-      context({
+    const results = await Promise.all(['gamma', 'delta'].map((replacement) =>
+      executeTool(tool, context({
         path: '/tmp/a.txt',
         old_string: 'beta',
-        new_string: 'gamma',
+        new_string: replacement,
         anchor: sharedAnchor,
-      }),
-    );
-    expect(first.isError).toBeFalsy();
-    expect(content).toBe('alpha gamma');
+      })),
+    ));
+    expect(results.filter((result) => result.isError !== true)).toHaveLength(1);
+    expect(results.find((result) => result.isError)?.output).toContain('anchor no longer matches');
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(content).toMatch(/^alpha (gamma|delta)$/);
+  });
 
-    const second = await executeTool(
-      tool,
-      context({
-        path: '/tmp/a.txt',
-        old_string: 'beta',
-        new_string: 'delta',
-        anchor: sharedAnchor,
+  it('keeps disjoint edits and an append from separate callers addressing the same physical file', async () => {
+    let content = 'one two';
+    const jian = createFakeJian({
+      realpath: async (path) => path === '/tmp/alias.txt' ? '/tmp/file.txt' : path,
+      readText: async () => content,
+      writeText: async (_path, data, options) => {
+        content = options?.mode === 'a' ? content + data : data;
+        return data.length;
+      },
+    });
+    const workspace = PERMISSIVE_WORKSPACE;
+    const ctx = { turnId: '0', toolCallId: 'call', signal };
+    const results = await Promise.all([
+      executeTool(new EditTool(jian, workspace), {
+        ...ctx, args: { path: '/tmp/file.txt', old_string: 'one', new_string: '1' },
       }),
-    );
-    expect(second.isError).toBe(true);
-    expect(second.output).toContain('anchor no longer matches');
+      executeTool(new MultiEditTool(jian.withCwd('/tmp'), workspace), {
+        ...ctx, args: { path: '/tmp/alias.txt', edits: [{ old_string: 'two', new_string: '2' }] },
+      }),
+      executeTool(new WriteTool(jian.withCwd('/tmp'), workspace), {
+        ...ctx, args: { path: '/tmp/file.txt', content: ' three', mode: 'append' },
+      }),
+    ]);
+    expect(results.every((result) => result.isError !== true)).toBe(true);
+    expect(content).toBe('1 2 three');
+  });
+
+  it('skips a cancelled overwrite queued behind an edit and allows the next writer through', async () => {
+    const readStarted = createControlledPromise<void>();
+    const resumeRead = createControlledPromise<void>();
+    let content = 'original';
+    const jian = createFakeJian({
+      readText: async () => {
+        readStarted.resolve();
+        await resumeRead;
+        return content;
+      },
+      writeText: async (_path, data, options) => {
+        content = options?.mode === 'a' ? content + data : data;
+        return data.length;
+      },
+    });
+    const path = '/tmp/cancel.txt';
+    const writer = new WriteTool(jian, PERMISSIVE_WORKSPACE);
+    const overwrite = await writer.resolveExecution({ path, content: 'cancelled' });
+    if (overwrite.isError) throw new Error('expected a runnable overwrite');
+    const first = executeTool(new EditTool(jian, PERMISSIVE_WORKSPACE),
+      context({ path, old_string: 'original', new_string: 'edited' }));
+    await readStarted;
+    const controller = new AbortController();
+    const ctx = { turnId: '1', toolCallId: 'write', signal: controller.signal };
+    const cancelled = overwrite.execute(ctx);
+    controller.abort();
+    const appended = executeTool(writer, {
+      ...ctx, signal, args: { path, content: '!', mode: 'append' },
+    });
+    resumeRead.resolve();
+    await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+    expect((await first).isError).toBeFalsy();
+    expect((await appended).isError).toBeFalsy();
+    expect(content).toBe('edited!');
   });
 });

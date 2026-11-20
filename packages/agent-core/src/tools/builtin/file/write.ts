@@ -13,14 +13,11 @@ import { z } from 'zod';
 import type { BuiltinTool } from '../../../agent/tool';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolResult, ToolExecution } from '../../../loop/types';
-import {
-  pinPhysicalParentDirectory,
-  resolveRealPathAccessPath,
-  revalidateRealPathAccessPath,
-} from '../../policies/path-access';
+import { pinPhysicalParentDirectory } from '../../policies/path-access';
 import { toInputJsonSchema } from '../../support/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '../../support/rule-match';
 import type { WorkspaceConfig } from '../../support/workspace';
+import { resolveFileMutation } from './file-mutation';
 import WRITE_DESCRIPTION from './write.md';
 
 /** Mask isolating the file-type bits of a stat mode. */
@@ -66,11 +63,7 @@ export class WriteTool implements BuiltinTool<WriteInput> {
   ) {}
 
   async resolveExecution(args: WriteInput): Promise<ToolExecution> {
-    const path = await resolveRealPathAccessPath(args.path, {
-      jian: this.jian,
-      workspace: this.workspace,
-      operation: 'write',
-    });
+    const { path, run } = await resolveFileMutation(args.path, this.jian, this.workspace);
     return {
       accesses: ToolAccesses.writeFile(path),
       description: `Writing ${args.path}`,
@@ -82,15 +75,7 @@ export class WriteTool implements BuiltinTool<WriteInput> {
           pathClass: this.jian.pathClass(),
           homeDir: this.jian.gethome(),
         }),
-      execute: async () =>
-        this.execution(
-          args,
-          await revalidateRealPathAccessPath(args.path, path, {
-            jian: this.jian,
-            workspace: this.workspace,
-            operation: 'write',
-          }),
-        ),
+      execute: ({ signal }) => run(signal, (safePath) => this.execution(args, safePath)),
     };
   }
 
