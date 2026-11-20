@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 import { testJian } from '../fixtures/test-jian';
 import type { ProviderConfig } from '@lmcode-cli/liumir';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { randomUUID } from 'node:crypto';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
@@ -22,6 +22,7 @@ import { z } from 'zod';
 
 import { LmcodeError } from '../../src/errors';
 import { ProviderManager } from '../../src/session/provider-manager';
+import { StdioMcpClient } from '../../src/mcp/client-stdio';
 import { McpConnectionManager, type McpServerEntry } from '../../src/mcp/connection-manager';
 import { JsonFileStore, McpOAuthService } from '../../src/mcp/oauth';
 import type { AgentEvent, SDKSessionRPC } from '../../src/rpc';
@@ -311,7 +312,7 @@ describe('McpConnectionManager', () => {
     expect(result).toBe('resolved');
     expect(cm.list()).toEqual([]);
     expect(seen).toEqual([{ name: 'slowList', status: 'pending' }]);
-  }, 2000);
+  });
 
   it('honors startupTimeoutMs by marking slow servers failed', async () => {
     const cm = new McpConnectionManager();
@@ -335,9 +336,17 @@ describe('McpConnectionManager', () => {
     }
   }, 15000);
 
-  it('honors startupTimeoutMs while discovering tools', async () => {
+  it('reports a discovery timeout before cleanup and waits for cleanup on shutdown', async () => {
     const cm = new McpConnectionManager();
     const hangingListFixture = join(here, 'fixtures', 'hanging-list-stdio-server.mjs');
+    const close = StdioMcpClient.prototype.close;
+    const cleanupStarted = Promise.withResolvers<void>();
+    const allowCleanup = Promise.withResolvers<void>();
+    const closeSpy = vi.spyOn(StdioMcpClient.prototype, 'close').mockImplementation(async function (this: StdioMcpClient) {
+      cleanupStarted.resolve();
+      await allowCleanup.promise;
+      return close.call(this);
+    });
     const connectPromise = cm.connectAll({
       slowList: {
         transport: 'stdio',
@@ -347,6 +356,7 @@ describe('McpConnectionManager', () => {
       },
     });
     try {
+      await cleanupStarted.promise;
       const result = await Promise.race([
         connectPromise.then(() => 'resolved' as const),
         sleep(1_000).then(() => 'hung' as const),
@@ -356,11 +366,22 @@ describe('McpConnectionManager', () => {
       const entry = cm.get('slowList');
       expect(entry?.status).toBe('failed');
       expect(entry?.error?.toLowerCase()).toContain('timed out');
+
+      let shutdownFinished = false;
+      const shutdown = cm.shutdown().then(() => {
+        shutdownFinished = true;
+      });
+      await sleep(10);
+      expect(shutdownFinished).toBe(false);
+      allowCleanup.resolve();
+      await shutdown;
     } finally {
+      allowCleanup.resolve();
       await cm.shutdown();
-      await Promise.race([connectPromise.catch(() => {}), sleep(1_000)]);
+      await connectPromise;
+      closeSpy.mockRestore();
     }
-  }, 7000);
+  });
 
   it('flips HTTP servers into needs-auth when the server returns 401 and no static token is set', async () => {
     const server: HttpServer = createHttpServer((_req, res) => {

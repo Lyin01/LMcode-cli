@@ -43,6 +43,7 @@ interface InternalEntry {
   enabledNames?: ReadonlySet<string>;
   error?: string;
   client?: RuntimeMcpClient;
+  cleanup?: Promise<void>;
 }
 
 export type McpStatusListener = (entry: McpServerEntry) => void;
@@ -82,6 +83,7 @@ export interface McpConnectionManagerOptions {
 export class McpConnectionManager {
   private readonly entries = new Map<string, InternalEntry>();
   private readonly listeners = new Set<McpStatusListener>();
+  private readonly pendingCleanups = new Set<Promise<void>>();
   private initialLoad: Promise<void> = Promise.resolve();
   private initialLoadAttemptId = 0;
   private initialLoadStartedAt: number | undefined;
@@ -313,7 +315,7 @@ export class McpConnectionManager {
     const entries = Array.from(this.entries.values());
     this.entries.clear();
     const tasks = entries.map((entry) => this.closeClient(entry));
-    await Promise.allSettled(tasks);
+    await Promise.allSettled([...tasks, ...this.pendingCleanups]);
   }
 
   private async connectOne(entry: InternalEntry, attemptId: number): Promise<void> {
@@ -327,10 +329,6 @@ export class McpConnectionManager {
       const tools = await withTimeout(
         this.connectAndDiscoverTools(startupClient),
         timeoutMs,
-        () => {
-          // Best-effort cleanup if the startup promise is still racing.
-          void this.closeRuntimeClient(startupClient);
-        },
       );
       if (!this.isCurrent(entry, attemptId)) {
         await this.closeRuntimeClient(startupClient);
@@ -356,8 +354,9 @@ export class McpConnectionManager {
       }
       entry.tools = undefined;
       entry.enabledNames = undefined;
-      // Drop the client reference so a later reconnect builds a fresh one.
-      await this.closeClient(entry);
+      // Publish the startup outcome without waiting for OS-level cleanup.
+      // Reconnecting and shutting down still wait for the old client to close.
+      void this.closeClient(entry);
     }
     if (!this.isCurrent(entry, attemptId)) return;
     this.emit(entry);
@@ -377,10 +376,9 @@ export class McpConnectionManager {
       entry.error = formatUnexpectedCloseError(entry.name, reason);
       entry.tools = undefined;
       entry.enabledNames = undefined;
-      entry.client = undefined;
       // Best-effort close; the transport is already gone, but this lets the
       // SDK release timers and pending request handlers.
-      void this.closeRuntimeClient(client);
+      void this.closeClient(entry);
       this.emit(entry);
     });
   }
@@ -440,11 +438,18 @@ export class McpConnectionManager {
     }));
   }
 
-  private async closeClient(entry: InternalEntry): Promise<void> {
-    if (entry.client === undefined) return;
+  private closeClient(entry: InternalEntry): Promise<void> {
     const client = entry.client;
+    if (client === undefined) return entry.cleanup ?? Promise.resolve();
     entry.client = undefined;
-    await this.closeRuntimeClient(client);
+    const cleanup = this.closeRuntimeClient(client);
+    entry.cleanup = cleanup;
+    this.pendingCleanups.add(cleanup);
+    void cleanup.then(() => {
+      this.pendingCleanups.delete(cleanup);
+      if (entry.cleanup === cleanup) entry.cleanup = undefined;
+    });
+    return cleanup;
   }
 
   private async closeRuntimeClient(client: RuntimeMcpClient): Promise<void> {
@@ -550,13 +555,11 @@ function stderrTail(client: RuntimeMcpClient | undefined): string | undefined {
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  onTimeout?: () => void,
 ): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
     return await new Promise<T>((resolve, reject) => {
       timer = setTimeout(() => {
-        onTimeout?.();
         reject(new Error(`Timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       promise.then(resolve, reject);
